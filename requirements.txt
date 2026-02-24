@@ -9,3 +9,5 @@ beautifulsoup4
 scikit-learn
 joblib
 requests
+openai
+google-generativeai

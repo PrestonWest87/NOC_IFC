@@ -22,7 +22,6 @@ class Article(Base):
     is_bubbled = Column(Boolean, default=False)
     human_feedback = Column(Integer, default=0) # 0=None, 1=Dismiss, 2=Confirm
 
-# --- New Tables ---
 class FeedSource(Base):
     __tablename__ = "feed_sources"
     id = Column(Integer, primary_key=True)
@@ -35,6 +34,15 @@ class Keyword(Base):
     id = Column(Integer, primary_key=True)
     word = Column(String, unique=True)
     weight = Column(Integer)
+
+# --- New Table for LLM Configuration ---
+class LLMSettings(Base):
+    __tablename__ = "llm_settings"
+    id = Column(Integer, primary_key=True)
+    provider = Column(String, default="Local (Ollama)") # "Local (Ollama)", "OpenAI", or "Gemini"
+    model_name = Column(String, default="llama3")
+    api_key = Column(String, nullable=True)
+    base_url = Column(String, default="http://host.docker.internal:11434/v1") 
 
 def init_db():
     Base.metadata.create_all(bind=engine)
@@ -49,6 +57,10 @@ def init_db():
         session.add(Keyword(word="critical", weight=50))
         session.add(Keyword(word="rce", weight=60))
         session.add(Keyword(word="vulnerability", weight=40))
+        
+    # Initialize default LLM settings
+    if session.query(LLMSettings).count() == 0:
+        session.add(LLMSettings())
     
     session.commit()
     session.close()

@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
 import math
-from src.database import SessionLocal, Article, FeedSource, Keyword, engine
-from src.train_model import train 
-from src.scheduler import fetch_feeds
 import time
 from sqlalchemy import text
+from src.database import SessionLocal, Article, FeedSource, Keyword, LLMSettings, engine
+from src.train_model import train 
+from src.scheduler import fetch_feeds
+from src.llm_engine import generate_executive_briefing
 
 st.set_page_config(page_title="RSS Filter", layout="wide")
 
@@ -25,7 +26,7 @@ def change_status(art_id, new_feedback, bubble_status=None):
 
 # --- Sidebar Navigation ---
 st.sidebar.title("RSS Filter")
-page = st.sidebar.radio("Navigation", ["Dashboard", "Training Data", "Configuration"])
+page = st.sidebar.radio("Navigation", ["Dashboard", "LLM Briefing", "Training Data", "Configuration"])
 
 # ================= DASHBOARD =================
 if page == "Dashboard":
@@ -149,6 +150,32 @@ if page == "Dashboard":
                 c1, c2 = st.columns([1, 6])
                 c1.button("Flag as Important", key=f"archive_crit_{art.id}", on_click=change_status, args=(art.id, 0, True))
 
+# ================= LLM BRIEFING =================
+elif page == "LLM Briefing":
+    st.title("🤖 AI Executive Briefing")
+    st.caption("Generate a synthesized intelligence report based on current high-priority items. (Optional Feature)")
+    
+    top_articles = session.query(Article).filter(
+        Article.is_bubbled == True, 
+        Article.human_feedback == 0
+    ).order_by(Article.score.desc()).limit(15).all()
+    
+    st.info(f"Currently tracking {len(top_articles)} critical unread items for analysis.")
+    
+    if st.button("✨ Generate Briefing", type="primary"):
+        if not top_articles:
+            st.warning("No high-priority items available to summarize.")
+        else:
+            llm_settings = session.query(LLMSettings).first()
+            if not llm_settings:
+                st.error("LLM Settings not initialized. Please visit Configuration tab.")
+            else:
+                with st.spinner(f"Analyzing threats using {llm_settings.provider} ({llm_settings.model_name})..."):
+                    briefing_text = generate_executive_briefing(top_articles, llm_settings)
+                    
+                st.divider()
+                st.markdown(briefing_text)
+
 # ================= TRAINING DATA =================
 elif page == "Training Data":
     st.title("🧠 Smart Filter Training")
@@ -185,7 +212,7 @@ elif page == "Training Data":
 elif page == "Configuration":
     st.title("⚙️ System Settings")
     
-    tab1, tab2, tab3 = st.tabs(["Keywords (Rule-Based)", "RSS Sources", "Danger Zone"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Keywords (Rule-Based)", "RSS Sources", "LLM Settings", "Danger Zone"])
     
     with tab1:
         st.subheader("Manage Keywords")
@@ -271,7 +298,37 @@ elif page == "Configuration":
                     session.commit()
                     st.rerun()
 
-    with tab3:    
+    with tab3:
+        st.subheader("LLM Integration Settings")
+        st.info("Configuring an LLM allows you to generate optional Executive Briefings. If left blank or unconfigured, the rest of the app functions normally.")
+        llm_settings = session.query(LLMSettings).first()
+        
+        if llm_settings:
+            with st.form("llm_config_form"):
+                provider_options = ["Local (Ollama)", "OpenAI", "Gemini"]
+                current_idx = provider_options.index(llm_settings.provider) if llm_settings.provider in provider_options else 0
+                
+                provider = st.selectbox("Provider", provider_options, index=current_idx)
+                
+                model_name = st.text_input("Model Name", value=llm_settings.model_name, 
+                                           help="e.g., 'llama3' for Ollama, 'gpt-4o' for OpenAI, 'gemini-1.5-pro' for Gemini")
+                
+                base_url = st.text_input("Base URL (For Local/Ollama)", value=llm_settings.base_url,
+                                         help="Use 'http://host.docker.internal:11434/v1' to access Ollama running on your host machine from inside Docker.")
+                
+                api_key = st.text_input("API Key (For OpenAI/Gemini)", value=llm_settings.api_key if llm_settings.api_key else "", type="password")
+                
+                if st.form_submit_button("Save LLM Settings"):
+                    llm_settings.provider = provider
+                    llm_settings.model_name = model_name
+                    llm_settings.base_url = base_url
+                    llm_settings.api_key = api_key
+                    session.commit()
+                    st.success("LLM Configuration Saved!")
+                    time.sleep(1)
+                    st.rerun()
+
+    with tab4:    
         st.divider()
         with st.expander("⚠️ Danger Zone", expanded=False):
             st.error("These actions are irreversible!")
@@ -295,7 +352,7 @@ elif page == "Configuration":
                 st.caption("Wipes EVERYTHING.")
                 if st.button("☢️ FULL RESET"):
                     try:
-                        session.execute(text("TRUNCATE TABLE articles, feed_sources, keywords RESTART IDENTITY CASCADE;"))
+                        session.execute(text("TRUNCATE TABLE articles, feed_sources, keywords, llm_settings RESTART IDENTITY CASCADE;"))
                         session.commit()
                         st.success("System reset.")
                         time.sleep(1)

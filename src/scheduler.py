@@ -9,13 +9,16 @@ from src.database import SessionLocal, Article, FeedSource, init_db
 from src.config import ALERT_THRESHOLD
 from src.logic import get_scorer
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 # Initialize DB on startup
 init_db()
 
 def log(message, source="SYSTEM"):
     """Helper to force print logs instantly in Docker"""
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] [{source.upper()}] {message}")
+    # Force the log timestamp into Central Time
+    local_time = datetime.now(ZoneInfo("America/Chicago")).strftime('%H:%M:%S')
+    print(f"[{local_time}] [{source.upper()}] {message}")
     sys.stdout.flush()
 
 def process_single_feed(source_id, source_name, source_url, scorer):
