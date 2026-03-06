@@ -1,7 +1,3 @@
-Here is a fully updated, comprehensive `README.md` that reflects the massive evolution of your application from a simple RSS filter into a full-scale, AI-powered Network Operations Center (NOC) dashboard.
-
----
-
 # 🌐 NOC Intelligence Fusion Center
 
 *(Formerly RSS_Filter)*
