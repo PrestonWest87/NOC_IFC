@@ -11,3 +11,4 @@ joblib
 requests
 openai
 google-generativeai
+streamlit-autorefresh

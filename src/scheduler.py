@@ -119,13 +119,11 @@ def fetch_feeds(source="Scheduled"):
     # Max workers = 15. This means 15 feeds are processed at the exact same time.
     # Do not set this higher than 20 or Postgres might run out of connections.
     with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
-        # Submit all tasks to the thread pool
         futures = {
             executor.submit(process_single_feed, f_id, f_name, f_url, scorer): f_name 
             for f_id, f_name, f_url in feed_data
         }
         
-        # Collect results as they finish
         for future in concurrent.futures.as_completed(futures):
             feed_name = futures[future]
             try:
@@ -136,7 +134,33 @@ def fetch_feeds(source="Scheduled"):
 
     log(f"🏁 Cycle complete. Added {total_added_all} total new items.", source)
 
+    # --- NEW: Purge & AI Grouping ---
+    main_session = SessionLocal()
+    try:
+        from src.database import Article
+        from src.llm import group_recent_articles
+        
+        # 1. Purge zero-score articles
+        purged_count = main_session.query(Article).filter(Article.score <= 0.0).delete()
+        if purged_count > 0:
+            log(f"🗑️ Purged {purged_count} zero-score articles from the database.", source)
+            
+        # 2. Group related stories and auto-BLUF
+        group_recent_articles(main_session)
+        main_session.commit()
+        
+    except Exception as e:
+        log(f"⚠️ Post-fetch processing failed: {e}", source)
+        main_session.rollback()
+    finally:
+        main_session.close()
+
 if __name__ == "__main__":
+    # --- NEW: Boot up the Daily Report Scheduler on a background thread ---
+    import threading
+    from src.report_worker import start_report_scheduler
+    
+    threading.Thread(target=start_report_scheduler, daemon=True).start()
     # Standard 15-minute schedule
     schedule.every(15).minutes.do(fetch_feeds)
     
@@ -147,3 +171,8 @@ if __name__ == "__main__":
     while True:
         schedule.run_pending()
         time.sleep(1)
+        
+    print("Starting background worker...")
+    while True:
+        fetch_feeds("Background Worker")
+        time.sleep(900)
