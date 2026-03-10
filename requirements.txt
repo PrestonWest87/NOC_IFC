@@ -12,3 +12,7 @@ requests
 openai
 google-generativeai
 streamlit-autorefresh
+bcrypt==4.1.2
+streamlit-cookies-controller==0.0.3
+aiohttp
+aiofiles

@@ -10,7 +10,7 @@ def fetch_regional_hazards():
     # to prevent cross-state duplicates from crashing the commit.
     seen_in_cycle = set()
     
-    states = ["AR", "MO", "OK", "TX", "TN", "MS", "LA"]
+    states = ["AR"]
     added_count = 0
     
     try:
