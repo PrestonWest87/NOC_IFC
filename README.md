@@ -1,7 +1,3 @@
-Here is the comprehensively updated `README.md`. It reflects the shift from a basic multithreaded script to a highly optimized, asynchronous, multiprocess enterprise architecture with advanced UI caching and memory management.
-
----
-
 # 🌐 NOC Intelligence Fusion Center
 
 *(Formerly RSS_Filter)*
