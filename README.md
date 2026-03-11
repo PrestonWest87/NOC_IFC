@@ -88,7 +88,7 @@ Access the Dashboard: Open a web browser and navigate to http://localhost:8501.
     
 Default login is admin / admin123 (promptly reset this in Settings).
 
-Route Webhooks: Point your external monitoring tools (SolarWinds, Datadog, PRTG) to POST http://<your-server-ip>:8000/webhook/solarwinds.
+Route Webhooks: Point your external monitoring tools (SolarWinds, Datadog, PRTG) to POST http://your-server-ip:8100/webhook/solarwinds.
 
 ## 🛠️ Troubleshooting & Commands
 
