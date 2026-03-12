@@ -10,7 +10,7 @@ from sqlalchemy import text
 from streamlit_autorefresh import st_autorefresh
 import streamlit.components.v1 as components
 
-from src.database import SessionLocal, Article, FeedSource, Keyword, SystemConfig, engine, init_db, CveItem, RegionalHazard, CloudOutage, User, Role, SavedReport, DailyBriefing, ExtractedIOC, MonitoredLocation, SolarWindsAlert, TimelineEvent, RegionalOutage, NodeAlias
+from src.database import SessionLocal, Article, FeedSource, Keyword, SystemConfig, engine, init_db, CveItem, RegionalHazard, CloudOutage, User, Role, SavedReport, DailyBriefing, ExtractedIOC, MonitoredLocation, SolarWindsAlert, TimelineEvent, RegionalOutage, NodeAlias, BgpAnomaly
 from src.train_model import train 
 from src.scheduler import fetch_feeds
 from src.llm import generate_briefing, generate_bluf, analyze_cascading_impacts, cross_reference_cves, build_custom_intel_report, generate_feed_overview, generate_rolling_summary, generate_daily_fusion_report
@@ -770,13 +770,13 @@ elif page == "⚡ AIOps RCA":
     st.title("⚡ AIOps Root Cause Analysis")
     st.markdown("Live correlation of non-uniform monitoring alerts with Regional Intelligence.")
     status_indicator = f"🔴 **LIVE** (Refreshing every {current_refresh_sec}s)" if current_refresh_sec > 0 else "⏸️ **PAUSED**"
-    st.caption(f"{status_indicator} | Webhook Listener Active on Port 8000")
+    st.caption(f"{status_indicator} | Webhook Listener Active on Port 8100")
     st.write("")
     
     from src.database import TimelineEvent, RegionalOutage
     from shapely.geometry import Point
     
-    tab_active, tab_learning = st.tabs(["🔴 Active Incident Board", "🧠 ML Alias Learning"])
+    tab_active, tab_learning, tab_global = st.tabs(["🔴 Active Incident Board", "🧠 ML Alias Learning", "🌍 Global Correlation Engine"])
     
     with tab_active:
         active_alerts = session.query(SolarWindsAlert).filter(SolarWindsAlert.status != 'Resolved').order_by(SolarWindsAlert.received_at.desc()).all()
@@ -868,66 +868,88 @@ elif page == "⚡ AIOps RCA":
             
             st.divider()
 
-            # --- ALERTS RENDERED SECOND ---
-            st.subheader("🧠 Event Correlation Matrix")
+            # --- CLUSTERED ALERT MATRIX ---
+            st.subheader("🧠 Site-Based Correlation Matrix")
             
             if not active_alerts:
                 st.success("✅ All monitored infrastructure is operational.")
             else:
+                # Group alerts by their mapped site
+                from collections import defaultdict
+                site_clusters = defaultdict(list)
                 for alert in active_alerts:
-                    with st.expander(f"🚨 {alert.severity.upper()}: {alert.node_name} ➔ Mapped to [{alert.mapped_location}]", expanded=True):
-                        c_d1, c_d2 = st.columns(2)
-                        c_d1.error(f"**Event:** {alert.event_type} | **Status:** {alert.status} | **IP:** {alert.ip_address}")
+                    site_clusters[alert.mapped_location].append(alert)
+                
+                # Render each site as a unified block
+                for site_name, alerts in site_clusters.items():
+                    with st.container(border=True):
+                        st.markdown(f"### 📍 Site Cluster: [{site_name}]")
                         
-                        with c_d2:
-                            with st.popover("🔍 View Dynamic Raw Payload"):
-                                if alert.raw_payload:
-                                    flat_raw = {}
-                                    for k, v in alert.raw_payload.items():
-                                        if isinstance(v, dict):
-                                            for sub_k, sub_v in v.items(): flat_raw[f"{k}.{sub_k}"] = sub_v
-                                        else: flat_raw[k] = v
-                                    st.dataframe(pd.DataFrame(list(flat_raw.items()), columns=["Telemetry Key", "Value"]), hide_index=True, width="stretch")
-                                else: st.write("No payload data attached.")
+                        # Calculate impact radius at this site
+                        device_counts = {}
+                        category_counts = {}
+                        for a in alerts:
+                            device_counts[a.device_type] = device_counts.get(a.device_type, 0) + 1
+                            category_counts[a.event_category] = category_counts.get(a.event_category, 0) + 1
+                            
+                        st.markdown(f"**Total Active Alerts:** {len(alerts)}")
                         
-                        node = session.query(MonitoredLocation).filter(MonitoredLocation.name == alert.mapped_location).first()
-                        node_risk = node.current_spc_risk if node else "Unknown"
+                        c_stat1, c_stat2 = st.columns(2)
+                        with c_stat1:
+                            st.caption("Hardware Affected")
+                            for k, v in device_counts.items(): st.write(f"- {v}x {k}")
+                        with c_stat2:
+                            st.caption("Event Categories")
+                            for k, v in category_counts.items(): st.write(f"- {v}x {k}")
+                        
+                        st.divider()
+                        
+                        # Site-level external telemetry context
+                        node_record = session.query(MonitoredLocation).filter(MonitoredLocation.name == site_name).first()
+                        node_risk = node_record.current_spc_risk if node_record else "Unknown"
                         active_cloud = session.query(CloudOutage).filter_by(is_resolved=False).count()
                         
                         nearby_power = 0
                         nearby_isp = 0
-                        if node and node.lat and node.lon:
+                        if node_record and node_record.lat and node_record.lon:
                             active_grid_issues = session.query(RegionalOutage).filter_by(is_resolved=False).all()
                             for issue in active_grid_issues:
                                 if issue.lat and issue.lon:
-                                    dist_deg = ((node.lon - issue.lon)**2 + (node.lat - issue.lat)**2)**0.5
+                                    dist_deg = ((node_record.lon - issue.lon)**2 + (node_record.lat - issue.lat)**2)**0.5
                                     dist_km = dist_deg * 111
                                     if dist_km <= issue.radius_km:
                                         if issue.outage_type == "Power": nearby_power += 1
                                         elif issue.outage_type in ["ISP", "Cellular"]: nearby_isp += 1
-
+                                        
                         c_rca1, c_rca2, c_rca3 = st.columns(3)
                         c_rca1.metric("Local SPC Risk", node_risk)
                         c_rca2.metric("Nearby Power Outages", nearby_power)
                         c_rca3.metric("Nearby Telecom Outages", nearby_isp)
                         
-                        if alert.ai_root_cause:
-                            st.info(alert.ai_root_cause)
+                        # Heuristic Rule Engine (No API required)
+                        prog_factors = []
+                        if nearby_power > 0: prog_factors.append("Grid Power Loss")
+                        if nearby_isp > 0: prog_factors.append("ISP Backbone Cut")
+                        if active_cloud > 0: prog_factors.append("Upstream Cloud Outage")
+                        if node_risk not in ["None", "Unknown"]: prog_factors.append(f"Severe Weather Hazard ({node_risk})")
+                        
+                        if len(device_counts) > 2 and category_counts.get("Hard Down", 0) > 1:
+                            prog_factors.append("Catastrophic Local Hardware Cascade (Multiple Device Types Down)")
+                        
+                        if prog_factors:
+                            st.warning(f"⚙️ **Deterministic Site RCA:** Multiple vectors found ➔ **{', '.join(prog_factors)}**")
                         else:
-                            if st.button("🤖 Generate AI RCA", key=f"gen_rca_{alert.id}", width="stretch", disabled=not can_trigger_ai):
-                                with st.spinner("Synthesizing RCA..."):
-                                    prompt = f"Analyze infrastructure failure. Node: {alert.node_name}, Site: {alert.mapped_location}, Event: {alert.event_type}. Local Risk: {node_risk}. Grid Outages: {nearby_power}. ISP Outages: {nearby_isp}."
-                                    from src.llm import call_llm
-                                    rca_result = call_llm([{"role": "user", "content": prompt}], sys_config, temperature=0.1)
-                                    if rca_result:
-                                        alert.ai_root_cause = rca_result
-                                        session.add(TimelineEvent(source="AI", event_type="System", message=f"🤖 AI generated Root Cause Analysis for {alert.node_name}"))
-                                        session.commit(); safe_rerun()
-                                        
-                        if st.button("✅ Force Manual Resolve", key=f"res_{alert.id}", width="stretch"):
-                            alert.status = 'Resolved'
-                            session.add(TimelineEvent(source="User", event_type="Resolution", message=f"🟢 Operator manually resolved {alert.node_name}"))
-                            session.commit(); safe_rerun()
+                            st.error("⚙️ **Deterministic Site RCA:** No external factors found. Isolated internal site failure.")
+                        
+                        # Expandable Alert Details
+                        with st.expander("🔍 View Granular Node Details"):
+                            for alert in alerts:
+                                c_a1, c_a2 = st.columns([4, 1])
+                                c_a1.error(f"**{alert.node_name}** | {alert.device_type} | {alert.event_category} | IP: {alert.ip_address}")
+                                if c_a2.button("✅ Resolve", key=f"res_{alert.id}", width="stretch"):
+                                    alert.status = 'Resolved'
+                                    session.add(TimelineEvent(source="User", event_type="Resolution", message=f"🟢 Operator manually resolved {alert.node_name}"))
+                                    session.commit(); safe_rerun()
 
     with tab_learning:
         st.subheader("🧠 ML Node Mapping Matrix")
@@ -955,6 +977,80 @@ elif page == "⚡ AIOps RCA":
                         a.confidence_score = 100.0 
                         session.commit()
                         st.success("Rule Saved!"); time.sleep(0.5); safe_rerun()
+
+    with tab_global:
+        st.subheader("🌍 Deterministic Global Correlation Engine")
+        st.markdown("Calculates causation graphs based on geospatial math and telemetry overlays. Works 100% locally. AI summarization is optional.")
+        
+        c_glob1, c_glob2 = st.columns([3, 1])
+        
+        if c_glob2.button("🔍 Run Global Correlation", type="primary", width="stretch"):
+            with st.spinner("Calculating Multi-Domain Causal Links..."):
+                down_nodes = session.query(SolarWindsAlert).filter(SolarWindsAlert.status != 'Resolved').all()
+                active_clouds = session.query(CloudOutage).filter(CloudOutage.is_resolved == False).all()
+                active_weather = session.query(RegionalHazard).all()
+                active_grid = session.query(RegionalOutage).filter_by(is_resolved=False).all()
+                locs_db = session.query(MonitoredLocation).all()
+                
+                # --- PHASE 1: PROGRAMMATIC CORRELATION (NO LLM REQUIRED) ---
+                report = "### 🌍 Global Situation Report (SitRep)\n\n"
+                report += f"**Active Node Failures:** {len(down_nodes)} | "
+                report += f"**Cloud Outages:** {len(active_clouds)} | "
+                report += f"**Grid/Weather Anomalies:** {len(active_weather) + len(active_grid)}\n\n"
+                
+                report += "#### 🔗 Deterministic Causal Links\n"
+                isolated_nodes = []
+                
+                for alert in down_nodes:
+                    causation_factors = []
+                    n_loc = next((l for l in locs_db if l.name == alert.mapped_location), None)
+                    
+                    if active_clouds:
+                        c_names = [c.provider.lower() for c in active_clouds]
+                        if any(c in str(alert.details).lower() or c in str(alert.event_type).lower() for c in c_names):
+                            causation_factors.append("☁️ Upstream Cloud Outage match found in payload")
+                            
+                    if n_loc and n_loc.lat and n_loc.lon:
+                        for issue in active_grid:
+                            if issue.lat and issue.lon:
+                                dist_km = (((n_loc.lon - issue.lon)**2 + (n_loc.lat - issue.lat)**2)**0.5) * 111
+                                if dist_km <= issue.radius_km:
+                                    causation_factors.append(f"⚡ Geospatial overlap with {issue.outage_type} outage ({issue.provider})")
+                                    
+                    if causation_factors:
+                        report += f"- **{alert.node_name}** ({alert.mapped_location}) is likely degraded due to: " + ", ".join(causation_factors) + "\n"
+                    else:
+                        isolated_nodes.append(f"**{alert.node_name}** ({alert.mapped_location})")
+                        
+                report += "\n#### 🛠️ Isolated Anomalies (Network Faults)\n"
+                if isolated_nodes:
+                    report += "No external factors detected. Treat as localized hardware/software failures:\n"
+                    for n in isolated_nodes: report += f"- {n}\n"
+                else:
+                    report += "- None detected.\n"
+                    
+                # --- PHASE 2: OPTIONAL AI SUMMARIZATION ---
+                if ai_enabled and can_trigger_ai:
+                    sys_prompt = "You are an elite AIOps Engine. Summarize the following deterministic IT SitRep into a 2-sentence executive summary highlighting the most critical impacts."
+                    from src.llm import call_llm
+                    ai_summary = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": report}], sys_config, temperature=0.1)
+                    if ai_summary:
+                        report = f"### 🤖 AI Executive Summary\n> {ai_summary}\n\n---\n\n" + report
+                        
+                st.session_state.last_global_rca = report
+        
+        if "last_global_rca" in st.session_state:
+            st.divider()
+            with st.container(border=True):
+                st.markdown(st.session_state.last_global_rca)
+            
+            c_em1, c_em2 = st.columns([1, 4])
+            if c_em1.button("✉️ Broadcast via Email", width="stretch"):
+                from src.mailer import send_alert_email
+                with st.spinner("Transmitting via SMTP..."):
+                    success, msg = send_alert_email("Critical Multi-Domain SitRep", st.session_state.last_global_rca)
+                    if success: st.success(msg)
+                    else: st.error(msg)
 
 # ================= 4. REPORT CENTER =================
 elif page == "📑 Report Center":
@@ -1044,7 +1140,7 @@ elif page == "📑 Report Center":
 # ================= 5. SETTINGS & ADMIN =================
 elif page == "⚙️ Settings & Admin":
     st.title("⚙️ Settings & Engine Room")
-    tab_rss, tab_ml, tab_ai, tab_users, tab_danger = st.tabs(["📡 RSS Sources", "🧠 ML Training", "🤖 AI Engine", "👥 Users & Roles", "⚠️ Danger Zone"])
+    tab_rss, tab_ml, tab_ai, tab_users, tab_backup, tab_danger = st.tabs(["📡 RSS Sources", "🧠 ML Training", "🤖 AI & SMTP", "👥 Users & Roles", "💾 Backup & Restore", "⚠️ Danger Zone"])
     
     with tab_rss:
         col1, col2 = st.columns(2)
@@ -1098,21 +1194,44 @@ elif page == "⚙️ Settings & Admin":
                     except Exception as e: st.error(f"Training failed: {e}")
         
     with tab_ai:
-        st.subheader("Universal LLM Integration")
+        st.subheader("Universal LLM & System Integrations")
+        
+        # --- THIS WAS THE MISSING LINE ---
         config = session.query(SystemConfig).first() or SystemConfig()
-        if not config.id: session.add(config); session.commit()
+        if not config.id: 
+            session.add(config)
+            session.commit()
+            
         with st.form("llm_config"):
+            st.markdown("### LLM Configuration")
             endpoint = st.text_input("Endpoint URL", value=config.llm_endpoint, key="set_llm_end")
             api_key = st.text_input("API Key", value=config.llm_api_key, type="password", key="set_llm_api")
             model_name = st.text_input("Model Name", value=config.llm_model_name, key="set_llm_mod")
-            st.divider()
             current_stack = config.tech_stack if config.tech_stack else "SolarWinds, Cisco SD-WAN"
             tech_stack_input = st.text_area("Internal Tech Stack", value=current_stack, height=100, key="set_llm_stack")
             is_active = st.checkbox("Enable AI Features", value=config.is_active, key="set_llm_active")
-            if st.form_submit_button("Save AI Config", width="stretch"):
+            
+            st.divider()
+            st.markdown("### SMTP Broadcast Configuration")
+            c_s1, c_s2 = st.columns([3, 1])
+            smtp_server = c_s1.text_input("SMTP Server (e.g. smtp.office365.com)", value=config.smtp_server)
+            smtp_port = c_s2.number_input("Port", value=config.smtp_port if config.smtp_port else 587)
+            c_s3, c_s4 = st.columns(2)
+            smtp_user = c_s3.text_input("SMTP Username", value=config.smtp_username)
+            smtp_pass = c_s4.text_input("SMTP Password", value=config.smtp_password, type="password")
+            c_s5, c_s6 = st.columns(2)
+            smtp_sender = c_s5.text_input("Sender Address", value=config.smtp_sender)
+            smtp_recip = c_s6.text_input("Default Recipient List", value=config.smtp_recipient)
+            smtp_enabled = st.checkbox("Enable SMTP Broadcasts", value=config.smtp_enabled)
+
+            if st.form_submit_button("Save Global Config", width="stretch"):
                 config.llm_endpoint = endpoint; config.llm_api_key = api_key; config.llm_model_name = model_name
                 config.tech_stack = tech_stack_input; config.is_active = is_active
-                session.commit(); st.success("✅ AI Configuration Saved!"); time.sleep(1); safe_rerun()
+                config.smtp_server = smtp_server; config.smtp_port = smtp_port
+                config.smtp_username = smtp_user; config.smtp_password = smtp_pass
+                config.smtp_sender = smtp_sender; config.smtp_recipient = smtp_recip
+                config.smtp_enabled = smtp_enabled
+                session.commit(); st.success("✅ Configuration Saved!"); time.sleep(1); safe_rerun()
 
     with tab_users:
         st.subheader("👥 User & Role Management")
@@ -1220,6 +1339,52 @@ elif page == "⚙️ Settings & Admin":
                         if c_act.button("🗑️", key=f"del_role_{r.id}", width="stretch"):
                             if session.query(User).filter(User.role == r.name).count() > 0: st.error("Users are assigned this role.")
                             else: session.delete(r); session.commit(); safe_rerun()
+                            
+    with tab_backup:
+        st.subheader("💾 Database Export & Import")
+        st.write("Backup or restore configurations, keywords, RSS feeds, and location mappings.")
+        
+        c_exp, c_imp = st.columns(2)
+        with c_exp:
+            st.markdown("### Export Data")
+            if st.button("📦 Generate Backup JSON", width="stretch"):
+                import json
+                backup_data = {
+                    "keywords": [{"word": k.word, "weight": k.weight} for k in session.query(Keyword).all()],
+                    "feeds": [{"url": f.url, "name": f.name} for f in session.query(FeedSource).all()],
+                    "locations": [{"name": l.name, "lat": l.lat, "lon": l.lon, "type": l.loc_type, "prio": l.priority} for l in session.query(MonitoredLocation).all()],
+                    "aliases": [{"pattern": a.node_pattern, "mapped": a.mapped_location_name, "conf": a.confidence_score, "ver": a.is_verified} for a in session.query(NodeAlias).all()]
+                }
+                json_str = json.dumps(backup_data, indent=4)
+                st.download_button("⬇️ Download System_Backup.json", data=json_str, file_name=f"NOC_Backup_{datetime.now().strftime('%Y%m%d')}.json", mime="application/json", width="stretch")
+        
+        with c_imp:
+            st.markdown("### Import Data")
+            uploaded_backup = st.file_uploader("Upload JSON Backup File", type=["json"])
+            if uploaded_backup is not None:
+                if st.button("📥 Execute Import", width="stretch", type="primary"):
+                    import json
+                    try:
+                        data = json.load(uploaded_backup)
+                        added_stats = {"kw": 0, "feeds": 0, "locs": 0, "alias": 0}
+                        
+                        for kw in data.get("keywords", []):
+                            if not session.query(Keyword).filter_by(word=kw["word"]).first():
+                                session.add(Keyword(word=kw["word"], weight=kw["weight"])); added_stats["kw"] += 1
+                        for f in data.get("feeds", []):
+                            if not session.query(FeedSource).filter_by(url=f["url"]).first():
+                                session.add(FeedSource(url=f["url"], name=f["name"])); added_stats["feeds"] += 1
+                        for l in data.get("locations", []):
+                            if not session.query(MonitoredLocation).filter_by(name=l["name"]).first():
+                                session.add(MonitoredLocation(name=l["name"], lat=l["lat"], lon=l["lon"], loc_type=l.get("type", "General"), priority=l.get("prio", 3))); added_stats["locs"] += 1
+                        for a in data.get("aliases", []):
+                            if not session.query(NodeAlias).filter_by(node_pattern=a["pattern"]).first():
+                                session.add(NodeAlias(node_pattern=a["pattern"], mapped_location_name=a["mapped"], confidence_score=a["conf"], is_verified=a["ver"])); added_stats["alias"] += 1
+                        
+                        session.commit()
+                        st.success(f"Restored: {added_stats['kw']} Keywords, {added_stats['feeds']} Feeds, {added_stats['locs']} Locations, {added_stats['alias']} Aliases.")
+                    except Exception as e:
+                        st.error(f"Import Failed: {e}")
 
     with tab_danger:
         st.error("Database Maintenance & Irreversible Actions")

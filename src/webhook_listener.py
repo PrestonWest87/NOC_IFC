@@ -29,6 +29,43 @@ def flatten_dict(d, parent_key='', sep='_'):
             items.append((new_key, v))
     return dict(items)
 
+def classify_device(text_corpus: str) -> str:
+    text_corpus = text_corpus.lower()
+    fingerprints = {
+        'Firewall': ['fw', 'firewall', 'asa', 'palo', 'panw', 'fortigate', 'sophos', 'meraki mx'],
+        'Router': ['rtr', 'router', 'asr', 'isr', 'csr', 'gateway', 'bgp', 'wan'],
+        'Switch': ['sw', 'switch', 'nexus', 'catalyst', 'idf', 'mdf', 'vlan'],
+        'Access Point': ['ap', 'access point', 'wap', 'wireless', 'wifi', '802.11'],
+        'Virtual Machine': ['vm', 'esx', 'esxi', 'vcenter', 'hyper-v', 'instance', 'guest'],
+        'Server': ['server', 'host', 'dc', 'domain controller', 'win', 'linux', 'ubuntu', 'baremetal'],
+        'Camera/CCTV': ['cam', 'camera', 'cctv', 'axis', 'hikvision', 'avigilon', 'nvr', 'dvr'],
+        'Access Control': ['reader', 'badge', 'door', 'access control', 'lenel', 'hid'],
+        'Fire/Life Safety': ['fire alarm', 'panel', 'fap', 'smoke', 'strobe'],
+        'SCADA/OT': ['scada', 'plc', 'rtu', 'hmi', 'modbus', 'dnp3', 'pump', 'valve', 'meter', 'rtu'],
+        'Power/Env': ['ups', 'pdu', 'hvac', 'crac', 'temp', 'humidity', 'battery']
+    }
+    
+    for device, keywords in fingerprints.items():
+        if any(re.search(r'\b' + re.escape(kw) + r'\b', text_corpus) for kw in keywords):
+            return device
+    return "Network Node (Unknown)"
+
+def classify_event_category(text_corpus: str) -> str:
+    text_corpus = text_corpus.lower()
+    categories = {
+        'Hard Down': ['down', 'offline', 'unreachable', 'timeout', 'fatal', 'no response'],
+        'Network Congestion': ['transmit', 'receive', 'bandwidth', 'utilization', 'bps', 'congestion', 'drops'],
+        'Routing/Link': ['bgp', 'ospf', 'adjacency', 'flap', 'interface', 'link state', 'packet loss', 'latency', 'jitter'],
+        'Compute Resource Exhaustion': ['cpu', 'memory', 'ram', 'disk', 'storage', 'inode', 'swap', 'leak'],
+        'Hardware Fault': ['power supply', 'psu', 'fan', 'temperature', 'chassis', 'module', 'transceiver'],
+        'Application/Service': ['process', 'service', 'crash', 'restart', 'database', 'sql', 'iis', 'apache']
+    }
+    
+    for cat, keywords in categories.items():
+        if any(kw in text_corpus for kw in keywords):
+            return cat
+    return "General Degradation"
+
 def smart_extract(payload):
     flat = flatten_dict(payload)
     extracted = {
@@ -37,16 +74,16 @@ def smart_extract(payload):
         "severity": "Unknown",
         "event_type": "Unknown",
         "status": "Unknown",
-        "is_resolution": False
+        "is_resolution": False,
+        "device_type": "Unknown",
+        "event_category": "Unknown"
     }
     
+    corpus = " ".join([str(v) for v in flat.values()])
+    
     # 1. IP Extraction
-    for v in flat.values():
-        if isinstance(v, str):
-            ip_match = re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', v)
-            if ip_match:
-                extracted["ip_address"] = ip_match.group(0)
-                break
+    ip_match = re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', corpus)
+    if ip_match: extracted["ip_address"] = ip_match.group(0)
                 
     # 2. Status / Resolution Sniffing
     sev_words = ['critical', 'high', 'medium', 'low', 'warning', 'fatal', 'down', 'offline']
@@ -55,33 +92,40 @@ def smart_extract(payload):
     for k, v in flat.items():
         if isinstance(v, str):
             val_lower = v.lower()
-            if val_lower in sev_words:
-                if extracted["severity"] == "Unknown": extracted["severity"] = v.capitalize()
-                if extracted["status"] == "Unknown": extracted["status"] = v.capitalize()
+            if val_lower in sev_words and extracted["severity"] == "Unknown":
+                extracted["severity"] = v.capitalize()
+                extracted["status"] = v.capitalize()
             elif val_lower in res_words:
                 extracted["is_resolution"] = True
                 extracted["status"] = "Resolved"
                 extracted["severity"] = "Info"
             
-    # 3. Fuzzy Key Matching
+    # 3. Fuzzy Key Matching for specific metrics
     def fuzzy_get(target_concepts):
         best_k, best_score = None, 0
         for k in flat.keys():
             score = max([fuzz.partial_ratio(k.lower(), c) for c in target_concepts])
-            if score > best_score:
+            if score > 75 and score > best_score:
                 best_score = score; best_k = k
-        if best_score >= 70: return str(flat[best_k])
+        if best_k: return str(flat[best_k])
         return "Unknown"
 
     if extracted["node_name"] == "Unknown": extracted["node_name"] = fuzzy_get(['node', 'device', 'host', 'system', 'server'])
     if extracted["event_type"] == "Unknown": extracted["event_type"] = fuzzy_get(['event', 'alert', 'type', 'issue', 'description'])
     if extracted["severity"] == "Unknown" and not extracted["is_resolution"]: extracted["severity"] = fuzzy_get(['severity', 'level'])
     if extracted["status"] == "Unknown" and not extracted["is_resolution"]: extracted["status"] = fuzzy_get(['status', 'state'])
+    
+    # 4. Advanced Heuristics Classification
+    # We feed both the node name and the full payload corpus into the classifiers
+    analysis_string = f"{extracted['node_name']} {extracted['event_type']} {corpus}"
+    extracted["device_type"] = classify_device(analysis_string)
+    
+    if not extracted["is_resolution"]:
+        extracted["event_category"] = classify_event_category(analysis_string)
         
     return extracted
 
 def resolve_location_mapping(node_name: str, db: Session):
-    """Upgraded to capture Unknowns for the ML Matrix."""
     if not node_name or node_name == "Unknown": return "Unknown"
     clean_node = str(node_name).upper().replace("-RTR", "").replace("-SW", "").replace("-FW", "")
     
@@ -90,7 +134,6 @@ def resolve_location_mapping(node_name: str, db: Session):
 
     sites = [loc.name for loc in db.query(MonitoredLocation).all()]
     if not sites: 
-        # Add to training matrix even if no sites exist yet
         db.add(NodeAlias(node_pattern=clean_node, mapped_location_name="Unknown", confidence_score=0.0, is_verified=False))
         try: db.commit()
         except: db.rollback()
@@ -105,7 +148,6 @@ def resolve_location_mapping(node_name: str, db: Session):
             except: db.rollback()
             return matched_site
         else:
-            # Traps bad matches and sends them to the UI for human correction
             db.add(NodeAlias(node_pattern=clean_node, mapped_location_name="Unknown", confidence_score=confidence, is_verified=False))
             try: db.commit()
             except: db.rollback()
@@ -130,7 +172,7 @@ async def receive_alert(request: Request, db: Session = Depends(get_db)):
                 for a in active_alerts:
                     a.status = 'Resolved'
                     a.resolved_at = datetime.utcnow()
-                db.add(TimelineEvent(source="Webhook", event_type="Resolution", message=f"🟢 Auto-Resolved: {parsed['node_name']} is back online."))
+                db.add(TimelineEvent(source="Webhook", event_type="Resolution", message=f"🟢 {parsed['node_name']} ({parsed['device_type']}) recovered."))
             else:
                 db.add(TimelineEvent(source="Webhook", event_type="Info", message=f"🔵 Received CLEAR for {parsed['node_name']}, but no active alert was found."))
             
@@ -139,11 +181,12 @@ async def receive_alert(request: Request, db: Session = Depends(get_db)):
 
         new_alert = SolarWindsAlert(
             event_type=parsed["event_type"], severity=parsed["severity"], node_name=parsed["node_name"],
-            ip_address=parsed["ip_address"], status=parsed["status"], details="Dynamic payload ingested.",
-            raw_payload=raw_payload, mapped_location=mapped_site, received_at=datetime.utcnow()
+            ip_address=parsed["ip_address"], status=parsed["status"], details=str(raw_payload)[:1000],
+            raw_payload=raw_payload, mapped_location=mapped_site, received_at=datetime.utcnow(),
+            device_type=parsed["device_type"], event_category=parsed["event_category"]
         )
         db.add(new_alert)
-        db.add(TimelineEvent(source="Webhook", event_type="Alert", message=f"🔴 CRITICAL: {parsed['node_name']} went offline. ({parsed['event_type']})"))
+        db.add(TimelineEvent(source="Webhook", event_type="Alert", message=f"🔴 {parsed['node_name']} | {parsed['device_type']} | {parsed['event_category']}"))
         db.commit()
         
         return {"status": "success", "action": "alert-created"}

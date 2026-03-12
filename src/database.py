@@ -87,8 +87,16 @@ class SystemConfig(Base):
     llm_model_name = Column(String, default="gpt-4o-mini")
     is_active = Column(Boolean, default=False)
     tech_stack = Column(Text, default="SolarWinds, Cisco SD-WAN, Microsoft Office, Verizon, Cisco")
+    monitored_asns = Column(String, default="AS701, AS7922, AS3356") # BGP Monitoring Targets
     rolling_summary = Column(Text, nullable=True)
     rolling_summary_time = Column(DateTime, nullable=True)
+    smtp_server = Column(String, nullable=True)
+    smtp_port = Column(Integer, default=587)
+    smtp_username = Column(String, nullable=True)
+    smtp_password = Column(String, nullable=True)
+    smtp_sender = Column(String, nullable=True)
+    smtp_recipient = Column(String, nullable=True)
+    smtp_enabled = Column(Boolean, default=False)
 
 class CveItem(Base):
     __tablename__ = "cve_items"
@@ -112,6 +120,28 @@ class RegionalHazard(Base):
     description = Column(Text)
     location = Column(String)
     updated_at = Column(DateTime)
+
+class RegionalOutage(Base):
+    __tablename__ = "regional_outages"
+    id = Column(Integer, primary_key=True, index=True)
+    outage_type = Column(String, index=True) 
+    provider = Column(String) 
+    description = Column(Text)
+    affected_area = Column(String)
+    lat = Column(Float, nullable=True)
+    lon = Column(Float, nullable=True)
+    radius_km = Column(Float, default=10.0) 
+    detected_at = Column(DateTime, default=datetime.utcnow)
+    is_resolved = Column(Boolean, default=False)
+
+class BgpAnomaly(Base):
+    __tablename__ = "bgp_anomalies"
+    id = Column(Integer, primary_key=True, index=True)
+    asn = Column(String, index=True)
+    event_type = Column(String) 
+    description = Column(Text)
+    detected_at = Column(DateTime, default=datetime.utcnow)
+    is_resolved = Column(Boolean, default=False)
 
 class CloudOutage(Base):
     __tablename__ = "cloud_outages"
@@ -142,14 +172,13 @@ class MonitoredLocation(Base):
     current_spc_risk = Column(String, default="None")
     last_updated = Column(DateTime, default=datetime.utcnow)
 
-# --- NEW: ML Alias Learner Table ---
 class NodeAlias(Base):
     __tablename__ = "node_aliases"
     id = Column(Integer, primary_key=True, index=True)
-    node_pattern = Column(String, unique=True, index=True) # E.g., "LR-CORE-RTR"
-    mapped_location_name = Column(String) # E.g., "Little Rock Branch"
+    node_pattern = Column(String, unique=True, index=True)
+    mapped_location_name = Column(String) 
     confidence_score = Column(Float, default=0.0)
-    is_verified = Column(Boolean, default=False) # True if human approved
+    is_verified = Column(Boolean, default=False)
 
 class SolarWindsAlert(Base):
     __tablename__ = "solarwinds_alerts"
@@ -162,31 +191,21 @@ class SolarWindsAlert(Base):
     sw_timestamp = Column(String)
     details = Column(Text)
     node_link = Column(String)
-    raw_payload = Column(JSON, nullable=True) # Safely holds non-uniform webhook data
-    mapped_location = Column(String, nullable=True) # The final site name decided by the ML
+    raw_payload = Column(JSON, nullable=True) 
+    mapped_location = Column(String, nullable=True) 
     received_at = Column(DateTime, default=datetime.utcnow, index=True)
+    resolved_at = Column(DateTime, nullable=True)
     is_correlated = Column(Boolean, default=False)
     ai_root_cause = Column(Text, nullable=True)
-
-class RegionalOutage(Base):
-    __tablename__ = "regional_outages"
-    id = Column(Integer, primary_key=True, index=True)
-    outage_type = Column(String, index=True) # "Power", "ISP", "Cellular"
-    provider = Column(String) # e.g., "Entergy", "AT&T", "Comcast"
-    description = Column(Text)
-    affected_area = Column(String)
-    lat = Column(Float, nullable=True)
-    lon = Column(Float, nullable=True)
-    radius_km = Column(Float, default=10.0) # The estimated blast radius of the outage
-    detected_at = Column(DateTime, default=datetime.utcnow)
-    is_resolved = Column(Boolean, default=False)
+    device_type = Column(String, default="Unknown")
+    event_category = Column(String, default="Unknown")
 
 class TimelineEvent(Base):
     __tablename__ = "timeline_events"
     id = Column(Integer, primary_key=True, index=True)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
-    source = Column(String) # e.g., "SolarWinds Webhook", "System"
-    event_type = Column(String) # e.g., "Alert", "Resolution", "System"
+    source = Column(String) 
+    event_type = Column(String) 
     message = Column(String)
 
 def init_db():
@@ -198,6 +217,16 @@ def init_db():
         pass
     
     migrations = [
+        "CREATE TABLE IF NOT EXISTS regional_outages (id SERIAL PRIMARY KEY, outage_type VARCHAR, provider VARCHAR, description TEXT, affected_area VARCHAR, lat FLOAT, lon FLOAT, radius_km FLOAT DEFAULT 10.0, detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_resolved BOOLEAN DEFAULT FALSE);",
+        "CREATE INDEX IF NOT EXISTS ix_regional_outages_type ON regional_outages (outage_type);",
+        "CREATE TABLE IF NOT EXISTS bgp_anomalies (id SERIAL PRIMARY KEY, asn VARCHAR, event_type VARCHAR, description TEXT, detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_resolved BOOLEAN DEFAULT FALSE);",
+        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS monitored_asns VARCHAR DEFAULT 'AS701, AS7922, AS3356';",
+        "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP;",
+        "CREATE TABLE IF NOT EXISTS timeline_events (id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, source VARCHAR, event_type VARCHAR, message VARCHAR);",
+        "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS raw_payload JSON;",
+        "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS mapped_location VARCHAR;",
+        "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS device_type VARCHAR DEFAULT 'Unknown';",
+        "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS event_category VARCHAR DEFAULT 'Unknown';",
         "ALTER TABLE articles ADD COLUMN IF NOT EXISTS story_group VARCHAR;",
         "ALTER TABLE articles ADD COLUMN IF NOT EXISTS ai_bluf TEXT;",
         "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS tech_stack TEXT DEFAULT 'SolarWinds, Cisco SD-WAN, Microsoft Office, Verizon, Cisco';",
@@ -210,12 +239,13 @@ def init_db():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS job_title VARCHAR;",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS contact_info VARCHAR;",
         "ALTER TABLE articles ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT 'General';",
-        "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS raw_payload JSON;",
-        "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS mapped_location VARCHAR;",
-        "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP;",
-        "CREATE TABLE IF NOT EXISTS timeline_events (id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, source VARCHAR, event_type VARCHAR, message VARCHAR);",
-        "CREATE TABLE IF NOT EXISTS regional_outages (id SERIAL PRIMARY KEY, outage_type VARCHAR, provider VARCHAR, description TEXT, affected_area VARCHAR, lat FLOAT, lon FLOAT, radius_km FLOAT DEFAULT 10.0, detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_resolved BOOLEAN DEFAULT FALSE);",
-        "CREATE INDEX IF NOT EXISTS ix_regional_outages_type ON regional_outages (outage_type);",
+        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_server VARCHAR;",
+        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_port INTEGER DEFAULT 587;",
+        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_username VARCHAR;",
+        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_password VARCHAR;",
+        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_sender VARCHAR;",
+        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_recipient VARCHAR;",
+        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_enabled BOOLEAN DEFAULT FALSE;",
         "CREATE INDEX IF NOT EXISTS ix_articles_published_date ON articles (published_date);",
         "CREATE INDEX IF NOT EXISTS ix_articles_score ON articles (score);",
         "CREATE INDEX IF NOT EXISTS ix_articles_category ON articles (category);",
