@@ -79,7 +79,8 @@ def smart_extract(payload):
         "event_category": "Unknown"
     }
     
-    corpus = " ".join([str(v) for v in flat.values()])
+    # Dump the absolute raw JSON to a string so we never miss nested keywords
+    corpus = json.dumps(payload).lower()
     
     # 1. IP Extraction
     ip_match = re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', corpus)
@@ -116,7 +117,7 @@ def smart_extract(payload):
     if extracted["status"] == "Unknown" and not extracted["is_resolution"]: extracted["status"] = fuzzy_get(['status', 'state'])
     
     # 4. Advanced Heuristics Classification
-    # We feed both the node name and the full payload corpus into the classifiers
+    # We feed the raw JSON corpus into the heuristic fingerprints
     analysis_string = f"{extracted['node_name']} {extracted['event_type']} {corpus}"
     extracted["device_type"] = classify_device(analysis_string)
     

@@ -863,8 +863,8 @@ elif page == "⚡ AIOps RCA":
                     
                 layers.append(pdk.Layer("ScatterplotLayer", pd.DataFrame(map_data), get_position="[Lon, Lat]", get_fill_color="Color", get_radius=1500, pickable=True))
                 
-                center_lat, center_lon = (node_radii[0]['lat'], node_radii[0]['lon']) if node_radii else (34.8, -92.2)
-                st.pydeck_chart(pdk.Deck(layers=layers, initial_view_state=pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=6.5, pitch=0), tooltip={"text": "{Name}\nStatus: {Status}"}), width="stretch", height=600)
+                # Map view permanently locked to Central Arkansas (Lat: 34.8, Lon: -92.2)
+                st.pydeck_chart(pdk.Deck(layers=layers, initial_view_state=pdk.ViewState(latitude=34.8, longitude=-92.2, zoom=6.5, pitch=0), tooltip={"text": "{Name}\nStatus: {Status}"}), width="stretch", height=600)
             
             st.divider()
 
@@ -907,7 +907,7 @@ elif page == "⚡ AIOps RCA":
                         # Site-level external telemetry context
                         node_record = session.query(MonitoredLocation).filter(MonitoredLocation.name == site_name).first()
                         node_risk = node_record.current_spc_risk if node_record else "Unknown"
-                        active_cloud = session.query(CloudOutage).filter_by(is_resolved=False).count()
+                        active_clouds = session.query(CloudOutage).filter_by(is_resolved=False).all()
                         
                         nearby_power = 0
                         nearby_isp = 0
@@ -930,11 +930,23 @@ elif page == "⚡ AIOps RCA":
                         prog_factors = []
                         if nearby_power > 0: prog_factors.append("Grid Power Loss")
                         if nearby_isp > 0: prog_factors.append("ISP Backbone Cut")
-                        if active_cloud > 0: prog_factors.append("Upstream Cloud Outage")
                         if node_risk not in ["None", "Unknown"]: prog_factors.append(f"Severe Weather Hazard ({node_risk})")
                         
+                        # Only flag Cloud Outage if the payload actually mentions the broken cloud provider
+                        cloud_match = False
+                        if active_clouds:
+                            cloud_names = [c.provider.lower() for c in active_clouds]
+                            for a in alerts:
+                                payload_str = str(a.raw_payload).lower()
+                                if any(c_name in payload_str for c_name in cloud_names):
+                                    cloud_match = True
+                                    break
+                        if cloud_match:
+                            prog_factors.append("Upstream Cloud Outage Correlation")
+                        
+                        # Check for catastrophic site failure
                         if len(device_counts) > 2 and category_counts.get("Hard Down", 0) > 1:
-                            prog_factors.append("Catastrophic Local Hardware Cascade (Multiple Device Types Down)")
+                            prog_factors.append("Catastrophic Local Hardware Cascade")
                         
                         if prog_factors:
                             st.warning(f"⚙️ **Deterministic Site RCA:** Multiple vectors found ➔ **{', '.join(prog_factors)}**")
