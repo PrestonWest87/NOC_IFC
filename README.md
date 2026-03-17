@@ -1,65 +1,63 @@
 # 🌐 NOC Intelligence Fusion Center
 
-*(Formerly RSS_Filter)*
+An enterprise-grade, AI-powered intelligence aggregator and Heads-Up Display (HUD) built for Network Operations Centers. This platform ingests real-time telemetry from hundreds of RSS feeds, CISA vulnerabilities, 18+ global cloud infrastructure providers, regional utility grids, and global BGP routing tables. 
 
-An enterprise-grade, AI-powered intelligence aggregator and Heads-Up Display (HUD) built for Network Operations Centers. This platform ingests real-time telemetry from hundreds of RSS feeds, CISA vulnerabilities, 18+ global cloud infrastructure providers, and regional utility grids. 
-
-It utilizes a highly optimized hybrid intelligence engine—combining Scikit-Learn Machine Learning for threat scoring, RapidFuzz for heuristic asset mapping, strict deterministic algorithms for causal correlation, and local Large Language Models (LLMs) for automated synthesis—to cut through alert fatigue and deliver actionable intelligence.
-
-
+It utilizes a highly optimized hybrid intelligence engine—combining Scikit-Learn Machine Learning for threat scoring, pre-compiled Regex for high-speed triage and IOC extraction, strict deterministic algorithms for causal correlation, and model-agnostic LLMs for automated Map-Reduce synthesis—to cut through alert fatigue and deliver actionable intelligence.
 
 ## 🏗️ Architecture
 
-* **Frontend:** Streamlit (Python) with context-aware real-time asynchronous polling (5-second loops for AIOps, throttled elsewhere), in-RAM metric caching, and dynamic database pagination.
-* **Ingestion Gateways:** * *Scraping:* `schedule` running an Asynchronous I/O Network Engine (`aiohttp`/`asyncio`) combined with a CPU Multiprocessing cluster (`ProcessPoolExecutor`).
-    * *Webhooks:* FastAPI asynchronous listener with NLP-based JSON flattening and multi-tiered device fingerprinting.
-* **Database:** PostgreSQL 15 (Configured for high-concurrency pooling, Transactional Bulk Inserts, B-Tree Indexing, and Automated Vacuuming).
-* **Correlation Engines:** * *Deterministic RCA:* Programmatic math and string-matching engine that calculates geospatial blast radii and clusters alerts by physical sites.
-    * *Threat Scoring:* Scikit-Learn (TF-IDF Vectorizer + Naive Bayes Classifier).
-    * *Asset Mapping:* `rapidfuzz` (Fuzzy string matching and heuristic learning).
-* **Synthesis & Broadcast:** Local LLM API Integration combined with a native Python SMTP client for automated Situation Report (SitRep) delivery.
-* **Deployment:** Docker Compose.
+* **Frontend (`web`):** Streamlit (Python) running interactive, zero-scroll dashboards with context-aware real-time asynchronous polling, PyDeck 3D spatial rendering, and dynamic database pagination.
+* **Background Orchestration (`worker`):** A headless daemon driving a Master Scheduler that bypasses Python's GIL using a Hybrid Concurrency Model (Asynchronous I/O via `aiohttp` combined with Multiprocessing via `ProcessPoolExecutor`).
+* **Ingestion Gateway (`webhook`):** A dedicated FastAPI asynchronous listener hosting REST APIs to receive, parse, and normalize live telemetry from NMS/ITSM platforms like SolarWinds.
+* **Database:** Defaults to a lightweight, file-based SQLite database (`noc_fusion.db`) optimized with `check_same_thread=False` for concurrent container access, with seamless ORM fallback to enterprise PostgreSQL clusters.
+* **Correlation Engines:** * *Deterministic RCA:* Programmatic math engine that calculates geospatial blast radii, cascade durations, and clusters alerts by physical sites.
+    * *Hybrid Threat Scoring:* Fuses deterministic Keyword Heuristics with probabilistic Scikit-Learn predictions (TF-IDF + Multinomial Naive Bayes).
+    * *Asset Mapping:* A 5-stage pipeline utilizing exact matching, known aliases, regex heuristics, and ML prediction to map messy alerts to physical NOC sites.
+* **Synthesis & Broadcast:** A universal LLM abstraction layer supporting OpenAI, Groq, or local models, combined with a native Python SMTP client that translates Markdown to HTML for automated Situation Report (SitRep) delivery.
+* **Deployment:** A decoupled, 3-container microservices topology built from a unified `python:3.11-slim` Dockerfile.
 
 ## ✨ Key Features
 
 ### 1. ⚡ AIOps Root Cause Analysis (Live Engine)
-A near real-time (5-second polling) self-healing correlation engine that ingests raw network alerts and maps them against global and regional telemetry.
+A near real-time self-healing correlation engine that ingests raw network alerts and maps them against global and regional telemetry.
 
-* **Deep Device Fingerprinting:** The webhook gateway accepts *any* arbitrary JSON payload. It recursively flattens the data, extracts IPs, and uses NLP to identify the specific hardware (Router, VM, SCADA/OT, Camera, Fire Alarm) and categorize the fault (Hardware Failure, Resource Exhaustion, Routing).
-* **Site-Based Incident Clustering:** Alerts are not treated as isolated events. The matrix dynamically clusters disparate device alerts into unified "Site Blocks" to instantly reveal cascading local failures (e.g., a firewall and three VMs dropping simultaneously in the same building).
-* **100% Local Deterministic RCA:** The correlation engine uses hard programmatic math *before* touching an LLM. It calculates geospatial distances from power/ISP outages and scans payloads for upstream cloud provider matches. The correlation engine will never go down, even if your AI provider does.
-* **Auto-Resolution & Timeline:** A scrolling timeline tracks all system events. If a recovery payload is detected, the system auto-resolves the alert and clears the board without human intervention.
+* **Deep Device Fingerprinting:** The webhook gateway standardizes arbitrary JSON payloads and uses heuristic fingerprinting to identify the specific hardware (Router, Switch, Firewall, Power/UPS).
+* **Ontological Incident Clustering:** Alerts are clustered into unified "Site Blocks" to instantly reveal cascading failures, isolating Patient Zero and calculating blast radius across network domains.
+* **100% Local Deterministic RCA:** The correlation engine uses hard programmatic math *before* touching an LLM. It calculates geospatial point-in-polygon intersections for severe weather and scans payloads for upstream cloud/ISP matches.
+* **Predictive Analytics:** Analyzes historical database tables to detect chronic hardware reboots, cellular micro-blips, and VSAT environmental vulnerabilities before they cause catastrophic failure.
 
-### 2. 🌍 Global SitRep & SMTP Broadcasting
-* **Multi-Domain Correlation:** A dedicated engine that zooms out from individual alerts to ingest the *entire active state of the network* (all down nodes, cloud outages, and regional weather hazards), mapping out unified Situation Reports.
-* **Automated SMTP Delivery:** Instantly broadcast AI-synthesized Global Situation Reports directly to your team's inbox or ticketing system via any external SMTP server.
+### 2. 🌍 Global SitRep & Autonomous Reporting
+* **Map-Reduce LLM Synthesis:** Processes massive datasets of raw intelligence by chunking context windows, extracting facts (Map), and synthesizing comprehensive narratives (Reduce).
+* **Daily Fusion Report Cron-Engine:** A resilient background daemon generates and caches a boardroom-ready master Situation Report summarizing the last 24 hours of cyber, infrastructure, and cloud telemetry automatically at 6:00 AM.
+* **Automated SMTP Delivery:** Instantly broadcast AI-synthesized tickets and Global Situation Reports directly to your team's inbox or ITSM ingestion address.
 
 ### 3. The Main Dashboard (Zero-Scroll HUD)
-A high-density, card-based interface designed to be left on a NOC wall monitor. It features a strict 24-hour operational focus.
+A high-density, card-based interface designed to be left on a NOC wall monitor. 
 
 * **AI Shift Briefing:** An auto-updating, rolling narrative summarizing the last **6 hours** of cyber threats, regional hazards, and cloud outages.
-* **AI Security Auditor:** Cross-references your configured internal "Tech Stack" against the last 30 days of the CISA Known Exploited Vulnerabilities (KEV) catalog via prompt chunking.
+* **AI Security Auditor:** Automatically cross-references your configured internal "Tech Stack" against a locally synchronized database of the CISA Known Exploited Vulnerabilities (KEV) catalog.
+* **Automated Threat Hunter:** A pre-compiled regex engine rapidly extracts Indicators of Compromise (IPv4, Domains, SHA256, MITRE ATT&CK IDs) from high-scoring intelligence, enabling 1-click pivoting to VirusTotal and Shodan.
 
 ### 4. Multi-Domain Threat Telemetry
-The backend worker concurrently scrapes and normalizes data using a single-thread asynchronous engine.
+The backend worker concurrently scrapes and normalizes physical and digital infrastructure data.
 
-* **Cyber Intel:** Custom RSS feed aggregation with ML keyword-weight scoring.
-* **Massive Cloud Tracking:** Monitors live status pages for 18+ tier-1 providers (AWS, Azure, GCP, Cisco, Cloudflare, CrowdStrike, GitHub, etc.) and dynamically generates UI tabs only for systems currently degraded.
-* **Regional Hazards:** Tracks severe weather and physical grid threats via the National Weather Service.
+* **Cyber Intel:** Custom RSS feed aggregation evaluated by a Human-in-the-Loop reinforcement ML model tuned to your organization's threat profile.
+* **Massive Cloud Tracking:** Monitors live status pages for 18+ tier-1 providers (AWS, Azure, GCP, Cloudflare, etc.) and dynamically updates unresolved outages.
+* **Physical & Environmental Grids:** Ingests NOAA/SPC severe weather polygons, county-level power grid outages via ORNL ODIN, global BGP route leaks via RIPE Stat, and ISP degradation via IODA.
 
 ### 5. Enterprise-Grade Security & Maintenance
-* **Role-Based Access Control (RBAC):** Built-in user authentication with bcrypt password hashing, session tokens, and dynamic, on-the-fly customizable roles.
-* **JSON Backup & Restore:** Export your entire custom configuration (RSS Feeds, Keywords, Monitored Locations, and ML Aliases) into a single portable JSON file, and restore the database with a single click.
-* **Automated Master Garbage Collector:** A self-cleaning routine that runs hourly to purge 0-score junk, unpinned intelligence older than 30 days, and resolved telemetry older than 72 hours. 
+* **Role-Based Access Control (RBAC):** Built-in user authentication with bcrypt password hashing, session tokens, and dynamic JSON-based permissions.
+* **Zero-Config Bootstrap:** Self-healing database initialization seeds default admin roles and bypasses complex migrations on edge deployments.
+* **Automated Master Garbage Collector:** A self-cleaning routine that runs hourly to purge 0-score junk, unpinned intelligence older than 30 days, and resolved telemetry. 
 
 ## ⚙️ System Requirements
 
-This application scales exceptionally well. It is optimized to run on low-power edge-compute hardware, while fully capable of saturating enterprise-grade servers (e.g., 32-core Intel Xeon environments) during massive asynchronous data ingestion and parallel ML scoring tasks. 
+This application scales exceptionally well. It is optimized to run on low-power edge-compute hardware via SQLite, while fully capable of saturating enterprise-grade servers connected to PostgreSQL during massive asynchronous data ingestion and parallel ML scoring tasks. 
 
 ### **Real-World Resource Utilization (Docker)**
-* **Base Memory Footprint:** ~650 MB total across all 4 microservices.
-* **Database Storage:** Highly optimized. PostgreSQL consumes < 100 MB for tens of thousands of active intel rows.
-* **Compute Profiling:** Web and Webhook gateways remain idle (< 1% CPU) until concurrent alert floods occur. The UI container may briefly spike compute resources during heavy geospatial PyDeck map rendering or Map-Reduce LLM prompt generation.
+* **Base Memory Footprint:** Highly optimized via slim base images and localized memory dictionaries; ~650 MB total across all 3 microservices.
+* **Database Storage:** The local SQLite file requires minimal disk space compared to an independent PostgreSQL container.
+* **Compute Profiling:** Web and Webhook gateways remain idle (< 1% CPU) until concurrent alert floods occur. The worker container may briefly spike compute resources during heavy geospatial polygon rendering or multiprocessing NLP vectorization.
 
 ### **Minimum Hardware**
 * **CPU:** 2 Cores
@@ -67,9 +65,9 @@ This application scales exceptionally well. It is optimized to run on low-power 
 * **Storage:** 5 GB 
 
 ### **Recommended Hardware**
-* **CPU:** 4+ Cores (Allows the Python `ProcessPoolExecutor` to offload Scikit-Learn vectorization without bottlenecking the async web server).
+* **CPU:** 4+ Cores (Allows the Python `ProcessPoolExecutor` to offload Scikit-Learn vectorization without bottlenecking the main scheduler loop).
 * **RAM:** 4 GB 
-* **Storage:** 15 GB SSD (Improves database read/write speeds for bulk inserts and vacuuming).
+* **Storage:** 15 GB SSD (Improves SQLite I/O speeds for high-velocity webhook bursts).
 
 ### **Software Requirements**
 * **Docker:** Engine v20.10.0 or higher
@@ -79,37 +77,32 @@ This application scales exceptionally well. It is optimized to run on low-power 
 ## 🚀 Installation & Deployment
 
 1. **Clone the repository** and navigate to the project folder.
-2. **Set up environment variables:** Edit the `.env` file to set your database passwords and point the application to your Local LLM API endpoint.
-3. **Build and start the containers:**
+2. **Set up environment variables:** Edit the `.env` file to set your local LLM API endpoints and optionally define a `DATABASE_URL` if bypassing the default SQLite setup.
+3. **Ensure Local Volume Persistence:** The `docker-compose.yml` automatically mounts the `./data` directory to share the SQLite database file across the `web`, `worker`, and `webhook` containers.
+4. **Build and start the containers:**
 ```bash
 docker compose up --build -d
-
 ```
 
-4. **Access the Dashboard:** Open a web browser and navigate to `http://localhost:8501`.
-* *Default login is `admin` / `admin123` (promptly reset this in Settings).*
+5. **Access the Dashboard:** Open a web browser and navigate to `http://localhost:8501`.
+* *Default zero-config bootstrap login is `admin` / `admin123` (promptly reset this in Settings)*.
 
-
-5. **Route Webhooks:** Point your external monitoring tools (SolarWinds, Datadog, PRTG) to `POST http://<your-server-ip>:8100/webhook/solarwinds`. *(Note: Verify your `docker-compose.yml` port mappings, this may be configured to 8100 depending on your environment).*
+6. **Route Webhooks:** Point your external monitoring tools (SolarWinds, Datadog, PRTG) to `POST http://<your-server-ip>:8100/webhook/solarwinds`.
 
 ## 🛠️ Troubleshooting & Commands
 
-**View Live Worker Logs (To monitor async scraping and maintenance tasks):**
-
+**View Live Worker Logs (To monitor async scraping, telemetry fetching, and reporting cron-jobs):**
 ```bash
 docker compose logs -f worker
-
 ```
 
-**View Webhook Gateway Logs (Useful for tuning NLP matching logic):**
-
+**View Webhook Gateway Logs (Useful for tuning NLP matching logic and device classification):**
 ```bash
 docker compose logs -f webhook
-
 ```
 
-**Manual Database Vacuum & Cleanup:**
-If the dashboard feels sluggish after importing massive data feeds, navigate to **Settings & Admin > ⚠️ Danger Zone** and click **🧹 Run Garbage Collector** to force a PostgreSQL dead-tuple sweep.
+**Manual Database Cleanup:**
+If the dashboard feels sluggish after importing massive data feeds, navigate to **Settings & Admin > ⚠️ Danger Zone** and click **🧹 Run Garbage Collector** to force a cleanup of orphaned IOCs and stale telemetry.
 
 ---
 
@@ -117,6 +110,6 @@ If the dashboard feels sluggish after importing massive data feeds, navigate to 
 
 Please note that the entirety of this application's codebase was generated by Artificial Intelligence.
 
-The Python backend, Streamlit frontend, Scikit-Learn machine learning logic, PostgreSQL database schema, complex LLM Prompt Engineering pipelines, RapidFuzz Heuristic algorithms, and Docker deployment configurations were written by an AI assistant (Google's Gemini) based on continuous, iterative prompting.
+The Python backend, Streamlit frontend, Scikit-Learn machine learning logic, unified SQLite/PostgreSQL database schema, complex LLM Prompt Engineering pipelines, Regex algorithms, and Docker microservices configurations were written by an AI assistant (Google's Gemini) based on continuous, iterative prompting.
 
 While the code was AI-generated, the system architecture, feature requirements, NOC operational workflow methodologies, optimization targeting, and rigorous hallucination-debugging were orchestrated and directed entirely by a human engineer. This project serves as a practical demonstration of AI-assisted software engineering to rapidly build customized, enterprise-grade critical infrastructure monitoring tools.
