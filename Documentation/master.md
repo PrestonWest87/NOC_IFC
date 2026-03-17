@@ -1,5 +1,3 @@
-Here is the master documentation sheet synthesizing the Enterprise Architecture and Functional Specifications for the Intelligence Fusion Center (IFC).
-
 # Master Architecture & Documentation: Intelligence Fusion Center (IFC)
 
 ## 1. System Deployment & Infrastructure
