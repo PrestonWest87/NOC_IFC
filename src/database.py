@@ -6,11 +6,19 @@ from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, F
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@db:5432/rss_db")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////app/data/noc_fusion.db").strip().strip('"').strip("'")
 
-engine = create_engine(
-    DATABASE_URL, pool_size=20, max_overflow=30, pool_pre_ping=True, pool_recycle=3600
-)
+# This is the crucial block that prevents crashes!
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(
+        DATABASE_URL, 
+        connect_args={"check_same_thread": False}
+    )
+else:
+    engine = create_engine(
+        DATABASE_URL, pool_size=20, max_overflow=30, pool_pre_ping=True, pool_recycle=3600
+    )
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -212,57 +220,60 @@ def init_db():
     time.sleep(random.uniform(0.1, 2.0))
     
     try:
+        # This single command builds the entire SQLite schema perfectly
         Base.metadata.create_all(bind=engine)
     except Exception as e:
         pass
     
-    migrations = [
-        "CREATE TABLE IF NOT EXISTS regional_outages (id SERIAL PRIMARY KEY, outage_type VARCHAR, provider VARCHAR, description TEXT, affected_area VARCHAR, lat FLOAT, lon FLOAT, radius_km FLOAT DEFAULT 10.0, detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_resolved BOOLEAN DEFAULT FALSE);",
-        "CREATE INDEX IF NOT EXISTS ix_regional_outages_type ON regional_outages (outage_type);",
-        "CREATE TABLE IF NOT EXISTS bgp_anomalies (id SERIAL PRIMARY KEY, asn VARCHAR, event_type VARCHAR, description TEXT, detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_resolved BOOLEAN DEFAULT FALSE);",
-        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS monitored_asns VARCHAR DEFAULT 'AS701, AS7922, AS3356';",
-        "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP;",
-        "CREATE TABLE IF NOT EXISTS timeline_events (id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, source VARCHAR, event_type VARCHAR, message VARCHAR);",
-        "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS raw_payload JSON;",
-        "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS mapped_location VARCHAR;",
-        "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS device_type VARCHAR DEFAULT 'Unknown';",
-        "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS event_category VARCHAR DEFAULT 'Unknown';",
-        "ALTER TABLE articles ADD COLUMN IF NOT EXISTS story_group VARCHAR;",
-        "ALTER TABLE articles ADD COLUMN IF NOT EXISTS ai_bluf TEXT;",
-        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS tech_stack TEXT DEFAULT 'SolarWinds, Cisco SD-WAN, Microsoft Office, Verizon, Cisco';",
-        "ALTER TABLE articles ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT FALSE;",
-        "ALTER TABLE roles ADD COLUMN IF NOT EXISTS allowed_actions JSON DEFAULT '[]'::json;",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS session_token VARCHAR;",
-        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS rolling_summary TEXT;",
-        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS rolling_summary_time TIMESTAMP;",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR;",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS job_title VARCHAR;",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS contact_info VARCHAR;",
-        "ALTER TABLE articles ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT 'General';",
-        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_server VARCHAR;",
-        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_port INTEGER DEFAULT 587;",
-        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_username VARCHAR;",
-        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_password VARCHAR;",
-        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_sender VARCHAR;",
-        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_recipient VARCHAR;",
-        "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_enabled BOOLEAN DEFAULT FALSE;",
-        "CREATE INDEX IF NOT EXISTS ix_articles_published_date ON articles (published_date);",
-        "CREATE INDEX IF NOT EXISTS ix_articles_score ON articles (score);",
-        "CREATE INDEX IF NOT EXISTS ix_articles_category ON articles (category);",
-        "CREATE TABLE IF NOT EXISTS extracted_iocs (id SERIAL PRIMARY KEY, article_id INTEGER, indicator_type VARCHAR, indicator_value VARCHAR, context TEXT, detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
-        "CREATE INDEX IF NOT EXISTS ix_extracted_iocs_article_id ON extracted_iocs (article_id);",
-        "CREATE TABLE IF NOT EXISTS monitored_locations (id SERIAL PRIMARY KEY, name VARCHAR UNIQUE, lat FLOAT, lon FLOAT, loc_type VARCHAR DEFAULT 'General', priority INTEGER DEFAULT 3, current_spc_risk VARCHAR DEFAULT 'None', last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
-        "CREATE TABLE IF NOT EXISTS solarwinds_alerts (id SERIAL PRIMARY KEY, event_type VARCHAR, severity VARCHAR, node_name VARCHAR, ip_address VARCHAR, status VARCHAR, sw_timestamp VARCHAR, details TEXT, node_link VARCHAR, raw_payload JSON, mapped_location VARCHAR, received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_correlated BOOLEAN DEFAULT FALSE, ai_root_cause TEXT);",
-        "CREATE TABLE IF NOT EXISTS node_aliases (id SERIAL PRIMARY KEY, node_pattern VARCHAR UNIQUE, mapped_location_name VARCHAR, confidence_score FLOAT DEFAULT 0.0, is_verified BOOLEAN DEFAULT FALSE);"
-    ]
-    
-    for sql in migrations:
-        with engine.connect() as conn:
-            try:
-                conn.execute(text(sql))
-                conn.commit()
-            except Exception:
-                conn.rollback()
+    # 3. Bypass PostgreSQL-specific raw SQL if we are running SQLite
+    if not DATABASE_URL.startswith("sqlite"):
+        migrations = [
+            "CREATE TABLE IF NOT EXISTS regional_outages (id SERIAL PRIMARY KEY, outage_type VARCHAR, provider VARCHAR, description TEXT, affected_area VARCHAR, lat FLOAT, lon FLOAT, radius_km FLOAT DEFAULT 10.0, detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_resolved BOOLEAN DEFAULT FALSE);",
+            "CREATE INDEX IF NOT EXISTS ix_regional_outages_type ON regional_outages (outage_type);",
+            "CREATE TABLE IF NOT EXISTS bgp_anomalies (id SERIAL PRIMARY KEY, asn VARCHAR, event_type VARCHAR, description TEXT, detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_resolved BOOLEAN DEFAULT FALSE);",
+            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS monitored_asns VARCHAR DEFAULT 'AS701, AS7922, AS3356';",
+            "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP;",
+            "CREATE TABLE IF NOT EXISTS timeline_events (id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, source VARCHAR, event_type VARCHAR, message VARCHAR);",
+            "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS raw_payload JSON;",
+            "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS mapped_location VARCHAR;",
+            "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS device_type VARCHAR DEFAULT 'Unknown';",
+            "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS event_category VARCHAR DEFAULT 'Unknown';",
+            "ALTER TABLE articles ADD COLUMN IF NOT EXISTS story_group VARCHAR;",
+            "ALTER TABLE articles ADD COLUMN IF NOT EXISTS ai_bluf TEXT;",
+            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS tech_stack TEXT DEFAULT 'SolarWinds, Cisco SD-WAN, Microsoft Office, Verizon, Cisco';",
+            "ALTER TABLE articles ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT FALSE;",
+            "ALTER TABLE roles ADD COLUMN IF NOT EXISTS allowed_actions JSON DEFAULT '[]'::json;",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS session_token VARCHAR;",
+            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS rolling_summary TEXT;",
+            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS rolling_summary_time TIMESTAMP;",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR;",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS job_title VARCHAR;",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS contact_info VARCHAR;",
+            "ALTER TABLE articles ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT 'General';",
+            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_server VARCHAR;",
+            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_port INTEGER DEFAULT 587;",
+            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_username VARCHAR;",
+            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_password VARCHAR;",
+            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_sender VARCHAR;",
+            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_recipient VARCHAR;",
+            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_enabled BOOLEAN DEFAULT FALSE;",
+            "CREATE INDEX IF NOT EXISTS ix_articles_published_date ON articles (published_date);",
+            "CREATE INDEX IF NOT EXISTS ix_articles_score ON articles (score);",
+            "CREATE INDEX IF NOT EXISTS ix_articles_category ON articles (category);",
+            "CREATE TABLE IF NOT EXISTS extracted_iocs (id SERIAL PRIMARY KEY, article_id INTEGER, indicator_type VARCHAR, indicator_value VARCHAR, context TEXT, detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
+            "CREATE INDEX IF NOT EXISTS ix_extracted_iocs_article_id ON extracted_iocs (article_id);",
+            "CREATE TABLE IF NOT EXISTS monitored_locations (id SERIAL PRIMARY KEY, name VARCHAR UNIQUE, lat FLOAT, lon FLOAT, loc_type VARCHAR DEFAULT 'General', priority INTEGER DEFAULT 3, current_spc_risk VARCHAR DEFAULT 'None', last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
+            "CREATE TABLE IF NOT EXISTS solarwinds_alerts (id SERIAL PRIMARY KEY, event_type VARCHAR, severity VARCHAR, node_name VARCHAR, ip_address VARCHAR, status VARCHAR, sw_timestamp VARCHAR, details TEXT, node_link VARCHAR, raw_payload JSON, mapped_location VARCHAR, received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_correlated BOOLEAN DEFAULT FALSE, ai_root_cause TEXT);",
+            "CREATE TABLE IF NOT EXISTS node_aliases (id SERIAL PRIMARY KEY, node_pattern VARCHAR UNIQUE, mapped_location_name VARCHAR, confidence_score FLOAT DEFAULT 0.0, is_verified BOOLEAN DEFAULT FALSE);"
+        ]
+        
+        for sql in migrations:
+            with engine.connect() as conn:
+                try:
+                    conn.execute(text(sql))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
             
     session = SessionLocal()
     

@@ -13,8 +13,9 @@ AR_COUNTY_COORDS = {
     "CRAIGHEAD": (35.83, -90.70), "SEBASTIAN": (35.18, -94.27), "LONOKE": (34.75, -91.87)
 }
 
-def fetch_ornl_odin_power(session):
+def fetch_ornl_odin_power():
     """Pulls live county-level power outages in Arkansas via ODIN API."""
+    session = SessionLocal()
     try:
         url = "https://ornl.opendatasoft.com/api/explore/v2.1/catalog/datasets/odin-real-time-outages-county/records?limit=100&refine=state%3AArkansas"
         resp = requests.get(url, timeout=10)
@@ -49,17 +50,21 @@ def fetch_ornl_odin_power(session):
             session.commit()
             log_print("✅ ODIN Power Grid sync complete.")
     except Exception as e:
+        session.rollback()
         log_print(f"❌ ODIN fetch failed: {e}")
+    finally:
+        session.close()
 
-def fetch_bgp_anomalies(session):
+def fetch_bgp_anomalies():
     """Checks for BGP route leaks or drops for configured ASNs via RIPE Stat."""
-    config = session.query(SystemConfig).first()
-    if not config or not config.monitored_asns:
-        return
-        
-    asns = [asn.strip() for asn in config.monitored_asns.split(",")]
-    
+    session = SessionLocal()
     try:
+        config = session.query(SystemConfig).first()
+        if not config or not config.monitored_asns:
+            return
+            
+        asns = [asn.strip() for asn in config.monitored_asns.split(",")]
+        
         for asn in asns:
             # Strip the 'AS' prefix if present for the API call
             clean_asn = asn.replace("AS", "").replace("as", "")
@@ -88,10 +93,14 @@ def fetch_bgp_anomalies(session):
         session.commit()
         log_print("✅ RIPE BGP Telemetry sync complete.")
     except Exception as e:
+        session.rollback()
         log_print(f"❌ BGP fetch failed: {e}")
+    finally:
+        session.close()
 
-def fetch_ioda_isp_outages(session):
+def fetch_ioda_isp_outages():
     """Pulls live ISP outage alerts for Arkansas and Monitored ASNs via the IODA API."""
+    session = SessionLocal()
     try:
         now_epoch = int(time.time())
         past_epoch = now_epoch - (12 * 3600) # Fetch alerts from the last 12 hours
@@ -146,17 +155,18 @@ def fetch_ioda_isp_outages(session):
         session.commit()
         log_print(f"✅ IODA ISP sync complete. Found {total_alerts} active alerts.")
     except Exception as e:
+        session.rollback()
         log_print(f"❌ IODA ISP fetch failed: {e}")
-
-def run_telemetry_sync():
-    session = SessionLocal()
-    try:
-        fetch_ornl_odin_power(session)
-        fetch_bgp_anomalies(session)
-        fetch_ioda_isp_outages(session) # <-- Injected Here
-        log_print("✅ Multi-Domain Telemetry Sync Complete.")
     finally:
         session.close()
+
+def run_telemetry_sync():
+    # No longer passing a global session down the chain.
+    # Functions independently manage their own connections.
+    fetch_ornl_odin_power()
+    fetch_bgp_anomalies()
+    fetch_ioda_isp_outages() 
+    log_print("✅ Multi-Domain Telemetry Sync Complete.")
 
 if __name__ == "__main__":
     run_telemetry_sync()

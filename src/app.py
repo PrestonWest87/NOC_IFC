@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import text
 from streamlit_autorefresh import st_autorefresh
 import streamlit.components.v1 as components
+from shapely.geometry import Point, shape
 
 from src.database import SessionLocal, Article, FeedSource, Keyword, SystemConfig, engine, init_db, CveItem, RegionalHazard, CloudOutage, User, Role, SavedReport, DailyBriefing, ExtractedIOC, MonitoredLocation, SolarWindsAlert, TimelineEvent, RegionalOutage, NodeAlias, BgpAnomaly
 from src.train_model import train 
@@ -504,199 +505,451 @@ elif page == "📡 Threat Telemetry":
                 col_sync1, col_sync2 = st.columns([3, 1])
                 if col_sync2.button("🔄 Sync Regional Telemetry", disabled=not can_sync, key="tt_sync_infra", width="stretch"):
                     with st.spinner("Pulling Radar & Calculating Geospatial Intersections..."):
-                        from src.infra_worker import fetch_regional_hazards; fetch_regional_hazards(); time.sleep(1); safe_rerun()
+                        from src.infra_worker import fetch_regional_hazards; fetch_regional_hazards(); time.sleep(1); st.cache_data.clear(); safe_rerun()
                 
                 locs = session.query(MonitoredLocation).all()
                 df = pd.DataFrame([{"id": l.id, "Name": l.name, "Type": l.loc_type, "Priority": l.priority, "Risk": l.current_spc_risk, "Lat": l.lat, "Lon": l.lon} for l in locs]) if locs else pd.DataFrame()
                 
-                tab_map, tab_dash, tab_matrix, tab_manage = st.tabs(["🗺️ Geospatial Overlay", "📊 Executive Dashboard", "🗄️ Location Matrix", "📍 Manage Locations"])
+                # --- MEMORY CACHE FOR INSTANT TOGGLES ---
+                @st.cache_data(ttl=120)
+                def get_cached_geo():
+                    import requests
+                    spc, ar, oos = None, None, None
+                    try: spc = requests.get("https://www.spc.noaa.gov/products/outlook/day1otlk_cat.lyr.geojson", timeout=5).json()
+                    except: pass
+                    try: ar = requests.get("https://api.weather.gov/alerts/active?area=AR", headers={"User-Agent": "NOC_Fusion_App"}, timeout=5).json()
+                    except: pass
+                    try: oos = requests.get("https://api.weather.gov/alerts/active?area=OK,MS,MO", headers={"User-Agent": "NOC_Fusion_App"}, timeout=5).json()
+                    except: pass
+                    return spc, ar, oos
+
+                spc_data, ar_data, oos_data = get_cached_geo()
                 
-                with tab_map:
-                    map_df = df.copy()
-                    if not df.empty:
-                        cf1, cf2 = st.columns(2)
-                        available_types = df['Type'].unique().tolist()
-                        available_prios = sorted(df['Priority'].unique().tolist())
-                        selected_types = cf1.multiselect("Filter by Location Type", available_types, default=available_types, key="map_filt_type")
-                        selected_prios = cf2.multiselect("Filter by Priority", available_prios, default=available_prios, key="map_filt_prio")
-                        map_df = df[df['Type'].isin(selected_types) & df['Priority'].isin(selected_prios)]
-                        st.write("")
-                    
-                    c_map1, c_map2 = st.columns([2, 1])
-                    with c_map1:
-                        st.subheader("Live SPC & Infrastructure Overlay")
-                        import pydeck as pdk
-                        import requests
-                        layers = []
-                        try:
-                            spc_res = requests.get("https://www.spc.noaa.gov/products/outlook/day1otlk_cat.lyr.geojson", timeout=5)
-                            if spc_res.status_code == 200:
-                                spc_geo = spc_res.json()
-                                color_map = {
-                                    "TSTM": [192, 232, 192, 100], "MRGL": [124, 205, 124, 150],
-                                    "SLGT": [246, 246, 123, 150], "ENH": [230, 153, 0, 150],
-                                    "MDT": [255, 0, 0, 150], "HIGH": [255, 0, 255, 150]
-                                }
-                                for f in spc_geo.get('features', []):
-                                    label = f.get('properties', {}).get('LABEL', '')
-                                    f['properties']['fill_color'] = color_map.get(label, [0, 0, 0, 0])
-                                layers.append(pdk.Layer(
-                                    "GeoJsonLayer", spc_geo, pickable=True, stroked=True,
-                                    filled=True, get_fill_color="properties.fill_color",
-                                    get_line_color=[0, 0, 0, 255], line_width_min_pixels=1
-                                ))
-                        except Exception: pass
-                        
-                        if not map_df.empty:
-                            layers.append(pdk.Layer(
-                                "ScatterplotLayer", map_df, pickable=True, opacity=0.9, stroked=True,
-                                filled=True, radius_scale=6, radius_min_pixels=4, radius_max_pixels=12,
-                                line_width_min_pixels=1, get_position="[Lon, Lat]",
-                                get_fill_color=[255, 255, 255], get_line_color=[0, 0, 0],
-                            ))
-                            
-                        view_state = pdk.ViewState(latitude=34.8, longitude=-92.2, zoom=6, pitch=0)
-                        st.pydeck_chart(pdk.Deck(layers=layers, initial_view_state=view_state, tooltip={"text": "{Name}\nType: {Type}\nRisk: {Risk}"} if not map_df.empty else {"text": "{LABEL}"}), width="stretch")
-                    
-                    with c_map2:
-                        st.subheader("Precipitation Radar")
-                        components.html("""<iframe src="https://www.rainviewer.com/map.html?loc=34.8,-92.2,6&oFa=0&oC=1&oU=0&oCS=1&oF=0&oAP=1&c=3&o=83&lm=1&layer=radar&sm=1&sn=1" width="100%" height="450" frameborder="0" style="border-radius: 8px;" allowfullscreen></iframe>""", height=450)
-                        
-                    st.divider()
-                    st.subheader("Active NWS Warnings (Arkansas)")
-                    nws_alerts = session.query(RegionalHazard).order_by(RegionalHazard.updated_at.desc()).all()
-                    if not nws_alerts: st.success("No active NWS alerts for the region.")
-                    for haz in nws_alerts:
-                        ic = "🔴" if haz.severity in ["Extreme", "Severe"] else "🟠" if haz.severity == "Moderate" else "🔵"
-                        with st.expander(f"{ic} [{haz.severity}] {haz.title}"):
-                            st.markdown(f"**Area:** {haz.location}\n\n{haz.description}")
+                # Extract all unique NWS event types currently active to populate the new filter
+                active_event_types = set()
+                for geo_dataset in [ar_data, oos_data]:
+                    if geo_dataset:
+                        for f in geo_dataset.get("features", []):
+                            active_event_types.add(f.get("properties", {}).get("event", "Unknown"))
+                active_event_types = sorted(list(active_event_types))
 
-                with tab_dash:
-                    st.subheader("📊 Infrastructure Threat Dashboard")
-                    with st.expander("ℹ️ Understanding SPC Convective Risk Categories"):
-                        st.markdown("""
-                        The **Storm Prediction Center (SPC)** issues national forecasts for severe thunderstorms, tornadoes, and extreme winds:
-                        * 🌩️ **TSTM:** General, non-severe thunderstorms.
-                        * 🟩 **MRGL (1/5):** Isolated severe thunderstorms possible.
-                        * 🟨 **SLGT (2/5):** Scattered severe thunderstorms possible.
-                        * 🟧 **ENH (3/5):** Numerous severe thunderstorms possible.
-                        * 🟥 **MDT (4/5):** Widespread severe thunderstorms likely.
-                        * 🟪 **HIGH (5/5):** Widespread, long-lived, particularly dangerous outbreak expected.
-                        """)
-
-                    if df.empty:
-                        st.info("No monitored locations found.")
-                    else:
-                        risk_order = ["HIGH", "MDT", "ENH", "SLGT", "MRGL", "TSTM", "None"]
-                        df['Risk'] = pd.Categorical(df['Risk'], categories=risk_order, ordered=True)
-                        risk_df = df[df['Risk'] != 'None']
-                        
-                        st.download_button(
-                            label="📥 Export Infrastructure Risk Report (CSV)",
-                            data=df.sort_values(by=['Risk', 'Priority']).to_csv(index=False).encode('utf-8'),
-                            file_name=f"Infrastructure_Risk_{datetime.now(LOCAL_TZ).strftime('%Y%m%d_%H%M')}.csv",
-                            mime='text/csv', width="stretch"
-                        )
+                # ==========================
+                # INNER SIDEBAR LAYOUT
+                # ==========================
+                ctrl_panel, main_panel = st.columns([1, 4])
+                
+                with ctrl_panel:
+                    st.subheader("⚙️ Map Controls")
+                    with st.container(border=True):
+                        st.markdown("**Master Layers**")
+                        show_radar_overlay = st.toggle("📡 Radar Overlay", value=True)
+                        show_radar_panel = st.toggle("📺 Animated Panel", value=False)
                         st.divider()
-                        
-                        c_m1, c_m2, c_m3 = st.columns(3)
-                        c_m1.metric("Total Tracked Sites", len(df))
-                        c_m2.metric("Sites in Active Risk Areas", len(risk_df))
-                        highest_risk = risk_df['Risk'].sort_values().iloc[0] if not risk_df.empty else "None"
-                        c_m3.metric("Highest Current Risk", highest_risk)
-                        st.write("")
-                        
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            st.markdown("**Sites by Risk Level**")
-                            if not risk_df.empty:
-                                risk_counts = risk_df['Risk'].value_counts().reset_index()
-                                risk_counts.columns = ['Risk Level', 'Count']
-                                st.bar_chart(risk_counts.set_index('Risk Level'), color="#ff4b4b", width="stretch")
-                            else: st.success("All monitored sites are clear.")
-                        with c2:
-                            st.markdown("**Sites by Facility Type**")
-                            type_counts = df['Type'].value_counts().reset_index()
-                            type_counts.columns = ['Location Type', 'Count']
-                            st.bar_chart(type_counts.set_index('Location Type'), color="#1f77b4", width="stretch")
-
-                        st.divider()
-                        c3, c4 = st.columns(2)
-                        with c3:
-                            st.markdown("**Risk by Priority Level**")
-                            st.dataframe(pd.crosstab(df['Priority'], df['Risk']), width="stretch")
-                        with c4:
-                            st.markdown("**Risk by Facility Type**")
-                            st.dataframe(pd.crosstab(df['Type'], df['Risk']), width="stretch")
-
-                with tab_matrix:
-                    st.subheader("Active Infrastructure Matrix")
-                    st.caption("All tracked locations overlaid with current SPC Convective Outlooks.")
-                    if not df.empty:
-                        display_df = df.drop(columns=['id', 'Lat', 'Lon'])
-                        st.dataframe(display_df.sort_values(by=['Risk', 'Priority'], ascending=[True, True]), width="stretch", hide_index=True)
-
-                with tab_manage:
-                    c_up, c_ed = st.columns([1, 2])
-                    with c_up:
-                        st.subheader("Mass Import (JSON)")
-                        st.caption("Requires 'name', 'lat', 'lon'. Optional: 'type', 'priority'.")
-                        uploaded_file = st.file_uploader("Upload Sites", type=["json"], key="loc_uploader")
-                        if uploaded_file is not None:
-                            if st.button("📥 Import Data", width="stretch"):
-                                import json
-                                try:
-                                    data = json.load(uploaded_file)
-                                    added = 0
-                                    existing_names = {l[0] for l in session.query(MonitoredLocation.name).all()}
-                                    for item in data:
-                                        name = item.get("name")
-                                        lat, lon = item.get("lat"), item.get("lon")
-                                        if name and lat is not None and lon is not None and name not in existing_names:
-                                            session.add(MonitoredLocation(
-                                                name=name, lat=float(lat), lon=float(lon),
-                                                loc_type=item.get("type", "General"), priority=int(item.get("priority", 3))
-                                            ))
-                                            existing_names.add(name)
-                                            added += 1
-                                    session.commit()
-                                    st.success(f"Imported {added} new locations!"); time.sleep(1.5); safe_rerun()
-                                except Exception as e:
-                                    st.error(f"Import failed: {e}"); session.rollback()
-                                    
-                    with c_ed:
-                        st.subheader("Manual Adjustments")
+                        show_spc = st.toggle("⛈️ SPC Convective", value=True)
+                        show_warn = st.toggle("🚨 Warnings (AR)", value=True)
+                        show_watch = st.toggle("⚠️ Watches (AR)", value=True)
+                        show_oos = st.toggle("🌍 Out-of-State", value=True)
+                    
+                    with st.container(border=True):
+                        st.markdown("**Hazard Isolation**")
+                        if not active_event_types:
+                            st.info("No active hazards to filter.")
+                            selected_events = []
+                        else:
+                            st.caption("Select specific warnings to render:")
+                            selected_events = st.multiselect("Active Threats", active_event_types, default=active_event_types, label_visibility="collapsed")
+                    
+                    with st.container(border=True):
+                        st.markdown("**Facility Filters**")
                         if not df.empty:
-                            edited_df = st.data_editor(df, hide_index=True, disabled=["id", "Risk"], width="stretch", key="loc_editor")
-                            if st.button("💾 Save Manual Adjustments", width="stretch"):
-                                for index, row in edited_df.iterrows():
-                                    db_loc = session.query(MonitoredLocation).filter_by(id=row['id']).first()
-                                    if db_loc:
-                                        db_loc.name = row['Name']
-                                        db_loc.loc_type = row['Type']
-                                        db_loc.priority = row['Priority']
-                                        db_loc.lat = row['Lat']
-                                        db_loc.lon = row['Lon']
-                                session.commit()
-                                st.success("Changes saved!"); time.sleep(1); safe_rerun()
-                        
-                        st.divider()
-                        st.write("**Danger Zone**")
-                        if st.button("🗑️ Delete All Locations", width="stretch"):
-                            session.execute(text("TRUNCATE TABLE monitored_locations RESTART IDENTITY CASCADE;"))
-                            session.commit()
-                            st.success("All locations deleted!"); time.sleep(1); safe_rerun()
-            tab_idx += 1
+                            available_types = df['Type'].unique().tolist()
+                            available_prios = sorted(df['Priority'].unique().tolist())
+                            selected_types = st.multiselect("Facility Type", available_types, default=available_types)
+                            selected_prios = st.multiselect("Priority Level", available_prios, default=available_prios)
+                            map_df = df[df['Type'].isin(selected_types) & df['Priority'].isin(selected_prios)].copy()
+                            map_df['info'] = map_df['Name'] + "\nType: " + map_df['Type'] + "\nRisk: " + map_df['Risk']
+                        else:
+                            map_df = df.copy()
+                            selected_types, selected_prios = [], []
 
+                with main_panel:
+                    tab_map, tab_dash, tab_analytics, tab_matrix, tab_manage = st.tabs([
+                        "🗺️ Geospatial Overlay", "📊 Executive Dashboard", "🌪️ Deep Hazard Analytics", "🗄️ Location Matrix", "📍 Manage Locations"
+                    ])
+                    
+                    # ==========================
+                    # PRE-CALCULATE GEOMETRY
+                    # ==========================
+                    master_polygons = []   # Analytics
+                    toggled_polygons = []  # Map
+                    layers = []
+                    import pydeck as pdk
+                    from shapely.geometry import Point, shape
+
+                    # 0. LIVE NEXRAD RADAR TILE LAYER
+                    if show_radar_overlay:
+                        layers.append(pdk.Layer(
+                            "TileLayer",
+                            data=["https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png"],
+                            opacity=0.6,
+                            pickable=False
+                        ))
+
+                    # 1. SPC LAYER
+                    if spc_data:
+                        color_map = {"TSTM": [192, 232, 192, 100], "MRGL": [124, 205, 124, 150], "SLGT": [246, 246, 123, 150], "ENH": [230, 153, 0, 150], "MDT": [255, 0, 0, 150], "HIGH": [255, 0, 255, 150]}
+                        for f in spc_data.get('features', []):
+                            label = f.get('properties', {}).get('LABEL', '')
+                            f['properties']['fill_color'] = color_map.get(label, [0, 0, 0, 0])
+                            f['properties']['info'] = f"SPC Risk: {label}"
+                            try:
+                                poly_shape = shape(f.get("geometry"))
+                                poly_dict = {"event": f"SPC: {label}", "shape": poly_shape, "severity": "Watch"}
+                                master_polygons.append(poly_dict)
+                                if show_spc: toggled_polygons.append(poly_dict)
+                            except Exception: pass
+                        if show_spc:
+                            layers.append(pdk.Layer("GeoJsonLayer", spc_data, pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color=[0, 0, 0, 255], line_width_min_pixels=1))
+
+                    # 2. NWS LAYERS
+                    def process_nws_alerts(data, is_oos=False):
+                        if not data: return None, None
+                        warn_geo, watch_geo = {"type": "FeatureCollection", "features": []}, {"type": "FeatureCollection", "features": []}
+                        for f in data.get("features", []):
+                            geom = f.get("geometry")
+                            if not geom: continue
+                            event_type = f.get("properties", {}).get("event", "")
+                            
+                            if event_type not in selected_events: continue
+                            
+                            prefix = "[OOS]" if is_oos else "[AR]"
+                            f['properties']['info'] = f"{prefix} {event_type}"
+                            
+                            try:
+                                poly_shape = shape(geom)
+                                poly_dict = {"event": f"{prefix} {event_type}", "shape": poly_shape, "severity": "Warning" if "Warning" in event_type else "Watch"}
+                                master_polygons.append(poly_dict)
+                                
+                                if "Warning" in event_type:
+                                    f['properties']['fill_color'] = [139, 0, 0, 60] if is_oos else [255, 0, 0, 60] 
+                                    f['properties']['line_color'] = [139, 0, 0, 255] if is_oos else [255, 0, 0, 255]
+                                    warn_geo["features"].append(f)
+                                    if (is_oos and show_oos) or (not is_oos and show_warn): toggled_polygons.append(poly_dict)
+                                elif "Watch" in event_type or "Advisory" in event_type:
+                                    f['properties']['fill_color'] = [204, 119, 34, 60] if is_oos else [255, 165, 0, 60]
+                                    f['properties']['line_color'] = [204, 119, 34, 255] if is_oos else [255, 165, 0, 255]
+                                    watch_geo["features"].append(f)
+                                    if (is_oos and show_oos) or (not is_oos and show_watch): toggled_polygons.append(poly_dict)
+                            except Exception: continue
+                        return warn_geo, watch_geo
+
+                    ar_warn, ar_watch = process_nws_alerts(ar_data, is_oos=False)
+                    oos_warn, oos_watch = process_nws_alerts(oos_data, is_oos=True)
+
+                    if show_warn and ar_warn and ar_warn["features"]: layers.append(pdk.Layer("GeoJsonLayer", ar_warn, pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
+                    if show_watch and ar_watch and ar_watch["features"]: layers.append(pdk.Layer("GeoJsonLayer", ar_watch, pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
+                    if show_oos and oos_warn and oos_warn["features"]: layers.append(pdk.Layer("GeoJsonLayer", oos_warn, pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
+                    if show_oos and oos_watch and oos_watch["features"]: layers.append(pdk.Layer("GeoJsonLayer", oos_watch, pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
+
+                    # GEOSPATIAL INTERSECTION ENGINE
+                    toggled_affected_sites = []
+                    master_affected_sites = []
+                    
+                    if not map_df.empty:
+                        for index, row in map_df.iterrows():
+                            if pd.notna(row['Lat']) and pd.notna(row['Lon']):
+                                site_pt = Point(row['Lon'], row['Lat'])
+                                
+                                act_toggled = [p["event"] for p in toggled_polygons if site_pt.within(p["shape"])]
+                                if act_toggled:
+                                    toggled_affected_sites.append({"Monitored Site": row['Name'], "Facility Type": row['Type'], "Priority": row['Priority'], "Intersecting Hazards": ", ".join(list(set(act_toggled)))})
+                                
+                                for p in master_polygons:
+                                    if site_pt.within(p["shape"]):
+                                        master_affected_sites.append({
+                                            "Monitored Site": row['Name'], "Facility Type": row['Type'], 
+                                            "Priority": row['Priority'], "Hazard": p["event"], "Severity": p["severity"]
+                                        })
+
+                    # ==========================
+                    # RENDER UI MAP TABS
+                    # ==========================
+                    with tab_map:
+                        if not map_df.empty:
+                            layers.append(pdk.Layer("ScatterplotLayer", map_df, pickable=True, opacity=0.9, stroked=True, filled=True, radius_scale=6, radius_min_pixels=4, radius_max_pixels=12, line_width_min_pixels=1, get_position="[Lon, Lat]", get_fill_color=[255, 255, 255], get_line_color=[0, 0, 0]))
+                        
+                        # Dynamic Columns based on Animated Radar Panel Toggle
+                        if show_radar_panel:
+                            c_map_main, c_map_side = st.columns([2, 1])
+                        else:
+                            c_map_main, c_map_side = st.columns([1, 0.0001]) # Effectively hides the side panel
+                            
+                        with c_map_main:
+                            st.subheader("Live Threat Overlay")
+                            view_state = pdk.ViewState(latitude=34.8, longitude=-92.2, zoom=5.5, pitch=0)
+                            st.pydeck_chart(pdk.Deck(layers=layers, initial_view_state=view_state, tooltip={"text": "{info}"}), width="stretch")
+                            
+                        if show_radar_panel:
+                            with c_map_side:
+                                st.subheader("Precipitation Loop")
+                                components.html("""<iframe src="https://www.rainviewer.com/map.html?loc=34.8,-92.2,6&oFa=0&oC=1&oU=0&oCS=1&oF=0&oAP=1&c=3&o=83&lm=1&layer=radar&sm=1&sn=1" width="100%" height="500" frameborder="0" style="border-radius: 8px;" allowfullscreen></iframe>""", height=500)
+                            
+                        st.divider()
+                        st.subheader("⚠️ Sites Impacted by Currently Toggled Layers")
+                        st.caption("This table dynamically updates based on the layer switches and filters in the left sidebar.")
+                        if not toggled_affected_sites: st.success("✅ No sites intersect with the specific layers and hazard types currently rendered on the map.")
+                        else: st.dataframe(pd.DataFrame(toggled_affected_sites).sort_values(by=['Priority', 'Monitored Site']), hide_index=True, width="stretch")
+
+                    with tab_analytics:
+                        st.subheader("🌪️ Deep Hazard Analytics & Executive Broadcast")
+                        st.markdown("Comprehensive breakdown of active weather geometry against physical infrastructure. **This data is live-linked to your left-hand hazard filters.**")
+                        
+                        if not master_affected_sites:
+                            st.success("🎉 All infrastructure is currently clear of severe weather geometry based on your current filters.")
+                        else:
+                            analytics_df = pd.DataFrame(master_affected_sites)
+                            analytics_df.drop_duplicates(inplace=True)
+                            
+                            p1_count = len(analytics_df[analytics_df['Priority'] == 1]['Monitored Site'].unique())
+                            p2_count = len(analytics_df[analytics_df['Priority'] == 2]['Monitored Site'].unique())
+                            
+                            c1, c2, c3, c4 = st.columns(4)
+                            c1.metric("Total Sites Impacted", len(analytics_df['Monitored Site'].unique()))
+                            c2.metric("Critical (P1) Impacts", p1_count, delta="High Risk" if p1_count > 0 else None, delta_color="inverse")
+                            c3.metric("High (P2) Impacts", p2_count)
+                            c4.metric("Unique Hazards", len(analytics_df['Hazard'].unique()))
+                            
+                            st.divider()
+                            st.markdown("### 🧮 Infrastructure Threat Matrices")
+                            
+                            col_a, col_b = st.columns(2)
+                            with col_a:
+                                st.write("**Site Priority vs. Hazard Type**")
+                                # Deep cross-tabulation showing exactly how many P1/P2/P3 sites are hit by each specific storm type
+                                pivot_priority = pd.crosstab(analytics_df['Hazard'], analytics_df['Priority'], margins=True, margins_name="Total Sites")
+                                # Rename columns nicely if they exist
+                                pivot_priority.columns = [f"Priority {c}" if isinstance(c, int) else c for c in pivot_priority.columns]
+                                st.dataframe(pivot_priority, use_container_width=True)
+                                
+                            with col_b:
+                                st.write("**Facility Type vs. Hazard Type**")
+                                pivot_facility = pd.crosstab(analytics_df['Hazard'], analytics_df['Facility Type'], margins=True, margins_name="Total Sites")
+                                st.dataframe(pivot_facility, use_container_width=True)
+                                
+                            st.write("**Complete Intersectional Dataset**")
+                            st.dataframe(analytics_df.sort_values(by=['Priority', 'Severity', 'Monitored Site']), use_container_width=True, hide_index=True)
+                            
+                            st.divider()
+                            st.subheader("📧 Broadcast Executive HTML SitRep")
+                            st.caption("Generates a boardroom-ready HTML email containing the filtered hazard data.")
+                            
+                            if st.button("🚀 Transmit Priority SitRep via SMTP", type="primary"):
+                                with st.spinner("Compiling HTML and transmitting..."):
+                                    
+                                    # Generate inline-styled HTML rows for the email
+                                    rows_html = ""
+                                    for _, r in analytics_df.sort_values(by=['Priority', 'Monitored Site']).iterrows():
+                                        # Color code the priority badge in the email
+                                        if r['Priority'] == 1:
+                                            p_style = "background-color: #d9534f; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
+                                        elif r['Priority'] == 2:
+                                            p_style = "background-color: #f0ad4e; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
+                                        else:
+                                            p_style = "background-color: #6c757d; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
+                                            
+                                        rows_html += f"""
+                                        <tr>
+                                            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; font-weight: bold; color: #333333;">{r['Monitored Site']}</td>
+                                            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; color: #555555;">{r['Facility Type']}</td>
+                                            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; text-align: center;"><span style="{p_style}">P{r['Priority']}</span></td>
+                                            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; color: #d9534f; font-weight: bold;">{r['Hazard']}</td>
+                                        </tr>"""
+
+                                    # The Master HTML Wrapper with ultra-strict inline CSS for email clients like Outlook
+                                    html_body = f"""
+                                    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 850px; margin: 0 auto; background-color: #f4f7f6; padding: 20px;">
+                                        <div style="background-color: #ffffff; border-radius: 8px; border-top: 6px solid #d9534f; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden;">
+                                            
+                                            <div style="padding: 25px; border-bottom: 1px solid #eeeeee; background-color: #fafafa;">
+                                                <h2 style="margin: 0; color: #333333; font-size: 24px;">🚨 SEVERE WEATHER INFRASTRUCTURE IMPACT</h2>
+                                                <p style="margin: 5px 0 0 0; color: #777777; font-size: 14px;">Automated NOC Intelligence Broadcast | {datetime.now(LOCAL_TZ).strftime('%Y-%m-%d %H:%M %Z')}</p>
+                                            </div>
+                                            
+                                            <div style="padding: 25px;">
+                                                <h3 style="color: #2c3e50; margin-top: 0; font-size: 18px; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">Executive Overview</h3>
+                                                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                                                    <tr>
+                                                        <td style="padding: 15px; background-color: #f8f9fa; border-radius: 6px; text-align: center; border: 1px solid #e9ecef;">
+                                                            <div style="font-size: 28px; font-weight: bold; color: #333333;">{len(analytics_df['Monitored Site'].unique())}</div>
+                                                            <div style="font-size: 12px; color: #6c757d; text-transform: uppercase; letter-spacing: 1px;">Total Sites Impacted</div>
+                                                        </td>
+                                                        <td style="width: 15px;"></td>
+                                                        <td style="padding: 15px; background-color: #fff5f5; border-radius: 6px; text-align: center; border: 1px solid #ffe3e3;">
+                                                            <div style="font-size: 28px; font-weight: bold; color: #d9534f;">{p1_count}</div>
+                                                            <div style="font-size: 12px; color: #d9534f; text-transform: uppercase; letter-spacing: 1px;">Critical (P1) Exposures</div>
+                                                        </td>
+                                                    </tr>
+                                                </table>
+                                                
+                                                <h3 style="color: #2c3e50; margin-top: 30px; font-size: 18px; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">Detailed Impact Matrix</h3>
+                                                <table style="width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px; text-align: left;">
+                                                    <thead>
+                                                        <tr style="background-color: #343a40; color: #ffffff;">
+                                                            <th style="padding: 12px; font-weight: 600;">Monitored Site</th>
+                                                            <th style="padding: 12px; font-weight: 600;">Facility Type</th>
+                                                            <th style="padding: 12px; font-weight: 600; text-align: center;">Priority</th>
+                                                            <th style="padding: 12px; font-weight: 600;">Active Hazard</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {rows_html}
+                                                    </tbody>
+                                                </table>
+                                                
+                                                <div style="margin-top: 40px; text-align: center; font-size: 12px; color: #adb5bd; border-top: 1px solid #eeeeee; padding-top: 20px;">
+                                                    CONFIDENTIAL & PROPRIETARY<br>
+                                                    Generated autonomously by the Intelligence Fusion Center.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    """
+                                    
+                                    # Strip line breaks so they aren't parsed as text breaks by basic email clients
+                                    html_safe = html_body.replace("\n", "")
+                                    
+                                    from src.mailer import send_alert_email
+                                    success, msg = send_alert_email("URGENT: Active Severe Weather Impacting Operations", html_safe)
+                                    if success: st.success("✅ Executive HTML SitRep successfully transmitted to distribution list!")
+                                    else: st.error(f"❌ SMTP Error: {msg}")
+
+                    with tab_dash:
+                        st.subheader("📊 Infrastructure Threat Dashboard")
+                        with st.expander("ℹ️ Understanding SPC Convective Risk Categories"):
+                            st.markdown("""
+                            The **Storm Prediction Center (SPC)** issues national forecasts for severe thunderstorms, tornadoes, and extreme winds:
+                            * 🌩️ **TSTM:** General, non-severe thunderstorms.
+                            * 🟩 **MRGL (1/5):** Isolated severe thunderstorms possible.
+                            * 🟨 **SLGT (2/5):** Scattered severe thunderstorms possible.
+                            * 🟧 **ENH (3/5):** Numerous severe thunderstorms possible.
+                            * 🟥 **MDT (4/5):** Widespread severe thunderstorms likely.
+                            * 🟪 **HIGH (5/5):** Widespread, long-lived, particularly dangerous outbreak expected.
+                            """)
+
+                        if map_df.empty:
+                            st.info("No monitored locations match current filters.")
+                        else:
+                            risk_order = ["HIGH", "MDT", "ENH", "SLGT", "MRGL", "TSTM", "None"]
+                            map_df['Risk'] = pd.Categorical(map_df['Risk'], categories=risk_order, ordered=True)
+                            risk_df = map_df[map_df['Risk'] != 'None']
+                            
+                            st.download_button(
+                                label="📥 Export Infrastructure Risk Report (CSV)",
+                                data=map_df.sort_values(by=['Risk', 'Priority']).to_csv(index=False).encode('utf-8'),
+                                file_name=f"Infrastructure_Risk_{datetime.now(LOCAL_TZ).strftime('%Y%m%d_%H%M')}.csv",
+                                mime='text/csv', width="stretch"
+                            )
+                            st.divider()
+                            
+                            c_m1, c_m2, c_m3 = st.columns(3)
+                            c_m1.metric("Total Tracked Sites", len(map_df))
+                            c_m2.metric("Sites in Active Risk Areas", len(risk_df))
+                            highest_risk = risk_df['Risk'].sort_values().iloc[0] if not risk_df.empty else "None"
+                            c_m3.metric("Highest Current Risk", highest_risk)
+                            st.write("")
+                            
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                st.markdown("**Sites by Risk Level**")
+                                if not risk_df.empty:
+                                    risk_counts = risk_df['Risk'].value_counts().reset_index()
+                                    risk_counts.columns = ['Risk Level', 'Count']
+                                    st.bar_chart(risk_counts.set_index('Risk Level'), color="#ff4b4b", width="stretch")
+                                else: st.success("All monitored sites are clear.")
+                            with c2:
+                                st.markdown("**Sites by Facility Type**")
+                                type_counts = map_df['Type'].value_counts().reset_index()
+                                type_counts.columns = ['Location Type', 'Count']
+                                st.bar_chart(type_counts.set_index('Location Type'), color="#1f77b4", width="stretch")
+
+                            st.divider()
+                            c3, c4 = st.columns(2)
+                            with c3:
+                                st.markdown("**Risk by Priority Level**")
+                                st.dataframe(pd.crosstab(map_df['Priority'], map_df['Risk']), width="stretch")
+                            with c4:
+                                st.markdown("**Risk by Facility Type**")
+                                st.dataframe(pd.crosstab(map_df['Type'], map_df['Risk']), width="stretch")
+
+                    with tab_matrix:
+                        st.subheader("Active Infrastructure Matrix")
+                        st.caption("All tracked locations overlaid with current SPC Convective Outlooks.")
+                        if not map_df.empty:
+                            display_df = map_df.drop(columns=['id', 'Lat', 'Lon', 'info'])
+                            st.dataframe(display_df.sort_values(by=['Risk', 'Priority'], ascending=[True, True]), width="stretch", hide_index=True)
+
+                    with tab_manage:
+                        c_up, c_ed = st.columns([1, 2])
+                        with c_up:
+                            st.subheader("Mass Import (JSON)")
+                            st.caption("Requires 'name', 'lat', 'lon'. Optional: 'type', 'priority'.")
+                            uploaded_file = st.file_uploader("Upload Sites", type=["json"], key="loc_uploader")
+                            if uploaded_file is not None:
+                                if st.button("📥 Import Data", width="stretch"):
+                                    import json
+                                    try:
+                                        data = json.load(uploaded_file)
+                                        added = 0
+                                        existing_names = {l[0] for l in session.query(MonitoredLocation.name).all()}
+                                        for item in data:
+                                            name = item.get("name")
+                                            lat, lon = item.get("lat"), item.get("lon")
+                                            if name and lat is not None and lon is not None and name not in existing_names:
+                                                session.add(MonitoredLocation(
+                                                    name=name, lat=float(lat), lon=float(lon),
+                                                    loc_type=item.get("type", "General"), priority=int(item.get("priority", 3))
+                                                ))
+                                                existing_names.add(name)
+                                                added += 1
+                                        session.commit()
+                                        st.success(f"Imported {added} new locations!"); time.sleep(1.5); st.cache_data.clear(); safe_rerun()
+                                    except Exception as e:
+                                        st.error(f"Import failed: {e}"); session.rollback()
+                                        
+                        with c_ed:
+                            st.subheader("Manual Adjustments")
+                            if not df.empty:
+                                edited_df = st.data_editor(df, hide_index=True, disabled=["id", "Risk"], width="stretch", key="loc_editor")
+                                if st.button("💾 Save Manual Adjustments", width="stretch"):
+                                    for index, row in edited_df.iterrows():
+                                        db_loc = session.query(MonitoredLocation).filter_by(id=row['id']).first()
+                                        if db_loc:
+                                            db_loc.name = row['Name']
+                                            db_loc.loc_type = row['Type']
+                                            db_loc.priority = row['Priority']
+                                            db_loc.lat = row['Lat']
+                                            db_loc.lon = row['Lon']
+                                    session.commit()
+                                    st.success("Changes saved!"); time.sleep(1); st.cache_data.clear(); safe_rerun()
+                            
+                            st.divider()
+                            st.write("**Danger Zone**")
+                            if st.button("🗑️ Delete All Locations", width="stretch"):
+                                session.execute(text("TRUNCATE TABLE monitored_locations RESTART IDENTITY CASCADE;"))
+                                session.commit()
+                                st.success("All locations deleted!"); time.sleep(1); st.cache_data.clear(); safe_rerun()
+                tab_idx += 1
+
+# ================= 6. THREAT HUNTING & IOCS =================
 elif page == "🎯 Threat Hunting & IOCs":
-    st.title("🎯 Active Threat Hunting")
-    st.markdown("Automated IOC extraction and LLM-assisted deep scanning for specific threat actors, malwares, or target infrastructure.")
+    st.title("🎯 Active Threat Hunting & Detection Engineering")
+    st.markdown("Automated IOC extraction, 1-Click OSINT Pivoting, and LLM-assisted YARA/SIEM generation.")
     
-    tab_matrix, tab_manual = st.tabs(["🧮 Live IOC Matrix", "🔬 Manual Deep Hunt (LLM)"])
+    tab_matrix, tab_manual = st.tabs(["🧮 Live Global IOC Matrix", "🔬 Deep Hunt & Detection Builder"])
     
     with tab_matrix:
         st.subheader("Global Indicators of Compromise (Last 72 Hours)")
-        st.caption("Auto-extracted via Regex from ML-verified (Score > 50) Cyber Intelligence feeds only.")
+        st.caption("Auto-extracted via Regex from ML-verified (Score > 50) Cyber Intelligence feeds. Automatically refanged.")
         
         seventy_two_hrs_ago = datetime.utcnow() - timedelta(days=3)
         recent_iocs = session.query(ExtractedIOC).filter(ExtractedIOC.detected_at >= seventy_two_hrs_ago).order_by(ExtractedIOC.detected_at.desc()).all()
@@ -704,33 +957,64 @@ elif page == "🎯 Threat Hunting & IOCs":
         if not recent_iocs:
             st.info("No active IOCs extracted in the last 72 hours.")
         else:
+            # Generate Pivot Links dynamically based on IOC type
+            def generate_pivot_link(ioc_type, value):
+                if ioc_type in ["SHA256", "MD5", "SHA1"]: return f"https://www.virustotal.com/gui/file/{value}"
+                elif ioc_type == "IPv4": return f"https://www.shodan.io/host/{value}"
+                elif ioc_type == "Domain": return f"https://www.virustotal.com/gui/domain/{value}"
+                elif ioc_type == "CVE": return f"https://nvd.nist.gov/vuln/detail/{value}"
+                elif ioc_type == "MITRE ATT&CK": return f"https://attack.mitre.org/techniques/{value.replace('.', '/')}"
+                return None
+
             ioc_data = []
             for ioc in recent_iocs:
                 art = session.query(Article).filter(Article.id == ioc.article_id).first()
                 source_link = art.link if art else "Unknown"
+                pivot_url = generate_pivot_link(ioc.indicator_type, ioc.indicator_value)
+                
                 ioc_data.append({
                     "Type": ioc.indicator_type,
                     "Indicator": ioc.indicator_value,
+                    "OSINT Pivot": pivot_url,
                     "Source Article": source_link,
                     "Detected": format_local_time(ioc.detected_at)
                 })
             
             df = pd.DataFrame(ioc_data)
-            col_filter1, col_filter2 = st.columns(2)
-            filter_type = col_filter1.multiselect("Filter by Type", ["IPv4", "SHA256", "MD5", "CVE"], default=["IPv4", "SHA256", "MD5", "CVE"])
+            
+            # Dynamic filtering
+            all_types = sorted(list(set(df["Type"].tolist())))
+            default_types = [t for t in all_types if t in ["IPv4", "SHA256", "Domain", "CVE", "MITRE ATT&CK"]]
+            
+            filter_type = st.multiselect("Filter by Threat Type", all_types, default=default_types if default_types else all_types)
             filtered_df = df[df["Type"].isin(filter_type)]
             
-            st.dataframe(filtered_df, width="stretch", column_config={"Source Article": st.column_config.LinkColumn("Source")}, hide_index=True)
-            st.download_button(label="📥 Export IOCs (CSV)", data=filtered_df.to_csv(index=False).encode('utf-8'), file_name=f"IOC_Export_{datetime.now(LOCAL_TZ).strftime('%Y%m%d')}.csv", mime='text/csv', width="stretch")
+            st.dataframe(
+                filtered_df, 
+                width="stretch", 
+                column_config={
+                    "Source Article": st.column_config.LinkColumn("Source Intel"),
+                    "OSINT Pivot": st.column_config.LinkColumn("Investigate 🔗", display_text="Open Tool")
+                }, 
+                hide_index=True
+            )
+            
+            st.download_button(
+                label="📥 Export Hunting Targets (CSV)", 
+                data=filtered_df.drop(columns=["OSINT Pivot"]).to_csv(index=False).encode('utf-8'), 
+                file_name=f"Hunt_Targets_{datetime.now(LOCAL_TZ).strftime('%Y%m%d')}.csv", 
+                mime='text/csv', 
+                width="stretch"
+            )
 
     with tab_manual:
-        st.subheader("Targeted LLM Deep Hunt")
-        st.markdown("Search the historical database for a specific threat and use the AI to generate YARA patterns, SIEM queries, and TTP assessments.")
+        st.subheader("Targeted LLM Deep Hunt & Detection Engine")
+        st.markdown("Search historical telemetry for a specific threat and instruct the AI to build **YARA Patterns**, **Splunk/SIEM Queries**, and **TTP Assessments**.")
         with st.form("manual_hunt_form"):
             hunt_target = st.text_input("Target Entity (e.g., 'Volt Typhoon', 'Ivanti Connect Secure', 'RansomHub')")
             hunt_depth = st.slider("Historical Depth (Days)", min_value=7, max_value=90, value=30)
             
-            if st.form_submit_button("🚀 Execute Deep Hunt", type="primary", disabled=not can_trigger_ai, width="stretch"):
+            if st.form_submit_button("🚀 Compile Detection Package", type="primary", disabled=not can_trigger_ai, width="stretch"):
                 if not hunt_target: st.error("Please enter a target entity.")
                 elif not ai_enabled: st.error("AI Engine is currently disabled in settings.")
                 else:
@@ -745,13 +1029,21 @@ elif page == "🎯 Threat Hunting & IOCs":
                         else:
                             st.success(f"Found {len(target_arts)} distinct reports. Handing off to AI for synthesis...")
                             hunt_context = "\n\n".join([f"Source: {a.source}\nTitle: {a.title}\nContent: {a.summary}" for a in target_arts])
-                            sys_prompt = f"""You are an elite Cyber Threat Hunter. Analyze the provided intelligence reports regarding '{hunt_target}'.
-                            Synthesize the data and generate an actionable Threat Hunt Package.
+                            
+                            sys_prompt = f"""You are an elite Cyber Threat Detection Engineer. Analyze the provided intelligence reports regarding '{hunt_target}'.
+                            Synthesize the data and generate a highly technical Detection & Hunt Package.
+                            
                             Your output MUST strictly follow this Markdown structure:
-                            ### 1. Threat Overview & TTPs
-                            ### 2. Known Targets & Vulnerabilities
-                            ### 3. Hunt Queries & Detection Logic
-                            Do not hallucinate. Base your response ONLY on the provided text."""
+                            ### 1. Threat Overview & MITRE TTPs
+                            (Provide a technical summary and list suspected MITRE ATT&CK techniques)
+                            ### 2. Known Vulnerabilities & Infrastructure
+                            (List CVEs, exploited software, or command-and-control behavior)
+                            ### 3. Splunk / SIEM Hunt Queries
+                            (Write generic SPL/KQL queries to hunt for this behavior)
+                            ### 4. YARA Detection Stub
+                            (Write a valid YARA rule stub based on strings, filenames, or behaviors mentioned in the text)
+                            
+                            Do not hallucinate external facts. Base your engineering ONLY on the provided context."""
                             
                             messages = [{"role": "system", "content": sys_prompt}, {"role": "user", "content": hunt_context}]
                             from src.llm import call_llm
@@ -759,45 +1051,55 @@ elif page == "🎯 Threat Hunting & IOCs":
                             
                             if ai_hunt_result:
                                 st.divider()
-                                st.markdown(f"## 🎯 Hunt Package: {hunt_target.upper()}")
+                                st.markdown(f"## 🎯 Detection Package: {hunt_target.upper()}")
                                 st.markdown(ai_hunt_result)
                                 st.divider()
                                 st.markdown("### 🔗 Reference Intel")
                                 for a in target_arts: st.markdown(f"- [{a.title}]({a.link})")
 
-# ================= NEW MODULE: AIOps RCA LIVE =================
+# ================= 6. AIOps RCA (ENTERPRISE MASTER BLOCK) =================
 elif page == "⚡ AIOps RCA":
     st.title("⚡ AIOps Root Cause Analysis")
     st.markdown("Live correlation of non-uniform monitoring alerts with Regional Intelligence.")
+    
     status_indicator = f"🔴 **LIVE** (Refreshing every {current_refresh_sec}s)" if current_refresh_sec > 0 else "⏸️ **PAUSED**"
     st.caption(f"{status_indicator} | Webhook Listener Active on Port 8100")
-    st.write("")
     
-    from src.database import TimelineEvent, RegionalOutage
-    from shapely.geometry import Point
+    from src.database import TimelineEvent, RegionalOutage, SolarWindsAlert, MonitoredLocation, CloudOutage, RegionalHazard, BgpAnomaly, SystemConfig
+    from src.aiops_engine import EnterpriseAIOpsEngine
+    import pydeck as pdk
+    import pandas as pd
+    import uuid
+
+    # Initialize Engine
+    ai_engine = EnterpriseAIOpsEngine(session)
+    sys_config = session.query(SystemConfig).first()
     
-    tab_active, tab_learning, tab_global = st.tabs(["🔴 Active Incident Board", "🧠 ML Alias Learning", "🌍 Global Correlation Engine"])
+    tab_active, tab_patterns, tab_learning, tab_global = st.tabs([
+        "🔴 Active Incident Board", 
+        "📈 Chronic Pattern Analysis", 
+        "🧠 ML Alias Learning", 
+        "🌍 Global Correlation Engine"
+    ])
     
     with tab_active:
-        active_alerts = session.query(SolarWindsAlert).filter(SolarWindsAlert.status != 'Resolved').order_by(SolarWindsAlert.received_at.desc()).all()
+        # Fetch active alerts
+        active_alerts = session.query(SolarWindsAlert).filter(SolarWindsAlert.status != 'Resolved', SolarWindsAlert.is_correlated == False).all()
+        
         c_live, c_sw = st.columns([3, 1])
         
         with c_sw:
             st.subheader("⏱️ Live Event Log")
-            st.caption("Descending Chronological")
-            
             c_btn1, c_btn2 = st.columns(2)
-            if c_btn1.button("🧹 Clear Log", width="stretch"):
+            if c_btn1.button("🧹 Clear Log", use_container_width=True):
                 session.query(TimelineEvent).delete(); session.commit(); safe_rerun()
-            if c_btn2.button("🗑️ Nuke Alerts", width="stretch"):
+            if c_btn2.button("🗑️ Nuke Alerts", use_container_width=True):
                 session.query(SolarWindsAlert).delete(); session.commit(); safe_rerun()
             
             st.divider()
-            
-            with st.container(height=800):
+            with st.container(height=600):
                 events = session.query(TimelineEvent).order_by(TimelineEvent.timestamp.desc()).limit(50).all()
-                if not events:
-                    st.info("Listening for network telemetry...")
+                if not events: st.info("Listening for network telemetry...")
                 else:
                     for e in events:
                         icon = "🔴" if e.event_type == "Alert" else "🟢" if e.event_type == "Resolution" else "🤖" if e.source == "AI" else "🔵"
@@ -805,207 +1107,222 @@ elif page == "⚡ AIOps RCA":
                         st.divider()
 
         with c_live:
-            # --- MAP RENDERED FIRST ---
+            # --- 🗺️ GEOSPATIAL OVERLAY (AUTO-FOCUSING) ---
             st.subheader("🗺️ Dynamic Geospatial Overlays")
-            import pydeck as pdk
-            
             locs = session.query(MonitoredLocation).all()
             grid_issues = session.query(RegionalOutage).filter_by(is_resolved=False).all()
             
             if not locs:
-                st.info("No monitored locations configured. Map cannot be rendered.")
+                st.info("No monitored locations configured.")
             else:
-                # --- NEW: MAP TYPE FILTER ---
-                available_types = sorted(list(set([l.loc_type for l in locs if l.loc_type])))
-                selected_types = st.multiselect("Filter Sites by Type", available_types, default=available_types, key="rca_map_type_filt")
-                
-                filtered_locs = [l for l in locs if l.loc_type in selected_types]
-                
-                alert_mapped_sites = [a.mapped_location for a in active_alerts if a.mapped_location != "Unknown"]
+                alert_mapped_sites = [a.mapped_location for a in active_alerts]
                 site_down_counts = {site: alert_mapped_sites.count(site) for site in set(alert_mapped_sites)}
-                down_locs = [l for l in filtered_locs if l.name in alert_mapped_sites]
                 
-                map_data, node_radii = [], []
+                map_data, alert_pulses = [], []
+                active_lats, active_lons = [], []
                 
-                for l in filtered_locs:
+                for l in locs:
                     down_count = site_down_counts.get(l.name, 0)
                     is_down = down_count > 0
-                    color = [255, 0, 0] if is_down else [0, 255, 0]
-                    status_text = f"{down_count} NODE(S) OFFLINE" if is_down else "Online"
+                    color = [255, 0, 0, 200] if is_down else [0, 255, 0, 160]
                     
-                    map_data.append({"Name": l.name, "Lat": l.lat, "Lon": l.lon, "Status": status_text, "Color": color})
+                    map_data.append({"Name": l.name, "Lat": l.lat, "Lon": l.lon, "Status": f"{down_count} Alerts" if is_down else "Online", "Color": color})
                     
                     if is_down:
-                        base_radius = 5000 + ((down_count - 1) * 3000)
-                        nearby_bonus = 0
-                        for other_l in down_locs:
-                            if other_l.name != l.name:
-                                dist_deg = ((l.lon - other_l.lon)**2 + (l.lat - other_l.lat)**2)**0.5
-                                dist_km = dist_deg * 111
-                                if dist_km < 50:
-                                    nearby_bonus += 8000
-                                    
-                        total_radius = base_radius + nearby_bonus
-                        node_radii.append({"lat": l.lat, "lon": l.lon, "radius": total_radius})
-                        
+                        alert_pulses.append({"lat": l.lat, "lon": l.lon, "radius": 4000 + (down_count * 2500)})
+                        active_lats.append(l.lat)
+                        active_lons.append(l.lon)
+                
+                # Dynamic Camera Pivot
+                if active_lats and active_lons:
+                    center_lat, center_lon, map_zoom = sum(active_lats) / len(active_lats), sum(active_lons) / len(active_lons), 8.0
+                else:
+                    center_lat, center_lon, map_zoom = 34.8, -92.2, 6.8
+
                 layers = []
-                
-                isp_data = [{"lat": i.lat, "lon": i.lon, "radius": i.radius_km * 1000} for i in grid_issues if i.outage_type in ["ISP", "Cellular"]]
-                if isp_data:
-                    layers.append(pdk.Layer("ScatterplotLayer", pd.DataFrame(isp_data), get_position="[lon, lat]", get_fill_color=[128, 0, 128, 60], get_radius="radius", pickable=False))
-                    
-                pwr_data = [{"lat": i.lat, "lon": i.lon, "radius": i.radius_km * 1000} for i in grid_issues if i.outage_type == "Power"]
-                if pwr_data:
-                    layers.append(pdk.Layer("ScatterplotLayer", pd.DataFrame(pwr_data), get_position="[lon, lat]", get_fill_color=[255, 200, 0, 60], get_radius="radius", pickable=False))
-                
-                if node_radii:
-                    layers.append(pdk.Layer("ScatterplotLayer", pd.DataFrame(node_radii), get_position="[lon, lat]", get_fill_color=[255, 0, 0, 40], get_radius="radius", pickable=False))
-                    
-                layers.append(pdk.Layer("ScatterplotLayer", pd.DataFrame(map_data), get_position="[Lon, Lat]", get_fill_color="Color", get_radius=1500, pickable=True))
-                
-                # Map view permanently locked to Central Arkansas (Lat: 34.8, Lon: -92.2)
-                st.pydeck_chart(pdk.Deck(layers=layers, initial_view_state=pdk.ViewState(latitude=34.8, longitude=-92.2, zoom=6.5, pitch=0), tooltip={"text": "{Name}\nStatus: {Status}"}), width="stretch", height=600)
-            
+                layer_id = str(uuid.uuid4())[:6]
+
+                if grid_issues:
+                    isp_df = pd.DataFrame([{"lat": i.lat, "lon": i.lon, "radius": i.radius_km * 1000} for i in grid_issues if i.outage_type in ["ISP", "Cellular"]])
+                    if not isp_df.empty: layers.append(pdk.Layer("ScatterplotLayer", isp_df, id=f"isp_{layer_id}", get_position="[lon, lat]", get_fill_color=[128, 0, 128, 60], get_radius="radius"))
+
+                    pwr_df = pd.DataFrame([{"lat": i.lat, "lon": i.lon, "radius": i.radius_km * 1000} for i in grid_issues if i.outage_type == "Power"])
+                    if not pwr_df.empty: layers.append(pdk.Layer("ScatterplotLayer", pwr_df, id=f"pwr_{layer_id}", get_position="[lon, lat]", get_fill_color=[255, 191, 0, 80], get_radius="radius"))
+
+                if alert_pulses:
+                    layers.append(pdk.Layer("ScatterplotLayer", pd.DataFrame(alert_pulses), id=f"pulse_{layer_id}", get_position="[lon, lat]", get_fill_color=[255, 0, 0, 40], get_radius="radius"))
+
+                layers.append(pdk.Layer("ScatterplotLayer", pd.DataFrame(map_data), id=f"sites_{layer_id}", get_position="[Lon, Lat]", get_fill_color="Color", get_radius=1800, pickable=True))
+
+                st.pydeck_chart(pdk.Deck(
+                    layers=layers, 
+                    initial_view_state=pdk.ViewState(latitude=center_lat, longitude=center_lon, zoom=map_zoom, transition_duration=1000), 
+                    tooltip={"text": "{Name}\n{Status}"}
+                ))
+
             st.divider()
 
-            # --- CLUSTERED ALERT MATRIX ---
-            st.subheader("🧠 Site-Based Correlation Matrix")
-            
+            # --- 🧠 SITE-BASED CORRELATION MATRIX ---
+            st.subheader("⚡ Enterprise Correlation & ITSM Dispatch")
             if not active_alerts:
-                st.success("✅ All monitored infrastructure is operational.")
+                st.success("✅ Grid operational. No active site incidents.")
             else:
-                # Group alerts by their mapped site
-                from collections import defaultdict
-                site_clusters = defaultdict(list)
-                for alert in active_alerts:
-                    site_clusters[alert.mapped_location].append(alert)
-                
-                # Render each site as a unified block
-                for site_name, alerts in site_clusters.items():
-                    with st.container(border=True):
-                        st.markdown(f"### 📍 Site Cluster: [{site_name}]")
-                        
-                        # Calculate impact radius at this site
-                        device_counts = {}
-                        category_counts = {}
-                        for a in alerts:
-                            device_counts[a.device_type] = device_counts.get(a.device_type, 0) + 1
-                            category_counts[a.event_category] = category_counts.get(a.event_category, 0) + 1
-                            
-                        st.markdown(f"**Total Active Alerts:** {len(alerts)}")
-                        
-                        c_stat1, c_stat2 = st.columns(2)
-                        with c_stat1:
-                            st.caption("Hardware Affected")
-                            for k, v in device_counts.items(): st.write(f"- {v}x {k}")
-                        with c_stat2:
-                            st.caption("Event Categories")
-                            for k, v in category_counts.items(): st.write(f"- {v}x {k}")
-                        
-                        st.divider()
-                        
-                        # Site-level external telemetry context
-                        node_record = session.query(MonitoredLocation).filter(MonitoredLocation.name == site_name).first()
-                        node_risk = node_record.current_spc_risk if node_record else "Unknown"
-                        active_clouds = session.query(CloudOutage).filter_by(is_resolved=False).all()
-                        
-                        nearby_power = 0
-                        nearby_isp = 0
-                        if node_record and node_record.lat and node_record.lon:
-                            active_grid_issues = session.query(RegionalOutage).filter_by(is_resolved=False).all()
-                            for issue in active_grid_issues:
-                                if issue.lat and issue.lon:
-                                    dist_deg = ((node_record.lon - issue.lon)**2 + (node_record.lat - issue.lat)**2)**0.5
-                                    dist_km = dist_deg * 111
-                                    if dist_km <= issue.radius_km:
-                                        if issue.outage_type == "Power": nearby_power += 1
-                                        elif issue.outage_type in ["ISP", "Cellular"]: nearby_isp += 1
-                                        
-                        c_rca1, c_rca2, c_rca3 = st.columns(3)
-                        c_rca1.metric("Local SPC Risk", node_risk)
-                        c_rca2.metric("Nearby Power Outages", nearby_power)
-                        c_rca3.metric("Nearby Telecom Outages", nearby_isp)
-                        
-                        # Heuristic Rule Engine (No API required)
-                        prog_factors = []
-                        if nearby_power > 0: prog_factors.append("Grid Power Loss")
-                        if nearby_isp > 0: prog_factors.append("ISP Backbone Cut")
-                        if node_risk not in ["None", "Unknown"]: prog_factors.append(f"Severe Weather Hazard ({node_risk})")
-                        
-                        # Only flag Cloud Outage if the payload actually mentions the broken cloud provider
-                        cloud_match = False
-                        if active_clouds:
-                            cloud_names = [c.provider.lower() for c in active_clouds]
-                            for a in alerts:
-                                payload_str = str(a.raw_payload).lower()
-                                if any(c_name in payload_str for c_name in cloud_names):
-                                    cloud_match = True
-                                    break
-                        if cloud_match:
-                            prog_factors.append("Upstream Cloud Outage Correlation")
-                        
-                        # Check for catastrophic site failure
-                        if len(device_counts) > 2 and category_counts.get("Hard Down", 0) > 1:
-                            prog_factors.append("Catastrophic Local Hardware Cascade")
-                        
-                        if prog_factors:
-                            st.warning(f"⚙️ **Deterministic Site RCA:** Multiple vectors found ➔ **{', '.join(prog_factors)}**")
-                        else:
-                            st.error("⚙️ **Deterministic Site RCA:** No external factors found. Isolated internal site failure.")
-                        
-                        # Expandable Alert Details
-                        with st.expander("🔍 View Granular Node Details"):
-                            for alert in alerts:
-                                c_a1, c_a2 = st.columns([4, 1])
-                                c_a1.error(f"**{alert.node_name}** | {alert.device_type} | {alert.event_category} | IP: {alert.ip_address}")
-                                if c_a2.button("✅ Resolve", key=f"res_{alert.id}", width="stretch"):
-                                    alert.status = 'Resolved'
-                                    session.add(TimelineEvent(source="User", event_type="Resolution", message=f"🟢 Operator manually resolved {alert.node_name}"))
-                                    session.commit(); safe_rerun()
+                active_weather = session.query(RegionalHazard).all()
+                active_cloud = session.query(CloudOutage).filter_by(is_resolved=False).all()
+                active_bgp = session.query(BgpAnomaly).filter_by(is_resolved=False).all()
 
+                incidents = ai_engine.analyze_and_cluster(active_alerts)
+                
+                for site_name, data in incidents.items():
+                    # Unpack the 7 new variables from the Ontological Engine
+                    cause, conf, priority, evidence, blast, p0, cascade_str = ai_engine.calculate_root_cause(
+                        site_name, data, active_weather, active_cloud, active_bgp
+                    )
+                    
+                    p_icon = "🔴" if "P1" in priority else "🟠" if "P2" in priority else "🟡"
+                    
+                    with st.container(border=True):
+                        st.markdown(f"### {p_icon} {priority} | Site: {site_name}")
+                        
+                        m = data['site_metadata']
+                        # UI Updates for Patient Zero and Cascade metrics
+                        c_info1, c_info2, c_info3 = st.columns([1, 1, 1])
+                        c_info1.caption(f"🛰️ **Blast Radius:** {blast}")
+                        c_info2.caption(f"⏱️ **Cascade Time:** {cascade_str}")
+                        c_info3.caption(f"🚨 **Patient Zero:** `{p0}`")
+                        
+                        st.progress(conf / 100.0, text=f"AI Confidence Score: {conf}%")
+                        st.warning(f"**Forensic Conclusion:** {cause}")
+                        
+                        # Generate the payload with the new metrics
+                        ticket_payload = ai_engine.generate_itsm_payload(
+                            site_name, data, cause, conf, priority, evidence, blast, p0, cascade_str
+                        )
+                        
+                        with st.expander(f"📝 Review Forensic Ticket ({len(data['alerts'])} Nodes, {len(data['domains_affected'])} Domains)"):
+                            edited_ticket = st.text_area("Ticket Body", value=ticket_payload, height=350, key=f"ed_{site_name}")
+                        
+                        btn_c1, btn_c2 = st.columns([3, 1])
+                        if btn_c1.button(f"📤 Dispatch Ticket to ITSM", type="primary", key=f"send_{site_name}", use_container_width=True):
+                            success, msg = ai_engine.send_to_ticketing_system(sys_config, f"NOC ALARM: {priority} - {site_name}", edited_ticket)
+                            if success:
+                                for a in data['alerts']: a.is_correlated = True
+                                session.commit(); st.success("Dispatched!"); time.sleep(1); safe_rerun()
+                            else: st.error(msg)
+                            
+                        if btn_c2.button(f"🤫 Acknowledge", type="secondary", key=f"ack_{site_name}", use_container_width=True):
+                            for a in data['alerts']: a.is_correlated = True
+                            session.commit(); st.info("Incident Silenced."); time.sleep(1); safe_rerun()
+                            
+    # --- 📈 CHRONIC PATTERN ANALYSIS TAB ---
+    with tab_patterns:
+        st.subheader("📈 Predictive Analytics & Chronic Pattern Recognition")
+        st.markdown("Analyzes historical telemetry to identify degrading hardware, environmental vulnerabilities, and chronic micro-outages before they cause catastrophic failure.")
+        
+        c_pat1, c_pat2 = st.columns([1, 3])
+        days_to_analyze = c_pat1.slider("Historical Lookback (Days)", min_value=7, max_value=90, value=30)
+        
+        if c_pat1.button("🔍 Run Pattern Recognition", type="primary", use_container_width=True):
+            with st.spinner(f"Analyzing telemetry over the last {days_to_analyze} days..."):
+                flap_df, vsat_df, reboot_df = ai_engine.generate_chronic_insights(days_back=days_to_analyze)
+                
+                if flap_df is None:
+                    st.warning("Not enough historical data collected yet to establish patterns.")
+                else:
+                    st.divider()
+                    
+                    # Row 1: Cellular & Reboots
+                    col_insight1, col_insight2 = st.columns(2)
+                    
+                    with col_insight1:
+                        st.markdown("### 📶 Cellular Micro-Blips (< 5 Mins)")
+                        st.caption("Sites with chronic cellular failover instability.")
+                        if flap_df.empty:
+                            st.success("✅ No chronic cellular flapping detected.")
+                        else:
+                            st.dataframe(
+                                flap_df, 
+                                hide_index=True, 
+                                use_container_width=True,
+                                column_config={
+                                    "Micro_Blips (<5m)": st.column_config.ProgressColumn(
+                                        "Flap Count", format="%d", min_value=0, max_value=50
+                                    )
+                                }
+                            )
+                            
+                    with col_insight2:
+                        st.markdown("### 🔄 Chronic Hardware Reboots")
+                        st.caption("Nodes experiencing recurring unexpected reboots or crashes.")
+                        if reboot_df.empty:
+                            st.success("✅ Hardware stability nominal.")
+                        else:
+                            st.dataframe(reboot_df, hide_index=True, use_container_width=True)
+
+                    st.divider()
+                    
+                    # Row 2: VSAT Environmental Vulnerability
+                    st.markdown("### 🛰️ VSAT Environmental Vulnerability Matrix")
+                    st.caption("Identifies VSAT/Satellite sites highly susceptible to regional weather fade.")
+                    
+                    if vsat_df.empty:
+                        st.success("✅ No severe VSAT rain/weather fade patterns detected.")
+                    else:
+                        c_v1, c_v2 = st.columns([2, 1])
+                        with c_v1:
+                            st.dataframe(
+                                vsat_df, 
+                                hide_index=True, 
+                                use_container_width=True,
+                                column_config={
+                                    "Vulnerability_Score": st.column_config.NumberColumn(
+                                        "Fade Risk Score", format="%d/100"
+                                    )
+                                }
+                            )
+                        with c_v2:
+                            st.info("💡 **AIOps Suggestion:** Sites with a Risk Score > 75 should be evaluated for secondary terrestrial circuits or larger dish alignments to mitigate ongoing weather isolation.")
+
+    # --- ML ALIAS LEARNING TAB ---
     with tab_learning:
         st.subheader("🧠 ML Node Mapping Matrix")
-        st.markdown("The system uses Fuzzy Logic to guess which Site a cryptic Node Name belongs to. Review and verify the AI's guesses here.")
-        
         from src.database import NodeAlias
         aliases = session.query(NodeAlias).order_by(NodeAlias.confidence_score.asc()).all()
-        
-        if not aliases: st.info("No learned aliases yet. Send a webhook payload to begin training.")
+        if not aliases: 
+            st.info("No learned aliases yet. Send a webhook payload to begin training.")
         else:
             all_locs = ["Unknown"] + [l.name for l in session.query(MonitoredLocation).all()]
             for a in aliases:
                 with st.container(border=True):
                     c_a1, c_a2, c_a3, c_a4 = st.columns([2, 3, 1, 1])
                     c_a1.code(a.node_pattern)
-                    
                     new_mapping = c_a2.selectbox("Mapped Site", all_locs, index=all_locs.index(a.mapped_location_name) if a.mapped_location_name in all_locs else 0, key=f"sel_al_{a.id}")
-                    
                     if a.is_verified: c_a3.success("Verified")
                     else: c_a3.warning(f"AI Guess ({int(a.confidence_score)}%)")
-                    
-                    if c_a4.button("💾 Save", key=f"sv_al_{a.id}", width="stretch"):
+                    if c_a4.button("💾 Save", key=f"sv_al_{a.id}", use_container_width=True):
                         a.mapped_location_name = new_mapping
                         a.is_verified = True
                         a.confidence_score = 100.0 
                         session.commit()
-                        st.success("Rule Saved!"); time.sleep(0.5); safe_rerun()
+                        st.success("Rule Saved!")
+                        st.rerun()
 
+    # --- GLOBAL SITREP TAB ---
     with tab_global:
         st.subheader("🌍 Deterministic Global Correlation Engine")
-        st.markdown("Calculates causation graphs based on geospatial math and telemetry overlays. Works 100% locally. AI summarization is optional.")
+        st.markdown("Calculates causation graphs based on geospatial math and telemetry overlays across all domains.")
         
         c_glob1, c_glob2 = st.columns([3, 1])
         
-        if c_glob2.button("🔍 Run Global Correlation", type="primary", width="stretch"):
+        if c_glob2.button("🔍 Run Global Correlation", type="primary", use_container_width=True):
             with st.spinner("Calculating Multi-Domain Causal Links..."):
-                down_nodes = session.query(SolarWindsAlert).filter(SolarWindsAlert.status != 'Resolved').all()
+                down_nodes = session.query(SolarWindsAlert).filter(SolarWindsAlert.is_correlated == False).all()
                 active_clouds = session.query(CloudOutage).filter(CloudOutage.is_resolved == False).all()
                 active_weather = session.query(RegionalHazard).all()
                 active_grid = session.query(RegionalOutage).filter_by(is_resolved=False).all()
                 locs_db = session.query(MonitoredLocation).all()
                 
-                # --- PHASE 1: PROGRAMMATIC CORRELATION (NO LLM REQUIRED) ---
-                report = "### 🌍 Global Situation Report (SitRep)\n\n"
+                report = f"### 🌍 Global Situation Report (SitRep)\n\n"
                 report += f"**Active Node Failures:** {len(down_nodes)} | "
                 report += f"**Cloud Outages:** {len(active_clouds)} | "
                 report += f"**Grid/Weather Anomalies:** {len(active_weather) + len(active_grid)}\n\n"
@@ -1019,48 +1336,52 @@ elif page == "⚡ AIOps RCA":
                     
                     if active_clouds:
                         c_names = [c.provider.lower() for c in active_clouds]
-                        if any(c in str(alert.details).lower() or c in str(alert.event_type).lower() for c in c_names):
-                            causation_factors.append("☁️ Upstream Cloud Outage match found in payload")
-                            
+                        payload_str = str(alert.raw_payload).lower() if alert.raw_payload else ""
+                        if any(c in str(alert.details).lower() or c in payload_str for c in c_names):
+                            causation_factors.append("☁️ Upstream Cloud Service Outage")
+                    
                     if n_loc and n_loc.lat and n_loc.lon:
                         for issue in active_grid:
                             if issue.lat and issue.lon:
                                 dist_km = (((n_loc.lon - issue.lon)**2 + (n_loc.lat - issue.lat)**2)**0.5) * 111
                                 if dist_km <= issue.radius_km:
-                                    causation_factors.append(f"⚡ Geospatial overlap with {issue.outage_type} outage ({issue.provider})")
+                                    causation_factors.append(f"⚡ {issue.outage_type} Outage Geometry ({issue.provider})")
                                     
+                        if n_loc.current_spc_risk not in ["None", "Unknown"]:
+                            causation_factors.append(f"🌪️ Severe Weather Hazard ({n_loc.current_spc_risk})")
+                    
                     if causation_factors:
-                        report += f"- **{alert.node_name}** ({alert.mapped_location}) is likely degraded due to: " + ", ".join(causation_factors) + "\n"
+                        report += f"- **{alert.node_name}** ({alert.mapped_location}) is likely impacted by: " + ", ".join(list(set(causation_factors))) + "\n"
                     else:
                         isolated_nodes.append(f"**{alert.node_name}** ({alert.mapped_location})")
-                        
+                
                 report += "\n#### 🛠️ Isolated Anomalies (Network Faults)\n"
                 if isolated_nodes:
                     report += "No external factors detected. Treat as localized hardware/software failures:\n"
-                    for n in isolated_nodes: report += f"- {n}\n"
+                    for n in isolated_nodes: 
+                        report += f"- {n}\n"
                 else:
-                    report += "- None detected.\n"
-                    
-                # --- PHASE 2: OPTIONAL AI SUMMARIZATION ---
+                    report += "- None detected. All failures are correlated to external events.\n"
+                
                 if ai_enabled and can_trigger_ai:
-                    sys_prompt = "You are an elite AIOps Engine. Summarize the following deterministic IT SitRep into a 2-sentence executive summary highlighting the most critical impacts."
+                    sys_prompt = "You are an elite NOC AIOps Engine. Summarize the following deterministic IT SitRep into a technical 2-sentence executive summary."
                     from src.llm import call_llm
                     ai_summary = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": report}], sys_config, temperature=0.1)
                     if ai_summary:
                         report = f"### 🤖 AI Executive Summary\n> {ai_summary}\n\n---\n\n" + report
-                        
+                
                 st.session_state.last_global_rca = report
-        
+
         if "last_global_rca" in st.session_state:
             st.divider()
             with st.container(border=True):
                 st.markdown(st.session_state.last_global_rca)
             
             c_em1, c_em2 = st.columns([1, 4])
-            if c_em1.button("✉️ Broadcast via Email", width="stretch"):
+            if c_em1.button("✉️ Broadcast SitRep", use_container_width=True):
                 from src.mailer import send_alert_email
                 with st.spinner("Transmitting via SMTP..."):
-                    success, msg = send_alert_email("Critical Multi-Domain SitRep", st.session_state.last_global_rca)
+                    success, msg = send_alert_email("URGENT: Multi-Domain Global SitRep", st.session_state.last_global_rca)
                     if success: st.success(msg)
                     else: st.error(msg)
 

@@ -66,9 +66,9 @@ def fetch_spc_outlooks(session):
         session.rollback()
 
 def fetch_nws_warnings(session):
-    """Fetches active NWS alerts for the operational region (Arkansas)."""
+    """Fetches active NWS alerts for the operational region (AR, OK, MS, MO)."""
     try:
-        url = "https://api.weather.gov/alerts/active?area=AR"
+        url = "https://api.weather.gov/alerts/active?area=AR,OK,MS,MO"
         headers = {'User-Agent': 'Mozilla/5.0 (NOC_Fusion_Center)'}
         response = requests.get(url, headers=headers, timeout=10)
         
@@ -78,26 +78,33 @@ def fetch_nws_warnings(session):
         data = response.json()
         features = data.get('features', [])
         
-        # Clear out old AR alerts so they don't pile up endlessly
-        session.query(RegionalHazard).delete()
-        
         added = 0
+        updated = 0
         for f in features:
             props = f.get('properties', {})
-            haz = RegionalHazard(
-                hazard_id=props.get('id', str(uuid.uuid4())),
-                hazard_type=props.get('event', 'Unknown'),
-                severity=props.get('severity', 'Unknown'),
-                title=props.get('headline', 'Weather Alert'),
-                description=props.get('description', ''),
-                location=props.get('areaDesc', 'Arkansas'),
-                updated_at=datetime.utcnow()
-            )
-            session.add(haz)
-            added += 1
+            hazard_id = props.get('id', str(uuid.uuid4()))
+            
+            # Check if we already have this storm tracked
+            existing_hazard = session.query(RegionalHazard).filter_by(hazard_id=hazard_id).first()
+            
+            if existing_hazard:
+                existing_hazard.updated_at = datetime.utcnow()
+                updated += 1
+            else:
+                haz = RegionalHazard(
+                    hazard_id=hazard_id,
+                    hazard_type=props.get('event', 'Unknown'),
+                    severity=props.get('severity', 'Unknown'),
+                    title=props.get('headline', 'Weather Alert'),
+                    description=props.get('description', ''),
+                    location=props.get('areaDesc', 'Regional'),
+                    updated_at=datetime.utcnow()
+                )
+                session.add(haz)
+                added += 1
             
         session.commit()
-        log_print(f"✅ NWS Sync complete. Tracking {added} active regional alerts.")
+        log_print(f"✅ NWS Sync complete. Added {added} new alerts, updated {updated} existing alerts.")
     except Exception as e:
         log_print(f"❌ NWS Fetch Error: {e}")
         session.rollback()
