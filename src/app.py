@@ -48,7 +48,7 @@ ALL_POSSIBLE_PAGES = [
 ]
 
 ALL_POSSIBLE_ACTIONS = [
-    "Action: Pin Articles", "Action: Boost Threat Score", 
+    "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score", 
     "Action: Trigger AI Functions", "Action: Manually Sync Data",
     "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV", 
     "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Regional Grid",
@@ -58,7 +58,7 @@ ALL_POSSIBLE_ACTIONS = [
     "Tab: Threat Hunting -> Global IOC Matrix", "Tab: Threat Hunting -> Deep Hunt Builder",
     "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
     "Tab: Report Center -> Report Builder", "Tab: Report Center -> Shared Library",
-    "Tab: Settings -> RSS Sources", "Tab: Settings -> AI & SMTP", 
+    "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training", "Tab: Settings -> AI & SMTP", 
     "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
 ]
 
@@ -118,6 +118,7 @@ else:
 
 # Corrected Action Checks
 can_pin = "Action: Pin Articles" in st.session_state.allowed_actions
+can_train = "Action: Train ML Model" in st.session_state.allowed_actions
 can_boost = "Action: Boost Threat Score" in st.session_state.allowed_actions
 can_trigger_ai = "Action: Trigger AI Functions" in st.session_state.allowed_actions
 can_sync = "Action: Manually Sync Data" in st.session_state.allowed_actions
@@ -201,13 +202,17 @@ def render_article_feed(feed_articles, key_prefix=""):
             if art.ai_bluf: st.success(f"**AI BLUF:** {art.ai_bluf}")
             else: st.caption(art.summary[:250] + "..." if art.summary else "No summary.")
                 
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2, c3, c4, c5 = st.columns(5)
             if c1.button("📍 Unpin" if art.is_pinned else "📌 Pin", key=f"{key_prefix}pin_{art.id}", disabled=not can_pin): svc.toggle_pin(art.id); safe_rerun()
             if c2.button("⏫ +15 Score", key=f"{key_prefix}boost_{art.id}", disabled=not can_boost): svc.boost_score(art.id, 15); safe_rerun()
-            if c3.button("🗑️ Dismiss", key=f"{key_prefix}dism_{art.id}"): svc.change_status(art.id, 1); safe_rerun()
+            
+            # --- RESTORED ML BUTTONS ---
+            if c3.button("🧠 Keep", key=f"{key_prefix}keep_{art.id}", disabled=not can_train): svc.change_status(art.id, 2); safe_rerun()
+            if c4.button("🧠 Dismiss", key=f"{key_prefix}dism_{art.id}", disabled=not can_train): svc.change_status(art.id, 1); safe_rerun()
+            
             if ai_enabled and not art.ai_bluf:
                 is_ai_cooling = check_cooldown(f"bluf_{art.id}", 30)
-                if c4.button("⏳ Generating..." if is_ai_cooling else "🤖 BLUF", key=f"{key_prefix}bluf_{art.id}", disabled=not can_trigger_ai or is_ai_cooling):
+                if c5.button("⏳ Generating..." if is_ai_cooling else "🤖 BLUF", key=f"{key_prefix}bluf_{art.id}", disabled=not can_trigger_ai or is_ai_cooling):
                     apply_cooldown(f"bluf_{art.id}")
                     with st.spinner("Analyzing..."):
                         b = generate_bluf(art, svc.SessionLocal())
@@ -314,7 +319,7 @@ elif page == "📰 Daily Fusion Report":
     
     with col2:
         if not has_yesterday:
-            is_report_cooling = check_cooldown("gen_report", 300) # 5 Minute cooldown for heavy LLM generation
+            is_report_cooling = check_cooldown("gen_report", 300) 
             if st.button("⏳ Compiling Data..." if is_report_cooling else "🤖 Generate Yesterday's Report", width="stretch", type="primary", disabled=not can_trigger_ai or is_report_cooling):
                 if not ai_enabled: 
                     st.error("AI is disabled.")
@@ -562,7 +567,6 @@ elif page == "📡 Threat Telemetry":
                                     master_polygons.append(poly_dict)
                                     if show_spc: toggled_polygons.append(poly_dict)
                                     
-                                    # Build the lightweight pydeck dictionary directly
                                     micro_feature = {
                                         "type": "Feature",
                                         "geometry": f.get("geometry"),
@@ -1271,6 +1275,7 @@ elif page == "⚙️ Settings & Admin":
     set_tab_names = []
     
     if "Tab: Settings -> RSS Sources" in st.session_state.allowed_actions: set_tab_names.append("📡 RSS Sources")
+    if "Tab: Settings -> ML Training" in st.session_state.allowed_actions: set_tab_names.append("🧠 ML Training")
     if "Tab: Settings -> AI & SMTP" in st.session_state.allowed_actions: set_tab_names.append("🤖 AI & SMTP")
     if "Tab: Settings -> Users & Roles" in st.session_state.allowed_actions: set_tab_names.append("👥 Users & Roles")
     if "Tab: Settings -> Backup & Restore" in st.session_state.allowed_actions: set_tab_names.append("💾 Backup & Restore")
@@ -1310,6 +1315,26 @@ elif page == "⚙️ Settings & Admin":
                             st.text(f.name); st.caption(f.url)
                             if st.button("Delete", key=f"del_src_{f.id}", width="stretch"): 
                                 svc.delete_record("FeedSource", f.id); safe_rerun()
+            set_idx += 1
+
+        if "Tab: Settings -> ML Training" in st.session_state.allowed_actions:
+            with set_tabs[set_idx]:
+                st.subheader("Smart Filter Training")
+                pos, neg, total = svc.get_ml_counts()
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Total Samples", total); c2.metric("Positives (Keep)", pos); c3.metric("Negatives (Dismiss)", neg)
+                
+                is_train_cooling = check_cooldown("ml_train", 60)
+                if st.button("⏳ Training..." if is_train_cooling else "🚀 Retrain Model Now", type="primary", disabled=not can_train or is_train_cooling, key="set_ml_retrain", width="stretch"):
+                    apply_cooldown("ml_train")
+                    if total < 10: st.error("Not enough data! Please review at least 10 articles.")
+                    else:
+                        with st.spinner("Training neural pathways..."):
+                            try: 
+                                from src.train_model import train
+                                train()
+                                st.success("Model retrained successfully!")
+                            except Exception as e: st.error(f"Training failed: {e}")
             set_idx += 1
                 
         if "Tab: Settings -> AI & SMTP" in st.session_state.allowed_actions:
