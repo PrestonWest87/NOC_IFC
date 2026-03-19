@@ -10,7 +10,8 @@ It utilizes a highly optimized hybrid intelligence engine—combining Scikit-Lea
 * **Background Orchestration (`worker`):** A headless daemon driving a Master Scheduler that bypasses Python's GIL using a Hybrid Concurrency Model (Asynchronous I/O via `aiohttp` combined with Multiprocessing via `ProcessPoolExecutor`).
 * **Ingestion Gateway (`webhook`):** A dedicated FastAPI asynchronous listener hosting REST APIs to receive, parse, and normalize live telemetry from NMS/ITSM platforms like SolarWinds.
 * **Database:** Defaults to a lightweight, file-based SQLite database (`noc_fusion.db`) optimized with `check_same_thread=False` for concurrent container access, with seamless ORM fallback to enterprise PostgreSQL clusters.
-* **Correlation Engines:** * *Deterministic RCA:* Programmatic math engine that calculates geospatial blast radii, cascade durations, and clusters alerts by physical sites.
+* **Correlation Engines:** *
+    * *Deterministic RCA:* Programmatic math engine that calculates geospatial blast radii, cascade durations, and clusters alerts by physical sites.
     * *Hybrid Threat Scoring:* Fuses deterministic Keyword Heuristics with probabilistic Scikit-Learn predictions (TF-IDF + Multinomial Naive Bayes).
     * *Asset Mapping:* A 5-stage pipeline utilizing exact matching, known aliases, regex heuristics, and ML prediction to map messy alerts to physical NOC sites.
 * **Synthesis & Broadcast:** A universal LLM abstraction layer supporting OpenAI, Groq, or local models, combined with a native Python SMTP client that translates Markdown to HTML for automated Situation Report (SitRep) delivery.
