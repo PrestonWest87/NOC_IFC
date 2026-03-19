@@ -1,82 +1,75 @@
-# Enterprise Architecture & Functional Specification: `src/app.py`
+# Enterprise Architecture & Functional Specification: `src/app.py` *(Updated)*
 
 ## 1. Executive Overview
 
-The `src/app.py` module is the **Primary Presentation and Controller Layer** for the Intelligence Fusion Center (IFC). Built on the Streamlit framework, it serves as the interactive frontend for Network Operations Center (NOC) personnel. 
+The `src/app.py` module serves as the **Primary Presentation and Controller Layer** for the Intelligence Fusion Center (IFC). Built on the Streamlit framework, it acts as the interactive frontend for Network Operations Center (NOC) personnel.
 
-This file is responsible for session management, Role-Based Access Control (RBAC), database transaction handling via SQLAlchemy, and the dynamic rendering of all operational dashboards. It heavily leverages `st_autorefresh` for hands-free "Big Screen" SOC monitoring and `pydeck` for complex, 3D geospatial threat visualization.
-
----
-
-## 2. Initialization, Authentication, and RBAC
-
-The application implements a secure, stateless authentication mechanism that bridges Streamlit's ephemeral sessions with persistent browser cookies.
-
-### 2.1 Bootstrapping & Caching
-* **`setup_database()`**: Decorated with `@st.cache_resource`, ensuring the SQLAlchemy ORM schema (`init_db()`) is validated only once upon the initial server boot, preventing overhead on subsequent page reloads.
-* **`get_dashboard_metrics()`**: Decorated with `@st.cache_data(ttl=60)`. It calculates the top-level 24-hour KPI metrics (RSS counts, CVEs, Hazards, Outages) and caches them for 60 seconds, drastically reducing database read operations during heavy operator usage.
-
-### 2.2 The Auth Lifecycle
-1.  **Cookie Validation**: Upon load, the app uses `CookieController` to check for an existing `noc_session_token`. If a matching UUID exists in the `users` database table, the user bypasses the login screen.
-2.  **Credential Verification**: If no cookie exists, the user is presented with a login form. Inputs are hashed and verified against the database using `bcrypt.checkpw()`.
-3.  **Token Minting**: Upon success, a new `uuid4()` is generated, saved to the database, and pushed to the browser cookie with a 30-day expiration (`max_age=30*86400`).
-
-### 2.3 Dynamic Permissions (RBAC)
-* Once authenticated, the system queries the `Role` table associated with the user.
-* It dynamically populates `st.session_state.allowed_pages` (which dictates the sidebar navigation) and `st.session_state.allowed_actions` (which toggles specific UI capabilities like the ability to pin articles, trigger AI generation, or manually sync data).
+In its latest architectural iteration, this module has undergone a major refactoring to implement a strict **Service-Oriented Architecture (SOA) pattern**. It explicitly bans direct database Model imports (SQLAlchemy ORM), delegating all data persistence, querying, and mutation to a dedicated intermediate `services.py` layer. Furthermore, it introduces robust UI debouncing to protect backend systems from rate-limit exhaustion.
 
 ---
 
-## 3. Core Helper Utilities
+## 2. Core Architecture: The Service Layer Abstraction
 
-These functions manage data mutations directly from UI interactions:
-* **`toggle_pin(art_id)`**: Flips the `is_pinned` boolean, protecting an article from the 30-day database garbage collector.
-* **`boost_score(art_id, amount)`**: Artificially inflates an article's threat score (capped at 100).
-* **`change_status(art_id, new_feedback)`**: The Human-in-the-Loop (HITL) feedback mechanism. If an operator confirms an article (`2`) or dismisses it (`1`), this function updates the article's state and dynamically adjusts the weight of the associated `Keyword` objects in the database, directly influencing future ML scoring logic.
-* **`render_article_feed()`**: A modular UI component used across multiple tabs to render standard intelligence cards, complete with metadata badges and interaction buttons.
+### 2.1 Separation of Concerns (Controller vs. Model)
+Previously, `app.py` tightly coupled the User Interface with the database by directly executing `session.query(Model)` commands. The updated architecture imports `src.services as svc` and explicitly prohibits direct database model imports.
+* **Architectural Benefit:** This decoupling ensures that `app.py` only handles UI rendering and user session states. Database logic, connection pooling, and error handling are centralized in `services.py`. If the backend transitions from SQLite/PostgreSQL to a completely different data store or REST API, the `app.py` file remains entirely untouched.
+
+### 2.2 UI Debouncing & Rate Limiting (The Cooldown Engine)
+The application integrates a custom rate-limiting mechanism to protect expensive backend processes (like LLM generation or external API syncing) from accidental user spam or impatient multi-clicking.
+* **`check_cooldown(key, cooldown_seconds)`**: Evaluates the Streamlit `session_state` timestamp against the current time.
+* **`apply_cooldown(key)`**: Sets the lock.
+* **Implementation:** Applied to high-latency buttons (e.g., "🔄 Sync CISA KEV", "🤖 Generate Yesterday's Report"). While cooling down, buttons automatically disable themselves and change their label to "⏳ Syncing..." or "⏳ Generating...", providing immediate tactile feedback to the operator.
 
 ---
 
-## 4. Module Specifications & Page Routing
+## 3. Initialization, Authentication & RBAC
 
-The application utilizes a `st.sidebar.radio` component to route users between seven primary operational modules, maintaining state across reloads.
+### 3.1 Authentication Lifecycle
+* **Cookie Controller:** The app uses `CookieController` to check for an existing `noc_session_token`.
+* **Service Delegation:** Auth requests are passed to `svc.authenticate_user(username, password)`. Upon success, a token is minted, stored in the browser cookie (30-day expiration), and the session is refreshed.
 
-### 4.1 🌐 Operational Dashboard
-Designed as a "Heads-Up Display" (HUD) for SOC monitors.
-* **Auto-Rotation Engine**: Uses `refresh_count % len(dash_panels)` to automatically cycle the view between "Threat Triage", "Infrastructure Status", and "AI Analysis" every few minutes if the Auto-Rotate toggle is engaged.
-* **AI Security Auditor**: Cross-references the organization's defined `tech_stack` against the last 30 days of the CISA KEV catalog using an on-demand LLM prompt.
+### 3.2 Granular Role-Based Access Control (RBAC)
+The permission arrays have been overhauled into highly descriptive, human-readable matrices that dictate exactly what an operator can see and do.
+* **`ALL_POSSIBLE_PAGES`**: Dictates top-level sidebar navigation (e.g., `"🌐 Operational Dashboard"`).
+* **`ALL_POSSIBLE_ACTIONS`**: Dictates granular tab-level visibility and specific interactive functions (e.g., `"Action: Pin Articles"`, `"Tab: Threat Telemetry -> RSS Triage"`).
+
+---
+
+## 4. Module Specifications (Page Routing)
+
+The application utilizes `st.sidebar.radio` to route operators between seven distinct modules, automatically hiding modules the current user's `Role` does not possess permissions for.
+
+### 4.1 🌐 Operational Dashboard (HUD)
+* **Metrics Header:** Fetches top-level 24-hour KPIs via `svc.get_dashboard_metrics()`.
+* **Auto-Rotation:** Uses `st_autorefresh` and modular arithmetic to cycle the view between "Threat Triage", "Infrastructure Status", and "AI Analysis" for hands-free SOC wall-monitor viewing.
+* **AI Security Auditor:** Cross-references the local `SystemConfig.tech_stack` against the active CISA KEV catalog using an LLM prompt.
 
 ### 4.2 📰 Daily Fusion Report
-* Displays the pre-compiled `DailyBriefing` generated by the background `report_worker.py`. Allows authorized operators to force-regenerate the report manually via the AI engine.
+* **Historical Archive (New Feature):** In addition to generating the previous day's report, operators can now use a dropdown (`st.selectbox`) to select and view any historical Daily Briefing from the database archive fetched via `svc.get_all_daily_briefings()`.
 
 ### 4.3 📡 Threat Telemetry
-The deepest analytical module in the application, split into four sub-tabs:
-1.  **RSS Triage**: Implements advanced pagination (`render_paginated_feed`) to handle thousands of articles without crashing the browser, split into Pinned, Live ($>50$ score), Low, and Deep Search segments.
-2.  **Exploits (KEV)**: A searchable UI for the local CISA vulnerability mirror.
-3.  **Cloud Services**: Displays active and historical (72h) IaaS/SaaS outages.
-4.  **Regional Grid (Geospatial Engine)**: 
-    * **Map Rendering**: Uses `pydeck` (pdk) to render a live, interactive map.
-    * **In-Memory Geometry (`shapely`)**: Translates NOC facilities and NWS/SPC weather alerts into Shapely `Point` and `Polygon` objects to calculate deterministic intersections on the fly.
-    * **Executive Broadcast**: Generates a boardroom-ready HTML table (styled with inline CSS for Outlook compatibility) detailing Priority 1 and Priority 2 sites intersecting with severe weather, and dispatches it via SMTP.
+A deeply technical tab governed by granular "Tab" RBAC permissions.
+* **RSS Triage:** Implements advanced UI pagination (`svc.get_paginated_articles()`) to gracefully render thousands of threat articles without crashing the browser DOM. Includes sub-tabs for Pinned, Live, Low Threat, and Deep Search.
+* **Exploits (KEV) & Cloud Services:** Interfaces for viewing and forcing syncs of external vulnerability catalogs and SaaS outages.
+* **Regional Grid (Geospatial Engine):**
+    * **Map Rendering:** Leverages `pydeck` (pdk) to render a live, interactive 3D map overlaid with `shapely` geometric polygons representing SPC Convective Outlooks and NWS weather alerts.
+    * **Hazard Analytics:** Displays real-time matrices cross-tabulating NOC Facility Priority vs. Active Hazard Types.
+    * **Executive Broadcast:** Compiles an inline-styled, boardroom-ready HTML table of affected critical sites and dispatches it directly to the organization's distribution list via `src.mailer`.
 
 ### 4.4 🎯 Threat Hunting & IOCs
-* **Live Global IOC Matrix**: Renders a dynamic DataFrame of all Regex-extracted IOCs (IPs, Domains, Hashes) from the last 72 hours, automatically generating pivot links to VirusTotal, Shodan, and MITRE ATT&CK.
-* **Deep Hunt Builder**: A dedicated form that queries historical telemetry for a specific threat actor/malware, passing the context to the LLM to generate custom YARA rules and Splunk/SIEM SPL queries.
+* **Global IOC Matrix:** Displays Indicators of Compromise (extracted via regex in the background workers). Dynamically injects hyperlinked "OSINT Pivots" based on the artifact type (e.g., routing SHA256 hashes to VirusTotal, IPv4 addresses to Shodan).
+* **Deep Hunt Builder:** Takes a target entity (e.g., "Volt Typhoon"), queries historical telemetry via `svc.search_articles_for_hunting()`, and instructs the LLM to generate custom YARA rules and SIEM queries.
 
 ### 4.5 ⚡ AIOps RCA (Root Cause Analysis)
-The frontend for the `EnterpriseAIOpsEngine`.
-* **Active Incident Board**: Reads from the `SolarWindsAlert` and `TimelineEvent` tables. Features an auto-focusing PyDeck map that calculates the geographical "Blast Radius" of overlapping alerts and external cloud/power outages.
-* **Enterprise Correlation**: Displays the AI-calculated root cause (Patient Zero, Cascade Time). Allows operators to edit the forensic ticket and dispatch it directly to the ITSM system via webhook/email.
-* **Predictive Analytics**: Runs Pandas DataFrame aggregations (`generate_chronic_insights`) to identify Cellular micro-blips (< 5 mins), chronic hardware reboots, and VSAT rain fade vulnerabilities.
-* **ML Alias Learning**: Provides a UI for operators to verify or correct the AI's heuristic mappings of raw device names to formal locations.
+The Enterprise correlation frontend interfacing with `EnterpriseAIOpsEngine`.
+* **Active Incident Board:** Displays an auto-focusing PyDeck map calculating the geographic "Blast Radius" of active network alarms overlapping with physical environmental grids.
+* **Correlation Engine:** Renders the AI-calculated Root Cause, Cascade Time, and Patient Zero. Provides an editable text area to review the forensic ticket before dispatching it to an external ITSM system via SMTP/Webhook.
+* **Predictive Analytics:** Executes Pandas aggregations to highlight Cellular micro-blips, chronic hardware reboots, and VSAT rain fade susceptibility.
 
 ### 4.6 📑 Report Center
-* **Report Builder**: A multi-select interface allowing analysts to choose specific intelligence articles, define a custom objective, and trigger the `build_custom_intel_report` LLM Map-Reduce pipeline.
-* **Shared Library**: A CRUD interface for viewing, downloading (.md), and deleting saved organizational intelligence reports.
+* **Report Builder:** A unified multi-select interface allowing analysts to aggregate specific database articles into a context window and trigger an LLM Map-Reduce pipeline (`build_custom_intel_report`) to generate highly technical, bespoke intelligence reports.
 
 ### 4.7 ⚙️ Settings & Admin
 The administrative control plane.
-* **Config Management**: Forms to update RSS feeds, scoring Keywords, LLM Endpoints, internal Tech Stack strings, and SMTP broadcast credentials.
-* **ML Training**: A manual trigger to initiate the Scikit-Learn training pipeline (`train()`) based on collected human feedback.
-* **User Management**: Interfaces to create users, reset passwords, and strictly define custom RBAC `Role` objects.
-* **Backup/Restore & Danger Zone**: Allows administrators to export the entire configuration schema as a JSON payload, forcefully run the database garbage collector, or execute raw SQL `TRUNCATE` commands to reset the application.
+* **Configurations:** UIs to manage weighted Keywords, RSS Feeds, LLM System prompts/API keys, and global SMTP settings.
+* **Danger Zone:** Features destructive tools leveraging generic service commands (e.g., `svc.nuke_tables(["MonitoredLocation"])`) to securely wipe historical state, run PostgreSQL/SQLite database vacuuming routines, or trigger NLP recategorization scripts.
