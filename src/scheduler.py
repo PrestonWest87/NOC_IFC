@@ -20,6 +20,7 @@ from src.cve_worker import fetch_cisa_kev
 from src.infra_worker import fetch_regional_hazards
 from src.cloud_worker import fetch_cloud_outages
 from src.telemetry_worker import run_telemetry_sync
+from src.train_model import train  # <-- IMPORT ML TRAINING FUNCTION
 
 init_db()
 
@@ -32,7 +33,6 @@ def log(message, source="SYSTEM"):
 from src.logic import get_scorer
 log("Pre-loading NLP Scorer into memory...", "SYSTEM")
 _global_scorer = get_scorer()
-
 
 async def fetch_single_feed(session, f_name, f_url):
     try:
@@ -143,7 +143,6 @@ def fetch_feeds(source="Scheduled"):
                 total_added += added
                 
             # THE MAGIC SAUCE: Yield CPU for 100 milliseconds
-            # This prevents the loop from locking up the machine, giving the UI time to breathe
             time.sleep(0.1)
             
         except Exception as e:
@@ -190,15 +189,35 @@ def run_database_maintenance():
                 conn.execute(text("VACUUM ANALYZE extracted_iocs;"))
     except Exception: pass
 
+# --- WRAPPER JOBS ---
 def job_cisa(): fetch_cisa_kev()
 def job_regional(): fetch_regional_hazards()
 def job_cloud(): fetch_cloud_outages()
+
+def job_retrain_ml():
+    """Automated Weekly ML Retraining Pipeline"""
+    global _global_scorer
+    log("🧠 Initiating weekly ML Model Retraining...", "SYSTEM")
+    try:
+        train()
+        log("✅ ML Model retrained successfully and saved to disk.", "SYSTEM")
+        
+        # Hot-Reload the scorer in memory so the new neural weights take effect immediately
+        _global_scorer = get_scorer()
+        log("🔄 Global NLP Scorer hot-reloaded with fresh model weights.", "SYSTEM")
+        
+    except Exception as e:
+        log(f"❌ ML Training Pipeline failed: {e}", "SYSTEM")
+
 
 if __name__ == "__main__":
     import threading
     from src.report_worker import start_report_scheduler
     
     threading.Thread(target=start_report_scheduler, daemon=True).start()
+    
+    # Run the automated retraining every Sunday at 2:00 AM (server time)
+    schedule.every().sunday.at("02:00").do(job_retrain_ml)
     
     schedule.every(60).minutes.do(run_database_maintenance)
     schedule.every(15).minutes.do(fetch_feeds)
