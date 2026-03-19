@@ -15,10 +15,9 @@ def get_db():
     try: yield db
     finally: db.close()
 
-# --- HEURISTIC CLASSIFIERS (Maintained from your code) ---
+# --- HEURISTIC CLASSIFIERS ---
 def classify_device(text_corpus: str, node_type_hint: str = None) -> str:
-    # If SolarWinds sent an explicit Node Type, use it!
-    if node_type_hint and node_type_hint.lower() != "unknown":
+    if node_type_hint and node_type_hint.lower() not in ["unknown", "", "none"]:
         return node_type_hint
 
     text_corpus = text_corpus.lower()
@@ -34,39 +33,40 @@ def classify_device(text_corpus: str, node_type_hint: str = None) -> str:
 
 def smart_extract(payload: dict):
     """
-    Upgraded extraction to prioritize the specific SolarWinds 
-    JSON structure while maintaining fuzzy fallbacks.
+    Safely navigates deeply nested SolarWinds JSON payloads with cascading fallbacks.
     """
-    # 1. Direct Mapping from your SolarWinds JSON structure
-    # Use .get() with exact keys from your provided payload
+    # Isolate the nested dictionaries safely
+    nd = payload.get("Node_Details") or {}
+    pm = payload.get("Performance_Metrics") or {}
+    cp = payload.get("Custom_Properties_Universal") or {}
+
+    # 1. Cascading Extraction (Safely falls back if a field is empty)
     extracted = {
-        "node_name": payload.get("DisplayName", "Unknown"),
-        "ip_address": payload.get("IP Address", "Unknown"),
-        "severity": payload.get("severity", "Unknown"),
-        "event_type": payload.get("Alert Name", payload.get("check", "Unknown")),
-        "status": payload.get("Status Description", "Unknown"),
+        "node_name": nd.get("NodeName") or nd.get("SysName") or payload.get("entity_caption") or "Unknown",
+        "ip_address": nd.get("IP_Address") or "Unknown",
+        "severity": payload.get("severity") or cp.get("Alert_Level") or "Unknown",
+        "event_type": payload.get("check") or payload.get("class") or payload.get("description") or "Unknown",
+        "status": nd.get("StatusDescription") or payload.get("description") or "Unknown",
         "is_resolution": False,
-        "device_type": payload.get("Node Type", "Unknown"),
+        "device_type": nd.get("MachineType") or cp.get("Node_Type") or payload.get("entity_type") or "Unknown",
         "event_category": "General Degradation",
-        "site_group": payload.get("Site", "Unknown")
+        "site_group": cp.get("Site") or cp.get("City") or "Unknown"
     }
 
     # 2. Resolution Detection
     res_indicators = ['resolved', 'up', 'ok', 'clear', 'operational', 'recovered']
-    status_lower = str(extracted["status"]).lower()
+    status_lower = str(extracted["status"]).lower() + " " + str(payload.get("description", "")).lower()
     if any(word in status_lower for word in res_indicators):
         extracted["is_resolution"] = True
         extracted["status"] = "Resolved"
 
-    # 3. Fuzzy Fallbacks (Only if direct mapping failed)
-    if extracted["node_name"] == "Unknown":
-        # Fallback to your regex/fuzzy logic if DisplayName is missing
+    # 3. Fuzzy Fallbacks (Only if IP is completely missing)
+    if extracted["ip_address"] == "Unknown":
         corpus = json.dumps(payload).lower()
         ip_match = re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', corpus)
         if ip_match: extracted["ip_address"] = ip_match.group(0)
 
     # 4. Refined Device Classification
-    # Passes the 'Node Type' from your JSON as a hint
     extracted["device_type"] = classify_device(
         f"{extracted['node_name']} {extracted['event_type']}", 
         node_type_hint=extracted["device_type"]
@@ -76,37 +76,10 @@ def smart_extract(payload: dict):
 
 def resolve_location_mapping(node_name: str, sw_site_hint: str, db: Session):
     """
-    Prioritizes the 'Site' custom property from SolarWinds.
-    """
-    # If SolarWinds explicitly tells us the Site, use it immediately
-    if sw_site_hint and sw_site_hint != "Unknown":
-        return sw_site_hint
-
-    # Otherwise, fallback to your Fuzzy Logic mapper
-    clean_node = str(node_name).upper().split('.')[0] # Remove FQDN
-    existing = db.query(NodeAlias).filter(NodeAlias.node_pattern == clean_node).first()
-    if existing: return existing.mapped_location_name
-
-    sites = [loc.name for loc in db.query(MonitoredLocation).all()]
-    if not sites: return "Unknown"
-
-    best_match = process.extractOne(clean_node, sites, scorer=fuzz.partial_ratio)
-    if best_match and best_match[1] > 70:
-        db.add(NodeAlias(node_pattern=clean_node, mapped_location_name=best_match[0], confidence_score=best_match[1]))
-        db.commit()
-        return best_match[0]
-    
-    return "Unknown"
-  
-  
-def resolve_location_mapping(node_name: str, sw_site_hint: str, db: Session):
-    """
     Prioritizes the 'Site' custom property from SolarWinds for the map.
     """
     # 1. Primary: Use the explicit Site name from SolarWinds
-    if sw_site_hint and sw_site_hint != "Unknown":
-        # Ensure the site exists in our monitored_locations so it shows up on the map
-        # If it doesn't exist, we'll still map it, but the map won't have coords yet.
+    if sw_site_hint and sw_site_hint.lower() not in ["unknown", "", "none"]:
         return sw_site_hint
 
     # 2. Secondary: Fallback to Fuzzy Logic for the node name
@@ -121,6 +94,12 @@ def resolve_location_mapping(node_name: str, sw_site_hint: str, db: Session):
 async def receive_alert(request: Request, db: Session = Depends(get_db)):
     try:
         raw_payload = await request.json()
+
+        print("\n" + "="*50)
+        print(f"?? INCOMING SOLARWINDS PAYLOAD:\n{json.dumps(raw_payload, indent=4)}")
+        print("="*50 + "\n")
+         
+
         parsed = smart_extract(raw_payload)
         
         # Resolve where this belongs (Priority: Site Property -> Fuzzy Match)
@@ -136,7 +115,7 @@ async def receive_alert(request: Request, db: Session = Depends(get_db)):
                 a.status = 'Resolved'
                 a.resolved_at = datetime.utcnow()
             
-            db.add(TimelineEvent(source="Webhook", event_type="Resolution", message=f"🟢 {parsed['node_name']} recovered at {mapped_site}"))
+            db.add(TimelineEvent(source="Webhook", event_type="Resolution", message=f"?? {parsed['node_name']} recovered at {mapped_site}"))
             db.commit()
             return {"status": "success", "action": "resolved"}
 
@@ -147,14 +126,14 @@ async def receive_alert(request: Request, db: Session = Depends(get_db)):
             node_name=parsed["node_name"],
             ip_address=parsed["ip_address"],
             status=parsed["status"],
-            details=parsed.get("description", "No description provided"),
-            raw_payload=raw_payload, # Critical: Stores the full JSON for the AIOps engine
+            details=raw_payload.get("description", "No description provided"),
+            raw_payload=raw_payload, # Critical: Stores the full nested JSON for the AIOps engine
             mapped_location=mapped_site,
             device_type=parsed["device_type"],
-            is_correlated=False # Ensures it shows up for the AIOps engine
+            is_correlated=False
         )
         db.add(new_alert)
-        db.add(TimelineEvent(source="Webhook", event_type="Alert", message=f"🔴 Alert: {parsed['node_name']} ({parsed['device_type']}) at {mapped_site}"))
+        db.add(TimelineEvent(source="Webhook", event_type="Alert", message=f"?? Alert: {parsed['node_name']} ({parsed['device_type']}) at {mapped_site}"))
         
         db.commit()
         return {"status": "success", "action": "alert-created"}
