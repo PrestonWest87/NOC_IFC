@@ -308,9 +308,8 @@ def init_db():
         ]
         
         # EXACT match to descriptive strings deployed in app.py UI
-        # EXACT match to descriptive strings deployed in app.py UI
         all_actions = [
-            "Action: Pin Articles", "Action: Boost Threat Score", 
+            "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score", 
             "Action: Trigger AI Functions", "Action: Manually Sync Data",
             "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV", 
             "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Regional Grid",
@@ -320,7 +319,7 @@ def init_db():
             "Tab: Threat Hunting -> Global IOC Matrix", "Tab: Threat Hunting -> Deep Hunt Builder",
             "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
             "Tab: Report Center -> Report Builder", "Tab: Report Center -> Shared Library",
-            "Tab: Settings -> RSS Sources", "Tab: Settings -> AI & SMTP", 
+            "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training", "Tab: Settings -> AI & SMTP", 
             "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
         ]
 
