@@ -1,68 +1,57 @@
-# Enterprise Architecture & Functional Specification: `src/cloud_worker.py`
+# Enterprise Architecture & Functional Specification: `src/cloud_worker.py` *(Updated)*
 
 ## 1. Executive Overview
 
-The `src/cloud_worker.py` module functions as the **Global Infrastructure Polling Engine** for the Intelligence Fusion Center. It is an automated backend worker designed to proactively ingest, normalize, and track the operational status of mission-critical third-party SaaS and IaaS providers (e.g., AWS, Azure, GCP, Cloudflare, Okta). 
+The `src/cloud_worker.py` module functions as the **Global Infrastructure Polling Engine** for the Intelligence Fusion Center. It proactively ingests and normalizes the operational status of mission-critical third-party SaaS and IaaS providers (AWS, Azure, GCP, Cloudflare, etc.).
 
-By monitoring these external dependencies, the system can feed the `AIOpsEngine` with the necessary context to determine if a localized NOC alert is actually a symptom of a massive downstream cloud outage, drastically reducing mean-time-to-innocence (MTTI) for network operators.
+In its latest architectural iteration, this module has been significantly upgraded with an **Enterprise Noise Reduction Engine**. It now implements advanced Lexical Analysis (Regex) to aggressively filter out non-actionable intelligence—specifically, scheduled maintenance planned for future dates and outages explicitly isolated to foreign, non-US regions. This drastically reduces database bloat and prevents false-positive alerts on the NOC dashboard.
 
 ---
 
-## 2. Configuration & Data Sources
+## 2. The Enterprise Noise Reduction Engine
+
+To prevent the NOC from being flooded with irrelevant data (e.g., an AWS EC2 outage in Mumbai or a planned Microsoft 365 update occurring next week), the worker introduces three rigorous heuristic filters.
+
+### 2.1 Geographic Isolation: `is_foreign_region(text)`
+This function ensures that only outages with the potential to impact North American operations are ingested.
+* **The Dictionary:** Utilizes a hardcoded list of `FOREIGN_IDENTIFIERS` encompassing global region tags (e.g., `eu-`, `ap-`, `tokyo`, `frankfurt`).
+* **Execution Logic:** It scans the concatenated `title` and `description` of the alert using a bounded Regular Expression (`\b`). 
+* **Failsafe Bypass:** If a foreign tag is detected, the function performs a secondary check. If the text *also* mentions a US/Global region (e.g., `"us-"`, `"north america"`, `"global"`), it allows the alert through, assuming a multi-regional or cascading failure. If the text mentions *only* a foreign region, the alert is discarded.
+
+### 2.2 Temporal Context Filtering: `is_future_maintenance(title, description)`
+Many cloud providers utilize their RSS feeds to announce scheduled maintenance days or weeks in advance. This function prevents future maintenance from triggering live alarms.
+* **Lexical Triggers:** It first checks for maintenance keywords (`"scheduled"`, `"upcoming"`, `"maintenance"`). 
+* **Active State Bypass:** If the maintenance notice includes active verbiage (`"in progress"`, `"currently undergoing"`), it allows the alert through.
+* **Date Normalization:** It generates an array of today's date formatted in four distinct syntaxes (e.g., `"mar 17"`, `"march 17"`, `"2026-03-17"`, `"03/17/2026"`). If the maintenance notice text does *not* contain today's exact date string, the worker classifies it as "future noise" and discards it.
+
+### 2.3 Regional Enrichment: `extract_us_regions(text)`
+Rather than just identifying if an outage is within the US, this function extracts the specific sector to provide NOC operators with precise situational awareness on the dashboard.
+* **The Mapping Dictionary:** Iterates through `US_REGIONS` (e.g., mapping `"us-east-1"` to `"US-East (N. Virginia)"`).
+* **UI Appending:** If matched, the worker dynamically appends the translated region string to the end of the Service Name in the database (e.g., `"AWS Infrastructure [US-East (N. Virginia)]"`).
+
+---
+
+## 3. Data Source & Ingestion Mechanics
 
 ### The `CLOUD_FEEDS` Dictionary
-The worker relies on a hardcoded, highly curated dictionary of RSS/Atom feed endpoints representing the official status pages of major service providers. 
+The worker relies on a hardcoded dictionary of 18 RSS/Atom feed endpoints representing the official status pages of major ecosystems (Hyperscalers, Edge Security, Collaboration, Identity).
 
-**Tracked Ecosystems Include:**
-* **Hyperscalers:** AWS, Microsoft Azure, Google Cloud Platform.
-* **Edge & Security:** Cloudflare, Zscaler, CrowdStrike, Cisco Umbrella.
-* **Collaboration & DevSecOps:** GitHub, Slack, Zoom, Atlassian, PagerDuty.
-* **Identity & Networking:** Okta, Cisco Meraki.
-
-*Architectural Note:* By strictly binding to RSS/Atom feeds, the worker avoids brittle web-scraping techniques, ensuring high reliability and standardized XML parsing.
-
----
-
-## 3. Algorithmic Processing & Heuristics
-
-### `extract_service_name(provider, title)`
-Service provider RSS feeds are notoriously chaotic and unstandardized. This function acts as a heuristic normalizer to extract the specific service impacted (e.g., isolating "EC2 North Virginia" from a verbose alert title).
-
-**Execution Logic:**
-1.  **Sanitization:** Strips common status-page brackets (`[Investigating]`, `[Resolved]`, `[Update]`) from the string.
-2.  **Delimiter Splitting:** Iterates through common vendor delimiters (` - `, `: `, ` | `). If found, it splits the string and assumes the first segment is the specific service name.
-3.  **Vendor Fallbacks:** If no delimiter is present, it applies hardcoded fallbacks based on the hyperscaler (e.g., defaulting to "AWS Infrastructure" or "Microsoft Azure").
-
----
-
-## 4. The Core Execution Engine: `fetch_cloud_outages()`
-
-This is the primary operational loop of the worker. It is designed for absolute fault tolerance; a failure in one provider's feed will not crash the worker or halt the ingestion of other feeds.
-
-### 4.1 Ingestion & Resilience
+### Ingestion Resilience
 * **Strict Timeouts:** To prevent `feedparser` from hanging indefinitely on an unresponsive vendor server, the worker first uses the `requests` library to fetch the XML payload with a strict `timeout=10` seconds.
-* **Isolated Error Handling:** The feed iteration is wrapped in a `try...except` block *inside* the main loop. If a provider (e.g., Slack) throws an HTTP 500 or times out, the script catches the exception, appends the provider to a `failed_providers` list for logging, and gracefully `continue`s to the next vendor.
-
-### 4.2 Parsing & Resolution Logic
-For each valid entry in a feed, the worker determines the outage status:
-1.  **Time Bounds:** It strictly ignores any incident published older than 7 days (`recent_cutoff`), preventing the ingestion of massive historical archives when connecting to a new feed.
-2.  **Keyword Heuristics for Resolution:** It concatenates the `title` and `description`, converts them to uppercase, and scans for resolution indicators: `["[RESOLVED]", "RESOLVED", "OPERATIONAL", "COMPLETED", "MITIGATED"]`. If found, `is_resolved` evaluates to `True`.
-
-### 4.3 Database Operations (Upsert Logic)
-The worker interacts with the `CloudOutage` database model:
-* **Deduplication:** Queries the database using a composite key of `provider`, `title`, and `updated_at`. 
-* **Insert:** If the record does not exist, it inserts a new `CloudOutage`.
-* **Update:** If the record *does* exist, it checks if the operational status has changed from down to resolved. If so, it flips the `is_resolved` boolean to `True` and updates the timestamp.
-
-### 4.4 Data Retention Lifecycle (Self-Cleaning)
-To prevent database bloat, the worker includes an automated garbage collection routine at the end of its run.
-* **Purge Logic:** It executes a bulk delete query against the `CloudOutage` table, permanently removing any incident where `is_resolved == True` AND the `updated_at` timestamp is older than 3 days. 
-* *Result:* The database acts as an ephemeral state-machine, only holding active outages and recently resolved historical context for the AIOps engine.
+* **Isolated Error Handling:** The feed iteration is wrapped in a nested `try...except` block. If a provider throws an HTTP error, the script catches the exception, appends the provider to a `failed_providers` list, and gracefully continues to the next vendor.
 
 ---
 
-## 5. System Integration Context
+## 4. Algorithmic Processing & State Management
 
-Within the broader architecture, this module is executed by:
-* **The Global Scheduler (`src/scheduler.py`)**: Runs this script on a predefined chronological loop (e.g., every 5 minutes) via a background thread.
-* **User Manual Override (`app.py`)**: Can be forcefully triggered by NOC Operators clicking the "Sync Cloud Status" button in the Threat Telemetry UI, which bypasses the scheduler for an immediate data pull.
+### `fetch_cloud_outages()`
+This is the primary operational loop, designed for idempotency and self-cleaning state management.
+
+1.  **Pagination Limit:** To prevent massive database transaction overhead when connecting to a feed, the script explicitly slices the incoming array to process only the top 15 most recent entries (`feed.entries[:15]`).
+2.  **Time Bounds:** It strictly ignores any incident published older than 7 days (`recent_cutoff`).
+3.  **Application of Noise Filters:** The extracted text is passed through `is_future_maintenance()` and `is_foreign_region()`. If either evaluates to `True`, the loop executes a `continue`, skipping the database transaction entirely.
+4.  **Database Operations (Upsert):**
+    * **Check:** Queries the database using a composite key of `provider`, `title`, and `updated_at`. 
+    * **Insert:** If the record does not exist, it inserts a new `CloudOutage`.
+    * **Update:** If the record *does* exist, it checks if the operational status has changed from down to resolved (via keyword heuristics like `[RESOLVED]`). If so, it flips the `is_resolved` boolean to `True`.
+5.  **Data Retention Lifecycle:** The worker executes an automated garbage collection routine (`session.query.delete()`) to permanently remove any incident where `is_resolved == True` AND the timestamp is older than 3 days, ensuring the table remains highly performant.
