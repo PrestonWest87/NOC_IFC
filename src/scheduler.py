@@ -4,12 +4,17 @@ import feedparser
 import sys
 import asyncio
 import aiohttp
-import concurrent.futures
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
-from src.database import SessionLocal, Article, FeedSource, RegionalHazard, CloudOutage, ExtractedIOC, engine, init_db
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
+# Expanded imports to grab all the new models for the Garbage Collector
+from src.database import (
+    SessionLocal, Article, FeedSource, RegionalHazard, CloudOutage, 
+    ExtractedIOC, engine, init_db, SolarWindsAlert, BgpAnomaly, 
+    CveItem, RegionalOutage
+)
 
 from src.cve_worker import fetch_cisa_kev
 from src.infra_worker import fetch_regional_hazards
@@ -23,6 +28,12 @@ def log(message, source="SYSTEM"):
     print(f"[{local_time}] [{source.upper()}] {message}")
     sys.stdout.flush()
 
+# --- PRE-LOAD SCORER FOR SINGLE-CORE EFFICIENCY ---
+from src.logic import get_scorer
+log("Pre-loading NLP Scorer into memory...", "SYSTEM")
+_global_scorer = get_scorer()
+
+
 async def fetch_single_feed(session, f_name, f_url):
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
@@ -35,19 +46,14 @@ async def fetch_single_feed(session, f_name, f_url):
         return f_name, None
 
 async def fetch_all_feeds(feed_data):
+    """Network I/O is cheap, so we keep the async fetcher to download everything concurrently."""
     async with aiohttp.ClientSession() as session:
         tasks = [fetch_single_feed(session, f_name, f_url) for _, f_name, f_url in feed_data]
         return await asyncio.gather(*tasks)
 
-_process_scorer = None
-def init_process():
-    global _process_scorer
-    from src.logic import get_scorer
-    _process_scorer = get_scorer()
-
 def parse_and_score_feed(f_name, content, known_links):
     from src.config import ALERT_THRESHOLD
-    from src.threat_hunter import extract_all_iocs
+    from src.ioc_extractor import ioc_engine 
     from src.categorizer import categorize_text
     
     if not content: return f_name, []
@@ -66,12 +72,12 @@ def parse_and_score_feed(f_name, content, known_links):
         summary = entry.get('summary', '')
         full_text = f"{title} {summary}"
         
-        score, reasons = _process_scorer.score(full_text)
+        score, reasons = _global_scorer.score(full_text)
         category = categorize_text(full_text)
         
         extracted_iocs = []
         if score >= 50.0 and category == "Cyber":
-            extracted_iocs = extract_all_iocs(full_text)
+            extracted_iocs = ioc_engine.extract(full_text) 
             
         new_articles_data.append({
             "title": title, "link": link, "summary": summary, "source": f_name,
@@ -96,7 +102,10 @@ def bulk_save_to_db(db_session, arts_data):
             if d.get("iocs"):
                 ioc_objs = [
                     ExtractedIOC(
-                        article_id=art.id, indicator_type=ioc["type"], indicator_value=ioc["value"]
+                        article_id=art.id, 
+                        indicator_type=ioc["Type"], 
+                        indicator_value=ioc["Indicator"], 
+                        context=ioc["Context"]
                     ) for ioc in d["iocs"]
                 ]
                 db_session.add_all(ioc_objs)
@@ -107,7 +116,7 @@ def bulk_save_to_db(db_session, arts_data):
     return added
 
 def fetch_feeds(source="Scheduled"):
-    log("🚀 Starting ASYNC & MULTIPROCESS feed fetch cycle...", source)
+    log("🚀 Starting LOW-CPU feed fetch cycle...", source)
     
     main_session = SessionLocal()
     sources = main_session.query(FeedSource).filter(FeedSource.is_active == True).all()
@@ -120,20 +129,25 @@ def fetch_feeds(source="Scheduled"):
     if not feed_data:
         main_session.close(); return
 
+    # Phase 1: Download everything concurrently (Cheap on CPU)
     results = asyncio.run(fetch_all_feeds(feed_data))
     total_added = 0
     
-    with concurrent.futures.ProcessPoolExecutor(initializer=init_process) as executor:
-        futures = [executor.submit(parse_and_score_feed, f_name, content, known_links) for f_name, content in results]
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                f_name, extracted_arts = future.result()
-                if extracted_arts:
-                    added = bulk_save_to_db(main_session, extracted_arts)
-                    if added > 0: log(f"✅ {f_name}: Saved {added} new articles.", "WORKER")
-                    total_added += added
-            except Exception as e:
-                log(f"💥 Process cluster crash: {e}", "WORKER")
+    # Phase 2: Sequential Processing with Yielding (Hyper-efficient)
+    for f_name, content in results:
+        try:
+            _, extracted_arts = parse_and_score_feed(f_name, content, known_links)
+            if extracted_arts:
+                added = bulk_save_to_db(main_session, extracted_arts)
+                if added > 0: log(f"✅ {f_name}: Saved {added} new articles.", "WORKER")
+                total_added += added
+                
+            # THE MAGIC SAUCE: Yield CPU for 100 milliseconds
+            # This prevents the loop from locking up the machine, giving the UI time to breathe
+            time.sleep(0.1)
+            
+        except Exception as e:
+            log(f"💥 Processing error on {f_name}: {e}", "WORKER")
 
     log(f"🏁 Cycle complete. Added {total_added} items.", source)
     main_session.close()
@@ -143,27 +157,37 @@ def run_database_maintenance():
     session = SessionLocal()
     try:
         now = datetime.utcnow()
-        one_day_ago = now - timedelta(days=1)
-        two_days_ago = now - timedelta(days=2)
-        thirty_days_ago = now - timedelta(days=30)
+        
+        hours_12_ago = now - timedelta(hours=12)
+        hours_24_ago = now - timedelta(hours=24) 
+        hours_48_ago = now - timedelta(hours=48)
+        days_7_ago   = now - timedelta(days=7)
+        days_14_ago  = now - timedelta(days=14)
         
         session.query(Article).filter(Article.score <= 0.0).delete()
-        session.query(Article).filter(Article.published_date < thirty_days_ago, Article.is_pinned == False).delete()
-        session.query(RegionalHazard).filter(RegionalHazard.updated_at < two_days_ago).delete()
-        session.query(CloudOutage).filter(CloudOutage.updated_at < one_day_ago).delete()
-        
-        # Clean up orphaned IOCs
+        session.query(Article).filter(Article.published_date < days_14_ago, Article.is_pinned == False).delete()
+        session.query(SolarWindsAlert).filter(SolarWindsAlert.received_at < days_7_ago).delete()
+        session.query(RegionalHazard).filter(RegionalHazard.updated_at < hours_48_ago).delete()
+        session.query(RegionalOutage).filter(RegionalOutage.detected_at < hours_12_ago).delete()
+        session.query(BgpAnomaly).filter(BgpAnomaly.detected_at < hours_12_ago).delete()
+        session.query(CveItem).filter(CveItem.date_added < days_7_ago).delete()
+        session.query(CloudOutage).filter(CloudOutage.updated_at < hours_24_ago).delete()
         session.execute(text("DELETE FROM extracted_iocs WHERE article_id NOT IN (SELECT id FROM articles);"))
         session.commit()
     except Exception as e:
         session.rollback()
+        log(f"⚠️ Maintenance Error: {e}", "SYSTEM")
     finally:
         session.close()
         
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("VACUUM ANALYZE articles;"))
-            conn.execute(text("VACUUM ANALYZE extracted_iocs;"))
+            # SQLite safe vacuuming
+            if engine.dialect.name == "sqlite":
+                conn.execute(text("PRAGMA optimize;"))
+            else:
+                conn.execute(text("VACUUM ANALYZE articles;"))
+                conn.execute(text("VACUUM ANALYZE extracted_iocs;"))
     except Exception: pass
 
 def job_cisa(): fetch_cisa_kev()
@@ -175,6 +199,7 @@ if __name__ == "__main__":
     from src.report_worker import start_report_scheduler
     
     threading.Thread(target=start_report_scheduler, daemon=True).start()
+    
     schedule.every(60).minutes.do(run_database_maintenance)
     schedule.every(15).minutes.do(fetch_feeds)
     schedule.every(5).minutes.do(job_regional)
