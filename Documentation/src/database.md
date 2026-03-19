@@ -1,73 +1,62 @@
-# Enterprise Architecture & Data Dictionary: `src/database.py`
-
-*(Note: We covered the architecture for `database.py` earlier in our session, but here is the formalized, comprehensive enterprise documentation based on the exact code you just provided to ensure your project documentation is complete.)*
+# Enterprise Architecture & Data Dictionary: `src/database.py` *(Updated)*
 
 ## 1. Executive Overview
 
-The `src/database.py` module is the **Data Persistence and ORM Foundation** of the Intelligence Fusion Center (IFC). It leverages SQLAlchemy to map Python objects to relational database tables. The architecture is designed to be highly portable, seamlessly transitioning between a lightweight, file-based **SQLite** database (ideal for Dockerized/edge deployments) and an enterprise **PostgreSQL** cluster.
+The `src/database.py` module is the **Data Persistence and ORM Foundation** of the Intelligence Fusion Center (IFC). In its latest architectural iteration, this module has been heavily refactored to prioritize **High-Throughput Concurrency** and **Read-Optimized Indexing**.
 
-It defines the entirety of the application's schema—encompassing Identity and Access Management (IAM), raw threat intelligence, infrastructure telemetry, and AIOps correlation states—and provides a self-healing bootstrap sequence (`init_db`) to seed initial requirements.
+While it maintains its agnostic capability to run on both enterprise PostgreSQL clusters and file-based SQLite, the SQLite configuration has been aggressively tuned using PRAGMA statements to support simultaneous reads and writes. Furthermore, the Object-Relational Mapping (ORM) models have been updated with strategic indexing to prevent database locks during massive AIOps telemetry ingestion bursts.
 
 ---
 
-## 2. Engine Architecture & Connection Management
+## 2. Engine Architecture & Concurrency Optimization
 
-The database engine dynamically configures its connection pooling and threading behavior based on the detected database dialect via the `DATABASE_URL` environment variable.
+The database engine dynamically configures its connection pooling and threading behavior based on the detected database dialect, with major upgrades to local execution.
 
-### 2.1 SQLite Mode (Edge/Container Default)
-* **Trigger:** `DATABASE_URL.startswith("sqlite")`
-* **Configuration:** `connect_args={"check_same_thread": False}`
-* **Purpose:** This is a critical configuration for Streamlit. Streamlit and background worker scripts (like `scheduler.py`) spawn multiple threads. Disabling the `check_same_thread` constraint prevents SQLite from throwing `ProgrammingError` exceptions when a background thread writes to the database while the UI thread is reading from it.
+### 2.1 SQLite WAL Mode (The Concurrency Upgrade)
+Traditionally, SQLite locks the entire database file during a write operation, causing Streamlit UI threads to crash or hang if a background worker is saving telemetry. This limitation has been architecturally bypassed.
+* **Timeout Buffer:** `connect_args={"timeout": 30}` ensures that if a momentary lock occurs, the UI will wait gracefully rather than throwing a `OperationalError`.
+* **Write-Ahead Logging (WAL):** Using an `@event.listens_for(engine, "connect")` decorator, the engine injects three critical PRAGMA commands upon every connection:
+    * `PRAGMA journal_mode=WAL`: Enables Write-Ahead Logging, allowing background workers to write data simultaneously while the UI reads data.
+    * `PRAGMA synchronous=NORMAL`: Relaxes strict disk-sync constraints to drastically speed up bulk inserts (e.g., pulling thousands of KEVs).
+    * `PRAGMA cache_size=-64000`: Dedicates a massive 64MB of RAM specifically to the SQLite cache, accelerating rapid UI reloads.
 
 ### 2.2 PostgreSQL Mode (Enterprise Scale)
-* **Trigger:** Any non-SQLite URI.
-* **Configuration:** `pool_size=20, max_overflow=30, pool_pre_ping=True, pool_recycle=3600`
-* **Purpose:** Establishes a robust connection pool. `pool_pre_ping` ensures connections are alive before handing them to the application (preventing "MySQL has gone away" style errors), and `pool_recycle` prevents stale connections from lingering indefinitely.
-
-### 2.3 Transaction Management
-* **`SessionLocal`**: A `sessionmaker` configured with `autocommit=False` and `autoflush=False`. This enforces strict ACID compliance across the application, requiring developers to explicitly call `session.commit()` to persist state changes, allowing safe rollbacks via `session.rollback()` in the event of worker failures.
+* **Aggressive Recycling:** The connection pool configuration now utilizes `pool_recycle=1800` (30 minutes). This forces the SQLAlchemy engine to aggressively recycle connections, preventing stale connection drops caused by restrictive corporate firewalls or cloud load balancers.
 
 ---
 
-## 3. Object-Relational Mapping (ORM) Models
+## 3. Object-Relational Mapping (ORM) & Strategic Indexing
 
-The schema is divided into distinct operational domains, all inheriting from SQLAlchemy's `declarative_base()`.
+To support the massive volume of data parsed by the IFC, the SQLAlchemy schema (`declarative_base()`) has been upgraded with strategic indexing (`index=True`). This ensures that the heavy `.filter()` queries executed by the AIOps engine and UI dashboards run in $O(\log n)$ time rather than triggering full table scans.
 
-### 3.1 Identity & Access Management (RBAC)
-* **`User`**: Stores operator credentials with `bcrypt` encrypted passwords (`password_hash`). Manages UI sessions via `session_token` and stores user metadata (`full_name`, `job_title`).
-* **`Role`**: Dictates application permissions. Employs `JSON` columns (`allowed_pages`, `allowed_actions`) to grant granular access to main dashboard tabs and specific interaction buttons (e.g., pinning, training ML).
+### 3.1 High-Frequency Filter Indexes
+* **Booleans:** Fields that are constantly polled by background engines are now strictly indexed. 
+    * `SolarWindsAlert.is_correlated` (Polled every 5 seconds by the AIOps Engine).
+    * `CloudOutage.is_resolved` & `RegionalOutage.is_resolved` (Polled for active HUD rendering).
+    * `Article.is_pinned` (Polled constantly by the RSS pagination engine).
+* **Timestamps:** `published_date`, `updated_at`, `detected_at`, and `received_at` across various tables are indexed to support rapid temporal windowing (e.g., fetching only the last 6 hours of telemetry for the AI Shift Brief).
+* **Foreign Keys & Pivots:** `ExtractedIOC.article_id`, `SolarWindsAlert.mapped_location`, and categorical fields like `device_type` and `category` are indexed to support high-speed cross-referencing.
 
-### 3.2 Threat Intelligence & OSINT
-* **`Article`**: The core repository for parsed RSS feeds. Stores raw text (`summary`, `title`), contextual metadata (`source`, `category`, `score`), JSON arrays of `keywords_found`, and LLM-generated summaries (`ai_bluf`). Integrates a `human_feedback` integer for reinforcement learning.
-* **`FeedSource` & `Keyword`**: Configuration tables defining the RSS URLs to poll and the weighted vocabulary used to score threat severity.
-* **`ExtractedIOC`**: Stores specific Indicators of Compromise (IPs, Domains, SHA256 hashes) extracted from high-scoring articles via Regex, linking back to the parent `article_id`.
-* **`CveItem`**: A localized mirror of the CISA Known Exploited Vulnerabilities catalog.
-
-### 3.3 Infrastructure & Telemetry Status
-* **`MonitoredLocation`**: Represents the physical geofenced NOC sites (Datacenters, Branches). Stores exact `lat`/`lon` coordinates, routing `priority`, and caches the `current_spc_risk` (Severe weather threat level).
-* **`RegionalHazard` & `RegionalOutage`**: Tracks physical threats (NWS/SPC weather polygons) and major ISP/Power grid failures. Includes a `radius_km` field to calculate geospatial intersection with `MonitoredLocations`.
-* **`CloudOutage` & `BgpAnomaly`**: Tracks unresolved global SaaS/IaaS degradation (e.g., AWS, Azure) and internet routing disruptions affecting tracked ASNs.
-
-### 3.4 AIOps & Incident Correlation
-* **`SolarWindsAlert`**: The primary ingestion table for external ITSM/NMS webhooks. Stores the original JSON (`raw_payload`), maps the alert to a physical site (`mapped_location`), and tracks the AI correlation state (`is_correlated`, `ai_root_cause`).
-* **`TimelineEvent`**: A specialized chronological audit log feeding the live RCA dashboard. Tracks alerts, AI decisions, and system events.
-* **`NodeAlias`**: A Machine Learning translation table mapping raw, unstandardized device strings (`node_pattern`) to formal location names (`mapped_location_name`), alongside an AI `confidence_score`.
-
-### 3.5 System Configuration & Output
-* **`SystemConfig`**: A singleton table managing global variables. Stores LLM API keys/endpoints, internal `tech_stack` context, and SMTP server credentials for automated broadcasting.
-* **`SavedReport` & `DailyBriefing`**: Archives of ad-hoc intelligence reports generated by analysts and automated, AI-synthesized daily operational summaries.
+### 3.2 Core Schema Domains (Recap)
+* **IAM (RBAC):** `User`, `Role`.
+* **OSINT & Threat Intel:** `Article`, `FeedSource`, `Keyword`, `ExtractedIOC`, `CveItem`.
+* **Physical & Cloud Infrastructure:** `MonitoredLocation`, `RegionalHazard`, `RegionalOutage`, `CloudOutage`, `BgpAnomaly`.
+* **AIOps & Root Cause:** `SolarWindsAlert`, `TimelineEvent`, `NodeAlias`.
+* **System State:** `SystemConfig`, `DailyBriefing`, `SavedReport`.
 
 ---
 
-## 4. Database Bootstrap & Seeding (`init_db`)
+## 4. Database Bootstrap & Auto-Healing (`init_db`)
 
-The `init_db()` function is a self-healing initialization sequence executed at application startup.
+The `init_db()` function executes a self-healing initialization sequence at application startup, heavily refactored for transactional safety and RBAC modernization.
 
-### 4.1 Schema Generation & Migration Fallback
-1.  **Creation:** Utilizes `Base.metadata.create_all(bind=engine)` to automatically generate the full schema if it does not exist.
-2.  **Dialect Failsafe:** It includes a list of raw SQL strings (`ALTER TABLE`, `CREATE INDEX`) traditionally used for PostgreSQL schema evolution. However, the script intelligently checks `if not DATABASE_URL.startswith("sqlite"):` before attempting to execute them. This prevents syntax crashes in SQLite while maintaining backward compatibility for Postgres deployments.
+### 4.1 Transactional Migration Safety
+When running on PostgreSQL, the raw SQL fallback migrations (like `ALTER TABLE`) are now executed inside an `engine.begin() as conn:` context manager. This ensures that the schema evolution commands are safely wrapped in an auto-committing transaction boundary.
 
-### 4.2 Application Seeding (Zero-Config Setup)
-To prevent lockout on a fresh deployment, the script checks the database state and automatically seeds essential data:
-1.  **Roles:** Generates the `admin` (access to all pages/actions) and `analyst` (restricted pages) roles, populating their JSON permission arrays dynamically from hardcoded lists.
-2.  **Master User:** If the `User` table is entirely empty, it generates a default administrator account (`admin` / `admin123`) to guarantee immediate system access.
+### 4.2 Descriptive RBAC Auto-Healing
+The Role-Based Access Control matrix was entirely rewritten in the application layer to use highly descriptive, human-readable strings (e.g., `"Tab: Threat Telemetry -> RSS Triage"` instead of `"tab_tt_rss"`).
+* **State Check & Override:** Upon startup, `init_db` queries the existing `admin` and `analyst` roles. Rather than just creating them if they are missing, it forcefully *overwrites* their `allowed_pages` and `allowed_actions` JSON arrays with the new descriptive syntax. 
+* **Benefit:** This "auto-heals" legacy databases, seamlessly migrating old cryptic permission arrays to the new standard without requiring operators to manually reconstruct their user roles.
+
+### 4.3 Strict Session Lifecycle
+The entire bootstrap sequence is wrapped in a strict `try...except...finally` block. If a database integrity error occurs during the seeding phase, `session.rollback()` is fired. Crucially, the `finally: session.close()` ensures the initialization connection is permanently released back to the pool, preventing memory leaks upon container deployment.
