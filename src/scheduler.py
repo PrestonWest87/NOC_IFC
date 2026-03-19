@@ -42,7 +42,7 @@ async def fetch_single_feed(session, f_name, f_url):
             content = await response.text()
             return f_name, content
     except Exception as e:
-        log(f"⚠️ Async Fetch Error on {f_name}: {e}", "WORKER")
+        log(f"âš ï¸ Async Fetch Error on {f_name}: {e}", "WORKER")
         return f_name, None
 
 async def fetch_all_feeds(feed_data):
@@ -52,10 +52,11 @@ async def fetch_all_feeds(feed_data):
         return await asyncio.gather(*tasks)
 
 def parse_and_score_feed(f_name, content, known_links):
-    from src.config import ALERT_THRESHOLD
     from src.ioc_extractor import ioc_engine 
     from src.categorizer import categorize_text
     
+    ALERT_THRESHOLD = 45
+        
     if not content: return f_name, []
     
     feed = feedparser.parse(content)
@@ -116,7 +117,7 @@ def bulk_save_to_db(db_session, arts_data):
     return added
 
 def fetch_feeds(source="Scheduled"):
-    log("🚀 Starting LOW-CPU feed fetch cycle...", source)
+    log("ðŸš€ Starting LOW-CPU feed fetch cycle...", source)
     
     main_session = SessionLocal()
     sources = main_session.query(FeedSource).filter(FeedSource.is_active == True).all()
@@ -139,20 +140,20 @@ def fetch_feeds(source="Scheduled"):
             _, extracted_arts = parse_and_score_feed(f_name, content, known_links)
             if extracted_arts:
                 added = bulk_save_to_db(main_session, extracted_arts)
-                if added > 0: log(f"✅ {f_name}: Saved {added} new articles.", "WORKER")
+                if added > 0: log(f"âœ… {f_name}: Saved {added} new articles.", "WORKER")
                 total_added += added
                 
             # THE MAGIC SAUCE: Yield CPU for 100 milliseconds
             time.sleep(0.1)
             
         except Exception as e:
-            log(f"💥 Processing error on {f_name}: {e}", "WORKER")
+            log(f"ðŸ’¥ Processing error on {f_name}: {e}", "WORKER")
 
-    log(f"🏁 Cycle complete. Added {total_added} items.", source)
+    log(f"ðŸ Cycle complete. Added {total_added} items.", source)
     main_session.close()
         
 def run_database_maintenance():
-    log("🧹 Running Master Database Maintenance...", "SYSTEM")
+    log("ðŸ§¹ Running Master Database Maintenance...", "SYSTEM")
     session = SessionLocal()
     try:
         now = datetime.utcnow()
@@ -175,7 +176,7 @@ def run_database_maintenance():
         session.commit()
     except Exception as e:
         session.rollback()
-        log(f"⚠️ Maintenance Error: {e}", "SYSTEM")
+        log(f"âš ï¸ Maintenance Error: {e}", "SYSTEM")
     finally:
         session.close()
         
@@ -197,17 +198,17 @@ def job_cloud(): fetch_cloud_outages()
 def job_retrain_ml():
     """Automated Weekly ML Retraining Pipeline"""
     global _global_scorer
-    log("🧠 Initiating weekly ML Model Retraining...", "SYSTEM")
+    log("ðŸ§  Initiating weekly ML Model Retraining...", "SYSTEM")
     try:
         train()
-        log("✅ ML Model retrained successfully and saved to disk.", "SYSTEM")
+        log("âœ… ML Model retrained successfully and saved to disk.", "SYSTEM")
         
         # Hot-Reload the scorer in memory so the new neural weights take effect immediately
         _global_scorer = get_scorer()
-        log("🔄 Global NLP Scorer hot-reloaded with fresh model weights.", "SYSTEM")
+        log("ðŸ”„ Global NLP Scorer hot-reloaded with fresh model weights.", "SYSTEM")
         
     except Exception as e:
-        log(f"❌ ML Training Pipeline failed: {e}", "SYSTEM")
+        log(f"âŒ ML Training Pipeline failed: {e}", "SYSTEM")
 
 
 if __name__ == "__main__":
@@ -231,7 +232,7 @@ if __name__ == "__main__":
     job_regional()
     job_cloud()
     
-    log("🚀 Master Scheduler Service Started.", "SYSTEM")
+    log("ðŸš€ Master Scheduler Service Started.", "SYSTEM")
     while True:
         schedule.run_pending()
         time.sleep(1)
