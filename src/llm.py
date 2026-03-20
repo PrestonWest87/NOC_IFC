@@ -330,7 +330,7 @@ def generate_daily_fusion_report(session):
     master_report += "## 🪲 2. Known Exploited Vulnerabilities (KEV)\n"
     if cves:
         map_p = "Extract the vendor, product, and vulnerability name from this list. Be extremely concise."
-        reduce_p = "You are a Vulnerability Analyst. Write a brief summary paragraph of the new exploited vulnerabilities added to the KEV catalog."
+        reduce_p = "You are a Vulnerability Analyst. Write a brief summary paragraph of the new exploited vulnerabilities added to the KEV catalog. You MUST include the specific CVE IDs in your summary."
         resp = _map_reduce_summarize(cves, lambda c: f"- {c.cve_id} ({c.vendor}): {c.vulnerability_name}", map_p, reduce_p, config, chunk_size=8)
         master_report += f"{resp}\n\n"
     else: master_report += "*No new KEVs added yesterday.*\n\n"

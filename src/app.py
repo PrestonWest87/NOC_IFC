@@ -305,6 +305,7 @@ if page == "🌐 Operational Dashboard":
                     if res and ("clear" in res.lower() or "no active" in res.lower()): st.success("✅ " + res)
                     else: st.error(f"⚠️ **MATCH DETECTED:**\n{res}")
 
+
 # ================= 2. DAILY FUSION REPORT =================
 elif page == "📰 Daily Fusion Report":
     st.title("📰 Daily Master Fusion Report")
@@ -349,6 +350,64 @@ elif page == "📰 Daily Fusion Report":
         
         with st.container(border=True): 
             st.markdown(selected_report.content)
+            
+        st.divider()
+        st.subheader("📧 Broadcast Report")
+        st.caption("Send this report via email. Markdown formatting will be natively converted to HTML and emojis will be preserved.")
+        
+        c_em1, c_em2 = st.columns([3, 1])
+        default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
+        report_recipients = c_em1.text_input("Recipient Email(s)", value=default_email, key="report_recip")
+        
+        if c_em2.button("✉️ Transmit Report", type="primary", use_container_width=True):
+            if not report_recipients:
+                st.error("Please enter at least one recipient email.")
+            else:
+                with st.spinner("Converting formatting and transmitting report..."):
+                    import re
+                    
+                    # Native Mini-Parser to convert Markdown to HTML without external libraries
+                    def native_md_to_html(text):
+                        # Headers
+                        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#2c3e50; margin-bottom:5px;">\1</h3>', text, flags=re.MULTILINE)
+                        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#2980b9; margin-bottom:5px; border-bottom:1px solid #eee;">\1</h2>', text, flags=re.MULTILINE)
+                        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#2c3e50;">\1</h1>', text, flags=re.MULTILINE)
+                        # Bold
+                        text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
+                        # Links
+                        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#3498db; text-decoration:none;">\1</a>', text)
+                        # Bullet points
+                        text = re.sub(r'^\* (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
+                        text = re.sub(r'^- (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
+                        # Standard Line breaks for everything else
+                        text = text.replace('\n', '<br>')
+                        # Clean up double breaks created by lists
+                        text = text.replace('<br><br><h', '<br><h')
+                        return text
+
+                    raw_html = native_md_to_html(selected_report.content)
+                    
+                    # Wrap it in a clean, professional email container
+                    formatted_html = f"""
+                    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 0 auto; color: #333; line-height: 1.5;">
+                        <div style="background-color: #fcfcfc; padding: 20px; border-radius: 6px; border-left: 4px solid #d9534f; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                            <h2 style="color: #2c3e50; margin-top: 0;">📰 NOC Daily Fusion Report</h2>
+                            <p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 20px;"><strong>Date:</strong> {selected_date}</p>
+                            <div style="font-size: 14px; background-color: #ffffff; padding: 15px; border-radius: 4px; border: 1px solid #eee;">
+                                {raw_html}
+                            </div>
+                        </div>
+                    </div>
+                    """
+                    
+                    from src.mailer import send_alert_email
+                    success, msg = send_alert_email(f"Daily Fusion Report - {selected_date}", formatted_html, recipient_override=report_recipients, is_html=True)
+                    
+                    if success:
+                        st.success("✅ Report successfully transmitted!")
+                    else:
+                        st.error(f"❌ SMTP Error: {msg}")
+
 
 # ================= 3. THREAT TELEMETRY =================
 elif page == "📡 Threat Telemetry":
@@ -734,68 +793,89 @@ elif page == "📡 Threat Telemetry":
                                     st.dataframe(analytics_df.sort_values(by=['Priority', 'Severity', 'Monitored Site']), width="stretch", hide_index=True)
                                     
                                     st.divider()
-                                    st.subheader("📧 Broadcast Executive HTML SitRep")
+                                    st.subheader("Broadcast Executive HTML SitRep")
                                     st.caption("Generates a boardroom-ready HTML email containing the filtered hazard data.")
                                     
-                                    if st.button("🚀 Transmit Priority SitRep via SMTP", type="primary"):
-                                        with st.spinner("Compiling HTML and transmitting..."):
-                                            rows_html = ""
-                                            for _, r in analytics_df.sort_values(by=['Priority', 'Monitored Site']).iterrows():
-                                                if r['Priority'] == 1: p_style = "background-color: #d9534f; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
-                                                elif r['Priority'] == 2: p_style = "background-color: #f0ad4e; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
-                                                else: p_style = "background-color: #6c757d; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
-                                                
-                                                rows_html += f"""
-                                                <tr>
-                                                    <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; font-weight: bold; color: #333333;">{r['Monitored Site']}</td>
-                                                    <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; color: #555555;">{r['Facility Type']}</td>
-                                                    <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; text-align: center;"><span style="{p_style}">P{r['Priority']}</span></td>
-                                                    <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; color: #d9534f; font-weight: bold;">{r['Hazard']}</td>
-                                                </tr>"""
+                                    # Added User Input for target email address
+                                    c_em1, c_em2 = st.columns([2, 1])
+                                    default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
+                                    sitrep_recipients = c_em1.text_input("Recipient Email(s)", value=default_email, key="sitrep_recip")
+                                    
+                                    if c_em2.button("Transmit Priority SitRep", type="primary", use_container_width=True):
+                                        if not sitrep_recipients:
+                                            st.error("Please enter at least one recipient email.")
+                                        else:
+                                            with st.spinner("Compiling HTML and transmitting..."):
+                                                rows_html = ""
+                                                for _, r in analytics_df.sort_values(by=['Priority', 'Monitored Site']).iterrows():
+                                                    if r['Priority'] == 1: p_style = "background-color: #d9534f; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
+                                                    elif r['Priority'] == 2: p_style = "background-color: #f0ad4e; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
+                                                    else: p_style = "background-color: #6c757d; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
+                                                    
+                                                    rows_html += f"""
+                                                    <tr>
+                                                        <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; font-weight: bold; color: #333333;">{r['Monitored Site']}</td>
+                                                        <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; color: #555555;">{r['Facility Type']}</td>
+                                                        <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; text-align: center;"><span style="{p_style}">P{r['Priority']}</span></td>
+                                                        <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; color: #d9534f; font-weight: bold;">{r['Hazard']}</td>
+                                                    </tr>"""
 
-                                            html_body = f"""
-                                            <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 850px; margin: 0 auto; background-color: #f4f7f6; padding: 20px;">
-                                                <div style="background-color: #ffffff; border-radius: 8px; border-top: 6px solid #d9534f; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden;">
-                                                    <div style="padding: 25px; border-bottom: 1px solid #eeeeee; background-color: #fafafa;">
-                                                        <h2 style="margin: 0; color: #333333; font-size: 24px;">🚨 SEVERE WEATHER INFRASTRUCTURE IMPACT</h2>
-                                                        <p style="margin: 5px 0 0 0; color: #777777; font-size: 14px;">Automated NOC Intelligence Broadcast | {datetime.now(LOCAL_TZ).strftime('%Y-%m-%d %H:%M %Z')}</p>
-                                                    </div>
-                                                    <div style="padding: 25px;">
-                                                        <h3 style="color: #2c3e50; margin-top: 0; font-size: 18px; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">Executive Overview</h3>
-                                                        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-                                                            <tr>
-                                                                <td style="padding: 15px; background-color: #f8f9fa; border-radius: 6px; text-align: center; border: 1px solid #e9ecef;">
+                                                # Wrapped in a mobile-responsive HTML envelope using flexible blocks
+                                                html_body = f"""
+                                                <!DOCTYPE html>
+                                                <html>
+                                                <head>
+                                                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                                </head>
+                                                <body style="margin: 0; padding: 0; background-color: #f4f7f6;">
+                                                <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 850px; margin: 0 auto; background-color: #f4f7f6; padding: 10px;">
+                                                    <div style="background-color: #ffffff; border-radius: 8px; border-top: 6px solid #d9534f; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden;">
+                                                        <div style="padding: 20px; border-bottom: 1px solid #eeeeee; background-color: #fafafa;">
+                                                            <h2 style="margin: 0; color: #333333; font-size: 22px;">SEVERE WEATHER INFRASTRUCTURE IMPACT</h2>
+                                                            <p style="margin: 5px 0 0 0; color: #777777; font-size: 13px;">Automated NOC Intelligence Broadcast | {datetime.now(LOCAL_TZ).strftime('%Y-%m-%d %H:%M %Z')}</p>
+                                                        </div>
+                                                        <div style="padding: 20px;">
+                                                            <h3 style="color: #2c3e50; margin-top: 0; font-size: 18px; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">Executive Overview</h3>
+                                                            
+                                                            <div style="text-align: center; margin-bottom: 20px;">
+                                                                <div style="display: inline-block; width: 45%; min-width: 200px; padding: 15px; background-color: #f8f9fa; border-radius: 6px; border: 1px solid #e9ecef; margin: 5px; box-sizing: border-box;">
                                                                     <div style="font-size: 28px; font-weight: bold; color: #333333;">{len(analytics_df['Monitored Site'].unique())}</div>
                                                                     <div style="font-size: 12px; color: #6c757d; text-transform: uppercase; letter-spacing: 1px;">Total Sites Impacted</div>
-                                                                </td>
-                                                                <td style="width: 15px;"></td>
-                                                                <td style="padding: 15px; background-color: #fff5f5; border-radius: 6px; text-align: center; border: 1px solid #ffe3e3;">
+                                                                </div>
+                                                                <div style="display: inline-block; width: 45%; min-width: 200px; padding: 15px; background-color: #fff5f5; border-radius: 6px; border: 1px solid #ffe3e3; margin: 5px; box-sizing: border-box;">
                                                                     <div style="font-size: 28px; font-weight: bold; color: #d9534f;">{p1_count}</div>
                                                                     <div style="font-size: 12px; color: #d9534f; text-transform: uppercase; letter-spacing: 1px;">Critical (P1) Exposures</div>
-                                                                </td>
-                                                            </tr>
-                                                        </table>
-                                                        <h3 style="color: #2c3e50; margin-top: 30px; font-size: 18px; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">Detailed Impact Matrix</h3>
-                                                        <table style="width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px; text-align: left;">
-                                                            <thead>
-                                                                <tr style="background-color: #343a40; color: #ffffff;">
-                                                                    <th style="padding: 12px; font-weight: 600;">Monitored Site</th>
-                                                                    <th style="padding: 12px; font-weight: 600;">Facility Type</th>
-                                                                    <th style="padding: 12px; font-weight: 600; text-align: center;">Priority</th>
-                                                                    <th style="padding: 12px; font-weight: 600;">Active Hazard</th>
-                                                                </tr>
-                                                            </thead>
-                                                            <tbody>{rows_html}</tbody>
-                                                        </table>
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            <h3 style="color: #2c3e50; margin-top: 20px; font-size: 18px; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">Detailed Impact Matrix</h3>
+                                                            
+                                                            <div style="overflow-x: auto;">
+                                                                <table style="width: 100%; min-width: 400px; border-collapse: collapse; margin-top: 10px; font-size: 14px; text-align: left;">
+                                                                    <thead>
+                                                                        <tr style="background-color: #343a40; color: #ffffff;">
+                                                                            <th style="padding: 10px; font-weight: 600;">Monitored Site</th>
+                                                                            <th style="padding: 10px; font-weight: 600;">Type</th>
+                                                                            <th style="padding: 10px; font-weight: 600; text-align: center;">Priority</th>
+                                                                            <th style="padding: 10px; font-weight: 600;">Hazard</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>{rows_html}</tbody>
+                                                                </table>
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                            """
-                                            html_safe = html_body.replace("\n", "")
-                                            from src.mailer import send_alert_email
-                                            success, msg = send_alert_email("URGENT: Active Severe Weather Impacting Operations", html_safe)
-                                            if success: st.success("✅ Executive HTML SitRep successfully transmitted to distribution list!")
-                                            else: st.error(f"❌ SMTP Error: {msg}")
+                                                </body>
+                                                </html>
+                                                """
+                                                html_safe = html_body.replace("\n", "")
+                                                from src.mailer import send_alert_email
+                                                
+                                                # Send using the newly captured user input
+                                                success, msg = send_alert_email("URGENT: Active Severe Weather Impacting Operations", html_safe, recipient_override=sitrep_recipients, is_html=True)
+                                                if success: st.success("Executive HTML SitRep successfully transmitted!")
+                                                else: st.error(f"SMTP Error: {msg}")
                             rg_idx += 1
 
                         if "Tab: Regional Grid -> Location Matrix" in st.session_state.allowed_actions:
@@ -894,7 +974,7 @@ elif page == "📡 Threat Telemetry":
                                     st.divider()
                                     st.write("**Danger Zone**")
                                     if st.button("🗑️ Delete All Locations", width="stretch"):
-                                        svc.truncate_db_table("TRUNCATE TABLE monitored_locations RESTART IDENTITY CASCADE;")
+                                        svc.nuke_tables(["MonitoredLocation"])
                                         svc.get_cached_locations.clear()
                                         st.success("All locations deleted!"); time.sleep(1); safe_rerun()
                             rg_idx += 1
@@ -1063,7 +1143,7 @@ elif page == "⚡ AIOps RCA":
                             wea = dbtmp.query(RegionalHazard).all()
                             cld = dbtmp.query(CloudOutage).filter_by(is_resolved=False).all()
                             bgp = dbtmp.query(BgpAnomaly).filter_by(is_resolved=False).all()
-                            raw_alerts = dbtmp.query(SolarWindsAlert).filter_by(is_correlated=False, status="Down").all()
+                            raw_alerts = dbtmp.query(SolarWindsAlert).filter(SolarWindsAlert.is_correlated == False, SolarWindsAlert.status != 'Resolved').all()
                             
                             incidents = ai_engine.analyze_and_cluster(raw_alerts)
                             for site, data in incidents.items():
@@ -1077,12 +1157,20 @@ elif page == "⚡ AIOps RCA":
                                     else:
                                         st.info("**🎯 Patient Zero:** Indeterminate (Simultaneous Failure)")
                                         
-                                    with st.expander(f"🎫 Draft & Dispatch Ticket for {site}"):
-                                        clean_p = p.replace("🔴", "").replace("🟠", "").replace("🟡", "").replace("🔵", "").replace("⚠️", "").strip()
-                                        clean_c = c.replace("⚠️", "").replace("🌩️", "").replace("⚡", "").replace("☁️", "").replace("🔥", "").strip()
+                                    with st.expander(f"?? Draft & Dispatch Ticket for {site}"):
+                                        clean_p = p.replace("??", "").replace("??", "").replace("??", "").replace("??", "").replace("??", "").strip()
+                                        clean_c = c.replace("??", "").replace("???", "").replace("?", "").replace("??", "").replace("??", "").strip()
                                         clean_p0 = p0 if p0 else "Indeterminate (Simultaneous Failure)"
                                         
-                                        ticket_text = f"INCIDENT TICKET: {site.upper()} OUTAGE\n"
+                                        # Translating SolarWinds variables into actual DB values
+                                        trigger_time = p0.received_at.strftime('%m/%d/%Y %I:%M %p UTC') if p0.received_at else "Unknown Time"
+                                        
+                                        # Automated Script Header
+                                        ticket_text = "Automated Comms Outage\n\n"
+                                        ticket_text += f"{site} - Trouble\n\n"
+                                        ticket_text += f"A communications failure occurred on {trigger_time} and did not recover. This is affecting SCADA connectivity. IT is requesting a technician onsite to investigate.\n\n"
+                                        
+                                        # Detailed Forensic Append
                                         ticket_text += "="*50 + "\n"
                                         ticket_text += f"PRIORITY: {clean_p}\n"
                                         ticket_text += f"SITE/LOCATION: {site}\n"
@@ -1109,19 +1197,16 @@ elif page == "⚡ AIOps RCA":
                                         
                                         ticket_body = st.text_area("Ticket Notes / RCA Summary", value=ticket_text, height=350, key=f"t_body_{site}")
                                         
-                                        c_em1, c_em2 = st.columns([3, 1])
-                                        default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
-                                        recip = c_em1.text_input("Recipient Email(s)", value=default_email, key=f"t_recip_{site}")
+                                        # Hardcoded Default Emails (No user input option)
+                                        fixed_recipients = "remedyforceworkflow@aecc.com, noc@aecc.com"
+                                        st.info(f"?? Ticket will be automatically dispatched to: **{fixed_recipients}**")
                                         
-                                        if c_em2.button("✉️ Dispatch Ticket", key=f"t_send_{site}", width="stretch"):
-                                            if not recip:
-                                                st.error("Recipient email required.")
-                                            else:
-                                                from src.mailer import send_alert_email
-                                                with st.spinner("Dispatching to distribution list..."):
-                                                    success, msg = send_alert_email(f"URGENT: {clean_p} Incident at {site}", ticket_body, recip, is_html=False)
-                                                    if success: st.success("✅ Ticket Dispatched successfully!")
-                                                    else: st.error(f"❌ SMTP Error: {msg}")
+                                        if st.button("?? Dispatch Ticket", key=f"t_send_{site}", use_container_width=True):
+                                            from src.mailer import send_alert_email
+                                            with st.spinner("Dispatching to RemedyForce & NOC..."):
+                                                success, msg = send_alert_email(f"URGENT: {clean_p} Incident at {site}", ticket_body, fixed_recipients, is_html=False)
+                                                if success: st.success("? Ticket Dispatched successfully!")
+                                                else: st.error(f"? SMTP Error: {msg}")
 
                                     if st.button(f"🤫 Acknowledge Incident & Clear Board ({site})", key=f"ack_{site}", width="stretch"): 
                                         svc.acknowledge_cluster([a.id for a in data['alerts']])
