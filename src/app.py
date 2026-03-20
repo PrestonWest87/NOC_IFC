@@ -1157,13 +1157,14 @@ elif page == "⚡ AIOps RCA":
                                     else:
                                         st.info("**🎯 Patient Zero:** Indeterminate (Simultaneous Failure)")
                                         
-                                    with st.expander(f"?? Draft & Dispatch Ticket for {site}"):
+                                    with st.expander(f"Draft & Dispatch Ticket for {site}"):
                                         clean_p = p.replace("??", "").replace("??", "").replace("??", "").replace("??", "").replace("??", "").strip()
                                         clean_c = c.replace("??", "").replace("???", "").replace("?", "").replace("??", "").replace("??", "").strip()
                                         clean_p0 = p0 if p0 else "Indeterminate (Simultaneous Failure)"
                                         
                                         # Translating SolarWinds variables into actual DB values
-                                        trigger_time = p0.received_at.strftime('%m/%d/%Y %I:%M %p UTC') if p0.received_at else "Unknown Time"
+                                        pz_obj = data['patient_zero']
+                                        trigger_time = pz_obj.received_at.strftime('%m/%d/%Y %I:%M %p') if pz_obj and pz_obj.received_at else "Unknown Time"
                                         
                                         # Automated Script Header
                                         ticket_text = "Automated Comms Outage\n\n"
