@@ -77,6 +77,53 @@ def get_ar_counties_mapping():
         print(f"Error fetching county GeoJSON: {e}")
         return {}
 
+@st.cache_data(ttl=900, max_entries=1)
+def get_active_wildfires():
+    """Fetches live coordinates strictly for Active Wildfires (excluding planned burns) from NIFC."""
+    try:
+        url = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Incident_Locations/FeatureServer/0/query"
+        
+        # Scope to your regional grid and STRICTLY request 'WF' (Wildfire), ignoring 'RX' (Prescribed)
+        states = "('US-AR', 'US-MO', 'US-TN', 'US-MS', 'US-LA', 'US-TX', 'US-OK')"
+        params = {
+            "where": f"POOState IN {states} AND IncidentTypeCategory='WF'", 
+            "outFields": "IncidentName,IncidentSize,PercentContained,POOState",
+            "f": "geojson",
+            "returnGeometry": "true"
+        }
+        
+        resp = requests.get(url, params=params, timeout=10)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            active_fires = []
+            
+            for f in data.get("features", []):
+                props = f.get("properties", {})
+                geom = f.get("geometry", {})
+                
+                if not geom or "coordinates" not in geom: continue
+                
+                size = props.get("IncidentSize", 0)
+                state = props.get("POOState", "Unknown").replace("US-", "")
+                
+                # Filter out microscopic incidents to keep the map clean
+                if size and size > 0.1:
+                    active_fires.append({
+                        "name": props.get("IncidentName", "Unnamed Incident"),
+                        "state": state,
+                        "acres": round(size, 2),
+                        "contained": props.get("PercentContained", 0) or 0,
+                        "lon": geom["coordinates"][0],
+                        "lat": geom["coordinates"][1],
+                        "color": [220, 20, 60, 230] # High-visibility Crimson
+                    })
+            return active_fires
+        return []
+    except Exception as e:
+        print(f"Federal NIFC API Error: {e}")
+        return []
+
 # ==========================================
 # 1. AUTHENTICATION & USER PROFILE
 # ==========================================
