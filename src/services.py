@@ -76,40 +76,54 @@ def get_ar_counties_mapping():
         print(f"Error fetching county GeoJSON: {e}")
         return {}
 
-@st.cache_data(ttl=1800, max_entries=1)
-def get_ar_fire_info():
-    """Fetches real-time Burn Ban and Wildfire Risk data from Arkansas Forestry."""
+@st.cache_data(ttl=900, max_entries=1)
+def get_nifc_wildfires():
+    """Fetches live, exact coordinates for Wildfires and Prescribed Burns in Arkansas from the Federal NIFC Database."""
     try:
-        url = "https://mip.agri.arkansas.gov/agtools/Forestry/Fire_Info?show_districts=False"
-        headers = {'User-Agent': 'NOC_Fusion_App'}
-        resp = requests.get(url, headers=headers, timeout=8)
+        # Federal ArcGIS REST API for WFIGS (Wildland Fire Incident Information System)
+        url = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Incident_Locations/FeatureServer/0/query"
+        
+        # Filter strictly for Arkansas (POO_STATE='US-AR') to keep payloads lightning fast
+        params = {
+            "where": "POO_STATE='US-AR'", 
+            "outFields": "IncidentName,IncidentTypeCategory,IncidentSize,PercentContained",
+            "f": "geojson",
+            "returnGeometry": "true"
+        }
+        
+        resp = requests.get(url, params=params, timeout=10)
         if resp.status_code == 200:
             data = resp.json()
-            fire_data = {}
-            for item in data:
-                # Defensively search for the county name regardless of exact API casing
-                c_name = next((str(item[k]).lower().replace(" county", "").strip() for k in ["CountyName", "county_name", "county", "Name", "name"] if k in item), None)
+            active_fires = []
+            
+            # Extract coordinates and properties safely
+            for f in data.get("features", []):
+                props = f.get("properties", {})
+                geom = f.get("geometry", {})
                 
-                # Defensively evaluate burn ban boolean status
-                burn_ban = False
-                for k in ["BurnBan", "burn_ban", "is_burn_ban", "burnBan", "Status"]:
-                    if k in item:
-                        val = item[k]
-                        if isinstance(val, bool): burn_ban = val
-                        elif isinstance(val, str): burn_ban = val.lower() in ["true", "yes", "active", "1"]
-                        elif isinstance(val, int): burn_ban = val == 1
-                        break
-                        
-                # Extract Wildfire Risk Level
-                risk = next((str(item[k]).title() for k in ["RiskLevel", "risk_level", "riskLevel", "Risk", "risk"] if k in item), "Unknown")
+                if not geom or "coordinates" not in geom: continue
                 
-                if c_name:
-                    fire_data[c_name] = {"burn_ban": burn_ban, "risk_level": risk}
-            return fire_data
-        return {}
+                # NIFC uses 'WF' for Wildfire and 'RX' for Prescribed Burn
+                f_type = "🔥 Wildfire" if props.get("IncidentTypeCategory") == "WF" else "🧑‍🚒 Prescribed Burn"
+                size = props.get("IncidentSize", 0)
+                
+                # Filter out microscopic burns (< 0.1 acres) to prevent map clutter
+                if size and size > 0.1:
+                    active_fires.append({
+                        "name": props.get("IncidentName", "Unnamed Incident"),
+                        "type": f_type,
+                        "acres": round(size, 2),
+                        "contained": props.get("PercentContained", 0),
+                        "lon": geom["coordinates"][0],
+                        "lat": geom["coordinates"][1],
+                        # Red for Wildfires, Orange for Prescribed Burns
+                        "color": [220, 20, 60, 200] if "Wildfire" in f_type else [255, 140, 0, 180]
+                    })
+            return active_fires
+        return []
     except Exception as e:
-        print(f"Failed to pull AR Fire Info: {e}")
-        return {}
+        print(f"Federal NIFC API Error: {e}")
+        return []
 
 
 # ==========================================
