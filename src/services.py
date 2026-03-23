@@ -76,6 +76,8 @@ def get_ar_counties_mapping():
         print(f"Error fetching county GeoJSON: {e}")
         return {}
 
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 @st.cache_data(ttl=3600, max_entries=1)  # Scrapes once per hour
 def get_ar_fire_bitmap():
     """
