@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 import uuid
+import re
 import json
 from streamlit_cookies_controller import CookieController
 from datetime import datetime, timedelta
@@ -1100,7 +1101,16 @@ elif page == "⚡ AIOps RCA":
                     st.subheader("⏱️ Event Log")
                     if st.button("🧹 Clear", width="stretch"): svc.clear_timeline_events(); safe_rerun()
                     if st.button("🗑️ Nuke", width="stretch"): svc.nuke_active_alerts(); safe_rerun()
-                    for e in events: st.caption(f"{e.timestamp.strftime('%H:%M')} | {e.message}")
+                    for e in events:
+                        # 1. Convert UTC database time to Local Time (12-hour AM/PM format)
+                        local_time = e.timestamp.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ)
+                        time_str = local_time.strftime('%I:%M %p')
+                        
+                        # 2. Strip emojis and corrupted '??' characters
+                        clean_msg = re.sub(r'[\U00010000-\U0010ffff]', '', e.message)
+                        clean_msg = clean_msg.replace('?', '').strip()
+                        
+                        st.caption(f"{time_str} | {clean_msg}")
                 
                 with c_l:
                     st.subheader("🗺️ Overlays")
@@ -1153,9 +1163,9 @@ elif page == "⚡ AIOps RCA":
                                     st.warning(c)
                                     
                                     if p0:
-                                        st.error(f"**🎯 Patient Zero (Suspected Origin Node):** {p0}")
+                                        st.error(f"**Patient Zero (Suspected Origin Node):** {p0}")
                                     else:
-                                        st.info("**🎯 Patient Zero:** Indeterminate (Simultaneous Failure)")
+                                        st.info("**Patient Zero:** Indeterminate (Simultaneous Failure)")
                                         
                                     with st.expander(f"Draft & Dispatch Ticket for {site}"):
                                         clean_p = p.replace("??", "").replace("??", "").replace("??", "").replace("??", "").replace("??", "").strip()
@@ -1164,7 +1174,7 @@ elif page == "⚡ AIOps RCA":
                                         
                                         # Translating SolarWinds variables into actual DB values
                                         pz_obj = data['patient_zero']
-                                        trigger_time = pz_obj.received_at.strftime('%m/%d/%Y %I:%M %p') if pz_obj and pz_obj.received_at else "Unknown Time"
+                                        trigger_time = pz_obj.received_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ).strftime('%m/%d/%Y %I:%M %p %Z') if pz_obj and pz_obj.received_at else "Unknown Time"
                                         
                                         # Automated Script Header
                                         ticket_text = "Automated Comms Outage\n\n"
@@ -1200,16 +1210,16 @@ elif page == "⚡ AIOps RCA":
                                         
                                         # Hardcoded Default Emails (No user input option)
                                         fixed_recipients = "remedyforceworkflow@aecc.com, noc@aecc.com"
-                                        st.info(f"?? Ticket will be automatically dispatched to: **{fixed_recipients}**")
+                                        st.info(f"Ticket will be automatically dispatched to: **{fixed_recipients}**")
                                         
-                                        if st.button("?? Dispatch Ticket", key=f"t_send_{site}", use_container_width=True):
+                                        if st.button("Dispatch Ticket", key=f"t_send_{site}", use_container_width=True):
                                             from src.mailer import send_alert_email
                                             with st.spinner("Dispatching to RemedyForce & NOC..."):
                                                 success, msg = send_alert_email(f"URGENT: {clean_p} Incident at {site}", ticket_body, fixed_recipients, is_html=False)
                                                 if success: st.success("? Ticket Dispatched successfully!")
                                                 else: st.error(f"? SMTP Error: {msg}")
 
-                                    if st.button(f"🤫 Acknowledge Incident & Clear Board ({site})", key=f"ack_{site}", width="stretch"): 
+                                    if st.button(f"Acknowledge Incident & Clear Board ({site})", key=f"ack_{site}", width="stretch"): 
                                         svc.acknowledge_cluster([a.id for a in data['alerts']])
                                         safe_rerun()
             ai_idx += 1
