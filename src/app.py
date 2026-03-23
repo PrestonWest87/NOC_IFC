@@ -573,29 +573,15 @@ elif page == "📡 Threat Telemetry":
                         st.divider()
                         show_ar_fire = st.toggle("🔥 AR Wildfire Risk (Live Overlay)", value=False)
                         
-                        # Render the uploaded legend ONLY when the map is toggled on
+                        # Text-based legend matching the State's baked-in map colors
                         if show_ar_fire:
-                            st.markdown("**Risk Legend:**")
-                            
-                            import os
-                            # Bulletproof path resolution for Docker environments
-                            possible_paths = [
-                                "image_7690cc.png", # Local execution
-                                os.path.join(os.path.dirname(__file__), "image_7690cc.png"), # Inside /src
-                                os.path.join(os.path.dirname(__file__), "..", "image_7690cc.png"), # Root /app
-                                "/app/image_7690cc.png",
-                                "/app/src/image_7690cc.png"
-                            ]
-                            
-                            img_loaded = False
-                            for path in possible_paths:
-                                if os.path.exists(path):
-                                    st.image(path, use_container_width=True)
-                                    img_loaded = True
-                                    break
-                                    
-                            if not img_loaded:
-                                st.caption("⚠️ *Legend image not found. Ensure 'image_7690cc.png' is mounted in the container.*")
+                            with st.container(border=True):
+                                st.markdown("**🔥 Wildfire Risk Legend:**")
+                                st.markdown("🏁 **Burn Ban Active** *(Checkered)*")
+                                st.markdown("🔴 **Extreme Risk**")
+                                st.markdown("🟠 **High Risk**")
+                                st.markdown("🟡 **Moderate Risk**")
+                                st.markdown("🟢 **Low Risk**")
                         # ------------------------------------
                     
                     with st.container(border=True):
