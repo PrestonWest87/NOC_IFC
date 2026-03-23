@@ -82,8 +82,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 @st.cache_data(ttl=3600, max_entries=1)  # Scrapes once per hour
 def get_ar_fire_bitmap():
     """
-    Chicanery Protocol: Uses regex to hunt down the hidden base64 img-fluid map
-    and pins it to Arkansas's precise geospatial bounding box.
+    Chicanery Protocol: Bypasses Streamlit's dataframe parser bug using the uppercase scheme
+    and pins the image to Arkansas's precise 4-corner bounding box.
     """
     try:
         url = "https://mip.agri.arkansas.gov/agtools/Forestry/Fire_Info"
@@ -95,21 +95,22 @@ def get_ar_fire_bitmap():
         resp = requests.get(url, headers=headers, verify=False, timeout=15)
         html = resp.text
 
-        # STRATEGY 1: Surgical Strike on the `img-fluid` tag
-        # This regex looks for an img tag containing 'img-fluid' and captures the data:image base64 string
-        match = re.search(r'<img[^>]*class=["\'][^"\']*img-fluid[^"\']*["\'][^>]*src=["\'](data:image/[^"\']+)["\']', html, re.IGNORECASE)
-        
-        if not match:
-            # STRATEGY 2: If the HTML is heavily obfuscated by JS, the tag might be built dynamically. 
-            # So, we just hunt for the raw base64 PNG payload floating anywhere in the source code.
-            match = re.search(r'(data:image/png;base64,[A-Za-z0-9+/=]+)', html)
+        # Hunt for the raw base64 PNG payload floating anywhere in the source code
+        match = re.search(r'data:image/png;base64,([A-Za-z0-9+/=]+)', html, re.IGNORECASE)
 
         if match:
-            image_source = match.group(1)
+            # THE HACK: Streamlit crashes if a string starts with lowercase "data:".
+            # Browsers natively support uppercase "DATA:", which safely bypasses Streamlit's parser!
+            image_source = "DATA:image/png;base64," + match.group(1)
             
-            # EXACT Bounding Box for the State of Arkansas
-            # PyDeck format: [West Longitude, South Latitude, East Longitude, North Latitude]
-            ar_bounds = [-94.6179, 33.0041, -89.6443, 36.4996]
+            # EXACT 4-Corner Bounding Box for the State of Arkansas
+            # Format: [[Left, Bottom], [Left, Top], [Right, Top], [Right, Bottom]]
+            ar_bounds = [
+                [-94.6179, 33.0041], # Bottom-Left (Southwest)
+                [-94.6179, 36.4996], # Top-Left (Northwest)
+                [-89.6443, 36.4996], # Top-Right (Northeast)
+                [-89.6443, 33.0041]  # Bottom-Right (Southeast)
+            ]
             
             return {
                 "image_data": image_source,
