@@ -569,15 +569,20 @@ elif page == "📡 Threat Telemetry":
                         show_watch = st.toggle("⚠️ Watches (AR)", value=True)
                         show_oos = st.toggle("🌍 Out-of-State", value=True)
                         
-                        # --- NWS FIRE WEATHER TOGGLE ---
+                        # --- FIRE DESK CONTROLS ---
                         st.divider()
                         show_fire_risk = st.toggle("🔥 NWS Fire Weather & Red Flags", value=False)
+                        show_active_wildfires = st.toggle("🚒 Active Wildfires (NIFC)", value=False)
                         
-                        if show_fire_risk:
+                        # Dynamic Fire Legend
+                        if show_fire_risk or show_active_wildfires:
                             with st.container(border=True):
-                                st.markdown("**🔥 NWS Risk Legend:**")
-                                st.markdown("🔴 **Red Flag Warning** *(Extreme/Burn Ban)*")
-                                st.markdown("🟠 **Fire Weather Watch** *(High Risk)*")
+                                st.markdown("**🔥 Fire Desk Legend:**")
+                                if show_fire_risk:
+                                    st.markdown("🔴 **Red Flag Warning** *(Extreme/Burn Ban)*")
+                                    st.markdown("🟠 **Fire Weather Watch** *(High Risk)*")
+                                if show_active_wildfires:
+                                    st.markdown("🚨 **Active Wildfire** *(Scales by Acreage)*")
                         # ------------------------------------
                     
                     with st.container(border=True):
@@ -655,11 +660,9 @@ elif page == "📡 Threat Telemetry":
                         # 2. PROCESS NWS ALERTS
                         ar_warn, ar_watch, ar_zonewide, ar_logs = svc.process_nws_alerts(ar_data, selected_events, is_oos=False)
                         oos_warn, oos_watch, oos_zonewide, oos_logs = svc.process_nws_alerts(oos_data, selected_events, is_oos=True)
-                        
-                        # --- ADD THESE TWO LINES BACK ---
+
                         all_zonewide = (ar_zonewide or []) + (oos_zonewide or [])
                         map_diagnostics = ar_logs + oos_logs
-                        # --------------------------------
 
                         for f in ar_warn["features"] + ar_watch["features"] + oos_warn["features"] + oos_watch["features"]:
                             master_polygons.append({"event": f['properties']['info'], "shape": f['properties']['shapely_obj'], "severity": f['properties']['severity']})
@@ -669,12 +672,11 @@ elif page == "📡 Threat Telemetry":
                                 toggled_polygons.append({"event": f['properties']['info'], "shape": f['properties']['shapely_obj'], "severity": f['properties']['severity']})
                             f['properties'].pop('shapely_obj', None)
 
-                        # --- NEW: NWS FIRE WEATHER POLYGONS ---
+                        # --- NWS FIRE WEATHER POLYGONS ---
                         if show_fire_risk:
                             ar_fire_geo = {"type": "FeatureCollection", "features": []}
                             ar_counties = svc.get_ar_counties_mapping()
                             
-                            # Parse existing NWS data specifically for Fire-related alerts
                             fire_events = {}
                             for geo_ds in [ar_data, oos_data]:
                                 if geo_ds:
@@ -723,15 +725,49 @@ elif page == "📡 Threat Telemetry":
                                     get_line_color="properties.line_color", 
                                     line_width_min_pixels=2
                                 ))
-                            else:
-                                st.success("✅ No critical Fire Weather or Red Flag Warnings currently active.")
                         # ------------------------------------
 
-                        # Render Standard NWS layers ON TOP
+                        # Render Standard NWS layers
                         if show_warn and ar_warn["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=ar_warn, id=f"ar_warn_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
                         if show_watch and ar_watch["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=ar_watch, id=f"ar_watch_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
                         if show_oos and oos_warn["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=oos_warn, id=f"oos_warn_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
                         if show_oos and oos_watch["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=oos_watch, id=f"oos_watch_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
+
+                        # --- NEW: NIFC ACTIVE WILDFIRES ---
+                        if show_active_wildfires:
+                            nifc_data = svc.get_active_wildfires()
+                            if nifc_data:
+                                df_fires = pd.DataFrame(nifc_data)
+                                df_fires['info'] = "🔥 " + df_fires['name'] + " (" + df_fires['state'] + ")\nAcres: " + df_fires['acres'].astype(str) + "\nContainment: " + df_fires['contained'].astype(str) + "%"
+                                
+                                layers.append(pdk.Layer(
+                                    "ScatterplotLayer",
+                                    data=df_fires,
+                                    id=f"nifc_active_fires_{layer_id}",
+                                    pickable=True,
+                                    opacity=0.9,
+                                    stroked=True,
+                                    filled=True,
+                                    get_radius="1500 + (acres * 15)", # Radius scales up as the fire grows
+                                    radius_min_pixels=5,
+                                    radius_max_pixels=35,
+                                    line_width_min_pixels=1,
+                                    get_position="[lon, lat]",
+                                    get_fill_color="color",
+                                    get_line_color=[0, 0, 0, 255]
+                                ))
+                                
+                                # Add exact fire points (with a 2-mile buffer) into the Site Hazard Matrix
+                                for _, row in df_fires.iterrows():
+                                    try:
+                                        fire_poly = Point(row['lon'], row['lat']).buffer(0.03)
+                                        poly_dict = {"event": f"Active Wildfire: {row['name']}", "shape": fire_poly, "severity": "High"}
+                                        master_polygons.append(poly_dict)
+                                        toggled_polygons.append(poly_dict)
+                                    except: pass
+                        # ------------------------------------
+
+                        
                         # 3. CALCULATE INTERSECTIONS 
                         toggled_affected_sites, master_affected_sites = svc.calculate_site_intersections(map_df, toggled_polygons)
 
