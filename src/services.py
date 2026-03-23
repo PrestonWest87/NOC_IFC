@@ -4,6 +4,7 @@ import requests
 import bcrypt
 import uuid
 import re
+import urllib3
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from sqlalchemy import text
