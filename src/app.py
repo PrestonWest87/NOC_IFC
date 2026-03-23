@@ -568,6 +568,11 @@ elif page == "📡 Threat Telemetry":
                         show_warn = st.toggle("🚨 Warnings (AR)", value=True)
                         show_watch = st.toggle("⚠️ Watches (AR)", value=True)
                         show_oos = st.toggle("🌍 Out-of-State", value=True)
+                        
+                        # --- ADD THE NEW FIRE TOGGLE HERE ---
+                        st.divider()
+                        show_ar_fire = st.toggle("🔥 AR Burn Bans & Wildfire Risk", value=False)
+                        # ------------------------------------
                     
                     with st.container(border=True):
                         st.markdown("**Hazard Isolation**")
@@ -657,12 +662,69 @@ elif page == "📡 Threat Telemetry":
                                 toggled_polygons.append({"event": f['properties']['info'], "shape": f['properties']['shapely_obj'], "severity": f['properties']['severity']})
                             f['properties'].pop('shapely_obj', None)
 
-                        # Render map layers
+                        # Render NWS layers
                         if show_warn and ar_warn["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=ar_warn, id=f"ar_warn_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
                         if show_watch and ar_watch["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=ar_watch, id=f"ar_watch_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
                         if show_oos and oos_warn["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=oos_warn, id=f"oos_warn_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
                         if show_oos and oos_watch["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=oos_watch, id=f"oos_watch_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
 
+                        # --- ADD NEW BURN BAN / WILDFIRE LAYER PROCESSING HERE ---
+                        if show_ar_fire:
+                            ar_fire_geo = {"type": "FeatureCollection", "features": []}
+                            fire_data = svc.get_ar_fire_info()
+                            ar_counties = svc.get_ar_counties_mapping()
+                            
+                            # Color map based on State Forestry Risk Designations
+                            fire_color_map = {
+                                "Extreme": [139, 0, 0, 160],   # Dark Red
+                                "High": [255, 0, 0, 120],      # Red
+                                "Moderate": [255, 165, 0, 80], # Orange
+                                "Low": [0, 128, 0, 40],        # Green
+                                "Unknown": [128, 128, 128, 40] # Gray
+                            }
+                            
+                            for c_name, geom in ar_counties.items():
+                                info = fire_data.get(c_name, {"burn_ban": False, "risk_level": "Unknown"})
+                                risk = info["risk_level"]
+                                is_banned = info["burn_ban"]
+                                
+                                fill_color = fire_color_map.get(risk, [128, 128, 128, 40])
+                                ban_text = "🔥 BURN BAN ACTIVE" if is_banned else "✅ No Burn Ban"
+                                
+                                # Heavy red borders for active burn bans, faint grey borders for no ban
+                                line_color = [255, 0, 0, 255] if is_banned else [50, 50, 50, 80]
+                                
+                                feature = {
+                                    "type": "Feature",
+                                    "geometry": geom,
+                                    "properties": {
+                                        "info": f"{c_name.title()} County\nWildfire Risk: {risk}\n{ban_text}",
+                                        "fill_color": fill_color,
+                                        "line_color": line_color
+                                    }
+                                }
+                                ar_fire_geo["features"].append(feature)
+                                
+                                # Add the hazard geometry to the engine so the NOC knows if an IT site is in an Extreme Risk or Burn Ban zone
+                                try:
+                                    poly_shape = shape(geom)
+                                    poly_dict = {"event": f"Wildfire Risk: {risk} ({ban_text})", "shape": poly_shape, "severity": risk}
+                                    master_polygons.append(poly_dict)
+                                    toggled_polygons.append(poly_dict)
+                                except: pass
+
+                            if ar_fire_geo["features"]:
+                                layers.append(pdk.Layer(
+                                    "GeoJsonLayer", 
+                                    data=ar_fire_geo, 
+                                    id=f"ar_fire_layer_{layer_id}", 
+                                    pickable=True, 
+                                    stroked=True, 
+                                    filled=True, 
+                                    get_fill_color="properties.fill_color", 
+                                    get_line_color="properties.line_color", 
+                                    line_width_min_pixels=2
+                                ))
                         # 3. CALCULATE INTERSECTIONS
                         toggled_affected_sites, master_affected_sites = svc.calculate_site_intersections(map_df, toggled_polygons)
 
