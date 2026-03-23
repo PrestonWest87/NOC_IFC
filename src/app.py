@@ -569,9 +569,9 @@ elif page == "📡 Threat Telemetry":
                         show_watch = st.toggle("⚠️ Watches (AR)", value=True)
                         show_oos = st.toggle("🌍 Out-of-State", value=True)
                         
-                        # --- ADD THE NEW FIRE TOGGLE HERE ---
+                        # --- FEDERAL FIRE TOGGLE ---
                         st.divider()
-                        show_ar_fire = st.toggle("🔥 AR Burn Bans & Wildfire Risk", value=False)
+                        show_nifc_fires = st.toggle("🔥 Active Wildfires & Prescribed Burns", value=False)
                         # ------------------------------------
                     
                     with st.container(border=True):
@@ -668,63 +668,44 @@ elif page == "📡 Threat Telemetry":
                         if show_oos and oos_warn["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=oos_warn, id=f"oos_warn_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
                         if show_oos and oos_watch["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=oos_watch, id=f"oos_watch_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
 
-                        # --- ADD NEW BURN BAN / WILDFIRE LAYER PROCESSING HERE ---
-                        if show_ar_fire:
-                            ar_fire_geo = {"type": "FeatureCollection", "features": []}
-                            fire_data = svc.get_ar_fire_info()
-                            ar_counties = svc.get_ar_counties_mapping()
-                            
-                            # Color map based on State Forestry Risk Designations
-                            fire_color_map = {
-                                "Extreme": [139, 0, 0, 160],   # Dark Red
-                                "High": [255, 0, 0, 120],      # Red
-                                "Moderate": [255, 165, 0, 80], # Orange
-                                "Low": [0, 128, 0, 40],        # Green
-                                "Unknown": [128, 128, 128, 40] # Gray
-                            }
-                            
-                            for c_name, geom in ar_counties.items():
-                                info = fire_data.get(c_name, {"burn_ban": False, "risk_level": "Unknown"})
-                                risk = info["risk_level"]
-                                is_banned = info["burn_ban"]
+                        # --- FEDERAL WILDFIRE OVERLAY ---
+                        if show_nifc_fires:
+                            fire_data = svc.get_nifc_wildfires()
+                            if fire_data:
+                                df_fires = pd.DataFrame(fire_data)
+                                # Build hover tooltip info
+                                df_fires['info'] = df_fires['type'] + ": " + df_fires['name'] + "\nAcres Burned: " + df_fires['acres'].astype(str) + "\nContainment: " + df_fires['contained'].astype(str) + "%"
                                 
-                                fill_color = fire_color_map.get(risk, [128, 128, 128, 40])
-                                ban_text = "🔥 BURN BAN ACTIVE" if is_banned else "✅ No Burn Ban"
-                                
-                                # Heavy red borders for active burn bans, faint grey borders for no ban
-                                line_color = [255, 0, 0, 255] if is_banned else [50, 50, 50, 80]
-                                
-                                feature = {
-                                    "type": "Feature",
-                                    "geometry": geom,
-                                    "properties": {
-                                        "info": f"{c_name.title()} County\nWildfire Risk: {risk}\n{ban_text}",
-                                        "fill_color": fill_color,
-                                        "line_color": line_color
-                                    }
-                                }
-                                ar_fire_geo["features"].append(feature)
-                                
-                                # Add the hazard geometry to the engine so the NOC knows if an IT site is in an Extreme Risk or Burn Ban zone
-                                try:
-                                    poly_shape = shape(geom)
-                                    poly_dict = {"event": f"Wildfire Risk: {risk} ({ban_text})", "shape": poly_shape, "severity": risk}
-                                    master_polygons.append(poly_dict)
-                                    toggled_polygons.append(poly_dict)
-                                except: pass
-
-                            if ar_fire_geo["features"]:
                                 layers.append(pdk.Layer(
-                                    "GeoJsonLayer", 
-                                    data=ar_fire_geo, 
-                                    id=f"ar_fire_layer_{layer_id}", 
-                                    pickable=True, 
-                                    stroked=True, 
-                                    filled=True, 
-                                    get_fill_color="properties.fill_color", 
-                                    get_line_color="properties.line_color", 
-                                    line_width_min_pixels=2
+                                    "ScatterplotLayer",
+                                    data=df_fires,
+                                    id=f"nifc_fires_{layer_id}",
+                                    pickable=True,
+                                    opacity=0.8,
+                                    stroked=True,
+                                    filled=True,
+                                    radius_scale=100,
+                                    radius_min_pixels=6,
+                                    radius_max_pixels=30,
+                                    line_width_min_pixels=2,
+                                    get_position="[lon, lat]",
+                                    get_fill_color="color",
+                                    get_line_color=[0, 0, 0, 255]
                                 ))
+                                
+                                # Add the fires to the threat matrix so NOC operators know if a site is in the burn zone
+                                for _, row in df_fires.iterrows():
+                                    try:
+                                        # Create a buffer (approx 2 miles) around the fire coordinate
+                                        fire_poly = Point(row['lon'], row['lat']).buffer(0.03)
+                                        poly_dict = {
+                                            "event": f"{row['type']} ({row['name']})", 
+                                            "shape": fire_poly, 
+                                            "severity": "High" if "Wildfire" in row['type'] else "Watch"
+                                        }
+                                        master_polygons.append(poly_dict)
+                                        toggled_polygons.append(poly_dict)
+                                    except: pass
                         # 3. CALCULATE INTERSECTIONS
                         toggled_affected_sites, master_affected_sites = svc.calculate_site_intersections(map_df, toggled_polygons)
 
