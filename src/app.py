@@ -569,9 +569,15 @@ elif page == "📡 Threat Telemetry":
                         show_watch = st.toggle("⚠️ Watches (AR)", value=True)
                         show_oos = st.toggle("🌍 Out-of-State", value=True)
                         
-                        # --- NEW FIRE RISK & BURN BAN TOGGLE ---
+                        # --- THE CHICANERY FIRE TOGGLE ---
                         st.divider()
-                        show_fire_risk = st.toggle("🔥 Wildfire Risk & Burn Bans", value=False)
+                        show_ar_fire = st.toggle("🔥 AR Wildfire Risk (Live Overlay)", value=False)
+                        
+                        # Render the uploaded legend ONLY when the map is toggled on
+                        if show_ar_fire:
+                            st.markdown("**Risk Legend:**")
+                            # Assuming the image is saved in your local directory or an accessible path
+                            st.image("image_7690cc.png", use_container_width=True)
                         # ------------------------------------
                     
                     with st.container(border=True):
@@ -615,10 +621,27 @@ elif page == "📡 Threat Telemetry":
                         layers = []
                         layer_id = str(uuid.uuid4())[:6]
 
+                        # 1. BASE TILE LAYERS & BITMAP OVERLAYS
                         if show_radar_overlay:
                             layers.append(pdk.Layer("TileLayer", data=["https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png"], opacity=0.6, pickable=False))
 
-                        # 1. PROCESS SPC DATA (RAM-Efficient Micro-Features)
+                        # --- INJECT THE SCRAPED BITMAP LAYER HERE ---
+                        # We add it early in the list so that severe weather warnings draw ON TOP of it
+                        if show_ar_fire:
+                            fire_layer_data = svc.get_ar_fire_bitmap()
+                            if fire_layer_data and fire_layer_data["image_data"]:
+                                layers.append(
+                                    pdk.Layer(
+                                        "BitmapLayer",
+                                        image=fire_layer_data["image_data"],
+                                        bounds=fire_layer_data["bounds"],
+                                        opacity=0.7, # Slightly transparent so base streets show through
+                                        pickable=False # It's just a picture, no tooltips needed
+                                    )
+                                )
+                        # --------------------------------------------
+
+                        # 2. PROCESS SPC DATA (RAM-Efficient Micro-Features)
                         spc_micro_collection = {"type": "FeatureCollection", "features": []}
                         
                         if spc_data:
@@ -647,7 +670,7 @@ elif page == "📡 Threat Telemetry":
                             if show_spc and spc_micro_collection["features"]:
                                 layers.append(pdk.Layer("GeoJsonLayer", spc_micro_collection, id=f"spc_layer_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=1))
 
-                        # 2. PROCESS NWS ALERTS
+                        # 3. PROCESS NWS ALERTS (These will render cleanly over the Bitmap image)
                         ar_warn, ar_watch, ar_zonewide, ar_logs = svc.process_nws_alerts(ar_data, selected_events, is_oos=False)
                         oos_warn, oos_watch, oos_zonewide, oos_logs = svc.process_nws_alerts(oos_data, selected_events, is_oos=True)
                         
@@ -662,73 +685,11 @@ elif page == "📡 Threat Telemetry":
                                 toggled_polygons.append({"event": f['properties']['info'], "shape": f['properties']['shapely_obj'], "severity": f['properties']['severity']})
                             f['properties'].pop('shapely_obj', None)
 
-                        # Render Standard NWS layers
+                        # Render NWS Vector layers
                         if show_warn and ar_warn["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=ar_warn, id=f"ar_warn_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
                         if show_watch and ar_watch["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=ar_watch, id=f"ar_watch_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
                         if show_oos and oos_warn["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=oos_warn, id=f"oos_warn_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
                         if show_oos and oos_watch["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=oos_watch, id=f"oos_watch_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
-
-                        # --- WILDFIRE RISK & BURN BAN OVERLAY ---
-                        if show_fire_risk:
-                            ar_fire_geo = {"type": "FeatureCollection", "features": []}
-                            ar_counties = svc.get_ar_counties_mapping()
-                            
-                            # Parse existing NWS data specifically for Fire-related alerts
-                            fire_events = {}
-                            for geo_ds in [ar_data, oos_data]:
-                                if geo_ds:
-                                    for f in geo_ds.get('features', []):
-                                        event = f.get('properties', {}).get('event', '')
-                                        area_desc = f.get('properties', {}).get('areaDesc', '')
-                                        
-                                        # Target specific Fire Risk & Burn Ban classifications
-                                        if any(k in event for k in ["Fire Weather", "Red Flag", "Fire Warning", "Extreme Fire"]):
-                                            severity = "Extreme (Burn Ban / Red Flag)" if "Red Flag" in event or "Warning" in event else "High (Fire Weather Watch)"
-                                            fill_color = [139, 0, 0, 160] if "Red Flag" in event or "Warning" in event else [255, 140, 0, 120]
-                                            line_color = [255, 0, 0, 255] if "Red Flag" in event or "Warning" in event else [255, 140, 0, 255]
-                                            
-                                            counties = [c.strip().lower().replace(" county", "").replace(" parish", "") for c in re.split(r'[;,]', area_desc)]
-                                            for c in counties:
-                                                fire_events[c] = {"severity": severity, "color": fill_color, "line_color": line_color, "event": event}
-
-                            # Map the Fire Risk to the County GeoJSONs
-                            for c_name, geom in ar_counties.items():
-                                if c_name in fire_events:
-                                    info = fire_events[c_name]
-                                    feature = {
-                                        "type": "Feature",
-                                        "geometry": geom,
-                                        "properties": {
-                                            "info": f"{c_name.title()} County\nRisk Level: {info['severity']}\nNWS Alert: {info['event']}",
-                                            "fill_color": info["color"],
-                                            "line_color": info["line_color"]
-                                        }
-                                    }
-                                    ar_fire_geo["features"].append(feature)
-                                    
-                                    # Feed intersection data to the NOC engine
-                                    try:
-                                        poly_shape = shape(geom)
-                                        poly_dict = {"event": f"Wildfire Risk: {info['event']}", "shape": poly_shape, "severity": "High"}
-                                        master_polygons.append(poly_dict)
-                                        toggled_polygons.append(poly_dict)
-                                    except: pass
-
-                            if ar_fire_geo["features"]:
-                                layers.append(pdk.Layer(
-                                    "GeoJsonLayer", 
-                                    data=ar_fire_geo, 
-                                    id=f"fire_risk_layer_{layer_id}", 
-                                    pickable=True, 
-                                    stroked=True, 
-                                    filled=True, 
-                                    get_fill_color="properties.fill_color", 
-                                    get_line_color="properties.line_color", 
-                                    line_width_min_pixels=2
-                                ))
-                            else:
-                                st.success("✅ No critical Wildfire Risks or Red Flag Burn Bans currently issued by NWS.")
-                        # --------------------------------
 
                         # 3. CALCULATE INTERSECTIONS 
                         toggled_affected_sites, master_affected_sites = svc.calculate_site_intersections(map_df, toggled_polygons)
