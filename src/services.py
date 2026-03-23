@@ -79,16 +79,20 @@ def get_ar_counties_mapping():
 
 @st.cache_data(ttl=900, max_entries=1)
 def get_active_wildfires():
-    """Fetches live coordinates strictly for Active Wildfires (excluding planned burns and fully contained fires)."""
+    """Fetches live coordinates strictly for Active Wildfires (excluding planned burns, contained fires, and zombie records)."""
+    import re
+    from datetime import datetime, timedelta
+    
     try:
         url = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Incident_Locations/FeatureServer/0/query"
         
-        # 1. API LEVEL FILTER:
-        # - Must be 'WF' (Wildfire)
-        # - PercentContained must be less than 100 OR it must be NULL (newly reported fires often have NULL containment)
+        # 1. GENERATE THE 7-DAY CUT-OFF
+        cutoff_date = (datetime.utcnow() - timedelta(days=7)).strftime('%Y-%m-%d')
+        
+        # 2. API LEVEL FILTER
         states = "('US-AR', 'US-MO', 'US-TN', 'US-MS', 'US-LA', 'US-TX', 'US-OK')"
         params = {
-            "where": f"POOState IN {states} AND IncidentTypeCategory = 'WF' AND (PercentContained < 100 OR PercentContained IS NULL)", 
+            "where": f"POOState IN {states} AND IncidentTypeCategory = 'WF' AND (PercentContained < 100 OR PercentContained IS NULL) AND FireDiscoveryDateTime >= '{cutoff_date}'", 
             "outFields": "IncidentName,IncidentSize,PercentContained,POOState,IncidentTypeCategory",
             "f": "geojson",
             "returnGeometry": "true"
@@ -110,28 +114,30 @@ def get_active_wildfires():
                 inc_name = str(props.get("IncidentName", "Unnamed Incident")).upper()
                 contained = props.get("PercentContained")
                 
-                # Normalize containment to 0 if the API returns a NoneType (NULL)
+                # Normalize NULL containment
                 contained_val = 0 if contained is None else contained
+                size = props.get("IncidentSize", 0)
                 
-                # 2. PYTHON LEVEL FILTER (Triple Check)
+                # 3. TRIPLE CHECK PYTHON FILTERS
                 if inc_type != "WF": continue
                 if " RX" in inc_name or inc_name.startswith("RX ") or "PRESCRIBED" in inc_name: continue
-                if contained_val >= 100: continue # The kill-switch for contained fires
+                if contained_val >= 100: continue
+                if not size or size <= 0.1: continue
+                    
+                # 4. ZOMBIE NAME KILLER
+                if re.search(r'(201\d|202[0-4]|/\d{2}$)', inc_name): continue
                 
-                size = props.get("IncidentSize", 0)
                 state = props.get("POOState", "Unknown").replace("US-", "")
                 
-                # Filter out microscopic incidents (< 0.1 acres) to keep the map clean
-                if size and size > 0.1:
-                    active_fires.append({
-                        "name": props.get("IncidentName", "Unnamed Incident"),
-                        "state": state,
-                        "acres": round(size, 2),
-                        "contained": contained_val,
-                        "lon": geom["coordinates"][0],
-                        "lat": geom["coordinates"][1],
-                        "color": [220, 20, 60, 230] # High-visibility Crimson
-                    })
+                active_fires.append({
+                    "name": props.get("IncidentName", "Unnamed Incident"),
+                    "state": state,
+                    "acres": round(size, 2),
+                    "contained": contained_val,
+                    "lon": geom["coordinates"][0],
+                    "lat": geom["coordinates"][1],
+                    "color": [220, 20, 60, 230] # High-visibility Crimson
+                })
             return active_fires
         return []
     except Exception as e:
