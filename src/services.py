@@ -76,6 +76,41 @@ def get_ar_counties_mapping():
         print(f"Error fetching county GeoJSON: {e}")
         return {}
 
+@st.cache_data(ttl=1800, max_entries=1)
+def get_ar_fire_info():
+    """Fetches real-time Burn Ban and Wildfire Risk data from Arkansas Forestry."""
+    try:
+        url = "https://mip.agri.arkansas.gov/agtools/Forestry/Fire_Info?show_districts=False"
+        headers = {'User-Agent': 'NOC_Fusion_App'}
+        resp = requests.get(url, headers=headers, timeout=8)
+        if resp.status_code == 200:
+            data = resp.json()
+            fire_data = {}
+            for item in data:
+                # Defensively search for the county name regardless of exact API casing
+                c_name = next((str(item[k]).lower().replace(" county", "").strip() for k in ["CountyName", "county_name", "county", "Name", "name"] if k in item), None)
+                
+                # Defensively evaluate burn ban boolean status
+                burn_ban = False
+                for k in ["BurnBan", "burn_ban", "is_burn_ban", "burnBan", "Status"]:
+                    if k in item:
+                        val = item[k]
+                        if isinstance(val, bool): burn_ban = val
+                        elif isinstance(val, str): burn_ban = val.lower() in ["true", "yes", "active", "1"]
+                        elif isinstance(val, int): burn_ban = val == 1
+                        break
+                        
+                # Extract Wildfire Risk Level
+                risk = next((str(item[k]).title() for k in ["RiskLevel", "risk_level", "riskLevel", "Risk", "risk"] if k in item), "Unknown")
+                
+                if c_name:
+                    fire_data[c_name] = {"burn_ban": burn_ban, "risk_level": risk}
+            return fire_data
+        return {}
+    except Exception as e:
+        print(f"Failed to pull AR Fire Info: {e}")
+        return {}
+
 
 # ==========================================
 # 1. AUTHENTICATION & USER PROFILE
