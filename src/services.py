@@ -76,58 +76,49 @@ def get_ar_counties_mapping():
         print(f"Error fetching county GeoJSON: {e}")
         return {}
 
-@st.cache_data(ttl=900, max_entries=1)
-def get_regional_wildfires():
-    """Fetches live coordinates for Wildfires and Prescribed Burns for AR and surrounding states from NIFC."""
+@st.cache_data(ttl=3600, max_entries=1)  # Scrapes once per hour
+def get_ar_fire_bitmap():
+    """
+    Chicanery Protocol: Uses regex to hunt down the hidden base64 img-fluid map
+    and pins it to Arkansas's precise geospatial bounding box.
+    """
     try:
-        url = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Incident_Locations/FeatureServer/0/query"
-        
-        # Include Arkansas and all bordering states for a true regional view
-        states = "('US-AR', 'US-MO', 'US-TN', 'US-MS', 'US-LA', 'US-TX', 'US-OK')"
-        params = {
-            "where": f"POOState IN {states}", 
-            "outFields": "IncidentName,IncidentTypeCategory,IncidentSize,PercentContained,POOState",
-            "f": "geojson",
-            "returnGeometry": "true"
+        url = "https://mip.agri.arkansas.gov/agtools/Forestry/Fire_Info"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         
-        # We use standard requests without disabling SSL warnings because this is a properly secured federal API
-        resp = requests.get(url, params=params, timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            active_fires = []
-            
-            for f in data.get("features", []):
-                props = f.get("properties", {})
-                geom = f.get("geometry", {})
-                
-                if not geom or "coordinates" not in geom: continue
-                
-                # NIFC uses 'WF' for Wildfire and 'RX' for Prescribed Burn
-                f_type = "🔥 Wildfire" if props.get("IncidentTypeCategory") == "WF" else "🧑‍🚒 Prescribed Burn"
-                size = props.get("IncidentSize", 0)
-                state = props.get("POOState", "Unknown").replace("US-", "")
-                
-                # Keep fires > 0.1 acres to prevent mapping microscopic campfires
-                if size and size > 0.1:
-                    active_fires.append({
-                        "name": props.get("IncidentName", "Unnamed Incident"),
-                        "type": f_type,
-                        "state": state,
-                        "acres": round(size, 2),
-                        "contained": props.get("PercentContained", 0) or 0,
-                        "lon": geom["coordinates"][0],
-                        "lat": geom["coordinates"][1],
-                        # Red for Wildfires, Orange for Prescribed Burns
-                        "color": [220, 20, 60, 200] if "Wildfire" in f_type else [255, 140, 0, 180]
-                    })
-            return active_fires
-        return []
-    except Exception as e:
-        print(f"Federal NIFC API Error: {e}")
-        return []
+        # Pull the raw HTML from the website
+        resp = requests.get(url, headers=headers, verify=False, timeout=15)
+        html = resp.text
 
+        # STRATEGY 1: Surgical Strike on the `img-fluid` tag
+        # This regex looks for an img tag containing 'img-fluid' and captures the data:image base64 string
+        match = re.search(r'<img[^>]*class=["\'][^"\']*img-fluid[^"\']*["\'][^>]*src=["\'](data:image/[^"\']+)["\']', html, re.IGNORECASE)
+        
+        if not match:
+            # STRATEGY 2: If the HTML is heavily obfuscated by JS, the tag might be built dynamically. 
+            # So, we just hunt for the raw base64 PNG payload floating anywhere in the source code.
+            match = re.search(r'(data:image/png;base64,[A-Za-z0-9+/=]+)', html)
+
+        if match:
+            image_source = match.group(1)
+            
+            # EXACT Bounding Box for the State of Arkansas
+            # PyDeck format: [West Longitude, South Latitude, East Longitude, North Latitude]
+            ar_bounds = [-94.6179, 33.0041, -89.6443, 36.4996]
+            
+            return {
+                "image_data": image_source,
+                "bounds": ar_bounds
+            }
+        else:
+            print("🚨 CHICANERY FAILED: Could not find the base64 image string in the HTML source.")
+            return None
+            
+    except Exception as e:
+        print(f"🚨 Failed to scrape fire bitmap: {e}")
+        return None
 
 # ==========================================
 # 1. AUTHENTICATION & USER PROFILE
