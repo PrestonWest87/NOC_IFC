@@ -557,7 +557,7 @@ elif page == "📡 Threat Telemetry":
 
                 ctrl_panel, main_panel = st.columns([1, 4])
                 
-            with ctrl_panel:
+                    with ctrl_panel:
                     st.subheader("⚙️ Map Controls")
                     with st.container(border=True):
                         st.markdown("**Master Layers**")
