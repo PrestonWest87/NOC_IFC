@@ -576,8 +576,26 @@ elif page == "📡 Threat Telemetry":
                         # Render the uploaded legend ONLY when the map is toggled on
                         if show_ar_fire:
                             st.markdown("**Risk Legend:**")
-                            # Assuming the image is saved in your local directory or an accessible path
-                            st.image("image_7690cc.png", use_container_width=True)
+                            
+                            import os
+                            # Bulletproof path resolution for Docker environments
+                            possible_paths = [
+                                "image_7690cc.png", # Local execution
+                                os.path.join(os.path.dirname(__file__), "image_7690cc.png"), # Inside /src
+                                os.path.join(os.path.dirname(__file__), "..", "image_7690cc.png"), # Root /app
+                                "/app/image_7690cc.png",
+                                "/app/src/image_7690cc.png"
+                            ]
+                            
+                            img_loaded = False
+                            for path in possible_paths:
+                                if os.path.exists(path):
+                                    st.image(path, use_container_width=True)
+                                    img_loaded = True
+                                    break
+                                    
+                            if not img_loaded:
+                                st.caption("⚠️ *Legend image not found. Ensure 'image_7690cc.png' is mounted in the container.*")
                         # ------------------------------------
                     
                     with st.container(border=True):
