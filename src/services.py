@@ -77,26 +77,27 @@ def get_ar_counties_mapping():
         return {}
 
 @st.cache_data(ttl=900, max_entries=1)
-def get_nifc_wildfires():
-    """Fetches live, exact coordinates for Wildfires and Prescribed Burns in Arkansas from the Federal NIFC Database."""
+def get_regional_wildfires():
+    """Fetches live coordinates for Wildfires and Prescribed Burns for AR and surrounding states from NIFC."""
     try:
-        # Federal ArcGIS REST API for WFIGS (Wildland Fire Incident Information System)
         url = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Incident_Locations/FeatureServer/0/query"
         
-        # Filter strictly for Arkansas (POO_STATE='US-AR') to keep payloads lightning fast
+        # Include Arkansas and all bordering states for a true regional view
+        states = "('US-AR', 'US-MO', 'US-TN', 'US-MS', 'US-LA', 'US-TX', 'US-OK')"
         params = {
-            "where": "POO_STATE='US-AR'", 
-            "outFields": "IncidentName,IncidentTypeCategory,IncidentSize,PercentContained",
+            "where": f"POOState IN {states}", 
+            "outFields": "IncidentName,IncidentTypeCategory,IncidentSize,PercentContained,POOState",
             "f": "geojson",
             "returnGeometry": "true"
         }
         
+        # We use standard requests without disabling SSL warnings because this is a properly secured federal API
         resp = requests.get(url, params=params, timeout=10)
+        
         if resp.status_code == 200:
             data = resp.json()
             active_fires = []
             
-            # Extract coordinates and properties safely
             for f in data.get("features", []):
                 props = f.get("properties", {})
                 geom = f.get("geometry", {})
@@ -106,14 +107,16 @@ def get_nifc_wildfires():
                 # NIFC uses 'WF' for Wildfire and 'RX' for Prescribed Burn
                 f_type = "🔥 Wildfire" if props.get("IncidentTypeCategory") == "WF" else "🧑‍🚒 Prescribed Burn"
                 size = props.get("IncidentSize", 0)
+                state = props.get("POOState", "Unknown").replace("US-", "")
                 
-                # Filter out microscopic burns (< 0.1 acres) to prevent map clutter
+                # Keep fires > 0.1 acres to prevent mapping microscopic campfires
                 if size and size > 0.1:
                     active_fires.append({
                         "name": props.get("IncidentName", "Unnamed Incident"),
                         "type": f_type,
+                        "state": state,
                         "acres": round(size, 2),
-                        "contained": props.get("PercentContained", 0),
+                        "contained": props.get("PercentContained", 0) or 0,
                         "lon": geom["coordinates"][0],
                         "lat": geom["coordinates"][1],
                         # Red for Wildfires, Orange for Prescribed Burns
