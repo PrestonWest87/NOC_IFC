@@ -83,11 +83,12 @@ def get_active_wildfires():
     try:
         url = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Incident_Locations/FeatureServer/0/query"
         
-        # Scope to your regional grid and STRICTLY request 'WF' (Wildfire), ignoring 'RX' (Prescribed)
+        # DOUBLE CHECK: API Level
+        # Explicitly demand 'WF' (Wildfire) and explicitly exclude 'RX' (Prescribed Fire)
         states = "('US-AR', 'US-MO', 'US-TN', 'US-MS', 'US-LA', 'US-TX', 'US-OK')"
         params = {
-            "where": f"POOState IN {states} AND IncidentTypeCategory='WF'", 
-            "outFields": "IncidentName,IncidentSize,PercentContained,POOState",
+            "where": f"POOState IN {states} AND IncidentTypeCategory = 'WF' AND IncidentTypeCategory <> 'RX'", 
+            "outFields": "IncidentName,IncidentSize,PercentContained,POOState,IncidentTypeCategory",
             "f": "geojson",
             "returnGeometry": "true"
         }
@@ -104,10 +105,21 @@ def get_active_wildfires():
                 
                 if not geom or "coordinates" not in geom: continue
                 
+                inc_type = props.get("IncidentTypeCategory", "")
+                inc_name = str(props.get("IncidentName", "Unnamed Incident")).upper()
+                
+                # TRIPLE CHECK: Python Level (Defends against human dispatcher typos)
+                # 1. Reject if the category isn't exactly 'WF'
+                if inc_type != "WF": 
+                    continue
+                # 2. Reject if the dispatcher accidentally left it as a Wildfire but named it "RX" or "Prescribed"
+                if " RX" in inc_name or inc_name.startswith("RX ") or "PRESCRIBED" in inc_name:
+                    continue
+                
                 size = props.get("IncidentSize", 0)
                 state = props.get("POOState", "Unknown").replace("US-", "")
                 
-                # Filter out microscopic incidents to keep the map clean
+                # Filter out microscopic incidents (< 0.1 acres) to keep the map clean
                 if size and size > 0.1:
                     active_fires.append({
                         "name": props.get("IncidentName", "Unnamed Incident"),
