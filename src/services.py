@@ -79,15 +79,16 @@ def get_ar_counties_mapping():
 
 @st.cache_data(ttl=900, max_entries=1)
 def get_active_wildfires():
-    """Fetches live coordinates strictly for Active Wildfires (excluding planned burns) from NIFC."""
+    """Fetches live coordinates strictly for Active Wildfires (excluding planned burns and fully contained fires)."""
     try:
         url = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Incident_Locations/FeatureServer/0/query"
         
-        # DOUBLE CHECK: API Level
-        # Explicitly demand 'WF' (Wildfire) and explicitly exclude 'RX' (Prescribed Fire)
+        # 1. API LEVEL FILTER:
+        # - Must be 'WF' (Wildfire)
+        # - PercentContained must be less than 100 OR it must be NULL (newly reported fires often have NULL containment)
         states = "('US-AR', 'US-MO', 'US-TN', 'US-MS', 'US-LA', 'US-TX', 'US-OK')"
         params = {
-            "where": f"POOState IN {states} AND IncidentTypeCategory = 'WF' AND IncidentTypeCategory <> 'RX'", 
+            "where": f"POOState IN {states} AND IncidentTypeCategory = 'WF' AND (PercentContained < 100 OR PercentContained IS NULL)", 
             "outFields": "IncidentName,IncidentSize,PercentContained,POOState,IncidentTypeCategory",
             "f": "geojson",
             "returnGeometry": "true"
@@ -107,14 +108,15 @@ def get_active_wildfires():
                 
                 inc_type = props.get("IncidentTypeCategory", "")
                 inc_name = str(props.get("IncidentName", "Unnamed Incident")).upper()
+                contained = props.get("PercentContained")
                 
-                # TRIPLE CHECK: Python Level (Defends against human dispatcher typos)
-                # 1. Reject if the category isn't exactly 'WF'
-                if inc_type != "WF": 
-                    continue
-                # 2. Reject if the dispatcher accidentally left it as a Wildfire but named it "RX" or "Prescribed"
-                if " RX" in inc_name or inc_name.startswith("RX ") or "PRESCRIBED" in inc_name:
-                    continue
+                # Normalize containment to 0 if the API returns a NoneType (NULL)
+                contained_val = 0 if contained is None else contained
+                
+                # 2. PYTHON LEVEL FILTER (Triple Check)
+                if inc_type != "WF": continue
+                if " RX" in inc_name or inc_name.startswith("RX ") or "PRESCRIBED" in inc_name: continue
+                if contained_val >= 100: continue # The kill-switch for contained fires
                 
                 size = props.get("IncidentSize", 0)
                 state = props.get("POOState", "Unknown").replace("US-", "")
@@ -125,7 +127,7 @@ def get_active_wildfires():
                         "name": props.get("IncidentName", "Unnamed Incident"),
                         "state": state,
                         "acres": round(size, 2),
-                        "contained": props.get("PercentContained", 0) or 0,
+                        "contained": contained_val,
                         "lon": geom["coordinates"][0],
                         "lat": geom["coordinates"][1],
                         "color": [220, 20, 60, 230] # High-visibility Crimson
