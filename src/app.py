@@ -655,6 +655,11 @@ elif page == "📡 Threat Telemetry":
                         # 2. PROCESS NWS ALERTS
                         ar_warn, ar_watch, ar_zonewide, ar_logs = svc.process_nws_alerts(ar_data, selected_events, is_oos=False)
                         oos_warn, oos_watch, oos_zonewide, oos_logs = svc.process_nws_alerts(oos_data, selected_events, is_oos=True)
+                        
+                        # --- ADD THESE TWO LINES BACK ---
+                        all_zonewide = (ar_zonewide or []) + (oos_zonewide or [])
+                        map_diagnostics = ar_logs + oos_logs
+                        # --------------------------------
 
                         for f in ar_warn["features"] + ar_watch["features"] + oos_warn["features"] + oos_watch["features"]:
                             master_polygons.append({"event": f['properties']['info'], "shape": f['properties']['shapely_obj'], "severity": f['properties']['severity']})
