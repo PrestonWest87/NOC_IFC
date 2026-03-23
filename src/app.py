@@ -557,7 +557,7 @@ elif page == "📡 Threat Telemetry":
 
                 ctrl_panel, main_panel = st.columns([1, 4])
                 
-                with ctrl_panel:
+               with ctrl_panel:
                     st.subheader("⚙️ Map Controls")
                     with st.container(border=True):
                         st.markdown("**Master Layers**")
@@ -569,9 +569,9 @@ elif page == "📡 Threat Telemetry":
                         show_watch = st.toggle("⚠️ Watches (AR)", value=True)
                         show_oos = st.toggle("🌍 Out-of-State", value=True)
                         
-                        # --- FEDERAL FIRE TOGGLE ---
+                        # --- REGIONAL FIRE TOGGLE ---
                         st.divider()
-                        show_nifc_fires = st.toggle("🔥 Active Wildfires & Prescribed Burns", value=False)
+                        show_nifc_fires = st.toggle("🔥 Regional Wildfires & Planned Burns", value=False)
                         # ------------------------------------
                     
                     with st.container(border=True):
@@ -668,13 +668,13 @@ elif page == "📡 Threat Telemetry":
                         if show_oos and oos_warn["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=oos_warn, id=f"oos_warn_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
                         if show_oos and oos_watch["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=oos_watch, id=f"oos_watch_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
 
-                        # --- FEDERAL WILDFIRE OVERLAY ---
+                        # --- REGIONAL WILDFIRE OVERLAY ---
                         if show_nifc_fires:
-                            fire_data = svc.get_nifc_wildfires()
+                            fire_data = svc.get_regional_wildfires()
                             if fire_data:
                                 df_fires = pd.DataFrame(fire_data)
-                                # Build hover tooltip info
-                                df_fires['info'] = df_fires['type'] + ": " + df_fires['name'] + "\nAcres Burned: " + df_fires['acres'].astype(str) + "\nContainment: " + df_fires['contained'].astype(str) + "%"
+                                # Build hover tooltip info showing State, Acres, and Containment
+                                df_fires['info'] = df_fires['type'] + ": " + df_fires['name'] + " (" + df_fires['state'] + ")\nAcres Burned: " + df_fires['acres'].astype(str) + "\nContainment: " + df_fires['contained'].astype(str) + "%"
                                 
                                 layers.append(pdk.Layer(
                                     "ScatterplotLayer",
@@ -684,13 +684,14 @@ elif page == "📡 Threat Telemetry":
                                     opacity=0.8,
                                     stroked=True,
                                     filled=True,
-                                    radius_scale=100,
-                                    radius_min_pixels=6,
-                                    radius_max_pixels=30,
-                                    line_width_min_pixels=2,
+                                    # Base radius + scale by size so massive fires visually look larger
+                                    get_radius="2000 + (acres * 10)",
+                                    radius_min_pixels=4,
+                                    radius_max_pixels=40,
+                                    line_width_min_pixels=1,
                                     get_position="[lon, lat]",
                                     get_fill_color="color",
-                                    get_line_color=[0, 0, 0, 255]
+                                    get_line_color=[0, 0, 0, 200]
                                 ))
                                 
                                 # Add the fires to the threat matrix so NOC operators know if a site is in the burn zone
@@ -706,6 +707,7 @@ elif page == "📡 Threat Telemetry":
                                         master_polygons.append(poly_dict)
                                         toggled_polygons.append(poly_dict)
                                     except: pass
+                                        
                         # 3. CALCULATE INTERSECTIONS
                         toggled_affected_sites, master_affected_sites = svc.calculate_site_intersections(map_df, toggled_polygons)
 
