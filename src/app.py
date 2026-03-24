@@ -1255,7 +1255,7 @@ elif page == "⚡ AIOps RCA":
         
         if "Tab: AIOps RCA -> Active Board" in st.session_state.allowed_actions:
             with ai_tabs[ai_idx]:
-                alerts, events, grid, aliases = svc.get_aiops_dashboard_data()
+                alerts, events, grid = svc.get_aiops_dashboard_data()
                 c_l, c_s = st.columns([3, 1])
                 with c_s:
                     st.subheader("⏱️ Event Log")
@@ -1723,7 +1723,7 @@ elif page == "⚙️ Settings & Admin":
                             try:
                                 data = json.load(uploaded_backup)
                                 added = svc.restore_backup_data(data)
-                                st.success(f"Restored: {added['kw']} Keywords, {added['feeds']} Feeds, {added['locs']} Locations, {added['alias']} Aliases.")
+                                st.success(f"Restored: {added['kw']} Keywords, {added['feeds']} Feeds, {added['locs']} Locations.")
                             except Exception as e:
                                 st.error(f"Import Failed: {e}")
             set_idx += 1
@@ -1754,11 +1754,11 @@ elif page == "⚙️ Settings & Admin":
                     st.write("**Data Migration**")
                     st.caption("Applies new categories to historical 'General' data.")
                     is_recat_cooling = check_cooldown("recategorize", 60)
-                    if st.button("⏳ Scanning..." if is_recat_cooling else "🔄 Recategorize Old Articles", width="stretch", disabled=is_recat_cooling):
+                    if st.button("⏳ Scanning..." if is_recat_cooling else "🔄 Recategorize Articles", width="stretch", disabled=is_recat_cooling):
                         apply_cooldown("recategorize")
-                        with st.spinner("Scanning historical database..."):
+                        with st.spinner("Scanning database..."):
                             updated_count = svc.recategorize_all_articles()
-                            st.success(f"✅ Successfully recategorized {updated_count} historical articles!"); time.sleep(2); safe_rerun()
+                            st.success(f"✅ Successfully recategorized {updated_count} articles!"); time.sleep(2); safe_rerun()
                             
                 with col2:
                     st.write("**Clear History**")
