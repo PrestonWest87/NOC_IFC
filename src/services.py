@@ -14,7 +14,7 @@ from src.database import (
     SessionLocal, Article, FeedSource, Keyword, SystemConfig, CveItem,
     RegionalHazard, CloudOutage, User, Role, SavedReport, DailyBriefing,
     ExtractedIOC, MonitoredLocation, SolarWindsAlert, TimelineEvent,
-    RegionalOutage, NodeAlias, BgpAnomaly
+    RegionalOutage, BgpAnomaly
 )
 
 LOCAL_TZ = ZoneInfo("America/Chicago")
