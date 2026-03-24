@@ -936,10 +936,19 @@ def restore_backup_data(data):
 def recategorize_all_articles():
     from src.categorizer import categorize_text
     with SessionLocal() as db:
-        arts, count = db.query(Article).filter(Article.category == "General").all(), 0
+        # Fetch ALL articles, not just "General"
+        arts = db.query(Article).all()
+        count = 0
+        
         for a in arts:
-            cat = categorize_text(f"{a.title} {a.summary}")
-            if cat != "General": a.category, count = cat, count + 1
+            # Run the article through the new scoring matrix
+            new_cat = categorize_text(f"{a.title} {a.summary}")
+            
+            # Only update and count if the category actually changed
+            if a.category != new_cat: 
+                a.category = new_cat
+                count += 1
+                
         db.commit()
         return count
 
