@@ -225,14 +225,6 @@ class TimelineEvent(Base):
     event_type = Column(String, index=True) 
     message = Column(String)
 
-class NodeAlias(Base):
-    __tablename__ = "node_aliases"
-    id = Column(Integer, primary_key=True, index=True)
-    node_pattern = Column(String, unique=True, index=True)
-    mapped_location_name = Column(String, index=True) 
-    confidence_score = Column(Float, default=0.0)
-    is_verified = Column(Boolean, default=False, index=True)
-
 class MonitoredLocation(Base):
     __tablename__ = "monitored_locations"
     id = Column(Integer, primary_key=True, index=True)
