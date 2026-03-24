@@ -512,7 +512,7 @@ elif page == "🚨 Crime Intelligence":
             
             # Map Rendering
             st.pydeck_chart(pdk.Deck(
-                map_style="carto-dark", # Guaranteed API-free basemap
+                map_style="mapbox://styles/mapbox/dark-v10", # Guaranteed API-free basemap
                 initial_view_state=pdk.ViewState(
                     latitude=34.6836, 
                     longitude=-92.3350, 
@@ -524,7 +524,7 @@ elif page == "🚨 Crime Intelligence":
                         "ScatterplotLayer",
                         data=df_crimes,
                         get_position="[lon, lat]",
-                        get_radius=150, # Bumped radius so they are highly visible
+                        get_radius=50, # Bumped radius so they are highly visible
                         get_fill_color=[255, 69, 0, 200],
                         pickable=True,
                         auto_highlight=True
