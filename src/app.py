@@ -522,26 +522,54 @@ elif page == "🚨 Crime Intelligence":
             # Drop any random null coordinates
             df_crimes = df_crimes.dropna(subset=['lat', 'lon'])
             
-            # Map Rendering - NO map_style defined! Inherits Streamlit's working default.
+            # --- PRECISE CAMPUS BOUNDARY (User Defined) ---
+            # Note: PyDeck requires [Longitude, Latitude] format
+            campus_boundary = [
+                [-92.325885, 34.678235], [-92.326196, 34.675942], [-92.324565, 34.675888],
+                [-92.324636, 34.674884], [-92.32406120583306, 34.67474187702983],
+                [-92.3238084241607, 34.67452124894587], [-92.32373734260989, 34.674349128685705],
+                [-92.32376809344501, 34.673623615079805], [-92.32351586802497, 34.67332173763069],
+                [-92.3220985004393, 34.67324489899573], [-92.32198879648926, 34.673705411555176],
+                [-92.32118128553886, 34.673676198116304], [-92.32110794479303, 34.67493955311931],
+                [-92.32189171929349, 34.67527638012709], [-92.32180319236035, 34.67672422178229],
+                [-92.3216835943636, 34.678465279952555], [-92.32589779219425, 34.67833455896807],
+                [-92.325885, 34.678235] # Closing the loop
+            ]
+            
+            polygon_df = pd.DataFrame([{"coordinates": campus_boundary}])
+            
+            # Map Rendering
             st.pydeck_chart(pdk.Deck(
                 initial_view_state=pdk.ViewState(
-                    latitude=34.6836, 
-                    longitude=-92.3350, 
-                    zoom=13.5, 
-                    pitch=40 
+                    latitude=34.6755, # Recentered slightly for the new polygon
+                    longitude=-92.3235, 
+                    zoom=15.5, # Tighter zoom for the specific campus footprint
+                    pitch=45 
                 ),
                 layers=[
+                    # Campus Perimeter Layer
+                    pdk.Layer(
+                        "PolygonLayer",
+                        polygon_df,
+                        get_polygon="coordinates",
+                        get_fill_color=[0, 255, 100, 45], # Subtle green tint
+                        get_line_color=[0, 255, 100, 255], # Solid green border
+                        line_width_min_pixels=2,
+                        stroked=True,
+                        filled=True,
+                    ),
+                    # Crime Incident Points
                     pdk.Layer(
                         "ScatterplotLayer",
                         data=df_crimes,
                         get_position="[lon, lat]",
-                        get_radius=150, 
-                        get_fill_color=[255, 69, 0, 200],
+                        get_radius=50, # Smaller radius since we are zoomed in tighter
+                        get_fill_color=[255, 69, 0, 220],
                         pickable=True,
                         auto_highlight=True
                     )
                 ],
-                tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Dist: {distance_miles} miles<br/>Category: {category}"}
+                tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Dist: {distance_miles} miles"}
             ), use_container_width=True)
             
             st.divider()
