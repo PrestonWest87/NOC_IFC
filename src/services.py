@@ -617,13 +617,17 @@ def save_custom_report(title, author, content):
 
 def get_executive_grid_intel(active_warn_count, crime_count):
     """Synthesizes LIVE OSINT telemetry into a unified Executive Threat Matrix."""
-    from src.database import Article
+    from src.database import Article, SessionLocal
+    from datetime import datetime, timedelta
     
-    # Fetch live intelligence from your RSS database (Last 24 Hours, Score > 50)
+    # Fetch live intelligence from your RSS database (Last 24 Hours, Score >= 50)
     with SessionLocal() as db:
         t24 = datetime.utcnow() - timedelta(days=1)
         cyber_articles = db.query(Article).filter(Article.published_date >= t24, Article.category == 'Cyber', Article.score >= 50).order_by(Article.score.desc()).all()
         phys_articles = db.query(Article).filter(Article.published_date >= t24, Article.category == 'Physical/Weather', Article.score >= 50).order_by(Article.score.desc()).all()
+        
+        # Save a clean list to pass back to the UI for the dropdown
+        cyber_list = [{"title": a.title, "link": a.link, "source": a.source, "score": a.score} for a in cyber_articles]
 
     # --- CYBER SCORE (Driven by live RSS) ---
     if len(cyber_articles) > 5 or any(a.score >= 80 for a in cyber_articles):
@@ -639,7 +643,7 @@ def get_executive_grid_intel(active_warn_count, crime_count):
     else:
         cyber_brief = "No critical cyber threats detected in the OSINT telemetry over the last 24 hours. Enterprise posture remains nominal."
     
-    # --- PHYSICAL SCORE (Driven by NWS, SpotCrime, and RSS) ---
+    # --- PHYSICAL SCORE (Driven by NWS and Socrata) ---
     if active_warn_count > 3 or crime_count > 8 or any(a.score >= 80 for a in phys_articles):
         physical_score = "High"
     elif active_warn_count > 0 or crime_count > 3 or len(phys_articles) > 0:
@@ -647,7 +651,7 @@ def get_executive_grid_intel(active_warn_count, crime_count):
     else:
         physical_score = "Low"
         
-    physical_brief = f"Tracking {active_warn_count} severe weather hazards (NWS). Law enforcement feeds report {crime_count} incidents near HQ in the 48-hour rolling window."
+    physical_brief = f"Tracking {active_warn_count} severe weather hazards (NWS). Law enforcement feeds report {crime_count} incidents within 15 miles of HQ."
     if phys_articles:
         physical_brief += f" Top geopolitical/physical intel: '{phys_articles[0].title}'."
     
@@ -662,7 +666,8 @@ def get_executive_grid_intel(active_warn_count, crime_count):
         "cyber_score": cyber_score,
         "cyber_brief": cyber_brief,
         "physical_score": physical_score,
-        "physical_brief": physical_brief
+        "physical_brief": physical_brief,
+        "cyber_articles": cyber_list # <-- Passes the live articles to the UI
     }
 
 # --- OUTLOOK HTML MAILER ---
