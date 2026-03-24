@@ -594,7 +594,11 @@ elif page == "📡 Threat Telemetry":
                         fetch_feeds(source="User Force")
                         time.sleep(1)
                         safe_rerun()
-                cat_filter = st.selectbox("🎯 Filter Active Feeds", ["All", "Cyber", "Physical/Weather", "Geopolitics/News", "General"])
+                cat_filter = st.selectbox("🎯 Filter Active Feeds", [
+                    "All", "Cyber: Exploits & Vulns", "Cyber: Malware & Threats", 
+                    "ICS/OT & SCADA", "Cloud & IT Infra", "Physical Security", 
+                    "Severe Weather", "Geopolitics & Policy", "AI & Emerging Tech", "General"
+                ])
                 st.divider()
 
                 def handle_pagination(feed_id, q_type, pg_size, s_term=None, m_score=0):
