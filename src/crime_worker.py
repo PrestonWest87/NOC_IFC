@@ -1,10 +1,10 @@
 import os
-import json
 import requests
 import math
 from datetime import datetime, timedelta
 
-CRIME_CACHE_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "crime_cache.json")
+# Import your database session and the new model
+from src.database import SessionLocal, CrimeIncident
 
 def calculate_distance(lat1, lon1, lat2, lon2):
     R = 3958.8
@@ -16,9 +16,7 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     return R * c
 
 def fetch_live_crimes():
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] 🚨 CRIME WORKER: Polling LRPD for perimeter threats (1 Mile / 48 Hours)...")
-    os.makedirs(os.path.dirname(CRIME_CACHE_FILE), exist_ok=True)
-    
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] 🚨 CRIME WORKER: Polling LRPD & Syncing to Database...")
     base_url = "https://data.littlerock.gov/resource/bz82-34ep.json"
     
     try:
@@ -36,59 +34,75 @@ def fetch_live_crimes():
         data = response.json()
         
         hq_lat, hq_lon = 34.6836, -92.3350
-        crimes = []
         forty_eight_hours_ago = datetime.now() - timedelta(hours=48)
         
-        for entry in data:
-            try:
-                raw_date = entry.get(date_col, "")
-                if not raw_date: continue
-                
-                incident_date = datetime.strptime(raw_date.split(".")[0], "%Y-%m-%dT%H:%M:%S")
-                if incident_date < forty_eight_hours_ago: continue
-                
-                incident_lat = entry.get("latitude")
-                incident_lon = entry.get("longitude")
-                if not incident_lat or not incident_lon:
-                    loc_obj = entry.get("location_1", {})
-                    if isinstance(loc_obj, dict):
-                        incident_lat, incident_lon = loc_obj.get("latitude"), loc_obj.get("longitude")
-                        
-                if not incident_lat or not incident_lon: continue
-                incident_lat, incident_lon = float(incident_lat), float(incident_lon)
-                
-                distance = calculate_distance(hq_lat, hq_lon, incident_lat, incident_lon)
-                if distance > 1.0: continue
-                
-                desc = entry.get(desc_col, "UNKNOWN OFFENSE").upper()
-                weapon = entry.get(weap_col, "NONE").upper()
-                
-                severity = "Low"
-                if any(k in desc for k in ["ARSON", "EXPLOSIVE", "TERROR", "SABOTAGE"]): category, severity = "Critical Infrastructure Threat", "Critical"
-                elif any(k in desc for k in ["THEFT", "BURGLARY", "ROBBERY", "LARCENY"]): category, severity = "Asset/Copper Theft Risk", "High"
-                elif any(k in desc for k in ["ASSAULT", "BATTERY", "HOMICIDE"]) or "FIREARM" in weapon: category, severity = "Violent Proximity Threat", "High"
-                elif any(k in desc for k in ["VANDALISM", "TRESPASS", "DAMAGE", "PROWLER"]): category, severity = "Perimeter Breach/Vandalism", "Medium"
-                else: category, severity = "General Police Activity", "Low"
-                
-                crimes.append({
-                    "id": entry.get("incident_number", "UNKNOWN"),
-                    "category": category,
-                    "raw_title": f"{desc.title()} (Weapon: {weapon.title()})",
-                    "timestamp": incident_date.strftime("%Y-%m-%d %H:%M:%S"),
-                    "distance_miles": round(distance, 2),
-                    "severity": severity,
-                    "lat": incident_lat,  # GUARANTEED COORDINATES
-                    "lon": incident_lon   # GUARANTEED COORDINATES
-                })
-            except Exception: continue
-
-        crimes.sort(key=lambda x: x["timestamp"], reverse=True)
-        with open(CRIME_CACHE_FILE, "w") as f:
-            json.dump(crimes, f, indent=4)
+        with SessionLocal() as db:
+            added_count = 0
             
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ CRIME WORKER: {len(crimes)} incidents logged (1 Mile / 48h).")
+            for entry in data:
+                try:
+                    raw_date = entry.get(date_col, "")
+                    if not raw_date: continue
+                    
+                    incident_date = datetime.strptime(raw_date.split(".")[0], "%Y-%m-%dT%H:%M:%S")
+                    if incident_date < forty_eight_hours_ago: continue
+                    
+                    incident_lat = entry.get("latitude")
+                    incident_lon = entry.get("longitude")
+                    if not incident_lat or not incident_lon:
+                        loc_obj = entry.get("location_1", {})
+                        if isinstance(loc_obj, dict):
+                            incident_lat, incident_lon = loc_obj.get("latitude"), loc_obj.get("longitude")
+                            
+                    if not incident_lat or not incident_lon: continue
+                    incident_lat, incident_lon = float(incident_lat), float(incident_lon)
+                    
+                    distance = calculate_distance(hq_lat, hq_lon, incident_lat, incident_lon)
+                    if distance > 1.0: continue
+                    
+                    desc = entry.get(desc_col, "UNKNOWN OFFENSE").upper()
+                    weapon = entry.get(weap_col, "NONE").upper()
+                    inc_id = entry.get("incident_number", "UNKNOWN")
+                    
+                    severity = "Low"
+                    if any(k in desc for k in ["ARSON", "EXPLOSIVE", "TERROR", "SABOTAGE"]): category, severity = "Critical Infrastructure Threat", "Critical"
+                    elif any(k in desc for k in ["THEFT", "BURGLARY", "ROBBERY", "LARCENY"]): category, severity = "Asset/Copper Theft Risk", "High"
+                    elif any(k in desc for k in ["ASSAULT", "BATTERY", "HOMICIDE"]) or "FIREARM" in weapon: category, severity = "Violent Proximity Threat", "High"
+                    elif any(k in desc for k in ["VANDALISM", "TRESPASS", "DAMAGE", "PROWLER"]): category, severity = "Perimeter Breach/Vandalism", "Medium"
+                    else: category, severity = "General Police Activity", "Low"
+                    
+                    # --- DATABASE UPSERT LOGIC ---
+                    existing_incident = db.query(CrimeIncident).filter_by(id=inc_id).first()
+                    if not existing_incident:
+                        new_inc = CrimeIncident(
+                            id=inc_id,
+                            category=category,
+                            raw_title=f"{desc.title()} (Weapon: {weapon.title()})",
+                            timestamp=incident_date,
+                            distance_miles=round(distance, 2),
+                            severity=severity,
+                            lat=incident_lat,
+                            lon=incident_lon
+                        )
+                        db.add(new_inc)
+                        added_count += 1
+                        
+                except Exception: continue
+            
+            # Commit the new records
+            db.commit()
+            
+            # Purge any records older than 48 hours to keep the DB perfectly clean
+            db.query(CrimeIncident).filter(CrimeIncident.timestamp < forty_eight_hours_ago).delete()
+            db.commit()
+            
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ CRIME WORKER: {added_count} new incidents saved to DB.")
+
     except Exception as e:
         print(f"🚨 CRIME WORKER FAILED: {e}")
 
 if __name__ == "__main__":
+    # If run directly, it will create the tables if they don't exist yet
+    from src.database import init_db
+    init_db()
     fetch_live_crimes()
