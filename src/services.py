@@ -729,13 +729,6 @@ def generate_outlook_html_report(intel):
     """
     return html
 
-That error means that your src/mailer.py file expects the email content parameter to be named something else (most likely body or message), rather than html_content.
-
-To make it completely bulletproof and compatible with your exact mailer script, we can just pass the arguments positionally or use a try/except fallback to catch the exact keyword your mailer wants.
-
-Replace the send_executive_report function in your src/services.py with this updated version:
-Python
-
 # --- THE SMTP MAILER (FIXED ARGUMENT SIGNATURE) ---
 def send_executive_report(recipient_email, intel, sys_config):
     """Sends the HTML report via the central mailer script."""
