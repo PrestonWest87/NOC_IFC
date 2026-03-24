@@ -373,50 +373,14 @@ elif page == "📰 Daily Fusion Report":
                 st.error("Please enter at least one recipient email.")
             else:
                 with st.spinner("Converting formatting and transmitting report..."):
-                    import re
-                    
-                    # Native Mini-Parser to convert Markdown to HTML without external libraries
-                    def native_md_to_html(text):
-                        # Headers
-                        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#2c3e50; margin-bottom:5px;">\1</h3>', text, flags=re.MULTILINE)
-                        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#2980b9; margin-bottom:5px; border-bottom:1px solid #eee;">\1</h2>', text, flags=re.MULTILINE)
-                        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#2c3e50;">\1</h1>', text, flags=re.MULTILINE)
-                        # Bold
-                        text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
-                        # Links
-                        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#3498db; text-decoration:none;">\1</a>', text)
-                        # Bullet points
-                        text = re.sub(r'^\* (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
-                        text = re.sub(r'^- (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
-                        # Standard Line breaks for everything else
-                        text = text.replace('\n', '<br>')
-                        # Clean up double breaks created by lists
-                        text = text.replace('<br><br><h', '<br><h')
-                        return text
-
-                    raw_html = native_md_to_html(selected_report.content)
-                    
-                    # Wrap it in a clean, professional email container
-                    formatted_html = f"""
-                    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 0 auto; color: #333; line-height: 1.5;">
-                        <div style="background-color: #fcfcfc; padding: 20px; border-radius: 6px; border-left: 4px solid #d9534f; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                            <h2 style="color: #2c3e50; margin-top: 0;">📰 NOC Daily Fusion Report</h2>
-                            <p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 20px;"><strong>Date:</strong> {selected_date}</p>
-                            <div style="font-size: 14px; background-color: #ffffff; padding: 15px; border-radius: 4px; border: 1px solid #eee;">
-                                {raw_html}
-                            </div>
-                        </div>
-                    </div>
-                    """
+                    # Offloaded HTML Processing to services.py
+                    formatted_html = svc.generate_daily_report_email_html(selected_date, selected_report.content)
                     
                     from src.mailer import send_alert_email
                     success, msg = send_alert_email(f"Daily Fusion Report - {selected_date}", formatted_html, recipient_override=report_recipients, is_html=True)
                     
-                    if success:
-                        st.success("✅ Report successfully transmitted!")
-                    else:
-                        st.error(f"❌ SMTP Error: {msg}")
-
+                    if success: st.success("✅ Report successfully transmitted!")
+                    else: st.error(f"❌ SMTP Error: {msg}")
 
 # ================= NEW: EXECUTIVE DASHBOARD =================
 elif page == "📊 Executive Dashboard":
@@ -1102,26 +1066,8 @@ elif page == "📡 Threat Telemetry":
                                 st.subheader("📜 Comprehensive Weather Alerts Log")
                                 st.markdown("Human-readable log of all active NWS Watches, Warnings, and Special Weather Statements.")
                                 
-                                all_alert_details = []
-                                for geo_ds, is_oos in [(ar_data, False), (oos_data, True)]:
-                                    if geo_ds and "features" in geo_ds:
-                                        for f in geo_ds["features"]:
-                                            props = f.get("properties", {})
-                                            event = props.get("event", "Unknown")
-                                            if event not in selected_events: continue
-                                            
-                                            prefix = "[OOS]" if is_oos else "[AR]"
-                                            all_alert_details.append({
-                                                "Event": f"{prefix} {event}",
-                                                "Severity": props.get("severity", "Unknown"),
-                                                "Certainty": props.get("certainty", "Unknown"),
-                                                "Headline": props.get("headline", "No headline available."),
-                                                "Affected Area": props.get("areaDesc", "Unknown Area"),
-                                                "Effective": props.get("effective", "N/A"),
-                                                "Expires": props.get("expires", "N/A"),
-                                                "Description": props.get("description", "No detailed description provided by NWS."),
-                                                "Instructions": props.get("instruction", "No explicit instructions provided.")
-                                            })
+                                # Offloaded to services.py
+                                all_alert_details = svc.get_weather_alerts_log(ar_data, oos_data, selected_events)
                                 
                                 if not all_alert_details:
                                     st.success("✅ No active weather alerts matching your current hazard filters.")
@@ -1213,18 +1159,11 @@ elif page == "🎯 Threat Hunting & IOCs":
                 if not ioc_data:
                     st.info("No active IOCs extracted in the last 72 hours.")
                 else:
-                    def generate_pivot_link(ioc_type, value):
-                        if ioc_type in ["SHA256", "MD5", "SHA1"]: return f"https://www.virustotal.com/gui/file/{value}"
-                        elif ioc_type == "IPv4": return f"https://www.shodan.io/host/{value}"
-                        elif ioc_type == "Domain": return f"https://www.virustotal.com/gui/domain/{value}"
-                        elif ioc_type == "CVE": return f"https://nvd.nist.gov/vuln/detail/{value}"
-                        elif ioc_type == "MITRE ATT&CK": return f"https://attack.mitre.org/techniques/{value.replace('.', '/')}"
-                        return None
-
                     for ioc in ioc_data: 
-                        ioc["OSINT Pivot"] = generate_pivot_link(ioc["Type"], ioc["Indicator"])
+                        # Offloaded to services.py
+                        ioc["OSINT Pivot"] = svc.get_osint_pivot_link(ioc["Type"], ioc["Indicator"])
                     
-                    df = pd.DataFrame(ioc_data)
+                    df = pd.DataFrame(ioc_data
                     all_types = sorted(list(set(df["Type"].tolist())))
                     default_types = [t for t in all_types if t in ["IPv4", "SHA256", "Domain", "CVE", "MITRE ATT&CK"]]
                     
@@ -1381,41 +1320,10 @@ elif page == "⚡ AIOps RCA":
                                         clean_c = c.replace("??", "").replace("???", "").replace("?", "").replace("??", "").replace("??", "").strip()
                                         clean_p0 = p0 if p0 else "Indeterminate (Simultaneous Failure)"
                                         
-                                        # Translating SolarWinds variables into actual DB values
-                                        pz_obj = data['patient_zero']
-                                        trigger_time = pz_obj.received_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ).strftime('%m/%d/%Y %I:%M %p %Z') if pz_obj and pz_obj.received_at else "Unknown Time"
+                                        # Offloaded massive ticket generation to services.py!
+                                        ticket_text = svc.generate_rca_ticket_text(site, data, clean_p, clean_p0, clean_c)
                                         
-                                        # Automated Script Header
-                                        ticket_text = "Automated Comms Outage\n\n"
-                                        ticket_text += f"{site} - Trouble\n\n"
-                                        ticket_text += f"A communications failure occurred on {trigger_time} and did not recover. This is affecting SCADA connectivity. IT is requesting a technician onsite to investigate.\n\n"
-                                        
-                                        # Detailed Forensic Append
-                                        ticket_text += "="*50 + "\n"
-                                        ticket_text += f"PRIORITY: {clean_p}\n"
-                                        ticket_text += f"SITE/LOCATION: {site}\n"
-                                        ticket_text += f"SUSPECTED ORIGIN (PATIENT ZERO): {clean_p0}\n"
-                                        ticket_text += f"TOTAL NODES AFFECTED: {len(data['alerts'])}\n"
-                                        ticket_text += "="*50 + "\n\n"
-                                        
-                                        ticket_text += "ROOT CAUSE ANALYSIS:\n"
-                                        ticket_text += "-"*20 + "\n"
-                                        ticket_text += f"{clean_c}\n\n"
-                                        
-                                        ticket_text += "AFFECTED INFRASTRUCTURE DETAILS:\n"
-                                        ticket_text += "-"*30 + "\n"
-                                        
-                                        for idx, alert in enumerate(data['alerts'], 1):
-                                            rcv_time = alert.received_at.strftime('%Y-%m-%d %H:%M:%S UTC') if alert.received_at else "Unknown"
-                                            ticket_text += f"[{idx}] Node: {alert.node_name} | IP: {alert.ip_address} | Type: {alert.device_type}\n"
-                                            ticket_text += f"    Status: {alert.status} | Severity: {alert.severity}\n"
-                                            ticket_text += f"    Event Category: {alert.event_category}\n"
-                                            ticket_text += f"    Logged Time: {rcv_time}\n"
-                                            if alert.details:
-                                                ticket_text += f"    Details: {alert.details.strip()}\n"
-                                            ticket_text += "\n"
-                                        
-                                        ticket_body = st.text_area("Ticket Notes / RCA Summary", value=ticket_text, height=350, key=f"t_body_{site}")
+                                        ticket_body = st.text_area("Ticket Notes / RCA Summary", value=ticket_text, height=350, key=f"t_body_{site}"
                                         
                                         # Hardcoded Default Emails (No user input option)
                                         fixed_recipients = "remedyforceworkflow@aecc.com, noc@aecc.com"
