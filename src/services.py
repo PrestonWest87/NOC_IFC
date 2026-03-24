@@ -294,6 +294,17 @@ def save_daily_briefing(target_date, content):
             db.add(DailyBriefing(report_date=target_date, content=content))
         db.commit()
 
+def force_fetch_crime_data():
+    """Triggers the crime worker logic manually from the UI."""
+    try:
+        # We import here to avoid circular imports
+        from src.crime_worker import fetch_live_crimes
+        fetch_live_crimes()
+        return True
+    except Exception as e:
+        print(f"Manual fetch failed: {e}")
+        return False
+
 
 # ==========================================
 # 4. THREAT TELEMETRY (CISA, Cloud, NWS)
