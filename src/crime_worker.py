@@ -97,7 +97,9 @@ def fetch_live_crimes():
                     "raw_title": f"{desc.title()} (Weapon: {weapon.title()})",
                     "timestamp": incident_date.strftime("%Y-%m-%d %H:%M:%S"),
                     "distance_miles": round(distance, 2),
-                    "severity": severity
+                    "severity": severity,
+                    "lat": incident_lat,  # <-- ADD THIS BACK
+                    "lon": incident_lon   # <-- ADD THIS BACK
                 })
             except Exception: continue
 
