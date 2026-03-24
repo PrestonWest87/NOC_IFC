@@ -1323,7 +1323,7 @@ elif page == "⚡ AIOps RCA":
                                         # Offloaded massive ticket generation to services.py!
                                         ticket_text = svc.generate_rca_ticket_text(site, data, clean_p, clean_p0, clean_c)
                                         
-                                        ticket_body = st.text_area("Ticket Notes / RCA Summary", value=ticket_text, height=350, key=f"t_body_{site}"
+                                        ticket_body = st.text_area("Ticket Notes / RCA Summary", value=ticket_text, height=350, key=f"t_body_{site}")
                                         
                                         # Hardcoded Default Emails (No user input option)
                                         fixed_recipients = "remedyforceworkflow@aecc.com, noc@aecc.com"
