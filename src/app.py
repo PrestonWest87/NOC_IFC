@@ -503,27 +503,40 @@ elif page == "🚨 Crime Intelligence":
     else:
         df_crimes = pd.DataFrame(crime_data)
         
-        st.pydeck_chart(pdk.Deck(
-            map_style="dark", # <-- Change this to bypass Mapbox API key requirements
-            initial_view_state=pdk.ViewState(latitude=34.6836, longitude=-92.3350, zoom=14, pitch=0),
-            layers=[
-                pdk.Layer(
-                    "ScatterplotLayer",
-                    data=df_crimes,
-                    get_position="[lon, lat]",
-                    get_radius=80,
-                    get_fill_color=[255, 69, 0, 200],
-                    pickable=True
-                )
-            ],
-            tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Dist: {distance_miles} miles"}
-        ))
-        
-        st.divider()
-        st.subheader("Raw Incident Logs (1 Mile Radius)")
-        display_crimes = df_crimes[["timestamp", "distance_miles", "category", "severity", "raw_title"]]
-        st.dataframe(display_crimes, use_container_width=True, hide_index=True)
-
+        # SAFETY CHECK: Ensure coordinates exist before feeding to PyDeck
+        if "lat" not in df_crimes.columns or "lon" not in df_crimes.columns:
+            st.error("🚨 Coordinate data missing from cache! Please run `python src/crime_worker.py` in your terminal to fetch fresh geometry.")
+        else:
+            # Drop any random null coordinates
+            df_crimes = df_crimes.dropna(subset=['lat', 'lon'])
+            
+            # Map Rendering
+            st.pydeck_chart(pdk.Deck(
+                map_style="carto-dark", # Guaranteed API-free basemap
+                initial_view_state=pdk.ViewState(
+                    latitude=34.6836, 
+                    longitude=-92.3350, 
+                    zoom=13.5, 
+                    pitch=40 # Slight 3D tilt for better visibility
+                ),
+                layers=[
+                    pdk.Layer(
+                        "ScatterplotLayer",
+                        data=df_crimes,
+                        get_position="[lon, lat]",
+                        get_radius=150, # Bumped radius so they are highly visible
+                        get_fill_color=[255, 69, 0, 200],
+                        pickable=True,
+                        auto_highlight=True
+                    )
+                ],
+                tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Dist: {distance_miles} miles<br/>Category: {category}"}
+            ))
+            
+            st.divider()
+            st.subheader("Raw Incident Logs (1 Mile Radius)")
+            display_crimes = df_crimes[["timestamp", "distance_miles", "category", "severity", "raw_title"]]
+            st.dataframe(display_crimes, use_container_width=True, hide_index=True)
 # ================= 3. THREAT TELEMETRY =================
 elif page == "📡 Threat Telemetry":
     st.title("📡 Unified Threat Telemetry")
