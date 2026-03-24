@@ -423,14 +423,12 @@ elif page == "📊 Executive Dashboard":
     st.title("📊 Executive Grid Threat Matrix")
     st.caption("Real-time synthesis of Physical, Cyber, and Crime telemetry for Bulk Electric System (BES) infrastructure.")
     
-    # Gather dynamic counts 
     active_nws = len(ar_warn.get("features", [])) + len(oos_warn.get("features", [])) if 'ar_warn' in locals() else 0
-    active_crimes = len(svc.get_recent_crimes())
+    crime_data = svc.get_recent_crimes()
     
-    # Fetch synthesized intelligence using the live RSS DB
-    intel = svc.get_executive_grid_intel(active_nws, active_crimes)
+    # Pass the actual list of crimes to the engine
+    intel = svc.get_executive_grid_intel(active_nws, crime_data)
     
-    # Unified Risk Scorecard
     risk_color = "red" if intel['unified_risk'] == "HIGH" else "orange" if intel['unified_risk'] == "MEDIUM" else "green"
     
     st.markdown(f"""
@@ -443,103 +441,88 @@ elif page == "📊 Executive Dashboard":
 
     col_phys, col_cyber = st.columns(2)
     with col_phys:
-        st.subheader("⚡ Physical & Crime")
+        st.subheader("⚡ Physical & Perimeter (1 Mile)")
         st.info(f"**Risk Level: {intel['physical_score']}**")
         st.write(intel['physical_brief'])
         
+        # EXPLICITLY LIST THE 1-MILE INCIDENTS
+        if intel["recent_crimes"]:
+            st.markdown("**🚨 Recent Perimeter Incidents:**")
+            for c in intel["recent_crimes"][:5]: # Show top 5 to save space
+                icon = "🔴" if c['severity'] == "High" else "🟠"
+                st.caption(f"{icon} **{c['raw_title']}** ({c['distance_miles']} mi away) - *{c['timestamp']}*")
+            if len(intel["recent_crimes"]) > 5:
+                st.caption(f"...and {len(intel['recent_crimes']) - 5} more (See Crime Intel tab).")
+        
     with col_cyber:
-        st.subheader("🛡️ Cyber & SCADA")
+        st.subheader("🛡️ Cyber & SCADA (48 Hours)")
         st.warning(f"**Risk Level: {intel['cyber_score']}**")
         st.write(intel['cyber_brief'])
         
     st.divider()
     
-    # Email Dispatch Controls
     st.subheader("📤 Dispatch Intelligence Report")
     col_email, col_btn = st.columns([3, 1])
     default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
     target_email = col_email.text_input("Recipient Email Address", value=default_email, label_visibility="collapsed")
     
     can_dispatch = "Action: Dispatch Exec Report" in st.session_state.allowed_actions
-    
     if col_btn.button("📧 Send Outlook HTML Report", use_container_width=True, type="primary", disabled=not can_dispatch):
         if target_email:
             with st.spinner("Compiling and transmitting..."):
                 success, msg = svc.send_executive_report(target_email, intel, sys_config)
-                if success:
-                    st.success(f"Report dispatched to {target_email}")
-                else:
-                    st.error(msg)
+                if success: st.success(f"Report dispatched to {target_email}")
+                else: st.error(msg)
         else:
             st.warning("Please enter a recipient email address.")
 
     st.divider()
-    
-    # --- LIVE DATA SOURCES EXPANDER ---
     with st.expander("🗄️ Intelligence Sources & Telemetry Feeds", expanded=False):
-        st.markdown("""
-        **Cyber Intelligence (CTI):**
-        * **Live OSINT Pipeline:** Automated scoring and analysis of CISA, NVD, and global InfoSec feeds.
-        """)
-        
-        # Unpack and list the actual live articles from the database
+        st.markdown("**Cyber Intelligence (48-Hour Filtered Pipeline):**")
         if intel.get("cyber_articles"):
-            st.markdown("**🔍 Live Articles Driving Cyber Score:**")
             for a in intel["cyber_articles"]:
                 st.markdown(f"- **[{int(a['score'])}]** [{a['title']}]({a['link']}) *(Source: {a['source']})*")
         else:
-            st.markdown("*No active high-priority cyber articles in the last 24h.*")
+            st.markdown("*No active high-priority cyber articles in the last 48h.*")
             
         st.markdown("""
         **Physical Intelligence:**
-        * **NWS:** National Weather Service (Severe Weather Outlooks, Warnings, Watches).
-        
-        **Crime Intelligence:**
-        * **Law Enforcement Feeds:** City of Little Rock Open Data API (Geofenced to 15 miles of HQ).
+        * **NWS:** National Weather Service (Severe Weather).
+        * **Crime:** LRPD Open Data API (Strict 1.0 Mile Geofence).
         """)
 
 # ================= NEW: CRIME INTELLIGENCE =================
 elif page == "🚨 Crime Intelligence":
-    st.title("🚨 Local Crime Telemetry")
-    st.caption("Law enforcement incident aggregation tuned for HQ physical security threats (15-Mile Radius).")
+    st.title("🚨 Perimeter Crime Telemetry")
+    st.caption("LRPD incident aggregation strictly geofenced to a 1-Mile radius around 1 Cooperative Way (48-Hour Window).")
     
     crime_data = svc.get_recent_crimes()
     
     if not crime_data:
-        st.info("No crime incidents logged in the rolling window. Ensure `crime_worker.py` is running via the scheduler.")
+        st.success("✅ No crime incidents logged within 1 mile of HQ in the last 48 hours.")
     else:
         df_crimes = pd.DataFrame(crime_data)
         
-        # High contrast mapping centered on 1 Cooperative Way
         st.pydeck_chart(pdk.Deck(
             map_style="mapbox://styles/mapbox/dark-v10",
-            initial_view_state=pdk.ViewState(latitude=34.6836, longitude=-92.3350, zoom=11.5, pitch=0),
+            initial_view_state=pdk.ViewState(latitude=34.6836, longitude=-92.3350, zoom=14, pitch=0),
             layers=[
                 pdk.Layer(
                     "ScatterplotLayer",
                     data=df_crimes,
                     get_position="[lon, lat]",
-                    get_radius=250,
-                    get_fill_color=[255, 69, 0, 180],
+                    get_radius=80,
+                    get_fill_color=[255, 69, 0, 200],
                     pickable=True
                 )
             ],
-            tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Cat: {category}"}
+            tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Dist: {distance_miles} miles"}
         ))
         
         st.divider()
-        st.subheader("Raw Incident Logs")
-        
-        display_crimes = df_crimes[["timestamp", "category", "severity", "raw_title", "link"]]
-        st.dataframe(
-            display_crimes, 
-            use_container_width=True, 
-            hide_index=True,
-            column_config={
-                "link": st.column_config.LinkColumn("Source")
-            }
-        )
-
+        st.subheader("Raw Incident Logs (1 Mile Radius)")
+        display_crimes = df_crimes[["timestamp", "distance_miles", "category", "severity", "raw_title"]]
+        st.dataframe(display_crimes, use_container_width=True, hide_index=True)
 
 # ================= 3. THREAT TELEMETRY =================
 elif page == "📡 Threat Telemetry":
