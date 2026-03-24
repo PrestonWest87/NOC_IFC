@@ -1163,7 +1163,7 @@ elif page == "🎯 Threat Hunting & IOCs":
                         # Offloaded to services.py
                         ioc["OSINT Pivot"] = svc.get_osint_pivot_link(ioc["Type"], ioc["Indicator"])
                     
-                    df = pd.DataFrame(ioc_data
+                    df = pd.DataFrame(ioc_data)
                     all_types = sorted(list(set(df["Type"].tolist())))
                     default_types = [t for t in all_types if t in ["IPv4", "SHA256", "Domain", "CVE", "MITRE ATT&CK"]]
                     
