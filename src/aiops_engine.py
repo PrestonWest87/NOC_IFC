@@ -147,6 +147,8 @@ class EnterpriseAIOpsEngine:
         return f"Cross-Subnet Cascade ({len(subnets)} distinct VLANs affected)"
 
     def calculate_root_cause(self, site_name, data, active_weather, active_cloud, active_bgp):
+        import math
+        
         meta = data['site_metadata']
         domains = data['domains_affected']
         avg_loss = sum(data['avg_loss']) / len(data['avg_loss']) if data['avg_loss'] else 0
@@ -162,40 +164,96 @@ class EnterpriseAIOpsEngine:
             
         cause = "Under Investigation"
         
-        if "POWER_ENV" in domains and len(domains) > 1:
-            cause = "Catastrophic Facilities/Power Failure causing cascade to IT/OT infrastructure."
-            score += 60
-            evidence_log.append("Primary Trigger: Critical Power/Environmental (UPS/Generator/AC) node alarms detected.")
-            
-        elif "TRANSPORT_CORE" in domains and avg_loss >= 80:
-            cause = f"Wide Area Network (WAN) Isolation. Hard down on {meta['primary_coms']} transport tier."
-            score += 50
-            evidence_log.append(f"Primary Trigger: Core routing/DWDM equipment dropped with >80% packet loss.")
-            
-        elif "SCADA_OT" in domains and "TRANSPORT_CORE" not in domains:
-            cause = "Isolated OT/SCADA Telemetry Failure (Substation/Plant Equipment degraded)."
-            score += 30
-            evidence_log.append("Primary Trigger: Field equipment (RTU/Meters) alarming while Core IT network remains stable.")
-            
-        elif "COMPUTE_STORAGE" in domains and avg_cpu > 90:
-            cause = "Data Center Compute/Storage Resource Exhaustion."
-            score += 30
-            evidence_log.append(f"Primary Trigger: Compute tier reporting critical CPU/Resource utilization ({avg_cpu}% avg).")
-            
-        elif "NETWORK_ACCESS" in domains and "Isolated to Single" in blast_radius:
-            cause = "Localized Access Layer Failure (Switch/Closet fault)."
-            score += 20
-            evidence_log.append("Primary Trigger: Access network fault restricted to a single broadcast domain.")
-            
-        else:
-            cause = "Generalized Infrastructure Degradation (Multiple unclassified vectors)."
+        # --- 1. CLOUD / UPSTREAM CORRELATION ---
+        cloud_hit = False
+        if active_cloud:
+            for alert in data['alerts']:
+                payload_str = str(alert.raw_payload).lower() if alert.raw_payload else ""
+                for c in active_cloud:
+                    # If the node name, details, or payload mentions the degraded cloud provider
+                    if c.provider.lower() in alert.node_name.lower() or c.provider.lower() in payload_str:
+                        cause = f"Upstream Cloud Dependency Failure ({c.provider})"
+                        score += 85
+                        evidence_log.append(f"Cloud Correlation: Node relies on {c.provider}, which is currently experiencing a known outage.")
+                        cloud_hit = True
+                        break
+                if cloud_hit: break
 
-        weather_hit = next((h for h in active_weather if meta['district'].lower() in h.location.lower() or site_name.lower() in h.location.lower()), None)
-        if weather_hit:
-            score += 40
-            evidence_log.append(f"Geospatial Correlation: Site intersects active {weather_hit.hazard_type} warning.")
-            if "POWER_ENV" in domains or "TRANSPORT_CORE" in domains:
-                cause = f"Severe Weather ({weather_hit.hazard_type}) induced failure of Utility/Carrier."
+        # --- 2. BGP / ROUTING CORRELATION ---
+        bgp_hit = False
+        if active_bgp and not cloud_hit:
+            if "TRANSPORT_CORE" in domains or "Service Provider" in str(domains):
+                for b in active_bgp:
+                    if b.asn in str(meta['primary_coms']) or b.asn in str(meta['secondary_coms']):
+                        cause = f"Carrier Routing Anomaly (BGP Event on {b.asn})"
+                        score += 75
+                        evidence_log.append(f"BGP Correlation: Transport provider {b.asn} is actively experiencing a global routing anomaly.")
+                        bgp_hit = True
+                        break
+
+        # --- 3. HARDWARE / DOMAIN HEURISTICS (If no external cloud/bgp causes) ---
+        if not cloud_hit and not bgp_hit:
+            if "POWER_ENV" in domains and len(domains) > 1:
+                cause = "Catastrophic Facilities/Power Failure causing cascade to IT/OT infrastructure."
+                score += 60
+                evidence_log.append("Primary Trigger: Critical Power/Environmental (UPS/Generator/AC) node alarms detected.")
+                
+            elif "TRANSPORT_CORE" in domains and avg_loss >= 80:
+                cause = f"Wide Area Network (WAN) Isolation. Hard down on {meta['primary_coms']} transport tier."
+                score += 50
+                evidence_log.append(f"Primary Trigger: Core routing/DWDM equipment dropped with >80% packet loss.")
+                
+            elif "SCADA_OT" in domains and "TRANSPORT_CORE" not in domains:
+                cause = "Isolated OT/SCADA Telemetry Failure (Substation/Plant Equipment degraded)."
+                score += 30
+                evidence_log.append("Primary Trigger: Field equipment (RTU/Meters) alarming while Core IT network remains stable.")
+                
+            elif "COMPUTE_STORAGE" in domains and avg_cpu > 90:
+                cause = "Data Center Compute/Storage Resource Exhaustion."
+                score += 30
+                evidence_log.append(f"Primary Trigger: Compute tier reporting critical CPU/Resource utilization ({avg_cpu}% avg).")
+                
+            elif "NETWORK_ACCESS" in domains and "Isolated to Single" in blast_radius:
+                cause = "Localized Access Layer Failure (Switch/Closet fault)."
+                score += 20
+                evidence_log.append("Primary Trigger: Access network fault restricted to a single broadcast domain.")
+                
+            else:
+                cause = "Generalized Infrastructure Degradation (Multiple unclassified vectors)."
+
+        # --- 4. GEOSPATIAL WEATHER / GRID CORRELATION ---
+        # Fetch the exact lat/lon for the site from the database to do real math
+        from src.database import MonitoredLocation, SessionLocal
+        with SessionLocal() as db:
+            site_record = db.query(MonitoredLocation).filter(MonitoredLocation.name == site_name).first()
+            
+            if site_record and site_record.lat and site_record.lon:
+                for h in active_weather:
+                    # If the hazard doesn't have coordinates, fall back to string matching the district/county
+                    if not getattr(h, 'lat', None) or not getattr(h, 'lon', None):
+                        if meta['district'].lower() in str(h.location).lower() or site_name.lower() in str(h.location).lower():
+                            score += 40
+                            evidence_log.append(f"Regional Correlation: Site intersects active {h.hazard_type} warning zone.")
+                            if "POWER_ENV" in domains or "TRANSPORT_CORE" in domains:
+                                cause = f"Severe Weather ({h.hazard_type}) induced failure of Utility/Carrier."
+                            break
+                    else:
+                        # Real Geospatial Math (Haversine Distance)
+                        R = 3958.8 # Radius of earth in miles
+                        lat1, lon1, lat2, lon2 = map(math.radians, [site_record.lat, site_record.lon, h.lat, h.lon])
+                        dlat, dlon = lat2 - lat1, lon2 - lon1
+                        a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+                        distance_miles = R * (2 * math.asin(math.sqrt(a)))
+                        
+                        # Assume an average weather cell radius of 15 miles if not specified
+                        hazard_radius = getattr(h, 'radius_km', 24.1) * 0.621371 
+                        
+                        if distance_miles <= hazard_radius:
+                            score += 55
+                            evidence_log.append(f"Geospatial Correlation: Site is exactly {round(distance_miles, 1)} miles from active {h.hazard_type} epicenter.")
+                            if "POWER_ENV" in domains or "TRANSPORT_CORE" in domains:
+                                cause = f"Direct Kinetic Impact: Severe Weather ({h.hazard_type}) caused physical infrastructure failure."
+                            break
 
         if data['max_alert_level'] == 1:
             score += 50
