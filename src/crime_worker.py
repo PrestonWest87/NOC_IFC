@@ -49,7 +49,7 @@ def fetch_live_crimes():
                     if not raw_date: continue
                     
                     incident_date = datetime.strptime(raw_date.split(".")[0], "%Y-%m-%dT%H:%M:%S")
-                    if incident_date < forty_eight_hours_ago: continue
+                    if incident_date < seven_days_ago: continue
                     
                     incident_lat = entry.get("latitude")
                     incident_lon = entry.get("longitude")
