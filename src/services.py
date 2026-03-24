@@ -729,26 +729,23 @@ def generate_outlook_html_report(intel):
     """
     return html
 
-def send_executive_report(recipient_email, intel):
-    SMTP_SERVER = "smtp.yourcompany.com" 
-    SMTP_PORT = 587
-    SENDER_EMAIL = "noc-alerts@yourcompany.com"
-    SENDER_PASS = "YourAppPasswordHere"
-
+def send_executive_report(recipient_email, intel, sys_config):
+    """Sends the HTML report via the central mailer script."""
     try:
+        # Generate the Outlook-optimized HTML payload
         html_body = generate_outlook_html_report(intel)
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"Grid Threat Intelligence Update - Posture: {intel['unified_risk']}"
-        msg["From"] = SENDER_EMAIL
-        msg["To"] = recipient_email
-        msg.attach(MIMEText(html_body, "html"))
-
-        # with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-        #     server.starttls()
-        #     server.login(SENDER_EMAIL, SENDER_PASS)
-        #     server.sendmail(SENDER_EMAIL, recipient_email, msg.as_string())
         
-        return True, "Report successfully routed to Exchange."
+        # Import your existing mailer
+        from src.mailer import send_alert_email
+        
+        # Dispatch using your existing infrastructure
+        success, msg = send_alert_email(
+            subject=f"Grid Threat Intelligence Update - Posture: {intel['unified_risk']}", 
+            html_content=html_body, 
+            recipient_override=recipient_email, 
+            is_html=True
+        )
+        return success, msg
     except Exception as e:
         return False, f"Email Dispatch Failed: {e}"
 
