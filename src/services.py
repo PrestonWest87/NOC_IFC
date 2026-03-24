@@ -615,45 +615,57 @@ def save_custom_report(title, author, content):
         db.add(SavedReport(title=title, author=author, content=content))
         db.commit()
 
-def get_executive_grid_intel(active_warn_count, crime_count):
-    """Synthesizes LIVE OSINT telemetry into a unified Executive Threat Matrix."""
+def get_executive_grid_intel(active_warn_count, recent_crimes):
+    """Synthesizes LIVE OSINT telemetry and 1-Mile Perimeter Crime into a unified matrix."""
     from src.database import Article, SessionLocal
     from datetime import datetime, timedelta
     
-    # Fetch live intelligence from your RSS database (Last 24 Hours, Score >= 50)
     with SessionLocal() as db:
-        t24 = datetime.utcnow() - timedelta(days=1)
-        cyber_articles = db.query(Article).filter(Article.published_date >= t24, Article.category == 'Cyber', Article.score >= 50).order_by(Article.score.desc()).all()
-        phys_articles = db.query(Article).filter(Article.published_date >= t24, Article.category == 'Physical/Weather', Article.score >= 50).order_by(Article.score.desc()).all()
+        # 48-Hour Lookback
+        t48 = datetime.utcnow() - timedelta(hours=48)
         
-        # Save a clean list to pass back to the UI for the dropdown
-        cyber_list = [{"title": a.title, "link": a.link, "source": a.source, "score": a.score} for a in cyber_articles]
+        # 1. CYBER: Fetch and Strictly Sanitize
+        raw_cyber_articles = db.query(Article).filter(
+            Article.published_date >= t48, 
+            Article.category == 'Cyber', 
+            Article.score >= 50
+        ).order_by(Article.score.desc()).all()
+        
+        pure_cyber_articles = []
+        geopolitical_noise_words = ["troop", "missile", "election", "ballot", "warfare", "kinetic", "embassy"]
+        
+        for art in raw_cyber_articles:
+            text_check = f"{art.title} {art.summary}".lower()
+            if not any(noise in text_check for noise in geopolitical_noise_words):
+                pure_cyber_articles.append(art)
+                
+        cyber_list = [{"title": a.title, "link": a.link, "source": a.source, "score": a.score} for a in pure_cyber_articles]
 
-    # --- CYBER SCORE (Driven by live RSS) ---
-    if len(cyber_articles) > 5 or any(a.score >= 80 for a in cyber_articles):
+    # --- CYBER SCORE CALCULATION ---
+    if len(pure_cyber_articles) > 5 or any(a.score >= 80 for a in pure_cyber_articles):
         cyber_score = "High"
-    elif len(cyber_articles) > 0:
+    elif len(pure_cyber_articles) > 0:
         cyber_score = "Medium"
     else:
         cyber_score = "Low"
         
-    if cyber_articles:
-        top_cyber = cyber_articles[0]
-        cyber_brief = f"Tracking {len(cyber_articles)} high-priority cyber threats identified via OSINT in the last 24h. Top concern: '{top_cyber.title}' (Source: {top_cyber.source})."
+    if pure_cyber_articles:
+        top_cyber = pure_cyber_articles[0]
+        cyber_brief = f"Tracking {len(pure_cyber_articles)} verified cyber threats in the last 48h (Geopolitical noise filtered). Top concern: '{top_cyber.title}'."
     else:
-        cyber_brief = "No critical cyber threats detected in the OSINT telemetry over the last 24 hours. Enterprise posture remains nominal."
+        cyber_brief = "No critical SCADA or cyber threats detected in the OSINT telemetry over the last 48 hours."
     
-    # --- PHYSICAL SCORE (Driven by NWS and Socrata) ---
-    if active_warn_count > 3 or crime_count > 8 or any(a.score >= 80 for a in phys_articles):
+    # --- PHYSICAL SCORE CALCULATION (Driven by Crime Severity & Weather) ---
+    high_crimes = [c for c in recent_crimes if c.get("severity") == "High"]
+    
+    if active_warn_count > 3 or len(high_crimes) > 0:
         physical_score = "High"
-    elif active_warn_count > 0 or crime_count > 3 or len(phys_articles) > 0:
+    elif active_warn_count > 0 or len(recent_crimes) > 0:
         physical_score = "Medium"
     else:
         physical_score = "Low"
         
-    physical_brief = f"Tracking {active_warn_count} severe weather hazards (NWS). Law enforcement feeds report {crime_count} incidents within 15 miles of HQ."
-    if phys_articles:
-        physical_brief += f" Top geopolitical/physical intel: '{phys_articles[0].title}'."
+    physical_brief = f"Tracking {active_warn_count} severe weather hazards (NWS). Perimeter security reports {len(recent_crimes)} total incidents within 1 mile of HQ ({len(high_crimes)} classified as High Risk)."
     
     # --- UNIFIED SCORING LOGIC ---
     if "High" in [cyber_score, physical_score]: unified_risk = "HIGH"
@@ -667,9 +679,9 @@ def get_executive_grid_intel(active_warn_count, crime_count):
         "cyber_brief": cyber_brief,
         "physical_score": physical_score,
         "physical_brief": physical_brief,
-        "cyber_articles": cyber_list # <-- Passes the live articles to the UI
+        "cyber_articles": cyber_list,
+        "recent_crimes": recent_crimes
     }
-
 # --- OUTLOOK HTML MAILER ---
 def generate_outlook_html_report(intel):
     color_map = {"LOW": "#28a745", "MEDIUM": "#ffc107", "HIGH": "#dc3545"}
