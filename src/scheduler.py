@@ -169,6 +169,7 @@ def run_database_maintenance():
         days_7_ago   = now - timedelta(days=7)
         days_14_ago  = now - timedelta(days=14)
         
+        # --- CLEANUP LOGIC ---
         session.query(Article).filter(Article.score <= 0.0).delete()
         session.query(Article).filter(Article.published_date < days_14_ago, Article.is_pinned == False).delete()
         session.query(SolarWindsAlert).filter(SolarWindsAlert.received_at < days_7_ago).delete()
@@ -177,8 +178,15 @@ def run_database_maintenance():
         session.query(BgpAnomaly).filter(BgpAnomaly.detected_at < hours_12_ago).delete()
         session.query(CveItem).filter(CveItem.date_added < days_7_ago).delete()
         session.query(CloudOutage).filter(CloudOutage.updated_at < hours_24_ago).delete()
+        
+        # --- NEW: CRIME INCIDENT PURGE (48H Window) ---
+        session.query(CrimeIncident).filter(CrimeIncident.timestamp < days_7_ago).delete()
+        
+        # Cleanup orphaned IOCs
         session.execute(text("DELETE FROM extracted_iocs WHERE article_id NOT IN (SELECT id FROM articles);"))
+        
         session.commit()
+        log("✅ Database tables pruned and committed.", "SYSTEM")
     except Exception as e:
         session.rollback()
         log(f"⚠️ Maintenance Error: {e}", "SYSTEM")
@@ -191,9 +199,12 @@ def run_database_maintenance():
             if engine.dialect.name == "sqlite":
                 conn.execute(text("PRAGMA optimize;"))
             else:
+                # Postgres maintenance for high-churn tables
                 conn.execute(text("VACUUM ANALYZE articles;"))
                 conn.execute(text("VACUUM ANALYZE extracted_iocs;"))
-    except Exception: pass
+                conn.execute(text("VACUUM ANALYZE crime_incidents;")) # Added for Postgres performance
+    except Exception: 
+        pass
 
 # --- WRAPPER JOBS ---
 def job_cisa(): fetch_cisa_kev()
