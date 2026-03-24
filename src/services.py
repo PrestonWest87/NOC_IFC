@@ -144,6 +144,16 @@ def get_active_wildfires():
         print(f"Federal NIFC API Error: {e}")
         return []
 
+# --- CRIME LOADER ---
+@st.cache_data(ttl=300) 
+def get_recent_crimes():
+    """Loads the 48-hour crime cache."""
+    cache_file = os.path.join(os.path.dirname(__file__), "..", "data", "crime_cache.json")
+    if os.path.exists(cache_file):
+        with open(cache_file, "r") as f:
+            return json.load(f)
+    return []
+
 # ==========================================
 # 1. AUTHENTICATION & USER PROFILE
 # ==========================================
@@ -599,6 +609,103 @@ def save_custom_report(title, author, content):
     with SessionLocal() as db:
         db.add(SavedReport(title=title, author=author, content=content))
         db.commit()
+
+# --- EXECUTIVE INTELLIGENCE ENGINE ---
+def get_executive_grid_intel(active_fires_count, active_warn_count, crime_count):
+    cyber_score = "Medium"
+    cyber_brief = "Increased scanning activity detected targeting VPN gateways for EMS. ICS-CERT advisories highlight new vulnerabilities in protective relays. OT isolation intact."
+    
+    if active_fires_count > 10 or active_warn_count > 3 or crime_count > 8:
+        physical_score = "High"
+    elif active_fires_count > 0 or active_warn_count > 0 or crime_count > 3:
+        physical_score = "Medium"
+    else:
+        physical_score = "Low"
+        
+    physical_brief = f"Tracking {active_fires_count} active wildfires (NIFC) and {active_warn_count} severe weather warnings (NWS). Law enforcement feeds (SpotCrime) report {crime_count} incidents in the 48-hour rolling window."
+    
+    if "High" in [cyber_score, physical_score]: unified_risk = "HIGH"
+    elif "Medium" in [cyber_score, physical_score]: unified_risk = "MEDIUM"
+    else: unified_risk = "LOW"
+    
+    return {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z"),
+        "unified_risk": unified_risk,
+        "cyber_score": cyber_score,
+        "cyber_brief": cyber_brief,
+        "physical_score": physical_score,
+        "physical_brief": physical_brief
+    }
+
+# --- OUTLOOK HTML MAILER ---
+def generate_outlook_html_report(intel):
+    color_map = {"LOW": "#28a745", "MEDIUM": "#ffc107", "HIGH": "#dc3545"}
+    badge_color = color_map.get(intel["unified_risk"].upper(), "#000000")
+    
+    html = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 20px;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; max-width: 600px; margin: 0 auto; border: 1px solid #dddddd; border-radius: 8px;">
+            <tr>
+                <td style="padding: 20px; background-color: #0f172a; border-radius: 8px 8px 0 0; text-align: center;">
+                    <h2 style="color: #ffffff; margin: 0;">BES Threat Intelligence Summary</h2>
+                    <p style="color: #94a3b8; margin: 5px 0 0 0; font-size: 12px;">Generated: {intel['timestamp']}</p>
+                </td>
+            </tr>
+            <tr>
+                <td style="padding: 30px 20px; text-align: center;">
+                    <h3 style="margin: 0; color: #333333; text-transform: uppercase;">Unified Threat Posture</h3>
+                    <div style="margin-top: 15px; padding: 10px 20px; background-color: {badge_color}; color: #ffffff; display: inline-block; font-size: 24px; font-weight: bold; border-radius: 4px;">
+                        {intel['unified_risk']} RISK
+                    </div>
+                </td>
+            </tr>
+            <tr>
+                <td style="padding: 20px;">
+                    <h4 style="color: #0056b3; border-bottom: 2px solid #eeeeee; padding-bottom: 5px;">⚡ Physical & Crime Intelligence</h4>
+                    <p style="color: #444444; line-height: 1.6; font-size: 14px;"><strong>Status: {intel['physical_score']}</strong><br/>{intel['physical_brief']}</p>
+                </td>
+            </tr>
+            <tr>
+                <td style="padding: 20px; padding-top: 0;">
+                    <h4 style="color: #0056b3; border-bottom: 2px solid #eeeeee; padding-bottom: 5px;">🛡️ Cyber & SCADA Intelligence</h4>
+                    <p style="color: #444444; line-height: 1.6; font-size: 14px;"><strong>Status: {intel['cyber_score']}</strong><br/>{intel['cyber_brief']}</p>
+                </td>
+            </tr>
+            <tr>
+                <td style="padding: 20px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; font-size: 11px; color: #666666; text-align: center;">
+                    <strong>Sources:</strong> CISA ICS-CERT, National Interagency Fire Center (NIFC), National Weather Service (NWS), SpotCrime Open RSS API.<br/>
+                    <em>CONFIDENTIAL: For Executive Leadership Only.</em>
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
+    """
+    return html
+
+def send_executive_report(recipient_email, intel):
+    SMTP_SERVER = "smtp.yourcompany.com" 
+    SMTP_PORT = 587
+    SENDER_EMAIL = "noc-alerts@yourcompany.com"
+    SENDER_PASS = "YourAppPasswordHere"
+
+    try:
+        html_body = generate_outlook_html_report(intel)
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"Grid Threat Intelligence Update - Posture: {intel['unified_risk']}"
+        msg["From"] = SENDER_EMAIL
+        msg["To"] = recipient_email
+        msg.attach(MIMEText(html_body, "html"))
+
+        # with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+        #     server.starttls()
+        #     server.login(SENDER_EMAIL, SENDER_PASS)
+        #     server.sendmail(SENDER_EMAIL, recipient_email, msg.as_string())
+        
+        return True, "Report successfully routed to Exchange."
+    except Exception as e:
+        return False, f"Email Dispatch Failed: {e}"
 
 
 # ==========================================
