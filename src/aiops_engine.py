@@ -49,7 +49,9 @@ class EnterpriseAIOpsEngine:
         Bypasses the "polling cycle" timestamp trap.
         """
         if not alerts: return None, []
-        if len(alerts) == 1: return alerts[0], [{"alert": alerts[0], "domain": self._get_domain(alerts[0].device_type)}]
+        
+        # REMOVED the buggy 'if len(alerts) == 1:' fast-path here. 
+        # The loop below handles single alerts perfectly and ensures consistent dictionary keys.
 
         scored_alerts = []
         valid_times = [a.received_at for a in alerts if a.received_at]
