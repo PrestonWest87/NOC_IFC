@@ -1127,3 +1127,112 @@ def truncate_db_table(table_query):
     if "monitored_locations" in table_query.lower():
         nuke_tables(["MonitoredLocation"])
         get_cached_locations.clear()
+
+
+# ==========================================
+# 9. UI OFFLOAD ENGINES & HELPERS
+# ==========================================
+
+def generate_daily_report_email_html(report_date, markdown_content):
+    """Converts the raw Markdown report into a boardroom-ready HTML email."""
+    import re
+    
+    # Native Mini-Parser to convert Markdown to HTML without external libraries
+    def native_md_to_html(text):
+        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#2c3e50; margin-bottom:5px;">\1</h3>', text, flags=re.MULTILINE)
+        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#2980b9; margin-bottom:5px; border-bottom:1px solid #eee;">\1</h2>', text, flags=re.MULTILINE)
+        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#2c3e50;">\1</h1>', text, flags=re.MULTILINE)
+        text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
+        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#3498db; text-decoration:none;">\1</a>', text)
+        text = re.sub(r'^\* (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
+        text = re.sub(r'^- (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
+        text = text.replace('\n', '<br>')
+        text = text.replace('<br><br><h', '<br><h')
+        return text
+
+    raw_html = native_md_to_html(markdown_content)
+    
+    # Wrap it in a clean, professional email container
+    formatted_html = f"""
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 0 auto; color: #333; line-height: 1.5;">
+        <div style="background-color: #fcfcfc; padding: 20px; border-radius: 6px; border-left: 4px solid #d9534f; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <h2 style="color: #2c3e50; margin-top: 0;">📰 NOC Daily Fusion Report</h2>
+            <p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 20px;"><strong>Date:</strong> {report_date}</p>
+            <div style="font-size: 14px; background-color: #ffffff; padding: 15px; border-radius: 4px; border: 1px solid #eee;">
+                {raw_html}
+            </div>
+        </div>
+    </div>
+    """
+    return formatted_html
+
+def get_osint_pivot_link(ioc_type, value):
+    """Generates the appropriate OSINT investigation link based on IOC type."""
+    if ioc_type in ["SHA256", "MD5", "SHA1"]: return f"https://www.virustotal.com/gui/file/{value}"
+    elif ioc_type == "IPv4": return f"https://www.shodan.io/host/{value}"
+    elif ioc_type == "Domain": return f"https://www.virustotal.com/gui/domain/{value}"
+    elif ioc_type == "CVE": return f"https://nvd.nist.gov/vuln/detail/{value}"
+    elif ioc_type == "MITRE ATT&CK": return f"https://attack.mitre.org/techniques/{value.replace('.', '/')}"
+    return None
+
+def generate_rca_ticket_text(site, data, priority, patient_zero, root_cause):
+    """Formats the massive RemedyForce/ServiceNow IT ticket body for AIOps RCA."""
+    from zoneinfo import ZoneInfo
+    LOCAL_TZ = ZoneInfo("America/Chicago")
+    
+    pz_obj = data.get('patient_zero')
+    trigger_time = pz_obj.received_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ).strftime('%m/%d/%Y %I:%M %p %Z') if pz_obj and pz_obj.received_at else "Unknown Time"
+    
+    ticket_text = "Automated Comms Outage\n\n"
+    ticket_text += f"{site} - Trouble\n\n"
+    ticket_text += f"A communications failure occurred on {trigger_time} and did not recover. This is affecting SCADA connectivity. IT is requesting a technician onsite to investigate.\n\n"
+    
+    ticket_text += "="*50 + "\n"
+    ticket_text += f"PRIORITY: {priority}\n"
+    ticket_text += f"SITE/LOCATION: {site}\n"
+    ticket_text += f"SUSPECTED ORIGIN (PATIENT ZERO): {patient_zero}\n"
+    ticket_text += f"TOTAL NODES AFFECTED: {len(data.get('alerts', []))}\n"
+    ticket_text += "="*50 + "\n\n"
+    
+    ticket_text += "ROOT CAUSE ANALYSIS:\n"
+    ticket_text += "-"*20 + "\n"
+    ticket_text += f"{root_cause}\n\n"
+    
+    ticket_text += "AFFECTED INFRASTRUCTURE DETAILS:\n"
+    ticket_text += "-"*30 + "\n"
+    
+    for idx, alert in enumerate(data.get('alerts', []), 1):
+        rcv_time = alert.received_at.strftime('%Y-%m-%d %H:%M:%S UTC') if alert.received_at else "Unknown"
+        ticket_text += f"[{idx}] Node: {alert.node_name} | IP: {alert.ip_address} | Type: {alert.device_type}\n"
+        ticket_text += f"    Status: {alert.status} | Severity: {alert.severity}\n"
+        ticket_text += f"    Event Category: {alert.event_category}\n"
+        ticket_text += f"    Logged Time: {rcv_time}\n"
+        if alert.details:
+            ticket_text += f"    Details: {alert.details.strip()}\n"
+        ticket_text += "\n"
+        
+    return ticket_text
+
+def get_weather_alerts_log(ar_data, oos_data, selected_events):
+    """Parses massive NWS GeoJSON blocks into a clean list of dictionaries for the UI Log."""
+    all_alert_details = []
+    for geo_ds, is_oos in [(ar_data, False), (oos_data, True)]:
+        if geo_ds and "features" in geo_ds:
+            for f in geo_ds["features"]:
+                props = f.get("properties", {})
+                event = props.get("event", "Unknown")
+                if event not in selected_events: continue
+                
+                prefix = "[OOS]" if is_oos else "[AR]"
+                all_alert_details.append({
+                    "Event": f"{prefix} {event}",
+                    "Severity": props.get("severity", "Unknown"),
+                    "Certainty": props.get("certainty", "Unknown"),
+                    "Headline": props.get("headline", "No headline available."),
+                    "Affected Area": props.get("areaDesc", "Unknown Area"),
+                    "Effective": props.get("effective", "N/A"),
+                    "Expires": props.get("expires", "N/A"),
+                    "Description": props.get("description", "No detailed description provided by NWS."),
+                    "Instructions": props.get("instruction", "No explicit instructions provided.")
+                })
+    return all_alert_details
