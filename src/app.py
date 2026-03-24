@@ -44,23 +44,31 @@ def apply_cooldown(key):
 
 # --- DESCRIPTIVE RBAC CONSTANTS ---
 ALL_POSSIBLE_PAGES = [
-    "🌐 Operational Dashboard", "📰 Daily Fusion Report", "📡 Threat Telemetry", 
-    "🎯 Threat Hunting & IOCs", "⚡ AIOps RCA", "📑 Report Center", "⚙️ Settings & Admin"
+    "🌐 Operational Dashboard", 
+    "📊 Executive Dashboard", 
+    "📰 Daily Fusion Report",
+    "📡 Threat Telemetry", 
+    "🚨 Crime Intelligence",
+    "🎯 Threat Hunting & IOCs",
+    "⚡ AIOps RCA", 
+    "📑 Report Center", 
+    "⚙️ Settings & Admin"
 ]
 
 ALL_POSSIBLE_ACTIONS = [
     "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score", 
-    "Action: Trigger AI Functions", "Action: Manually Sync Data",
-    "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV", 
-    "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Regional Grid",
-    "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash", 
-    "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix", 
-    "Tab: Regional Grid -> Weather Alerts Log", "Tab: Regional Grid -> Manage Locations", 
-    "Tab: Threat Hunting -> Global IOC Matrix", "Tab: Threat Hunting -> Deep Hunt Builder",
-    "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
-    "Tab: Report Center -> Report Builder", "Tab: Report Center -> Shared Library",
-    "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training", "Tab: Settings -> AI & SMTP", 
-    "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
+            "Action: Trigger AI Functions", "Action: Manually Sync Data",
+            "Action: Dispatch Exec Report",
+            "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV", 
+            "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Regional Grid",
+            "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Hazard Analytics", 
+            "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", 
+            "Tab: Regional Grid -> Manage Locations", "Tab: Threat Hunting -> Global IOC Matrix", 
+            "Tab: Threat Hunting -> Deep Hunt Builder", "Tab: AIOps RCA -> Active Board", 
+            "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
+            "Tab: Report Center -> Report Builder", "Tab: Report Center -> Shared Library",
+            "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training", "Tab: Settings -> AI & SMTP", 
+            "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
 ]
 
 if "current_user" not in st.session_state:
@@ -408,6 +416,121 @@ elif page == "📰 Daily Fusion Report":
                         st.success("✅ Report successfully transmitted!")
                     else:
                         st.error(f"❌ SMTP Error: {msg}")
+
+
+# ================= NEW: EXECUTIVE DASHBOARD =================
+elif page == "📊 Executive Dashboard":
+    st.title("📊 Executive Grid Threat Matrix")
+    st.caption("Real-time synthesis of Physical, Cyber, and Crime telemetry for Bulk Electric System (BES) infrastructure.")
+    
+    # 1. Gather dynamic counts rapidly from existing databases/caches
+    active_nifc = len(svc.get_active_wildfires())
+    active_nws = len(svc.get_hazards(hours_back=24)) # Leverage existing infrastructure worker DB
+    active_crimes = len(svc.get_recent_crimes())
+    
+    # 2. Fetch synthesized intelligence
+    intel = svc.get_executive_grid_intel(active_nifc, active_nws, active_crimes)
+    
+    # Unified Risk Scorecard
+    risk_color = "red" if intel['unified_risk'] == "HIGH" else "orange" if intel['unified_risk'] == "MEDIUM" else "green"
+    
+    st.markdown(f"""
+    <div style='text-align: center; padding: 20px; background-color: #1e1e1e; border-radius: 10px; border: 2px solid {risk_color}; margin-bottom: 30px;'>
+        <h3 style='margin:0; color: #a0a0a0;'>UNIFIED THREAT POSTURE</h3>
+        <h1 style='margin:0; font-size: 3rem; color: {risk_color};'>{intel['unified_risk']}</h1>
+        <p style='margin:0; color: #a0a0a0;'>Last Updated: {intel['timestamp']}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col_phys, col_cyber = st.columns(2)
+    with col_phys:
+        st.subheader("⚡ Physical & Crime")
+        st.info(f"**Risk Level: {intel['physical_score']}**")
+        st.write(intel['physical_brief'])
+        
+    with col_cyber:
+        st.subheader("🛡️ Cyber & SCADA")
+        st.warning(f"**Risk Level: {intel['cyber_score']}**")
+        st.write(intel['cyber_brief'])
+        
+    st.divider()
+    
+    # Email Dispatch Controls
+    st.subheader("📤 Dispatch Intelligence Report")
+    col_email, col_btn = st.columns([3, 1])
+    default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
+    target_email = col_email.text_input("Recipient Email Address", value=default_email, label_visibility="collapsed")
+    
+    can_dispatch = "Action: Dispatch Exec Report" in st.session_state.allowed_actions
+    
+    if col_btn.button("📧 Send Outlook HTML Report", use_container_width=True, type="primary", disabled=not can_dispatch):
+        if target_email:
+            with st.spinner("Compiling and transmitting..."):
+                success, msg = svc.send_executive_report(target_email, intel, sys_config)
+                if success:
+                    st.success(f"Report dispatched to {target_email}")
+                else:
+                    st.error(msg)
+        else:
+            st.warning("Please enter a recipient email address.")
+
+    st.divider()
+    with st.expander("🗄️ Intelligence Sources & Telemetry Feeds", expanded=False):
+        st.markdown("""
+        **Cyber Intelligence (CTI):**
+        * **CISA ICS-CERT:** Industrial Control Systems Advisories.
+        * **Internal SOC:** Splunk SIEM alerting for lateral movement and perimeter scans.
+        
+        **Physical Intelligence:**
+        * **NIFC:** National Interagency Fire Center (Active Wildfires).
+        * **NWS:** National Weather Service (Red Flag Warnings, Convective Outlooks).
+        
+        **Crime Intelligence:**
+        * **Law Enforcement Feeds:** 48-Hour rolling window aggregated via SpotCrime RSS API.
+        """)
+
+# ================= NEW: CRIME INTELLIGENCE =================
+elif page == "🚨 Crime Intelligence":
+    st.title("🚨 Local Crime Telemetry (48 Hours)")
+    st.caption("Law enforcement incident aggregation tuned for BES physical security threats.")
+    
+    crime_data = svc.get_recent_crimes()
+    
+    if not crime_data:
+        st.info("No crime incidents logged in the 48-hour window. Ensure `crime_worker.py` has been executed recently.")
+    else:
+        df_crimes = pd.DataFrame(crime_data)
+        
+        # High contrast mapping for physical security
+        st.pydeck_chart(pdk.Deck(
+            map_style="mapbox://styles/mapbox/dark-v10",
+            initial_view_state=pdk.ViewState(latitude=34.7465, longitude=-92.2896, zoom=9, pitch=0),
+            layers=[
+                pdk.Layer(
+                    "ScatterplotLayer",
+                    data=df_crimes,
+                    get_position="[lon, lat]",
+                    get_radius=300,
+                    get_fill_color=[255, 69, 0, 180],
+                    pickable=True
+                )
+            ],
+            tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Cat: {category}"}
+        ))
+        
+        st.divider()
+        st.subheader("Raw Incident Logs")
+        
+        # Rearrange columns for better readability
+        display_crimes = df_crimes[["timestamp", "category", "severity", "raw_title", "link"]]
+        st.dataframe(
+            display_crimes, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "link": st.column_config.LinkColumn("Source")
+            }
+        )
 
 
 # ================= 3. THREAT TELEMETRY =================
