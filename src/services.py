@@ -151,13 +151,13 @@ def get_active_wildfires():
 
 # --- CRIME LOADER ---
 def get_recent_crimes():
-    """Queries the database for active 48-hour perimeter incidents."""
+    """Queries the database for active 168-hour perimeter incidents."""
     from src.database import SessionLocal, CrimeIncident
     from datetime import datetime, timedelta
     
     with SessionLocal() as db:
         # Failsafe: Ensure we only pull the last 48 hours just in case
-        forty_eight_hours_ago = datetime.utcnow() - timedelta(hours=48)
+        forty_eight_hours_ago = datetime.utcnow() - timedelta(hours=168)
         
         crimes = db.query(CrimeIncident).filter(
             CrimeIncident.timestamp >= forty_eight_hours_ago
@@ -720,7 +720,7 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     else:
         physical_score = "Low"
         
-    physical_brief = f"Tracking {active_warn_count} severe weather hazards (NWS). Perimeter security reports {len(recent_crimes)} incidents within 1 mile of HQ in the last 48 hours. "
+    physical_brief = f"Tracking {active_warn_count} severe weather hazards (NWS). Perimeter security reports {len(recent_crimes)} incidents within 1 mile of HQ in the last 7 Days. "
     
     if critical_crimes:
         physical_brief += f"🚨 CRITICAL ALARM: {len(critical_crimes)} extreme threats (Arson/Sabotage) detected near facility."
