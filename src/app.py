@@ -1303,10 +1303,12 @@ elif page == "⚡ AIOps RCA":
                             bgp = dbtmp.query(BgpAnomaly).filter_by(is_resolved=False).all()
                             raw_alerts = dbtmp.query(SolarWindsAlert).filter(SolarWindsAlert.is_correlated == False, SolarWindsAlert.status != 'Resolved').all()
                             
-                            incidents = ai_engine.analyze_and_cluster(raw_alerts)
-                            for site, data in incidents.items():
-                                c, cf, p, e, b, p0, cs = ai_engine.calculate_root_cause(site, data, wea, cld, bgp)
-                                with st.container(border=True):
+                        incidents = ai_engine.analyze_and_cluster(raw_alerts)
+                        for site, data in incidents.items():
+                            # NOTE: Passing wea, cld, and bgp into the new advanced correlation engine
+                            c, cf, p, e, b, p0, cs = ai_engine.calculate_root_cause(site, data, wea, cld, bgp)
+                            
+                            with st.container(border=True):
                                     st.markdown(f"### {p} | Site: {site}")
                                     st.warning(c)
                                     
