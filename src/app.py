@@ -510,33 +510,33 @@ elif page == "🚨 Crime Intelligence":
             # Drop any random null coordinates
             df_crimes = df_crimes.dropna(subset=['lat', 'lon'])
             
-            # Map Rendering
+            # Map Rendering - NO map_style defined! Inherits Streamlit's working default.
             st.pydeck_chart(pdk.Deck(
-                map_style="mapbox://styles/mapbox/dark-v10", # Guaranteed API-free basemap
                 initial_view_state=pdk.ViewState(
                     latitude=34.6836, 
                     longitude=-92.3350, 
                     zoom=13.5, 
-                    pitch=40 # Slight 3D tilt for better visibility
+                    pitch=40 
                 ),
                 layers=[
                     pdk.Layer(
                         "ScatterplotLayer",
                         data=df_crimes,
                         get_position="[lon, lat]",
-                        get_radius=50, # Bumped radius so they are highly visible
+                        get_radius=150, 
                         get_fill_color=[255, 69, 0, 200],
                         pickable=True,
                         auto_highlight=True
                     )
                 ],
                 tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Dist: {distance_miles} miles<br/>Category: {category}"}
-            ))
+            ), use_container_width=True)
             
             st.divider()
             st.subheader("Raw Incident Logs (1 Mile Radius)")
             display_crimes = df_crimes[["timestamp", "distance_miles", "category", "severity", "raw_title"]]
             st.dataframe(display_crimes, use_container_width=True, hide_index=True)
+            
 # ================= 3. THREAT TELEMETRY =================
 elif page == "📡 Threat Telemetry":
     st.title("📡 Unified Threat Telemetry")
