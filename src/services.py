@@ -701,8 +701,8 @@ def get_aiops_dashboard_data():
         alerts = db.query(SolarWindsAlert).filter(SolarWindsAlert.status != 'Resolved', SolarWindsAlert.is_correlated == False).all()
         events = db.query(TimelineEvent).order_by(TimelineEvent.timestamp.desc()).limit(50).all()
         grid = db.query(RegionalOutage).filter_by(is_resolved=False).all()
-        aliases = db.query(NodeAlias).order_by(NodeAlias.confidence_score.asc()).all()
-        return to_dotdict_list(alerts), to_dotdict_list(events), to_dotdict_list(grid), to_dotdict_list(aliases)
+        # Removed aliases from the return
+        return to_dotdict_list(alerts), to_dotdict_list(events), to_dotdict_list(grid)
 
 def clear_timeline_events():
     with SessionLocal() as db: db.query(TimelineEvent).delete(); db.commit()
