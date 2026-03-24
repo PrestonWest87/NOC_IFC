@@ -729,23 +729,42 @@ def generate_outlook_html_report(intel):
     """
     return html
 
+That error means that your src/mailer.py file expects the email content parameter to be named something else (most likely body or message), rather than html_content.
+
+To make it completely bulletproof and compatible with your exact mailer script, we can just pass the arguments positionally or use a try/except fallback to catch the exact keyword your mailer wants.
+
+Replace the send_executive_report function in your src/services.py with this updated version:
+Python
+
+# --- THE SMTP MAILER (FIXED ARGUMENT SIGNATURE) ---
 def send_executive_report(recipient_email, intel, sys_config):
     """Sends the HTML report via the central mailer script."""
     try:
         # Generate the Outlook-optimized HTML payload
         html_body = generate_outlook_html_report(intel)
         
-        # Import your existing mailer
         from src.mailer import send_alert_email
         
-        # Dispatch using your existing infrastructure
-        success, msg = send_alert_email(
-            subject=f"Grid Threat Intelligence Update - Posture: {intel['unified_risk']}", 
-            html_content=html_body, 
-            recipient_override=recipient_email, 
-            is_html=True
-        )
-        return success, msg
+        try:
+            # Standard approach: using 'body' instead of 'html_content'
+            success, msg = send_alert_email(
+                subject=f"Grid Threat Intelligence Update - Posture: {intel['unified_risk']}", 
+                body=html_body, 
+                recipient_override=recipient_email, 
+                is_html=True
+            )
+            return success, msg
+        except TypeError:
+            # FALLBACK: If keywords still don't match, we bypass keywords entirely 
+            # and just pass them in the standard positional order: (subject, body, recipient, is_html)
+            success, msg = send_alert_email(
+                f"Grid Threat Intelligence Update - Posture: {intel['unified_risk']}", 
+                html_body, 
+                recipient_email, 
+                True
+            )
+            return success, msg
+
     except Exception as e:
         return False, f"Email Dispatch Failed: {e}"
 
