@@ -2,42 +2,43 @@ import os
 import bcrypt
 import time
 import random
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Float, Boolean, JSON, text, event
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Float, Boolean, JSON, event
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime
 
+# Enforce SQLite connection string
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////app/data/noc_fusion.db").strip().strip('"').strip("'")
+if not DATABASE_URL.startswith("sqlite"):
+    DATABASE_URL = "sqlite:////app/data/noc_fusion.db"
 
-# --- OPTIMIZED ENGINE CONFIGURATION ---
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(
-        DATABASE_URL, 
-        # Increase timeout so the UI waits gracefully instead of crashing instantly
-        connect_args={"check_same_thread": False, "timeout": 30} 
-    )
-    
-    # Enable Write-Ahead Logging (WAL) to allow simultaneous reads and writes!
-    @event.listens_for(engine, "connect")
-    def set_sqlite_pragma(dbapi_connection, connection_record):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA synchronous=NORMAL")
-        cursor.execute("PRAGMA cache_size=-64000") # Dedicate 64MB of RAM to the DB cache
-        cursor.close()
-else:
-    # Tuned connection pool for high-throughput AIOps polling
-    engine = create_engine(
-        DATABASE_URL, 
-        pool_size=20, 
-        max_overflow=30, 
-        pool_pre_ping=True, 
-        pool_recycle=1800 # Recycle faster to prevent stale drops
-    )
+# --- OPTIMIZED SQLITE ENGINE CONFIGURATION ---
+engine = create_engine(
+    DATABASE_URL, 
+    connect_args={"check_same_thread": False, "timeout": 30} 
+)
+
+@event.listens_for(engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    # Write-Ahead Logging for high-concurrency (simultaneous reads/writes)
+    cursor.execute("PRAGMA journal_mode=WAL")
+    # Reduces sync overhead to disk, vastly improving write speeds
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    # Dedicate 64MB of RAM to the DB cache
+    cursor.execute("PRAGMA cache_size=-64000") 
+    # Process complex queries and temporary tables in RAM, not on disk
+    cursor.execute("PRAGMA temp_store=MEMORY")
+    # Use Memory-Mapped I/O for lightning-fast dashboard reads
+    cursor.execute("PRAGMA mmap_size=3000000000") 
+    cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- OPTIMIZED MODELS WITH STRATEGIC INDEXING ---
+
+# ==========================================
+# CORE SYSTEM MODELS
+# ==========================================
 
 class User(Base):
     __tablename__ = "users"
@@ -78,6 +79,30 @@ class Keyword(Base):
     word = Column(String, unique=True, index=True)
     weight = Column(Integer, default=10)
 
+class SystemConfig(Base):
+    __tablename__ = "system_config"
+    id = Column(Integer, primary_key=True, index=True)
+    llm_endpoint = Column(String, default="https://api.openai.com/v1")
+    llm_api_key = Column(String, default="")
+    llm_model_name = Column(String, default="gpt-4o-mini")
+    is_active = Column(Boolean, default=False)
+    tech_stack = Column(Text, default="SolarWinds, Cisco SD-WAN, Microsoft Office, Verizon, Cisco")
+    monitored_asns = Column(String, default="AS701, AS7922, AS3356") 
+    rolling_summary = Column(Text, nullable=True)
+    rolling_summary_time = Column(DateTime, nullable=True)
+    smtp_server = Column(String, nullable=True)
+    smtp_port = Column(Integer, default=587)
+    smtp_username = Column(String, nullable=True)
+    smtp_password = Column(String, nullable=True)
+    smtp_sender = Column(String, nullable=True)
+    smtp_recipient = Column(String, nullable=True)
+    smtp_enabled = Column(Boolean, default=False)
+
+
+# ==========================================
+# INTELLIGENCE & THREAT MODELS
+# ==========================================
+
 class Article(Base):
     __tablename__ = "articles"
     id = Column(Integer, primary_key=True, index=True)
@@ -104,25 +129,6 @@ class ExtractedIOC(Base):
     context = Column(Text, nullable=True)
     detected_at = Column(DateTime, default=datetime.utcnow, index=True)
 
-class SystemConfig(Base):
-    __tablename__ = "system_config"
-    id = Column(Integer, primary_key=True, index=True)
-    llm_endpoint = Column(String, default="https://api.openai.com/v1")
-    llm_api_key = Column(String, default="")
-    llm_model_name = Column(String, default="gpt-4o-mini")
-    is_active = Column(Boolean, default=False)
-    tech_stack = Column(Text, default="SolarWinds, Cisco SD-WAN, Microsoft Office, Verizon, Cisco")
-    monitored_asns = Column(String, default="AS701, AS7922, AS3356") 
-    rolling_summary = Column(Text, nullable=True)
-    rolling_summary_time = Column(DateTime, nullable=True)
-    smtp_server = Column(String, nullable=True)
-    smtp_port = Column(Integer, default=587)
-    smtp_username = Column(String, nullable=True)
-    smtp_password = Column(String, nullable=True)
-    smtp_sender = Column(String, nullable=True)
-    smtp_recipient = Column(String, nullable=True)
-    smtp_enabled = Column(Boolean, default=False)
-
 class CveItem(Base):
     __tablename__ = "cve_items"
     id = Column(Integer, primary_key=True, index=True)
@@ -135,6 +141,18 @@ class CveItem(Base):
     required_action = Column(Text)
     due_date = Column(String)
 
+class DailyBriefing(Base):
+    __tablename__ = "daily_briefings"
+    id = Column(Integer, primary_key=True, index=True)
+    report_date = Column(DateTime, unique=True, index=True)
+    content = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ==========================================
+# GRID, WEATHER & AIOps MODELS
+# ==========================================
+
 class RegionalHazard(Base):
     __tablename__ = "regional_hazards"
     id = Column(Integer, primary_key=True, index=True)
@@ -144,7 +162,7 @@ class RegionalHazard(Base):
     title = Column(String)
     description = Column(Text)
     location = Column(String)
-    updated_at = Column(DateTime, index=True) # Indexed for fast 6-hour lookbacks
+    updated_at = Column(DateTime, index=True)
 
 class RegionalOutage(Base):
     __tablename__ = "regional_outages"
@@ -157,15 +175,6 @@ class RegionalOutage(Base):
     lon = Column(Float, nullable=True)
     radius_km = Column(Float, default=10.0) 
     detected_at = Column(DateTime, default=datetime.utcnow)
-    is_resolved = Column(Boolean, default=False, index=True) # Crucial for map filtering
-
-class BgpAnomaly(Base):
-    __tablename__ = "bgp_anomalies"
-    id = Column(Integer, primary_key=True, index=True)
-    asn = Column(String, index=True)
-    event_type = Column(String) 
-    description = Column(Text)
-    detected_at = Column(DateTime, default=datetime.utcnow)
     is_resolved = Column(Boolean, default=False, index=True)
 
 class CloudOutage(Base):
@@ -176,34 +185,17 @@ class CloudOutage(Base):
     title = Column(String)
     description = Column(Text)
     link = Column(String)
-    is_resolved = Column(Boolean, default=False, index=True) # Crucial for dashboard speed
+    is_resolved = Column(Boolean, default=False, index=True)
     updated_at = Column(DateTime, index=True)
-    
-class DailyBriefing(Base):
-    __tablename__ = "daily_briefings"
-    id = Column(Integer, primary_key=True, index=True)
-    report_date = Column(DateTime, unique=True, index=True)
-    content = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
 
-class MonitoredLocation(Base):
-    __tablename__ = "monitored_locations"
+class BgpAnomaly(Base):
+    __tablename__ = "bgp_anomalies"
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, index=True)
-    lat = Column(Float)
-    lon = Column(Float)
-    loc_type = Column(String, default="General", index=True)
-    priority = Column(Integer, default=3, index=True)
-    current_spc_risk = Column(String, default="None")
-    last_updated = Column(DateTime, default=datetime.utcnow)
-
-class NodeAlias(Base):
-    __tablename__ = "node_aliases"
-    id = Column(Integer, primary_key=True, index=True)
-    node_pattern = Column(String, unique=True, index=True)
-    mapped_location_name = Column(String, index=True) 
-    confidence_score = Column(Float, default=0.0)
-    is_verified = Column(Boolean, default=False, index=True)
+    asn = Column(String, index=True)
+    event_type = Column(String) 
+    description = Column(Text)
+    detected_at = Column(DateTime, default=datetime.utcnow)
+    is_resolved = Column(Boolean, default=False, index=True)
 
 class SolarWindsAlert(Base):
     __tablename__ = "solarwinds_alerts"
@@ -212,7 +204,7 @@ class SolarWindsAlert(Base):
     severity = Column(String)
     node_name = Column(String, index=True)
     ip_address = Column(String)
-    status = Column(String, index=True) # Indexed for active alert filtering
+    status = Column(String, index=True)
     sw_timestamp = Column(String)
     details = Column(Text)
     node_link = Column(String)
@@ -220,7 +212,7 @@ class SolarWindsAlert(Base):
     mapped_location = Column(String, nullable=True, index=True) 
     received_at = Column(DateTime, default=datetime.utcnow, index=True)
     resolved_at = Column(DateTime, nullable=True, index=True)
-    is_correlated = Column(Boolean, default=False, index=True) # Massively speeds up AIOps clustering
+    is_correlated = Column(Boolean, default=False, index=True)
     ai_root_cause = Column(Text, nullable=True)
     device_type = Column(String, default="Unknown", index=True)
     event_category = Column(String, default="Unknown")
@@ -233,9 +225,27 @@ class TimelineEvent(Base):
     event_type = Column(String, index=True) 
     message = Column(String)
 
+class NodeAlias(Base):
+    __tablename__ = "node_aliases"
+    id = Column(Integer, primary_key=True, index=True)
+    node_pattern = Column(String, unique=True, index=True)
+    mapped_location_name = Column(String, index=True) 
+    confidence_score = Column(Float, default=0.0)
+    is_verified = Column(Boolean, default=False, index=True)
+
+class MonitoredLocation(Base):
+    __tablename__ = "monitored_locations"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    lat = Column(Float)
+    lon = Column(Float)
+    loc_type = Column(String, default="General", index=True)
+    priority = Column(Integer, default=3, index=True)
+    current_spc_risk = Column(String, default="None")
+    last_updated = Column(DateTime, default=datetime.utcnow)
+
 class CrimeIncident(Base):
     __tablename__ = "crime_incidents"
-
     id = Column(String, primary_key=True, index=True)
     category = Column(String)
     raw_title = Column(String)
@@ -246,69 +256,21 @@ class CrimeIncident(Base):
     lon = Column(Float)
 
 
+# ==========================================
+# INITIALIZATION & SEEDING
+# ==========================================
+
 def init_db():
     # Minor sleep mitigates docker-compose DB container race conditions
     time.sleep(random.uniform(0.1, 1.5))
     
-    # 1. Safely create all models
+    # Safely create all models natively through SQLAlchemy
     try:
         Base.metadata.create_all(bind=engine)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Schema generation error: {e}")
     
-    # 2. Execute Postgres Migrations securely using bulk transaction processing
-    if not DATABASE_URL.startswith("sqlite"):
-        migrations = [
-            "CREATE TABLE IF NOT EXISTS regional_outages (id SERIAL PRIMARY KEY, outage_type VARCHAR, provider VARCHAR, description TEXT, affected_area VARCHAR, lat FLOAT, lon FLOAT, radius_km FLOAT DEFAULT 10.0, detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_resolved BOOLEAN DEFAULT FALSE);",
-            "CREATE INDEX IF NOT EXISTS ix_regional_outages_type ON regional_outages (outage_type);",
-            "CREATE TABLE IF NOT EXISTS bgp_anomalies (id SERIAL PRIMARY KEY, asn VARCHAR, event_type VARCHAR, description TEXT, detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_resolved BOOLEAN DEFAULT FALSE);",
-            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS monitored_asns VARCHAR DEFAULT 'AS701, AS7922, AS3356';",
-            "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP;",
-            "CREATE TABLE IF NOT EXISTS timeline_events (id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, source VARCHAR, event_type VARCHAR, message VARCHAR);",
-            "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS raw_payload JSON;",
-            "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS mapped_location VARCHAR;",
-            "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS device_type VARCHAR DEFAULT 'Unknown';",
-            "ALTER TABLE solarwinds_alerts ADD COLUMN IF NOT EXISTS event_category VARCHAR DEFAULT 'Unknown';",
-            "ALTER TABLE articles ADD COLUMN IF NOT EXISTS story_group VARCHAR;",
-            "ALTER TABLE articles ADD COLUMN IF NOT EXISTS ai_bluf TEXT;",
-            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS tech_stack TEXT DEFAULT 'SolarWinds, Cisco SD-WAN, Microsoft Office, Verizon, Cisco';",
-            "ALTER TABLE articles ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT FALSE;",
-            "ALTER TABLE roles ADD COLUMN IF NOT EXISTS allowed_actions JSON DEFAULT '[]'::json;",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS session_token VARCHAR;",
-            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS rolling_summary TEXT;",
-            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS rolling_summary_time TIMESTAMP;",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR;",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS job_title VARCHAR;",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS contact_info VARCHAR;",
-            "ALTER TABLE articles ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT 'General';",
-            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_server VARCHAR;",
-            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_port INTEGER DEFAULT 587;",
-            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_username VARCHAR;",
-            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_password VARCHAR;",
-            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_sender VARCHAR;",
-            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_recipient VARCHAR;",
-            "ALTER TABLE system_config ADD COLUMN IF NOT EXISTS smtp_enabled BOOLEAN DEFAULT FALSE;",
-            "CREATE INDEX IF NOT EXISTS ix_articles_published_date ON articles (published_date);",
-            "CREATE INDEX IF NOT EXISTS ix_articles_score ON articles (score);",
-            "CREATE INDEX IF NOT EXISTS ix_articles_category ON articles (category);",
-            "CREATE TABLE IF NOT EXISTS extracted_iocs (id SERIAL PRIMARY KEY, article_id INTEGER, indicator_type VARCHAR, indicator_value VARCHAR, context TEXT, detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
-            "CREATE INDEX IF NOT EXISTS ix_extracted_iocs_article_id ON extracted_iocs (article_id);",
-            "CREATE TABLE IF NOT EXISTS monitored_locations (id SERIAL PRIMARY KEY, name VARCHAR UNIQUE, lat FLOAT, lon FLOAT, loc_type VARCHAR DEFAULT 'General', priority INTEGER DEFAULT 3, current_spc_risk VARCHAR DEFAULT 'None', last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
-            "CREATE TABLE IF NOT EXISTS solarwinds_alerts (id SERIAL PRIMARY KEY, event_type VARCHAR, severity VARCHAR, node_name VARCHAR, ip_address VARCHAR, status VARCHAR, sw_timestamp VARCHAR, details TEXT, node_link VARCHAR, raw_payload JSON, mapped_location VARCHAR, received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_correlated BOOLEAN DEFAULT FALSE, ai_root_cause TEXT);",
-            "CREATE TABLE IF NOT EXISTS node_aliases (id SERIAL PRIMARY KEY, node_pattern VARCHAR UNIQUE, mapped_location_name VARCHAR, confidence_score FLOAT DEFAULT 0.0, is_verified BOOLEAN DEFAULT FALSE);",
-            "CREATE TABLE IF NOT EXISTS crime_incidents (id VARCHAR PRIMARY KEY, category VARCHAR, raw_title VARCHAR, timestamp TIMESTAMP, distance_miles FLOAT, severity VARCHAR, lat FLOAT, lon FLOAT);",
-            "CREATE INDEX IF NOT EXISTS ix_crime_incidents_timestamp ON crime_incidents (timestamp);"
-        ]
-        
-        # Engine.begin() auto-commits and correctly handles transaction boundaries
-        with engine.begin() as conn:
-            for sql in migrations:
-                try:
-                    conn.execute(text(sql))
-                except Exception:
-                    pass
-            
-    # 3. Seed Initial Data with robust Session lifecycle management
+    # Seed Initial Data
     session = SessionLocal()
     try:
         all_pages = [
@@ -344,7 +306,7 @@ def init_db():
         if not admin_role:
             session.add(Role(name="admin", allowed_pages=all_pages, allowed_actions=all_actions))
         else:
-            # Auto-heals existing admin roles with the new descriptive permission strings
+            # Auto-heals existing admin roles
             admin_role.allowed_pages = all_pages
             admin_role.allowed_actions = all_actions
             
