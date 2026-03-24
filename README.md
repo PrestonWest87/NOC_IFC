@@ -1,6 +1,6 @@
 # 🌐 NOC Intelligence Fusion Center
 
-An enterprise-grade, AI-powered intelligence aggregator and Heads-Up Display (HUD) built for Network Operations Centers. This platform ingests real-time telemetry from hundreds of RSS feeds, CISA vulnerabilities, 18+ global cloud infrastructure providers, regional utility grids, and global BGP routing tables. 
+An enterprise-grade, AI-powered intelligence aggregator and Heads-Up Display (HUD) built for Network Operations Centers. This platform ingests real-time telemetry from hundreds of RSS feeds, CISA vulnerabilities, 18+ global cloud infrastructure providers, regional utility grids, global BGP routing tables, and **geofenced local law enforcement open-data APIs**. 
 
 It utilizes a highly optimized hybrid intelligence engine—combining Scikit-Learn Machine Learning for threat scoring, pre-compiled Regex for high-speed triage and IOC extraction, strict deterministic algorithms for causal correlation, and model-agnostic LLMs for automated Map-Reduce synthesis—to cut through alert fatigue and deliver actionable intelligence.
 
@@ -10,7 +10,7 @@ It utilizes a highly optimized hybrid intelligence engine—combining Scikit-Lea
 * **Background Orchestration (`worker`):** A headless daemon driving a Master Scheduler that bypasses Python's GIL using a Hybrid Concurrency Model (Asynchronous I/O via `aiohttp` combined with Multiprocessing via `ProcessPoolExecutor`).
 * **Ingestion Gateway (`webhook`):** A dedicated FastAPI asynchronous listener hosting REST APIs to receive, parse, and normalize live telemetry from NMS/ITSM platforms like SolarWinds.
 * **Database:** Defaults to a lightweight, file-based SQLite database (`noc_fusion.db`) optimized with `check_same_thread=False` for concurrent container access, with seamless ORM fallback to enterprise PostgreSQL clusters.
-* **Correlation Engines:** *
+* **Correlation Engines:**
     * *Deterministic RCA:* Programmatic math engine that calculates geospatial blast radii, cascade durations, and clusters alerts by physical sites.
     * *Hybrid Threat Scoring:* Fuses deterministic Keyword Heuristics with probabilistic Scikit-Learn predictions (TF-IDF + Multinomial Naive Bayes).
     * *Asset Mapping:* A 5-stage pipeline utilizing exact matching, known aliases, regex heuristics, and ML prediction to map messy alerts to physical NOC sites.
@@ -21,37 +21,32 @@ It utilizes a highly optimized hybrid intelligence engine—combining Scikit-Lea
 
 ### 1. ⚡ AIOps Root Cause Analysis (Live Engine)
 A near real-time self-healing correlation engine that ingests raw network alerts and maps them against global and regional telemetry.
+* **Deep Device Fingerprinting:** The webhook gateway standardizes arbitrary JSON payloads and uses heuristic fingerprinting to identify specific hardware.
+* **Ontological Incident Clustering:** Alerts are clustered into unified "Site Blocks" to instantly reveal cascading failures.
+* **100% Local Deterministic RCA:** Calculates geospatial point-in-polygon intersections for severe weather and scans payloads for upstream cloud/ISP matches before utilizing LLMs.
 
-* **Deep Device Fingerprinting:** The webhook gateway standardizes arbitrary JSON payloads and uses heuristic fingerprinting to identify the specific hardware (Router, Switch, Firewall, Power/UPS).
-* **Ontological Incident Clustering:** Alerts are clustered into unified "Site Blocks" to instantly reveal cascading failures, isolating Patient Zero and calculating blast radius across network domains.
-* **100% Local Deterministic RCA:** The correlation engine uses hard programmatic math *before* touching an LLM. It calculates geospatial point-in-polygon intersections for severe weather and scans payloads for upstream cloud/ISP matches.
-* **Predictive Analytics:** Analyzes historical database tables to detect chronic hardware reboots, cellular micro-blips, and VSAT environmental vulnerabilities before they cause catastrophic failure.
+### 2. 📊 Executive Grid Threat Matrix (New)
+A synthesized command dashboard designed for executive leadership detailing risk to Bulk Electric System (BES) infrastructure.
+* **Unified Posture Scoring:** Aggregates real-time localized perimeter crime, 48-hour cyber OSINT, and active CISA ICS-CERT advisories into a single high-level threat score.
+* **Automated HTML SitReps:** Single-click dispatch of Outlook-native HTML intelligence reports covering perimeter kinetic risks and cyber threat landscapes.
 
-### 2. 🌍 Global SitRep & Autonomous Reporting
-* **Map-Reduce LLM Synthesis:** Processes massive datasets of raw intelligence by chunking context windows, extracting facts (Map), and synthesizing comprehensive narratives (Reduce).
-* **Daily Fusion Report Cron-Engine:** A resilient background daemon generates and caches a boardroom-ready master Situation Report summarizing the last 24 hours of cyber, infrastructure, and cloud telemetry automatically at 6:00 AM.
-* **Automated SMTP Delivery:** Instantly broadcast AI-synthesized tickets and Global Situation Reports directly to your team's inbox or ITSM ingestion address.
+### 3. 🌍 Global SitRep & Autonomous Reporting
+* **Map-Reduce LLM Synthesis:** Processes massive datasets of raw intelligence by chunking context windows, extracting facts, and synthesizing narratives.
+* **Automated SMTP Delivery:** Instantly broadcasts AI-synthesized tickets and Global Situation Reports directly to ITSM platforms or distribution lists.
 
-### 3. The Main Dashboard (Zero-Scroll HUD)
-A high-density, card-based interface designed to be left on a NOC wall monitor. 
-
-* **AI Shift Briefing:** An auto-updating, rolling narrative summarizing the last **6 hours** of cyber threats, regional hazards, and cloud outages.
-* **AI Security Auditor:** Automatically cross-references your configured internal "Tech Stack" against a locally synchronized database of the CISA Known Exploited Vulnerabilities (KEV) catalog.
-* **Automated Threat Hunter:** A pre-compiled regex engine rapidly extracts Indicators of Compromise (IPv4, Domains, SHA256, MITRE ATT&CK IDs) from high-scoring intelligence, enabling 1-click pivoting to VirusTotal and Shodan.
-
-### 4. Multi-Domain Threat Telemetry
-The backend worker concurrently scrapes and normalizes physical and digital infrastructure data.
-
-* **Cyber Intel:** Custom RSS feed aggregation evaluated by a Human-in-the-Loop reinforcement ML model tuned to your organization's threat profile.
-* **Massive Cloud Tracking:** Monitors live status pages for 18+ tier-1 providers (AWS, Azure, GCP, Cloudflare, etc.) and dynamically updates unresolved outages.
-* **Physical & Environmental Grids:** Ingests NOAA/SPC severe weather polygons, county-level power grid outages via ORNL ODIN, global BGP route leaks via RIPE Stat, and ISP degradation via IODA.
+### 4. 🚨 Multi-Domain Threat Telemetry & Crime Intelligence
+The backend worker concurrently scrapes and normalizes physical, digital, and kinetic infrastructure data.
+* **Cyber Intel:** Custom RSS feed aggregation evaluated by a Human-in-the-Loop reinforcement ML model.
+* **Physical & Environmental Grids:** Ingests NOAA/SPC severe weather polygons, county-level power grid outages via ORNL ODIN, global BGP route leaks via RIPE Stat, NIFC active wildfires, and NWS Fire Weather / Red Flag warnings.
+* **Perimeter Kinetic Threats:** Automatically polls local law enforcement endpoints (e.g., LRPD Open Data API), calculates Haversine distances, and alerts on kinetic threats (arson, theft, violence) occurring within a strict 1-mile radius of the NOC/HQ.
 
 ### 5. Enterprise-Grade Security & Maintenance
-* **Role-Based Access Control (RBAC):** Built-in user authentication with bcrypt password hashing, session tokens, and dynamic JSON-based permissions.
-* **Zero-Config Bootstrap:** Self-healing database initialization seeds default admin roles and bypasses complex migrations on edge deployments.
-* **Automated Master Garbage Collector:** A self-cleaning routine that runs hourly to purge 0-score junk, unpinned intelligence older than 30 days, and resolved telemetry. 
+* **Role-Based Access Control (RBAC):** Built-in user authentication with bcrypt password hashing, session tokens, and dynamic JSON-based permissions mapping down to specific UI buttons.
+* **Automated Master Garbage Collector:** A self-cleaning routine that runs hourly to purge 0-score junk, unpinned intelligence older than 30 days, and expired kinetic incident telemetry. 
 
-## ⚙️ System Requirements
+---
+
+## ⚙️ System Requirements & Deployment
 
 This application scales exceptionally well. It is optimized to run on low-power edge-compute hardware via SQLite, while fully capable of saturating enterprise-grade servers connected to PostgreSQL during massive asynchronous data ingestion and parallel ML scoring tasks. 
 
