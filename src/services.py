@@ -729,47 +729,58 @@ def save_alias(alias_id, new_mapped_name):
             db.commit()
 
 def generate_global_sitrep(sys_config_dict):
+    """Generates the Global Correlation SitRep using the Enterprise AIOps Engine."""
+    from src.database import RegionalHazard, CloudOutage, BgpAnomaly, SolarWindsAlert
+    from src.aiops_engine import EnterpriseAIOpsEngine
+    
     with SessionLocal() as db:
-        down_nodes = db.query(SolarWindsAlert).filter(SolarWindsAlert.is_correlated == False, SolarWindsAlert.status == 'Down').all()
+        # FIX 1: Capture ALL active alerts, not just strings matching 'Down'
+        raw_alerts = db.query(SolarWindsAlert).filter(
+            SolarWindsAlert.is_correlated == False, 
+            SolarWindsAlert.status != 'Resolved'
+        ).all()
+        
         active_clouds = db.query(CloudOutage).filter_by(is_resolved=False).all()
         active_weather = db.query(RegionalHazard).all()
-        active_grid = db.query(RegionalOutage).filter_by(is_resolved=False).all()
-        locs_db = db.query(MonitoredLocation).all()
+        active_bgp = db.query(BgpAnomaly).filter_by(is_resolved=False).all()
 
-        report = f"###  Global Situation Report (SitRep)\n\n**Active Node Failures:** {len(down_nodes)} | **Cloud Outages:** {len(active_clouds)} | **Grid/Weather Anomalies:** {len(active_weather) + len(active_grid)}\n\n####  Deterministic Causal Links\n"
-        isolated_nodes = []
+        report = f"### 🌍 Global Situation Report (SitRep)\n\n"
+        report += f"**Active Infrastructure Alerts:** {len(raw_alerts)} | "
+        report += f"**Cloud Outages:** {len(active_clouds)} | "
+        report += f"**Grid/Weather Anomalies:** {len(active_weather)}\n\n"
 
-        for alert in down_nodes:
-            causation_factors = []
-            n_loc = next((l for l in locs_db if l.name == alert.mapped_location), None)
+        if not raw_alerts:
+            report += "✅ **Grid Operational:** No active un-correlated infrastructure alerts detected.\n"
+            return report
 
-            if active_clouds:
-                c_names = [c.provider.lower() for c in active_clouds]
-                if any(c in str(alert.details).lower() or c in (str(alert.raw_payload).lower() if alert.raw_payload else "") for c in c_names):
-                    causation_factors.append("☁️ Upstream Cloud Service Outage")
+        # FIX 2: Route the alerts through our Supreme AI Engine!
+        ai_engine = EnterpriseAIOpsEngine(db)
+        incidents = ai_engine.analyze_and_cluster(raw_alerts)
 
-            if n_loc and n_loc.lat and n_loc.lon:
-                for issue in active_grid:
-                    if issue.lat and issue.lon and ((((n_loc.lon - issue.lon)**2 + (n_loc.lat - issue.lat)**2)**0.5) * 111) <= issue.radius_km:
-                        causation_factors.append(f"⚡ {issue.outage_type} Outage Geometry ({issue.provider})")
-                if n_loc.current_spc_risk not in ["None", "Unknown"]:
-                    causation_factors.append(f"🌪️ Severe Weather Hazard ({n_loc.current_spc_risk})")
+        report += "#### 🧠 Deterministic Causal Clusters\n"
+        
+        for site, data in incidents.items():
+            cause, score, priority, evidence, blast, p0, cascade = ai_engine.calculate_root_cause(
+                site, data, active_weather, active_clouds, active_bgp
+            )
+            
+            icon = "🔴" if score >= 80 else "🟠" if score >= 50 else "🟡"
+            
+            report += f"**{icon} {site} [{priority}]**\n"
+            report += f"- **Impact:** {len(data['alerts'])} nodes offline across {len(data['domains_affected'])} topology layers ({blast}).\n"
+            report += f"- **Patient Zero:** `{p0}` (Cascade Delay: {cascade})\n"
+            report += f"- **Root Cause:** {cause}\n\n"
 
-            if causation_factors: report += f"- **{alert.node_name}** ({alert.mapped_location}) is likely impacted by: " + ", ".join(list(set(causation_factors))) + "\n"
-            else: isolated_nodes.append(f"**{alert.node_name}** ({alert.mapped_location})")
-
-        report += "\n#### 🛠️ Isolated Anomalies (Network Faults)\n"
-        if isolated_nodes:
-            report += "No external factors detected. Treat as localized failures:\n" + "".join([f"- {n}\n" for n in isolated_nodes])
-        else: report += "- None detected. All failures are correlated to external events.\n"
-
+        # AI Summary Generator
         if sys_config_dict and sys_config_dict.get('is_active'):
             from src.llm import call_llm
-            ai_summary = call_llm([{"role": "system", "content": "You are an elite NOC AIOps Engine. Summarize the following deterministic IT SitRep into a technical 2-sentence executive summary."}, {"role": "user", "content": report}], sys_config_dict, temperature=0.1)
-            if ai_summary and "⚠️" not in ai_summary: report = f"### 🤖 AI Executive Summary\n> {ai_summary}\n\n---\n\n" + report
+            sys_prompt = "You are an elite NOC AIOps Engine. Summarize the following deterministic IT SitRep into a technical 2-sentence executive summary. Do not use pleasantries."
+            ai_summary = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": report}], sys_config_dict, temperature=0.1)
+
+            if ai_summary and "⚠️" not in ai_summary:
+                report = f"### 🤖 AI Executive Summary\n> {ai_summary}\n\n---\n\n" + report
 
         return report
-
 def generate_rca_ticket_text(site, data, priority, patient_zero, root_cause):
     pz_obj = data.get('patient_zero')
     trigger_time = pz_obj.received_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ).strftime('%m/%d/%Y %I:%M %p %Z') if pz_obj and pz_obj.received_at else "Unknown Time"
