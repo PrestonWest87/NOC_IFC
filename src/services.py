@@ -681,17 +681,26 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     if pure_cyber_articles:
         cyber_brief += f"Top OSINT concern: '{pure_cyber_articles[0].title}'."
     
-    # --- PHYSICAL SCORE CALCULATION ---
+    critical_crimes = [c for c in recent_crimes if c.get("severity") == "Critical"]
     high_crimes = [c for c in recent_crimes if c.get("severity") == "High"]
+    med_crimes = [c for c in recent_crimes if c.get("severity") == "Medium"]
     
-    if active_warn_count > 3 or len(high_crimes) > 0:
+    # Advanced Weighted Threat Matrix
+    if active_warn_count > 3 or len(critical_crimes) > 0 or len(high_crimes) >= 3:
         physical_score = "High"
-    elif active_warn_count > 0 or len(recent_crimes) > 0:
+    elif active_warn_count > 0 or len(high_crimes) > 0 or len(med_crimes) >= 2:
         physical_score = "Medium"
     else:
         physical_score = "Low"
         
-    physical_brief = f"Tracking {active_warn_count} severe weather hazards (NWS). Perimeter security reports {len(recent_crimes)} total incidents within 1 mile of HQ ({len(high_crimes)} classified as High Risk)."
+    physical_brief = f"Tracking {active_warn_count} severe weather hazards (NWS). Perimeter security reports {len(recent_crimes)} incidents within 1 mile of HQ in the last 48 hours. "
+    
+    if critical_crimes:
+        physical_brief += f"🚨 CRITICAL ALARM: {len(critical_crimes)} extreme threats (Arson/Sabotage) detected near facility."
+    elif high_crimes:
+        physical_brief += f"Elevated Risk: {len(high_crimes)} high-risk incidents (Theft/Violence) detected in the perimeter."
+    elif med_crimes:
+        physical_brief += f"Notable Activity: {len(med_crimes)} perimeter breaches/vandalism incidents logged."
     
     # --- UNIFIED SCORING LOGIC ---
     if "High" in [cyber_score, physical_score]: unified_risk = "HIGH"
