@@ -91,7 +91,9 @@ def fetch_live_crimes():
                         db.add(new_inc)
                         added_count += 1
                         
-                except Exception: continue
+                except Exception as e:
+                    print(f"Skipping entry due to error: {e}")
+                    continue
             
             # Commit the new records
             db.commit()
