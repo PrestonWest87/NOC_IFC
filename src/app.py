@@ -423,7 +423,7 @@ elif page == "📊 Executive Dashboard":
     st.title("📊 Executive Grid Threat Matrix")
     st.caption("Real-time synthesis of Physical, Cyber, and Crime telemetry for Bulk Electric System (BES) infrastructure.")
     
-    # Gather dynamic counts (No mocked data, no NIFC)
+    # Gather dynamic counts 
     active_nws = len(ar_warn.get("features", [])) + len(oos_warn.get("features", [])) if 'ar_warn' in locals() else 0
     active_crimes = len(svc.get_recent_crimes())
     
@@ -474,40 +474,52 @@ elif page == "📊 Executive Dashboard":
             st.warning("Please enter a recipient email address.")
 
     st.divider()
+    
+    # --- LIVE DATA SOURCES EXPANDER ---
     with st.expander("🗄️ Intelligence Sources & Telemetry Feeds", expanded=False):
         st.markdown("""
         **Cyber Intelligence (CTI):**
         * **Live OSINT Pipeline:** Automated scoring and analysis of CISA, NVD, and global InfoSec feeds.
+        """)
         
+        # Unpack and list the actual live articles from the database
+        if intel.get("cyber_articles"):
+            st.markdown("**🔍 Live Articles Driving Cyber Score:**")
+            for a in intel["cyber_articles"]:
+                st.markdown(f"- **[{int(a['score'])}]** [{a['title']}]({a['link']}) *(Source: {a['source']})*")
+        else:
+            st.markdown("*No active high-priority cyber articles in the last 24h.*")
+            
+        st.markdown("""
         **Physical Intelligence:**
         * **NWS:** National Weather Service (Severe Weather Outlooks, Warnings, Watches).
         
         **Crime Intelligence:**
-        * **Law Enforcement Feeds:** 48-Hour rolling window aggregated via SpotCrime RSS API (Centered on 1 Cooperative Way).
+        * **Law Enforcement Feeds:** City of Little Rock Open Data API (Geofenced to 15 miles of HQ).
         """)
 
 # ================= NEW: CRIME INTELLIGENCE =================
 elif page == "🚨 Crime Intelligence":
-    st.title("🚨 Local Crime Telemetry (48 Hours)")
-    st.caption("Law enforcement incident aggregation tuned for HQ physical security threats.")
+    st.title("🚨 Local Crime Telemetry")
+    st.caption("Law enforcement incident aggregation tuned for HQ physical security threats (15-Mile Radius).")
     
     crime_data = svc.get_recent_crimes()
     
     if not crime_data:
-        st.info("No crime incidents logged in the 48-hour window. Ensure `crime_worker.py` is running via the scheduler.")
+        st.info("No crime incidents logged in the rolling window. Ensure `crime_worker.py` is running via the scheduler.")
     else:
         df_crimes = pd.DataFrame(crime_data)
         
         # High contrast mapping centered on 1 Cooperative Way
         st.pydeck_chart(pdk.Deck(
             map_style="mapbox://styles/mapbox/dark-v10",
-            initial_view_state=pdk.ViewState(latitude=34.6836, longitude=-92.3350, zoom=12, pitch=0),
+            initial_view_state=pdk.ViewState(latitude=34.6836, longitude=-92.3350, zoom=11.5, pitch=0),
             layers=[
                 pdk.Layer(
                     "ScatterplotLayer",
                     data=df_crimes,
                     get_position="[lon, lat]",
-                    get_radius=200,
+                    get_radius=250,
                     get_fill_color=[255, 69, 0, 180],
                     pickable=True
                 )
