@@ -299,8 +299,10 @@ def init_db():
     try:
         all_pages = [
             "🌐 Operational Dashboard", 
+            "📊 Executive Dashboard", 
             "📰 Daily Fusion Report",
             "📡 Threat Telemetry", 
+            "🚨 Crime Intelligence",
             "🎯 Threat Hunting & IOCs",
             "⚡ AIOps RCA", 
             "📑 Report Center", 
@@ -311,13 +313,14 @@ def init_db():
         all_actions = [
             "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score", 
             "Action: Trigger AI Functions", "Action: Manually Sync Data",
+            "Action: Dispatch Exec Report",
             "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV", 
             "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Regional Grid",
-            "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash", 
-            "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix", 
-            "Tab: Regional Grid -> Weather Alerts Log", "Tab: Regional Grid -> Manage Locations", 
-            "Tab: Threat Hunting -> Global IOC Matrix", "Tab: Threat Hunting -> Deep Hunt Builder",
-            "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
+            "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Hazard Analytics", 
+            "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", 
+            "Tab: Regional Grid -> Manage Locations", "Tab: Threat Hunting -> Global IOC Matrix", 
+            "Tab: Threat Hunting -> Deep Hunt Builder", "Tab: AIOps RCA -> Active Board", 
+            "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
             "Tab: Report Center -> Report Builder", "Tab: Report Center -> Shared Library",
             "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training", "Tab: Settings -> AI & SMTP", 
             "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
