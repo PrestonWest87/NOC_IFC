@@ -1,63 +1,79 @@
 import os
 import json
-import feedparser
-from datetime import datetime, timedelta, timezone
-from email.utils import parsedate_to_datetime
+import requests
+import math
+from datetime import datetime, timedelta
 
 CRIME_CACHE_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "crime_cache.json")
 
+def calculate_distance(lat1, lon1, lat2, lon2):
+    """Haversine formula to calculate the distance in miles between two coordinates."""
+    R = 3958.8 # Earth radius in miles
+    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+    c = 2 * math.asin(math.sqrt(a))
+    return R * c
+
 def fetch_live_crimes():
-    """Fetches live 48-hour crime data via SpotCrime RSS centered on 1 Cooperative Way, Little Rock, AR."""
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] 🚨 CRIME WORKER: Polling live SpotCrime RSS...")
+    """Fetches live crime data via City of Little Rock Open Data API (Socrata)."""
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] 🚨 CRIME WORKER: Polling LRPD Socrata API...")
     os.makedirs(os.path.dirname(CRIME_CACHE_FILE), exist_ok=True)
     
-    # Coordinates for 1 Cooperative Way, Little Rock, AR
-    lat, lon = "34.6836", "-92.3350"
-    rss_url = f"https://spotcrime.com/crimes.rss?lat={lat}&lon={lon}"
+    # City of Little Rock - Violent & Property Crimes API
+    api_url = "https://data.littlerock.gov/resource/8mii-3cm3.json?$order=incident_date DESC&$limit=150"
     
     try:
-        feed = feedparser.parse(rss_url)
-        now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(hours=48)
+        response = requests.get(api_url, timeout=15)
+        response.raise_for_status()
+        data = response.json()
         
+        # 1 Cooperative Way, Little Rock, AR
+        hq_lat, hq_lon = 34.6836, -92.3350
         crimes = []
         
-        for entry in feed.entries:
+        for entry in data:
             try:
-                # Parse RSS pubDate
-                pub_date = parsedate_to_datetime(entry.published)
-                if pub_date < cutoff:
-                    continue # Skip older than 48 hours
-                    
-                title = entry.title.upper()
+                raw_date = entry.get("incident_date", "")
+                if not raw_date: continue
                 
-                # Categorize based on grid-threat relevance
+                # Socrata date format: "2024-10-16T20:07:00.000"
+                incident_date = datetime.strptime(raw_date.split(".")[0], "%Y-%m-%dT%H:%M:%S")
+                
+                incident_lat = float(entry.get("latitude", hq_lat))
+                incident_lon = float(entry.get("longitude", hq_lon))
+                
+                # Geofence: Only include crimes within 15 miles of HQ
+                if calculate_distance(hq_lat, hq_lon, incident_lat, incident_lon) > 15.0:
+                    continue
+                
+                desc = entry.get("offense_description", "UNKNOWN OFFENSE").upper()
+                weapon = entry.get("weapon_type", "NONE")
+                
+                # BES Grid-Threat Categorization
                 severity = "Low"
-                if any(k in title for k in ["THEFT", "BURGLARY", "ROBBERY"]):
+                if any(k in desc for k in ["THEFT", "BURGLARY", "ROBBERY", "LARCENY"]):
                     category = "Theft / Possible Asset Loss"
                     severity = "High"
-                elif any(k in title for k in ["VANDALISM", "ARREST"]):
+                elif any(k in desc for k in ["VANDALISM", "ARREST", "TRESPASS"]):
                     category = "Perimeter Vandalism / Trespassing"
                     severity = "Medium"
-                elif any(k in title for k in ["SHOOTING", "ASSAULT", "WEAPON"]):
+                elif any(k in desc for k in ["ASSAULT", "BATTERY", "HOMICIDE"]) or "FIREARM" in weapon.upper():
                     category = "Violent Incident near Asset"
                     severity = "High"
                 else:
                     category = "General Incident"
                 
-                # Spotcrime stores lat/lon in the geo:lat / geo:long tags if available, or link
-                lat_str = entry.get('geo_lat', lat)
-                lon_str = entry.get('geo_long', lon)
-                
                 crimes.append({
-                    "id": entry.get('guid', entry.link),
+                    "id": entry.get("incident_number", "UNKNOWN"),
                     "category": category,
-                    "raw_title": entry.title,
-                    "timestamp": pub_date.strftime("%Y-%m-%d %H:%M:%S %Z"),
-                    "lat": float(lat_str),
-                    "lon": float(lon_str),
+                    "raw_title": f"{desc.title()} (Weapon: {weapon.title()})",
+                    "timestamp": incident_date.strftime("%Y-%m-%d %H:%M:%S"),
+                    "lat": incident_lat,
+                    "lon": incident_lon,
                     "severity": severity,
-                    "link": entry.link
+                    "link": "https://data.littlerock.gov/Safe-City/LR-Crime-by-Zip/8mii-3cm3"
                 })
             except Exception as e:
                 continue
@@ -65,7 +81,7 @@ def fetch_live_crimes():
         with open(CRIME_CACHE_FILE, "w") as f:
             json.dump(crimes, f, indent=4)
             
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ CRIME WORKER: {len(crimes)} incidents logged in last 48 hours near HQ.")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ CRIME WORKER: {len(crimes)} incidents logged within 15 miles of HQ.")
     except Exception as e:
         print(f"🚨 CRIME WORKER FAILED: {e}")
 
