@@ -295,7 +295,7 @@ def init_db():
             "CREATE INDEX IF NOT EXISTS ix_extracted_iocs_article_id ON extracted_iocs (article_id);",
             "CREATE TABLE IF NOT EXISTS monitored_locations (id SERIAL PRIMARY KEY, name VARCHAR UNIQUE, lat FLOAT, lon FLOAT, loc_type VARCHAR DEFAULT 'General', priority INTEGER DEFAULT 3, current_spc_risk VARCHAR DEFAULT 'None', last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
             "CREATE TABLE IF NOT EXISTS solarwinds_alerts (id SERIAL PRIMARY KEY, event_type VARCHAR, severity VARCHAR, node_name VARCHAR, ip_address VARCHAR, status VARCHAR, sw_timestamp VARCHAR, details TEXT, node_link VARCHAR, raw_payload JSON, mapped_location VARCHAR, received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_correlated BOOLEAN DEFAULT FALSE, ai_root_cause TEXT);",
-            "CREATE TABLE IF NOT EXISTS node_aliases (id SERIAL PRIMARY KEY, node_pattern VARCHAR UNIQUE, mapped_location_name VARCHAR, confidence_score FLOAT DEFAULT 0.0, is_verified BOOLEAN DEFAULT FALSE);"
+            "CREATE TABLE IF NOT EXISTS node_aliases (id SERIAL PRIMARY KEY, node_pattern VARCHAR UNIQUE, mapped_location_name VARCHAR, confidence_score FLOAT DEFAULT 0.0, is_verified BOOLEAN DEFAULT FALSE);",
             "CREATE TABLE IF NOT EXISTS crime_incidents (id VARCHAR PRIMARY KEY, category VARCHAR, raw_title VARCHAR, timestamp TIMESTAMP, distance_miles FLOAT, severity VARCHAR, lat FLOAT, lon FLOAT);",
             "CREATE INDEX IF NOT EXISTS ix_crime_incidents_timestamp ON crime_incidents (timestamp);"
         ]
