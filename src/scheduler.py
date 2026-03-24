@@ -4,23 +4,24 @@ import feedparser
 import sys
 import asyncio
 import aiohttp
+import threading
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-# Expanded imports to grab all the new models for the Garbage Collector
+# Expanded imports
 from src.database import (
     SessionLocal, Article, FeedSource, RegionalHazard, CloudOutage, 
     ExtractedIOC, engine, init_db, SolarWindsAlert, BgpAnomaly, 
-    CveItem, RegionalOutage
+    CveItem, RegionalOutage, CrimeIncident
 )
 
 from src.cve_worker import fetch_cisa_kev
 from src.infra_worker import fetch_regional_hazards
 from src.cloud_worker import fetch_cloud_outages
 from src.telemetry_worker import run_telemetry_sync
-from src.train_model import train  # <-- IMPORT ML TRAINING FUNCTION
+from src.train_model import train  
 from src.crime_worker import fetch_live_crimes
 
 init_db()
@@ -30,14 +31,19 @@ def log(message, source="SYSTEM"):
     print(f"[{local_time}] [{source.upper()}] {message}")
     sys.stdout.flush()
 
-# --- PRE-LOAD SCORER FOR SINGLE-CORE EFFICIENCY ---
+# --- PRE-LOAD SCORER FOR EFFICIENCY ---
 from src.logic import get_scorer
 log("Pre-loading NLP Scorer into memory...", "SYSTEM")
 _global_scorer = get_scorer()
 
+
+# =====================================================================
+# 1. THE RSS INGESTION ENGINE
+# =====================================================================
+
 async def fetch_single_feed(session, f_name, f_url):
     try:
-        headers = headers = {
+        headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5'
@@ -51,7 +57,7 @@ async def fetch_single_feed(session, f_name, f_url):
         return f_name, None
 
 async def fetch_all_feeds(feed_data):
-    """Network I/O is cheap, so we keep the async fetcher to download everything concurrently."""
+    """Network I/O is cheap, so we download everything concurrently."""
     async with aiohttp.ClientSession() as session:
         tasks = [fetch_single_feed(session, f_name, f_url) for _, f_name, f_url in feed_data]
         return await asyncio.gather(*tasks)
@@ -82,14 +88,13 @@ def parse_and_score_feed(f_name, content, known_links):
         category = categorize_text(full_text)
         
         extracted_iocs = []
-        if score >= 50.0 and category == "Cyber":
+        if score >= 50.0 and category.startswith("Cyber"):
             extracted_iocs = ioc_engine.extract(full_text) 
             
         new_articles_data.append({
             "title": title, "link": link, "summary": summary, "source": f_name,
             "score": float(score), "category": category, "keywords_found": reasons,
-            "is_bubbled": (score >= ALERT_THRESHOLD),
-            "iocs": extracted_iocs
+            "is_bubbled": (score >= ALERT_THRESHOLD), "iocs": extracted_iocs
         })
     return f_name, new_articles_data
 
@@ -108,10 +113,8 @@ def bulk_save_to_db(db_session, arts_data):
             if d.get("iocs"):
                 ioc_objs = [
                     ExtractedIOC(
-                        article_id=art.id, 
-                        indicator_type=ioc["Type"], 
-                        indicator_value=ioc["Indicator"], 
-                        context=ioc["Context"]
+                        article_id=art.id, indicator_type=ioc["Type"], 
+                        indicator_value=ioc["Indicator"], context=ioc["Context"]
                     ) for ioc in d["iocs"]
                 ]
                 db_session.add_all(ioc_objs)
@@ -124,95 +127,86 @@ def bulk_save_to_db(db_session, arts_data):
 def fetch_feeds(source="Scheduled"):
     log("🚀 Starting LOW-CPU feed fetch cycle...", source)
     
-    main_session = SessionLocal()
-    sources = main_session.query(FeedSource).filter(FeedSource.is_active == True).all()
-    feed_data = [(s.id, s.name, s.url) for s in sources]
-    
-    seven_days_ago = datetime.utcnow() - timedelta(days=7)
-    known_links_query = main_session.query(Article.link).filter(Article.published_date >= seven_days_ago).all()
-    known_links = {link[0] for link in known_links_query}
-    
-    if not feed_data:
-        main_session.close(); return
-
-    # Phase 1: Download everything concurrently (Cheap on CPU)
-    results = asyncio.run(fetch_all_feeds(feed_data))
-    total_added = 0
-    
-    # Phase 2: Sequential Processing with Yielding (Hyper-efficient)
-    for f_name, content in results:
-        try:
-            _, extracted_arts = parse_and_score_feed(f_name, content, known_links)
-            if extracted_arts:
-                added = bulk_save_to_db(main_session, extracted_arts)
-                if added > 0: log(f"✅ {f_name}: Saved {added} new articles.", "WORKER")
-                total_added += added
-                
-            # THE MAGIC SAUCE: Yield CPU for 100 milliseconds
-            time.sleep(0.1)
+    with SessionLocal() as main_session:
+        sources = main_session.query(FeedSource).filter(FeedSource.is_active == True).all()
+        if not sources: return
             
-        except Exception as e:
-            log(f"💥 Processing error on {f_name}: {e}", "WORKER")
+        feed_data = [(s.id, s.name, s.url) for s in sources]
+        
+        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        known_links_query = main_session.query(Article.link).filter(Article.published_date >= seven_days_ago).all()
+        known_links = {link[0] for link in known_links_query}
+
+        # Phase 1: Download everything concurrently (Cheap on CPU)
+        results = asyncio.run(fetch_all_feeds(feed_data))
+        total_added = 0
+        
+        # Phase 2: Sequential Processing with Yielding (Hyper-efficient)
+        for f_name, content in results:
+            try:
+                _, extracted_arts = parse_and_score_feed(f_name, content, known_links)
+                if extracted_arts:
+                    added = bulk_save_to_db(main_session, extracted_arts)
+                    if added > 0: log(f"✅ {f_name}: Saved {added} new articles.", "WORKER")
+                    total_added += added
+                    
+                # THE MAGIC SAUCE: Yield CPU for 100 milliseconds
+                time.sleep(0.1)
+                
+            except Exception as e:
+                log(f"💥 Processing error on {f_name}: {e}", "WORKER")
 
     log(f"🏁 Cycle complete. Added {total_added} items.", source)
-    main_session.close()
-        
+
+
+# =====================================================================
+# 2. GARBAGE COLLECTION & MAINTENANCE
+# =====================================================================
+
 def run_database_maintenance():
     log("🧹 Running Master Database Maintenance...", "SYSTEM")
-    session = SessionLocal()
-    try:
-        now = datetime.utcnow()
-        
-        hours_12_ago = now - timedelta(hours=12)
-        hours_24_ago = now - timedelta(hours=24) 
-        hours_48_ago = now - timedelta(hours=48)
-        days_7_ago   = now - timedelta(days=7)
-        days_14_ago  = now - timedelta(days=14)
-        
-        # --- CLEANUP LOGIC ---
-        session.query(Article).filter(Article.score <= 0.0).delete()
-        session.query(Article).filter(Article.published_date < days_14_ago, Article.is_pinned == False).delete()
-        session.query(SolarWindsAlert).filter(SolarWindsAlert.received_at < days_7_ago).delete()
-        session.query(RegionalHazard).filter(RegionalHazard.updated_at < hours_48_ago).delete()
-        session.query(RegionalOutage).filter(RegionalOutage.detected_at < hours_12_ago).delete()
-        session.query(BgpAnomaly).filter(BgpAnomaly.detected_at < hours_12_ago).delete()
-        session.query(CveItem).filter(CveItem.date_added < days_7_ago).delete()
-        session.query(CloudOutage).filter(CloudOutage.updated_at < hours_24_ago).delete()
-        
-        # --- NEW: CRIME INCIDENT PURGE (48H Window) ---
-        session.query(CrimeIncident).filter(CrimeIncident.timestamp < days_7_ago).delete()
-        
-        # Cleanup orphaned IOCs
-        session.execute(text("DELETE FROM extracted_iocs WHERE article_id NOT IN (SELECT id FROM articles);"))
-        
-        session.commit()
-        log("✅ Database tables pruned and committed.", "SYSTEM")
-    except Exception as e:
-        session.rollback()
-        log(f"⚠️ Maintenance Error: {e}", "SYSTEM")
-    finally:
-        session.close()
+    with SessionLocal() as session:
+        try:
+            now = datetime.utcnow()
+            
+            hours_12_ago = now - timedelta(hours=12)
+            hours_24_ago = now - timedelta(hours=24) 
+            hours_48_ago = now - timedelta(hours=48)
+            days_7_ago   = now - timedelta(days=7)
+            days_14_ago  = now - timedelta(days=14)
+            
+            # --- CLEANUP LOGIC ---
+            session.query(Article).filter(Article.score <= 0.0).delete()
+            session.query(Article).filter(Article.published_date < days_14_ago, Article.is_pinned == False).delete()
+            session.query(SolarWindsAlert).filter(SolarWindsAlert.received_at < days_7_ago).delete()
+            session.query(RegionalHazard).filter(RegionalHazard.updated_at < hours_48_ago).delete()
+            session.query(RegionalOutage).filter(RegionalOutage.detected_at < hours_12_ago).delete()
+            session.query(BgpAnomaly).filter(BgpAnomaly.detected_at < hours_12_ago).delete()
+            session.query(CveItem).filter(CveItem.date_added < days_7_ago).delete()
+            session.query(CloudOutage).filter(CloudOutage.updated_at < hours_24_ago).delete()
+            session.query(CrimeIncident).filter(CrimeIncident.timestamp < days_7_ago).delete()
+            
+            # Cleanup orphaned IOCs
+            session.execute(text("DELETE FROM extracted_iocs WHERE article_id NOT IN (SELECT id FROM articles);"))
+            session.commit()
+            
+            log("✅ Database tables pruned and committed.", "SYSTEM")
+        except Exception as e:
+            session.rollback()
+            log(f"⚠️ Maintenance Error: {e}", "SYSTEM")
         
     try:
+        # SQLite Specific Advanced Maintenance
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            # SQLite safe vacuuming
-            if engine.dialect.name == "sqlite":
-                conn.execute(text("PRAGMA optimize;"))
-            else:
-                # Postgres maintenance for high-churn tables
-                conn.execute(text("VACUUM ANALYZE articles;"))
-                conn.execute(text("VACUUM ANALYZE extracted_iocs;"))
-                conn.execute(text("VACUUM ANALYZE crime_incidents;")) # Added for Postgres performance
+            conn.execute(text("PRAGMA optimize;"))
+            conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE);"))
     except Exception: 
         pass
 
-# --- WRAPPER JOBS ---
-def job_cisa(): fetch_cisa_kev()
-def job_regional(): fetch_regional_hazards()
-def job_cloud(): fetch_cloud_outages()
 
-# --- NEW WRAPPER JOB FOR CRIME WORKER ---
-def job_crimes(): fetch_live_crimes()
+# =====================================================================
+# 3. AUTOMATED ML RETRAINING
+# =====================================================================
 
 def job_retrain_ml():
     """Automated Weekly ML Retraining Pipeline"""
@@ -230,35 +224,53 @@ def job_retrain_ml():
         log(f"❌ ML Training Pipeline failed: {e}", "SYSTEM")
 
 
+# =====================================================================
+# 4. THE THREADED MASTER ORCHESTRATOR
+# =====================================================================
+
+def run_threaded(job_func, *args, **kwargs):
+    """
+    Runs scheduled jobs in a separate background thread. 
+    This prevents slow APIs from blocking the master schedule loop.
+    """
+    job_thread = threading.Thread(target=job_func, args=args, kwargs=kwargs)
+    job_thread.daemon = True
+    job_thread.start()
+
 if __name__ == "__main__":
-    import threading
     from src.report_worker import start_report_scheduler
     
+    # 1. Start the Automated Email Reporter
     threading.Thread(target=start_report_scheduler, daemon=True).start()
     
-    # Run the automated retraining every Sunday at 2:00 AM (server time)
-    schedule.every().sunday.at("02:00").do(job_retrain_ml)
+    # 2. Map the Schedules to Threaded Wrappers
+    schedule.every().sunday.at("02:00").do(run_threaded, job_retrain_ml)
+    schedule.every(60).minutes.do(run_threaded, run_database_maintenance)
     
-    schedule.every(60).minutes.do(run_database_maintenance)
+    schedule.every(15).minutes.do(run_threaded, fetch_feeds)
+    schedule.every(30).minutes.do(run_threaded, fetch_live_crimes)
+    schedule.every(6).hours.do(run_threaded, fetch_cisa_kev)
     
-    schedule.every(15).minutes.do(fetch_feeds)
-    schedule.every(5).minutes.do(job_regional)
-    schedule.every(5).minutes.do(job_cloud)
-    schedule.every(5).minutes.do(run_telemetry_sync)
-    schedule.every(6).hours.do(job_cisa)
+    # High-Priority / High-Churn Telemetry
+    schedule.every(5).minutes.do(run_threaded, fetch_regional_hazards)
+    schedule.every(5).minutes.do(run_threaded, fetch_cloud_outages)
+    schedule.every(5).minutes.do(run_threaded, run_telemetry_sync)
     
-    # --- ADD THE CRIME WORKER TO RUN EVERY 30 MINUTES ---
-    schedule.every(30).minutes.do(job_crimes)
+    log("🚀 Master Orchestrator Online. Firing Boot Sequence...", "SYSTEM")
     
-    fetch_feeds(source="Worker Boot")
-    job_cisa()
-    job_regional()
-    job_cloud()
+    # 3. Asynchronous Boot Sequence (Does not block the container from finishing startup)
+    boot_jobs = [
+        fetch_cisa_kev, fetch_regional_hazards, fetch_cloud_outages, 
+        run_telemetry_sync, fetch_live_crimes, fetch_feeds
+    ]
+    for job in boot_jobs:
+        run_threaded(job)
     
-    # --- RUN THE CRIME WORKER IMMEDIATELY ON BOOT ---
-    job_crimes()
-    
-    log("🚀 Master Scheduler Service Started.", "SYSTEM")
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+    # 4. Master Event Loop
+    try:
+        while True:
+            schedule.run_pending()
+            time.sleep(1)
+    except KeyboardInterrupt:
+        log("🛑 Orchestrator shutting down gracefully...", "SYSTEM")
+        sys.exit(0)
