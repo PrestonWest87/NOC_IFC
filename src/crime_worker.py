@@ -1,7 +1,11 @@
 import os
+import sys
 import requests
 import math
 from datetime import datetime, timedelta
+
+# --- PATH FIX: Ensure Python can find the 'src' module ---
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Import your database session and the new model
 from src.database import SessionLocal, CrimeIncident
