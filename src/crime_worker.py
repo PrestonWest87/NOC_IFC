@@ -38,7 +38,7 @@ def fetch_live_crimes():
         data = response.json()
         
         hq_lat, hq_lon = 34.6836, -92.3350
-        forty_eight_hours_ago = datetime.now() - timedelta(hours=48)
+        seven_days_ago = datetime.now() - timedelta(hours=168)
         
         with SessionLocal() as db:
             added_count = 0
@@ -97,7 +97,7 @@ def fetch_live_crimes():
             db.commit()
             
             # Purge any records older than 48 hours to keep the DB perfectly clean
-            db.query(CrimeIncident).filter(CrimeIncident.timestamp < forty_eight_hours_ago).delete()
+            db.query(CrimeIncident).filter(CrimeIncident.timestamp < seven_days_ago).delete()
             db.commit()
             
             print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ CRIME WORKER: {added_count} new incidents saved to DB.")
