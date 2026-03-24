@@ -616,20 +616,25 @@ def save_custom_report(title, author, content):
         db.commit()
 
 def get_executive_grid_intel(active_warn_count, recent_crimes):
-    """Synthesizes LIVE OSINT telemetry and 1-Mile Perimeter Crime into a unified matrix."""
+    """Synthesizes LIVE OSINT telemetry, 1-Mile Perimeter Crime, and DB-native ICS-CERT into a unified matrix."""
     from src.database import Article, SessionLocal
     from datetime import datetime, timedelta
     
     with SessionLocal() as db:
-        # 48-Hour Lookback
         t48 = datetime.utcnow() - timedelta(hours=48)
+        t14 = datetime.utcnow() - timedelta(days=14)
         
-        # 1. CYBER: Fetch and Strictly Sanitize
+        # 1. CYBER: Fetch and Strictly Sanitize General OSINT
         raw_cyber_articles = db.query(Article).filter(
             Article.published_date >= t48, 
             Article.category == 'Cyber', 
             Article.score >= 50
         ).order_by(Article.score.desc()).all()
+        
+        # 2. ICS-CERT: Pull directly from the internal Article database
+        raw_ics_articles = db.query(Article).filter(
+            Article.published_date >= t14
+        ).order_by(Article.published_date.desc()).all()
         
         pure_cyber_articles = []
         geopolitical_noise_words = ["troop", "missile", "election", "ballot", "warfare", "kinetic", "embassy"]
@@ -641,21 +646,42 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
                 
         cyber_list = [{"title": a.title, "link": a.link, "source": a.source, "score": a.score} for a in pure_cyber_articles]
 
+        # Process ICS from DB
+        ics_advisories = []
+        critical_vendors = ["SEL", "SCHWEITZER", "SIEMENS", "SCHNEIDER", "GE ", "ABB", "ROCKWELL", "EMERSON", "HONEYWELL", "OMRON"]
+        
+        for art in raw_ics_articles:
+            source_upper = art.source.upper() if art.source else ""
+            if "ICS" in source_upper or "CISA" in source_upper:
+                is_critical = any(v in art.title.upper() for v in critical_vendors)
+                ics_advisories.append({
+                    "title": art.title,
+                    "link": art.link,
+                    "published": art.published_date.strftime("%Y-%m-%d"),
+                    "is_critical": is_critical
+                })
+
     # --- CYBER SCORE CALCULATION ---
-    if len(pure_cyber_articles) > 5 or any(a.score >= 80 for a in pure_cyber_articles):
+    critical_ics = [a for a in ics_advisories if a['is_critical']]
+    
+    # A critical SCADA vendor advisory immediately spikes the cyber risk to HIGH
+    if len(pure_cyber_articles) > 5 or any(a.score >= 80 for a in pure_cyber_articles) or len(critical_ics) > 0:
         cyber_score = "High"
-    elif len(pure_cyber_articles) > 0:
+    elif len(pure_cyber_articles) > 0 or len(ics_advisories) > 0:
         cyber_score = "Medium"
     else:
         cyber_score = "Low"
         
-    if pure_cyber_articles:
-        top_cyber = pure_cyber_articles[0]
-        cyber_brief = f"Tracking {len(pure_cyber_articles)} verified cyber threats in the last 48h (Geopolitical noise filtered). Top concern: '{top_cyber.title}'."
+    cyber_brief = f"Tracking {len(pure_cyber_articles)} verified OSINT threats (48h). "
+    if ics_advisories:
+        cyber_brief += f"CISA ICS-CERT has issued {len(ics_advisories)} industrial control advisories in the last 14 days ({len(critical_ics)} affecting critical BES vendors). "
     else:
-        cyber_brief = "No critical SCADA or cyber threats detected in the OSINT telemetry over the last 48 hours."
+        cyber_brief += "No recent CISA ICS-CERT advisories for industrial control systems. "
+        
+    if pure_cyber_articles:
+        cyber_brief += f"Top OSINT concern: '{pure_cyber_articles[0].title}'."
     
-    # --- PHYSICAL SCORE CALCULATION (Driven by Crime Severity & Weather) ---
+    # --- PHYSICAL SCORE CALCULATION ---
     high_crimes = [c for c in recent_crimes if c.get("severity") == "High"]
     
     if active_warn_count > 3 or len(high_crimes) > 0:
@@ -680,7 +706,8 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
         "physical_score": physical_score,
         "physical_brief": physical_brief,
         "cyber_articles": cyber_list,
-        "recent_crimes": recent_crimes
+        "recent_crimes": recent_crimes,
+        "ics_advisories": ics_advisories
     }
 # --- OUTLOOK HTML MAILER ---
 def generate_outlook_html_report(intel):
