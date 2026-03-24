@@ -150,14 +150,30 @@ def get_active_wildfires():
         return []
 
 # --- CRIME LOADER ---
-@st.cache_data(ttl=300) 
 def get_recent_crimes():
-    """Loads the 48-hour crime cache."""
-    cache_file = os.path.join(os.path.dirname(__file__), "..", "data", "crime_cache.json")
-    if os.path.exists(cache_file):
-        with open(cache_file, "r") as f:
-            return json.load(f)
-    return []
+    """Queries the database for active 48-hour perimeter incidents."""
+    from src.database import SessionLocal, CrimeIncident
+    from datetime import datetime, timedelta
+    
+    with SessionLocal() as db:
+        # Failsafe: Ensure we only pull the last 48 hours just in case
+        forty_eight_hours_ago = datetime.utcnow() - timedelta(hours=48)
+        
+        crimes = db.query(CrimeIncident).filter(
+            CrimeIncident.timestamp >= forty_eight_hours_ago
+        ).order_by(CrimeIncident.timestamp.desc()).all()
+        
+        # Format it exactly how the UI expects it
+        return [{
+            "id": c.id,
+            "category": c.category,
+            "raw_title": c.raw_title,
+            "timestamp": c.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "distance_miles": c.distance_miles,
+            "severity": c.severity,
+            "lat": c.lat,
+            "lon": c.lon
+        } for c in crimes]
 
 # ==========================================
 # 1. AUTHENTICATION & USER PROFILE
