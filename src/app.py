@@ -199,7 +199,15 @@ elif page == "🌐 Operational Dashboard":
 
 def format_local_time(utc_dt): return utc_dt.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ).strftime('%Y-%m-%d %H:%M:%S') if utc_dt else "Unknown"
 def get_score_badge(score): return f"🔴 **[{int(score)}]**" if score >= 80 else f"🟠 **[{int(score)}]**" if score >= 50 else f"🔵 **[{int(score)}]**"
-def get_cat_icon(cat): return "💻" if cat == "Cyber" else "🌪️" if cat == "Physical/Weather" else "🌍" if cat == "Geopolitics/News" else "📰"
+def get_cat_icon(cat): 
+    icons = {
+        "Cyber: Exploits & Vulns": "🪲", "Cyber: Malware & Threats": "👾",
+        "ICS/OT & SCADA": "🏭", "Cloud & IT Infra": "☁️",
+        "Physical Security": "🚨", "Severe Weather": "🌪️",
+        "Geopolitics & Policy": "🌍", "AI & Emerging Tech": "🤖",
+        "General": "📰"
+    }
+    return icons.get(cat, "📰")
 
 def render_article_feed(feed_articles, key_prefix=""):
     if not feed_articles: st.success("Queue is empty."); return
