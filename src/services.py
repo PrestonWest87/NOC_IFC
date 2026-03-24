@@ -615,26 +615,49 @@ def save_custom_report(title, author, content):
         db.add(SavedReport(title=title, author=author, content=content))
         db.commit()
 
-# --- EXECUTIVE INTELLIGENCE ENGINE ---
-def get_executive_grid_intel(active_fires_count, active_warn_count, crime_count):
-    cyber_score = "Medium"
-    cyber_brief = "Increased scanning activity detected targeting VPN gateways for EMS. ICS-CERT advisories highlight new vulnerabilities in protective relays. OT isolation intact."
+def get_executive_grid_intel(active_warn_count, crime_count):
+    """Synthesizes LIVE OSINT telemetry into a unified Executive Threat Matrix."""
+    from src.database import Article
     
-    if active_fires_count > 10 or active_warn_count > 3 or crime_count > 8:
+    # Fetch live intelligence from your RSS database (Last 24 Hours, Score > 50)
+    with SessionLocal() as db:
+        t24 = datetime.utcnow() - timedelta(days=1)
+        cyber_articles = db.query(Article).filter(Article.published_date >= t24, Article.category == 'Cyber', Article.score >= 50).order_by(Article.score.desc()).all()
+        phys_articles = db.query(Article).filter(Article.published_date >= t24, Article.category == 'Physical/Weather', Article.score >= 50).order_by(Article.score.desc()).all()
+
+    # --- CYBER SCORE (Driven by live RSS) ---
+    if len(cyber_articles) > 5 or any(a.score >= 80 for a in cyber_articles):
+        cyber_score = "High"
+    elif len(cyber_articles) > 0:
+        cyber_score = "Medium"
+    else:
+        cyber_score = "Low"
+        
+    if cyber_articles:
+        top_cyber = cyber_articles[0]
+        cyber_brief = f"Tracking {len(cyber_articles)} high-priority cyber threats identified via OSINT in the last 24h. Top concern: '{top_cyber.title}' (Source: {top_cyber.source})."
+    else:
+        cyber_brief = "No critical cyber threats detected in the OSINT telemetry over the last 24 hours. Enterprise posture remains nominal."
+    
+    # --- PHYSICAL SCORE (Driven by NWS, SpotCrime, and RSS) ---
+    if active_warn_count > 3 or crime_count > 8 or any(a.score >= 80 for a in phys_articles):
         physical_score = "High"
-    elif active_fires_count > 0 or active_warn_count > 0 or crime_count > 3:
+    elif active_warn_count > 0 or crime_count > 3 or len(phys_articles) > 0:
         physical_score = "Medium"
     else:
         physical_score = "Low"
         
-    physical_brief = f"Tracking {active_fires_count} active wildfires (NIFC) and {active_warn_count} severe weather warnings (NWS). Law enforcement feeds (SpotCrime) report {crime_count} incidents in the 48-hour rolling window."
+    physical_brief = f"Tracking {active_warn_count} severe weather hazards (NWS). Law enforcement feeds report {crime_count} incidents near HQ in the 48-hour rolling window."
+    if phys_articles:
+        physical_brief += f" Top geopolitical/physical intel: '{phys_articles[0].title}'."
     
+    # --- UNIFIED SCORING LOGIC ---
     if "High" in [cyber_score, physical_score]: unified_risk = "HIGH"
     elif "Medium" in [cyber_score, physical_score]: unified_risk = "MEDIUM"
     else: unified_risk = "LOW"
     
     return {
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S %Z"),
+        "timestamp": datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z"),
         "unified_risk": unified_risk,
         "cyber_score": cyber_score,
         "cyber_brief": cyber_brief,
