@@ -491,6 +491,121 @@ def update_locations(edited_df):
         db.commit()
     get_cached_locations.clear()
 
+def get_infrastructure_analytics(map_df):
+    """Processes raw map data into aggregated analytics payloads and extracts regional zones."""
+    import pandas as pd
+    
+    payload = {
+        "at_risk_sites": 0,
+        "highest_risk": "None",
+        "risk_distribution": pd.DataFrame(),
+        "type_distribution": pd.DataFrame(),
+        "region_distribution": pd.DataFrame(),
+        "priority_risk_matrix": pd.DataFrame(),
+        "type_risk_matrix": pd.DataFrame(),
+        "region_risk_matrix": pd.DataFrame()
+    }
+    
+    if not map_df.empty:
+        # Standardize Risk Ordering
+        risk_order = ["HIGH", "MDT", "ENH", "SLGT", "MRGL", "TSTM", "None"]
+        map_df['Risk'] = pd.Categorical(map_df['Risk'], categories=risk_order, ordered=True)
+        risk_df = map_df[map_df['Risk'] != 'None']
+        
+        # Dynamic Regional Extractor (Assumes first word of facility name is the region/city)
+        map_df['Region'] = map_df['Name'].apply(lambda x: str(x).split()[0] if len(str(x).split()) > 1 else "HQ / Central")
+        
+        payload["at_risk_sites"] = len(risk_df)
+        payload["highest_risk"] = risk_df['Risk'].sort_values().iloc[0] if not risk_df.empty else "None"
+        
+        # --- PRETTY BAR CHART DISTRIBUTIONS ---
+        if not risk_df.empty:
+            rc = risk_df['Risk'].value_counts().reset_index()
+            rc.columns = ['Risk Level', 'Count']
+            payload["risk_distribution"] = rc.set_index('Risk Level')
+            
+        tc = map_df['Type'].value_counts().reset_index()
+        tc.columns = ['Facility Type', 'Count']
+        payload["type_distribution"] = tc.set_index('Facility Type')
+        
+        reg_c = map_df['Region'].value_counts().reset_index()
+        reg_c.columns = ['Regional Zone', 'Count']
+        payload["region_distribution"] = reg_c.set_index('Regional Zone')
+        
+        # --- DEEP DATA CUTS (MATRICES) ---
+        payload["priority_risk_matrix"] = pd.crosstab(map_df['Priority'], map_df['Risk'])
+        payload["type_risk_matrix"] = pd.crosstab(map_df['Type'], map_df['Risk'])
+        payload["region_risk_matrix"] = pd.crosstab(map_df['Region'], map_df['Risk'])
+        
+    return payload
+
+def generate_hazard_sitrep_html(analytics_df):
+    """Generates a boardroom-ready HTML email containing the filtered hazard data."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    LOCAL_TZ = ZoneInfo("America/Chicago")
+    
+    p1_count = len(analytics_df[analytics_df['Priority'] == 1]['Monitored Site'].unique())
+    rows_html = ""
+    
+    for _, r in analytics_df.sort_values(by=['Priority', 'Monitored Site']).iterrows():
+        if r['Priority'] == 1: p_style = "background-color: #d9534f; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
+        elif r['Priority'] == 2: p_style = "background-color: #f0ad4e; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
+        else: p_style = "background-color: #6c757d; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
+        
+        rows_html += f"""
+        <tr>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; font-weight: bold; color: #333333;">{r['Monitored Site']}</td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; color: #555555;">{r['Facility Type']}</td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; text-align: center;"><span style="{p_style}">P{r['Priority']}</span></td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; color: #d9534f; font-weight: bold;">{r['Hazard']}</td>
+        </tr>"""
+
+    html_body = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+    <body style="margin: 0; padding: 0; background-color: #f4f7f6;">
+    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 850px; margin: 0 auto; background-color: #f4f7f6; padding: 10px;">
+        <div style="background-color: #ffffff; border-radius: 8px; border-top: 6px solid #d9534f; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden;">
+            <div style="padding: 20px; border-bottom: 1px solid #eeeeee; background-color: #fafafa;">
+                <h2 style="margin: 0; color: #333333; font-size: 22px;">SEVERE WEATHER INFRASTRUCTURE IMPACT</h2>
+                <p style="margin: 5px 0 0 0; color: #777777; font-size: 13px;">Automated NOC Intelligence Broadcast | {datetime.now(LOCAL_TZ).strftime('%Y-%m-%d %H:%M %Z')}</p>
+            </div>
+            <div style="padding: 20px;">
+                <h3 style="color: #2c3e50; margin-top: 0; font-size: 18px; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">Executive Overview</h3>
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <div style="display: inline-block; width: 45%; min-width: 200px; padding: 15px; background-color: #f8f9fa; border-radius: 6px; border: 1px solid #e9ecef; margin: 5px; box-sizing: border-box;">
+                        <div style="font-size: 28px; font-weight: bold; color: #333333;">{len(analytics_df['Monitored Site'].unique())}</div>
+                        <div style="font-size: 12px; color: #6c757d; text-transform: uppercase; letter-spacing: 1px;">Total Sites Impacted</div>
+                    </div>
+                    <div style="display: inline-block; width: 45%; min-width: 200px; padding: 15px; background-color: #fff5f5; border-radius: 6px; border: 1px solid #ffe3e3; margin: 5px; box-sizing: border-box;">
+                        <div style="font-size: 28px; font-weight: bold; color: #d9534f;">{p1_count}</div>
+                        <div style="font-size: 12px; color: #d9534f; text-transform: uppercase; letter-spacing: 1px;">Critical (P1) Exposures</div>
+                    </div>
+                </div>
+                <h3 style="color: #2c3e50; margin-top: 20px; font-size: 18px; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">Detailed Impact Matrix</h3>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; min-width: 400px; border-collapse: collapse; margin-top: 10px; font-size: 14px; text-align: left;">
+                        <thead>
+                            <tr style="background-color: #343a40; color: #ffffff;">
+                                <th style="padding: 10px; font-weight: 600;">Monitored Site</th>
+                                <th style="padding: 10px; font-weight: 600;">Type</th>
+                                <th style="padding: 10px; font-weight: 600; text-align: center;">Priority</th>
+                                <th style="padding: 10px; font-weight: 600;">Hazard</th>
+                            </tr>
+                        </thead>
+                        <tbody>{rows_html}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    </body>
+    </html>
+    """
+    return html_body.replace("\n", "")
+
 
 # ==========================================
 # 5. THREAT HUNTING & IOCs
