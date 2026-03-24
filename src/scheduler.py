@@ -21,6 +21,7 @@ from src.infra_worker import fetch_regional_hazards
 from src.cloud_worker import fetch_cloud_outages
 from src.telemetry_worker import run_telemetry_sync
 from src.train_model import train  # <-- IMPORT ML TRAINING FUNCTION
+from src.crime_worker import fetch_live_crimes
 
 init_db()
 
@@ -42,7 +43,7 @@ async def fetch_single_feed(session, f_name, f_url):
             content = await response.text()
             return f_name, content
     except Exception as e:
-        log(f"âš ï¸ Async Fetch Error on {f_name}: {e}", "WORKER")
+        log(f"⚠️ Async Fetch Error on {f_name}: {e}", "WORKER")
         return f_name, None
 
 async def fetch_all_feeds(feed_data):
@@ -117,7 +118,7 @@ def bulk_save_to_db(db_session, arts_data):
     return added
 
 def fetch_feeds(source="Scheduled"):
-    log("ðŸš€ Starting LOW-CPU feed fetch cycle...", source)
+    log("🚀 Starting LOW-CPU feed fetch cycle...", source)
     
     main_session = SessionLocal()
     sources = main_session.query(FeedSource).filter(FeedSource.is_active == True).all()
@@ -140,20 +141,20 @@ def fetch_feeds(source="Scheduled"):
             _, extracted_arts = parse_and_score_feed(f_name, content, known_links)
             if extracted_arts:
                 added = bulk_save_to_db(main_session, extracted_arts)
-                if added > 0: log(f"âœ… {f_name}: Saved {added} new articles.", "WORKER")
+                if added > 0: log(f"✅ {f_name}: Saved {added} new articles.", "WORKER")
                 total_added += added
                 
             # THE MAGIC SAUCE: Yield CPU for 100 milliseconds
             time.sleep(0.1)
             
         except Exception as e:
-            log(f"ðŸ’¥ Processing error on {f_name}: {e}", "WORKER")
+            log(f"💥 Processing error on {f_name}: {e}", "WORKER")
 
-    log(f"ðŸ Cycle complete. Added {total_added} items.", source)
+    log(f"🏁 Cycle complete. Added {total_added} items.", source)
     main_session.close()
         
 def run_database_maintenance():
-    log("ðŸ§¹ Running Master Database Maintenance...", "SYSTEM")
+    log("🧹 Running Master Database Maintenance...", "SYSTEM")
     session = SessionLocal()
     try:
         now = datetime.utcnow()
@@ -176,7 +177,7 @@ def run_database_maintenance():
         session.commit()
     except Exception as e:
         session.rollback()
-        log(f"âš ï¸ Maintenance Error: {e}", "SYSTEM")
+        log(f"⚠️ Maintenance Error: {e}", "SYSTEM")
     finally:
         session.close()
         
@@ -195,20 +196,23 @@ def job_cisa(): fetch_cisa_kev()
 def job_regional(): fetch_regional_hazards()
 def job_cloud(): fetch_cloud_outages()
 
+# --- NEW WRAPPER JOB FOR CRIME WORKER ---
+def job_crimes(): fetch_live_crimes()
+
 def job_retrain_ml():
     """Automated Weekly ML Retraining Pipeline"""
     global _global_scorer
-    log("ðŸ§  Initiating weekly ML Model Retraining...", "SYSTEM")
+    log("🧠 Initiating weekly ML Model Retraining...", "SYSTEM")
     try:
         train()
-        log("âœ… ML Model retrained successfully and saved to disk.", "SYSTEM")
+        log("✅ ML Model retrained successfully and saved to disk.", "SYSTEM")
         
         # Hot-Reload the scorer in memory so the new neural weights take effect immediately
         _global_scorer = get_scorer()
-        log("ðŸ”„ Global NLP Scorer hot-reloaded with fresh model weights.", "SYSTEM")
+        log("🔄 Global NLP Scorer hot-reloaded with fresh model weights.", "SYSTEM")
         
     except Exception as e:
-        log(f"âŒ ML Training Pipeline failed: {e}", "SYSTEM")
+        log(f"❌ ML Training Pipeline failed: {e}", "SYSTEM")
 
 
 if __name__ == "__main__":
@@ -221,18 +225,25 @@ if __name__ == "__main__":
     schedule.every().sunday.at("02:00").do(job_retrain_ml)
     
     schedule.every(60).minutes.do(run_database_maintenance)
+    
     schedule.every(15).minutes.do(fetch_feeds)
     schedule.every(5).minutes.do(job_regional)
     schedule.every(5).minutes.do(job_cloud)
     schedule.every(5).minutes.do(run_telemetry_sync)
     schedule.every(6).hours.do(job_cisa)
     
+    # --- ADD THE CRIME WORKER TO RUN EVERY 30 MINUTES ---
+    schedule.every(30).minutes.do(job_crimes)
+    
     fetch_feeds(source="Worker Boot")
     job_cisa()
     job_regional()
     job_cloud()
     
-    log("ðŸš€ Master Scheduler Service Started.", "SYSTEM")
+    # --- RUN THE CRIME WORKER IMMEDIATELY ON BOOT ---
+    job_crimes()
+    
+    log("🚀 Master Scheduler Service Started.", "SYSTEM")
     while True:
         schedule.run_pending()
         time.sleep(1)
