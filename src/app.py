@@ -423,13 +423,12 @@ elif page == "📊 Executive Dashboard":
     st.title("📊 Executive Grid Threat Matrix")
     st.caption("Real-time synthesis of Physical, Cyber, and Crime telemetry for Bulk Electric System (BES) infrastructure.")
     
-    # 1. Gather dynamic counts rapidly from existing databases/caches
-    active_nifc = len(svc.get_active_wildfires())
-    active_nws = len(svc.get_hazards(hours_back=24)) # Leverage existing infrastructure worker DB
+    # Gather dynamic counts (No mocked data, no NIFC)
+    active_nws = len(ar_warn.get("features", [])) + len(oos_warn.get("features", [])) if 'ar_warn' in locals() else 0
     active_crimes = len(svc.get_recent_crimes())
     
-    # 2. Fetch synthesized intelligence
-    intel = svc.get_executive_grid_intel(active_nifc, active_nws, active_crimes)
+    # Fetch synthesized intelligence using the live RSS DB
+    intel = svc.get_executive_grid_intel(active_nws, active_crimes)
     
     # Unified Risk Scorecard
     risk_color = "red" if intel['unified_risk'] == "HIGH" else "orange" if intel['unified_risk'] == "MEDIUM" else "green"
@@ -478,39 +477,37 @@ elif page == "📊 Executive Dashboard":
     with st.expander("🗄️ Intelligence Sources & Telemetry Feeds", expanded=False):
         st.markdown("""
         **Cyber Intelligence (CTI):**
-        * **CISA ICS-CERT:** Industrial Control Systems Advisories.
-        * **Internal SOC:** Splunk SIEM alerting for lateral movement and perimeter scans.
+        * **Live OSINT Pipeline:** Automated scoring and analysis of CISA, NVD, and global InfoSec feeds.
         
         **Physical Intelligence:**
-        * **NIFC:** National Interagency Fire Center (Active Wildfires).
-        * **NWS:** National Weather Service (Red Flag Warnings, Convective Outlooks).
+        * **NWS:** National Weather Service (Severe Weather Outlooks, Warnings, Watches).
         
         **Crime Intelligence:**
-        * **Law Enforcement Feeds:** 48-Hour rolling window aggregated via SpotCrime RSS API.
+        * **Law Enforcement Feeds:** 48-Hour rolling window aggregated via SpotCrime RSS API (Centered on 1 Cooperative Way).
         """)
 
 # ================= NEW: CRIME INTELLIGENCE =================
 elif page == "🚨 Crime Intelligence":
     st.title("🚨 Local Crime Telemetry (48 Hours)")
-    st.caption("Law enforcement incident aggregation tuned for BES physical security threats.")
+    st.caption("Law enforcement incident aggregation tuned for HQ physical security threats.")
     
     crime_data = svc.get_recent_crimes()
     
     if not crime_data:
-        st.info("No crime incidents logged in the 48-hour window. Ensure `crime_worker.py` has been executed recently.")
+        st.info("No crime incidents logged in the 48-hour window. Ensure `crime_worker.py` is running via the scheduler.")
     else:
         df_crimes = pd.DataFrame(crime_data)
         
-        # High contrast mapping for physical security
+        # High contrast mapping centered on 1 Cooperative Way
         st.pydeck_chart(pdk.Deck(
             map_style="mapbox://styles/mapbox/dark-v10",
-            initial_view_state=pdk.ViewState(latitude=34.7465, longitude=-92.2896, zoom=9, pitch=0),
+            initial_view_state=pdk.ViewState(latitude=34.6836, longitude=-92.3350, zoom=12, pitch=0),
             layers=[
                 pdk.Layer(
                     "ScatterplotLayer",
                     data=df_crimes,
                     get_position="[lon, lat]",
-                    get_radius=300,
+                    get_radius=200,
                     get_fill_color=[255, 69, 0, 180],
                     pickable=True
                 )
@@ -521,7 +518,6 @@ elif page == "🚨 Crime Intelligence":
         st.divider()
         st.subheader("Raw Incident Logs")
         
-        # Rearrange columns for better readability
         display_crimes = df_crimes[["timestamp", "category", "severity", "raw_title", "link"]]
         st.dataframe(
             display_crimes, 
