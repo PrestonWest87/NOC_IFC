@@ -213,7 +213,10 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
         
         # Cyber OSINT
         raw_cyber_articles = db.query(Article).filter(
-            Article.published_date >= t48, Article.category == 'Cyber', Article.score >= 50
+            Article.published_date >= t48, 
+            # Group all technical categories into the Cyber Score
+            Article.category.in_(['Cyber: Exploits & Vulns', 'Cyber: Malware & Threats', 'ICS/OT & SCADA', 'Cloud & IT Infra']), 
+            Article.score >= 50
         ).order_by(Article.score.desc()).all()
         
         # ICS-CERT
@@ -224,7 +227,8 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
         # Physical OSINT
         raw_phys_articles = db.query(Article).filter(
             Article.published_date >= t48,
-            Article.category.in_(['Physical/Weather', 'Geopolitics/News']),
+            # Group all kinetic/real-world categories into the Physical Score
+            Article.category.in_(['Physical Security', 'Severe Weather', 'Geopolitics & Policy']),
             Article.score >= 50
         ).order_by(Article.score.desc()).all()
 
