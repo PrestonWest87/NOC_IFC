@@ -504,7 +504,7 @@ elif page == "🚨 Crime Intelligence":
         df_crimes = pd.DataFrame(crime_data)
         
         st.pydeck_chart(pdk.Deck(
-            map_style="mapbox://styles/mapbox/dark-v10",
+            map_style="dark", # <-- Change this to bypass Mapbox API key requirements
             initial_view_state=pdk.ViewState(latitude=34.6836, longitude=-92.3350, zoom=14, pitch=0),
             layers=[
                 pdk.Layer(
