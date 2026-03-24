@@ -233,6 +233,18 @@ class TimelineEvent(Base):
     event_type = Column(String, index=True) 
     message = Column(String)
 
+class CrimeIncident(Base):
+    __tablename__ = "crime_incidents"
+
+    id = Column(String, primary_key=True, index=True)
+    category = Column(String)
+    raw_title = Column(String)
+    timestamp = Column(DateTime, index=True)
+    distance_miles = Column(Float)
+    severity = Column(String)
+    lat = Column(Float)
+    lon = Column(Float)
+
 
 def init_db():
     # Minor sleep mitigates docker-compose DB container race conditions
@@ -284,6 +296,8 @@ def init_db():
             "CREATE TABLE IF NOT EXISTS monitored_locations (id SERIAL PRIMARY KEY, name VARCHAR UNIQUE, lat FLOAT, lon FLOAT, loc_type VARCHAR DEFAULT 'General', priority INTEGER DEFAULT 3, current_spc_risk VARCHAR DEFAULT 'None', last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
             "CREATE TABLE IF NOT EXISTS solarwinds_alerts (id SERIAL PRIMARY KEY, event_type VARCHAR, severity VARCHAR, node_name VARCHAR, ip_address VARCHAR, status VARCHAR, sw_timestamp VARCHAR, details TEXT, node_link VARCHAR, raw_payload JSON, mapped_location VARCHAR, received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_correlated BOOLEAN DEFAULT FALSE, ai_root_cause TEXT);",
             "CREATE TABLE IF NOT EXISTS node_aliases (id SERIAL PRIMARY KEY, node_pattern VARCHAR UNIQUE, mapped_location_name VARCHAR, confidence_score FLOAT DEFAULT 0.0, is_verified BOOLEAN DEFAULT FALSE);"
+            "CREATE TABLE IF NOT EXISTS crime_incidents (id VARCHAR PRIMARY KEY, category VARCHAR, raw_title VARCHAR, timestamp TIMESTAMP, distance_miles FLOAT, severity VARCHAR, lat FLOAT, lon FLOAT);",
+            "CREATE INDEX IF NOT EXISTS ix_crime_incidents_timestamp ON crime_incidents (timestamp);"
         ]
         
         # Engine.begin() auto-commits and correctly handles transaction boundaries
