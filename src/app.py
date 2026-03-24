@@ -493,9 +493,21 @@ elif page == "📊 Executive Dashboard":
 
 # ================= NEW: CRIME INTELLIGENCE =================
 elif page == "🚨 Crime Intelligence":
-    st.title("🚨 Perimeter Crime Telemetry")
-    st.caption("LRPD incident aggregation strictly geofenced to a 1-Mile radius around 1 Cooperative Way (48-Hour Window).")
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.title("🚨 Perimeter Crime Telemetry")
+        st.caption("LRPD incident aggregation geofenced to 1-Mile radius around HQ.")
     
+    with col2:
+        st.write("") # Padding
+        if st.button("🔄 Force Fetch LRPD", use_container_width=True):
+            with st.spinner("Polling Little Rock Data Gov..."):
+                if svc.force_fetch_crime_data():
+                    st.success("Sync Complete!")
+                    st.rerun() # Refresh the map with new data
+                else:
+                    st.error("Fetch Failed. Check Logs.")
+
     crime_data = svc.get_recent_crimes()
     
     if not crime_data:
