@@ -1,19 +1,13 @@
-import streamlit as st
 import pandas as pd
 import requests
 import bcrypt
 import uuid
 import re
-import urllib3
-import os
 import json
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from sqlalchemy import text
 from shapely.geometry import Point, shape
+import streamlit as st
 
 # Import your DB setup and models
 from src.database import (
@@ -82,98 +76,6 @@ def get_ar_counties_mapping():
         print(f"Error fetching county GeoJSON: {e}")
         return {}
 
-@st.cache_data(ttl=900, max_entries=1)
-def get_active_wildfires():
-    """Fetches live coordinates strictly for Active Wildfires (excluding planned burns, contained fires, and zombie records)."""
-    import re
-    from datetime import datetime, timedelta
-    
-    try:
-        url = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Incident_Locations/FeatureServer/0/query"
-        
-        # 1. GENERATE THE 7-DAY CUT-OFF
-        cutoff_date = (datetime.utcnow() - timedelta(days=7)).strftime('%Y-%m-%d')
-        
-        # 2. API LEVEL FILTER
-        states = "('US-AR', 'US-MO', 'US-TN', 'US-MS', 'US-LA', 'US-TX', 'US-OK')"
-        params = {
-            "where": f"POOState IN {states} AND IncidentTypeCategory = 'WF' AND (PercentContained < 100 OR PercentContained IS NULL) AND FireDiscoveryDateTime >= '{cutoff_date}'", 
-            "outFields": "IncidentName,IncidentSize,PercentContained,POOState,IncidentTypeCategory",
-            "f": "geojson",
-            "returnGeometry": "true"
-        }
-        
-        resp = requests.get(url, params=params, timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            active_fires = []
-            
-            for f in data.get("features", []):
-                props = f.get("properties", {})
-                geom = f.get("geometry", {})
-                
-                if not geom or "coordinates" not in geom: continue
-                
-                inc_type = props.get("IncidentTypeCategory", "")
-                inc_name = str(props.get("IncidentName", "Unnamed Incident")).upper()
-                contained = props.get("PercentContained")
-                
-                # Normalize NULL containment
-                contained_val = 0 if contained is None else contained
-                size = props.get("IncidentSize", 0)
-                
-                # 3. TRIPLE CHECK PYTHON FILTERS
-                if inc_type != "WF": continue
-                if " RX" in inc_name or inc_name.startswith("RX ") or "PRESCRIBED" in inc_name: continue
-                if contained_val >= 100: continue
-                if not size or size <= 0.1: continue
-                    
-                # 4. ZOMBIE NAME KILLER
-                if re.search(r'(201\d|202[0-4]|/\d{2}$)', inc_name): continue
-                
-                state = props.get("POOState", "Unknown").replace("US-", "")
-                
-                active_fires.append({
-                    "name": props.get("IncidentName", "Unnamed Incident"),
-                    "state": state,
-                    "acres": round(size, 2),
-                    "contained": contained_val,
-                    "lon": geom["coordinates"][0],
-                    "lat": geom["coordinates"][1],
-                    "color": [220, 20, 60, 230] # High-visibility Crimson
-                })
-            return active_fires
-        return []
-    except Exception as e:
-        print(f"Federal NIFC API Error: {e}")
-        return []
-
-# --- CRIME LOADER ---
-def get_recent_crimes():
-    """Queries the database for active 168-hour perimeter incidents."""
-    from src.database import SessionLocal, CrimeIncident
-    from datetime import datetime, timedelta
-    
-    with SessionLocal() as db:
-        # Failsafe: Ensure we only pull the last 48 hours just in case
-        forty_eight_hours_ago = datetime.utcnow() - timedelta(hours=168)
-        
-        crimes = db.query(CrimeIncident).filter(
-            CrimeIncident.timestamp >= forty_eight_hours_ago
-        ).order_by(CrimeIncident.timestamp.desc()).all()
-        
-        # Format it exactly how the UI expects it
-        return [{
-            "id": c.id,
-            "category": c.category,
-            "raw_title": c.raw_title,
-            "timestamp": c.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-            "distance_miles": c.distance_miles,
-            "severity": c.severity,
-            "lat": c.lat,
-            "lon": c.lon
-        } for c in crimes]
 
 # ==========================================
 # 1. AUTHENTICATION & USER PROFILE
@@ -272,7 +174,190 @@ def save_ai_bluf(art_id, bluf_text):
 
 
 # ==========================================
-# 3. DAILY FUSION REPORT
+# 3. EXECUTIVE DASHBOARD & CRIME INTELLIGENCE
+# ==========================================
+
+def get_recent_crimes():
+    """Queries the database for active 168-hour perimeter incidents."""
+    from src.database import SessionLocal, CrimeIncident
+    from datetime import datetime, timedelta
+    
+    with SessionLocal() as db:
+        forty_eight_hours_ago = datetime.utcnow() - timedelta(hours=168)
+        crimes = db.query(CrimeIncident).filter(
+            CrimeIncident.timestamp >= forty_eight_hours_ago
+        ).order_by(CrimeIncident.timestamp.desc()).all()
+        
+        return [{
+            "id": c.id, "category": c.category, "raw_title": c.raw_title,
+            "timestamp": c.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "distance_miles": c.distance_miles, "severity": c.severity,
+            "lat": c.lat, "lon": c.lon
+        } for c in crimes]
+
+def force_fetch_crime_data():
+    """Triggers the crime worker logic manually from the UI."""
+    try:
+        from src.crime_worker import fetch_live_crimes
+        fetch_live_crimes()
+        return True
+    except Exception as e:
+        print(f"Manual fetch failed: {e}")
+        return False
+
+def get_executive_grid_intel(active_warn_count, recent_crimes):
+    """Synthesizes LIVE OSINT telemetry, Local Perimeter Crime, and DB-native ICS-CERT into a unified matrix."""
+    with SessionLocal() as db:
+        t48 = datetime.utcnow() - timedelta(hours=48)
+        t14 = datetime.utcnow() - timedelta(days=14)
+        
+        # Cyber OSINT
+        raw_cyber_articles = db.query(Article).filter(
+            Article.published_date >= t48, Article.category == 'Cyber', Article.score >= 50
+        ).order_by(Article.score.desc()).all()
+        
+        # ICS-CERT
+        raw_ics_articles = db.query(Article).filter(
+            Article.published_date >= t14
+        ).order_by(Article.published_date.desc()).all()
+        
+        # Physical OSINT
+        raw_phys_articles = db.query(Article).filter(
+            Article.published_date >= t48,
+            Article.category.in_(['Physical/Weather', 'Geopolitics/News']),
+            Article.score >= 50
+        ).order_by(Article.score.desc()).all()
+
+        # Process Cyber
+        pure_cyber_articles = []
+        geopolitical_noise_words = ["troop", "missile", "election", "ballot", "warfare", "kinetic", "embassy"]
+        for art in raw_cyber_articles:
+            text_check = f"{art.title} {art.summary}".lower()
+            if not any(noise in text_check for noise in geopolitical_noise_words):
+                pure_cyber_articles.append(art)
+        cyber_list = [{"title": a.title, "link": a.link, "source": a.source, "score": a.score} for a in pure_cyber_articles]
+
+        # Process Physical
+        pure_phys_articles = []
+        ar_keywords = ["arkansas", "little rock", "pulaski", "benton", "entergy", "aecc", "cooperative"]
+        threat_keywords = ["terror", "attack", "grid", "substation", "sabotage", "vandalism", "infrastructure", "transformer", "sniper", "shoot", "explosive"]
+        
+        for art in raw_phys_articles:
+            text_check = f"{art.title} {art.summary}".lower()
+            is_ar_related = any(kw in text_check for kw in ar_keywords)
+            has_threat = any(kw in text_check for kw in threat_keywords)
+            has_geo_noise = any(kw in text_check for kw in geopolitical_noise_words)
+            
+            if has_geo_noise and not any(k in text_check for k in ["grid", "substation", "infrastructure"]): continue
+            if is_ar_related and has_threat: pure_phys_articles.append(art)
+                
+        phys_list = [{"title": a.title, "link": a.link, "source": a.source, "score": a.score} for a in pure_phys_articles]
+
+        # Process ICS
+        ics_advisories = []
+        critical_vendors = ["SEL", "SCHWEITZER", "SIEMENS", "SCHNEIDER", "GE ", "ABB", "ROCKWELL", "EMERSON", "HONEYWELL", "OMRON"]
+        for art in raw_ics_articles:
+            source_upper = art.source.upper() if art.source else ""
+            if "ICS" in source_upper or "CISA" in source_upper:
+                is_critical = any(v in art.title.upper() for v in critical_vendors)
+                ics_advisories.append({"title": art.title, "link": art.link, "published": art.published_date.strftime("%Y-%m-%d"), "is_critical": is_critical})
+
+    # Scoring Logic
+    critical_ics = [a for a in ics_advisories if a['is_critical']]
+    if len(pure_cyber_articles) > 5 or any(a.score >= 80 for a in pure_cyber_articles) or len(critical_ics) > 0: cyber_score = "High"
+    elif len(pure_cyber_articles) > 0 or len(ics_advisories) > 0: cyber_score = "Medium"
+    else: cyber_score = "Low"
+        
+    cyber_brief = f"Tracking {len(pure_cyber_articles)} verified OSINT threats (48h). "
+    if ics_advisories: cyber_brief += f"CISA ICS-CERT issued {len(ics_advisories)} industrial advisories in 14 days ({len(critical_ics)} affecting critical BES vendors). "
+    else: cyber_brief += "No recent CISA ICS-CERT advisories. "
+    if pure_cyber_articles: cyber_brief += f"Top OSINT concern: '{pure_cyber_articles[0].title}'."
+    
+    critical_crimes = [c for c in recent_crimes if c.get("severity") == "Critical"]
+    high_crimes = [c for c in recent_crimes if c.get("severity") == "High"]
+    med_crimes = [c for c in recent_crimes if c.get("severity") == "Medium"]
+    
+    if active_warn_count > 3 or len(critical_crimes) > 0 or len(high_crimes) >= 8 or len(pure_phys_articles) >= 1: physical_score = "High"
+    elif active_warn_count > 0 or len(high_crimes) >= 4 or len(med_crimes) >= 10: physical_score = "Medium"
+    else: physical_score = "Low"
+        
+    physical_brief = f"Tracking {active_warn_count} severe weather hazards. Perimeter logs show {len(recent_crimes)} total incidents ({len(high_crimes)} High Risk). "
+    if len(pure_phys_articles) > 0: physical_brief += f"🚨 OSINT detected {len(pure_phys_articles)} local physical/grid threats. "
+    elif len(high_crimes) >= 8: physical_brief += "⚠️ Significant uptick in high-risk perimeter crime. "
+    else: physical_brief += "Routine perimeter activity level. "
+
+    if "High" in [cyber_score, physical_score]: unified_risk = "HIGH"
+    elif "Medium" in [cyber_score, physical_score]: unified_risk = "MEDIUM"
+    else: unified_risk = "LOW"
+    
+    return {
+        "timestamp": datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z"),
+        "unified_risk": unified_risk, "cyber_score": cyber_score, "cyber_brief": cyber_brief,
+        "physical_score": physical_score, "physical_brief": physical_brief,
+        "cyber_articles": cyber_list, "phys_articles": phys_list,
+        "recent_crimes": recent_crimes, "ics_advisories": ics_advisories
+    }
+
+def generate_outlook_html_report(intel):
+    color_map = {"LOW": "#28a745", "MEDIUM": "#ffc107", "HIGH": "#dc3545"}
+    badge_color = color_map.get(intel["unified_risk"].upper(), "#000000")
+    
+    html = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 20px;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; max-width: 600px; margin: 0 auto; border: 1px solid #dddddd; border-radius: 8px;">
+            <tr>
+                <td style="padding: 20px; background-color: #0f172a; border-radius: 8px 8px 0 0; text-align: center;">
+                    <h2 style="color: #ffffff; margin: 0;">BES Threat Intelligence Summary</h2>
+                    <p style="color: #94a3b8; margin: 5px 0 0 0; font-size: 12px;">Generated: {intel['timestamp']}</p>
+                </td>
+            </tr>
+            <tr>
+                <td style="padding: 30px 20px; text-align: center;">
+                    <h3 style="margin: 0; color: #333333; text-transform: uppercase;">Unified Threat Posture</h3>
+                    <div style="margin-top: 15px; padding: 10px 20px; background-color: {badge_color}; color: #ffffff; display: inline-block; font-size: 24px; font-weight: bold; border-radius: 4px;">
+                        {intel['unified_risk']} RISK
+                    </div>
+                </td>
+            </tr>
+            <tr>
+                <td style="padding: 20px;">
+                    <h4 style="color: #0056b3; border-bottom: 2px solid #eeeeee; padding-bottom: 5px;">⚡ Physical & Crime Intelligence</h4>
+                    <p style="color: #444444; line-height: 1.6; font-size: 14px;"><strong>Status: {intel['physical_score']}</strong><br/>{intel['physical_brief']}</p>
+                </td>
+            </tr>
+            <tr>
+                <td style="padding: 20px; padding-top: 0;">
+                    <h4 style="color: #0056b3; border-bottom: 2px solid #eeeeee; padding-bottom: 5px;">🛡️ Cyber & SCADA Intelligence</h4>
+                    <p style="color: #444444; line-height: 1.6; font-size: 14px;"><strong>Status: {intel['cyber_score']}</strong><br/>{intel['cyber_brief']}</p>
+                </td>
+            </tr>
+            <tr>
+                <td style="padding: 20px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; font-size: 11px; color: #666666; text-align: center;">
+                    <strong>Sources:</strong> CISA ICS-CERT, NIFC, NWS, SpotCrime API.<br/>
+                    <em>CONFIDENTIAL: For Executive Leadership Only.</em>
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
+    """
+    return html
+
+def send_executive_report(recipient_email, intel, sys_config):
+    try:
+        html_body = generate_outlook_html_report(intel)
+        from src.mailer import send_alert_email
+        success, msg = send_alert_email(
+            subject=f"Grid Threat Intelligence Update - Posture: {intel['unified_risk']}", 
+            body=html_body, recipient_override=recipient_email, is_html=True
+        )
+        return success, msg
+    except Exception as e: return False, f"Email Dispatch Failed: {e}"
+
+
+# ==========================================
+# 4. DAILY FUSION REPORT
 # ==========================================
 
 def get_all_daily_briefings():
@@ -294,20 +379,36 @@ def save_daily_briefing(target_date, content):
             db.add(DailyBriefing(report_date=target_date, content=content))
         db.commit()
 
-def force_fetch_crime_data():
-    """Triggers the crime worker logic manually from the UI."""
-    try:
-        # We import here to avoid circular imports
-        from src.crime_worker import fetch_live_crimes
-        fetch_live_crimes()
-        return True
-    except Exception as e:
-        print(f"Manual fetch failed: {e}")
-        return False
+def generate_daily_report_email_html(report_date, markdown_content):
+    def native_md_to_html(text):
+        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#2c3e50; margin-bottom:5px;">\1</h3>', text, flags=re.MULTILINE)
+        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#2980b9; margin-bottom:5px; border-bottom:1px solid #eee;">\1</h2>', text, flags=re.MULTILINE)
+        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#2c3e50;">\1</h1>', text, flags=re.MULTILINE)
+        text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
+        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#3498db; text-decoration:none;">\1</a>', text)
+        text = re.sub(r'^\* (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
+        text = re.sub(r'^- (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
+        text = text.replace('\n', '<br>').replace('<br><br><h', '<br><h')
+        return text
+
+    raw_html = native_md_to_html(markdown_content)
+    
+    formatted_html = f"""
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 0 auto; color: #333; line-height: 1.5;">
+        <div style="background-color: #fcfcfc; padding: 20px; border-radius: 6px; border-left: 4px solid #d9534f; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <h2 style="color: #2c3e50; margin-top: 0;">📰 NOC Daily Fusion Report</h2>
+            <p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 20px;"><strong>Date:</strong> {report_date}</p>
+            <div style="font-size: 14px; background-color: #ffffff; padding: 15px; border-radius: 4px; border: 1px solid #eee;">
+                {raw_html}
+            </div>
+        </div>
+    </div>
+    """
+    return formatted_html
 
 
 # ==========================================
-# 4. THREAT TELEMETRY (CISA, Cloud, NWS)
+# 5. THREAT TELEMETRY (CISA, Cloud, NWS, Regional Grid)
 # ==========================================
 
 def get_paginated_articles(feed_type, cat_filter, page, page_size, search_term=None, min_score=0):
@@ -345,6 +446,42 @@ def get_cloud_outages(active_only=True, limit=None):
         if limit: q = q.limit(limit)
         return to_dotdict_list(q.all())
 
+@st.cache_data(ttl=900, max_entries=1)
+def get_active_wildfires():
+    try:
+        url = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Incident_Locations/FeatureServer/0/query"
+        cutoff_date = (datetime.utcnow() - timedelta(days=7)).strftime('%Y-%m-%d')
+        states = "('US-AR', 'US-MO', 'US-TN', 'US-MS', 'US-LA', 'US-TX', 'US-OK')"
+        params = {
+            "where": f"POOState IN {states} AND IncidentTypeCategory = 'WF' AND (PercentContained < 100 OR PercentContained IS NULL) AND FireDiscoveryDateTime >= '{cutoff_date}'", 
+            "outFields": "IncidentName,IncidentSize,PercentContained,POOState,IncidentTypeCategory", "f": "geojson", "returnGeometry": "true"
+        }
+        resp = requests.get(url, params=params, timeout=10)
+        
+        if resp.status_code == 200:
+            active_fires = []
+            for f in resp.json().get("features", []):
+                props, geom = f.get("properties", {}), f.get("geometry", {})
+                if not geom or "coordinates" not in geom: continue
+                
+                inc_name = str(props.get("IncidentName", "Unnamed")).upper()
+                contained_val = 0 if props.get("PercentContained") is None else props.get("PercentContained")
+                size = props.get("IncidentSize", 0)
+                
+                if props.get("IncidentTypeCategory", "") != "WF": continue
+                if " RX" in inc_name or inc_name.startswith("RX ") or "PRESCRIBED" in inc_name: continue
+                if contained_val >= 100 or not size or size <= 0.1: continue
+                if re.search(r'(201\d|202[0-4]|/\d{2}$)', inc_name): continue
+                
+                active_fires.append({
+                    "name": props.get("IncidentName", "Unnamed"), "state": props.get("POOState", "Unknown").replace("US-", ""),
+                    "acres": round(size, 2), "contained": contained_val, "lon": geom["coordinates"][0], "lat": geom["coordinates"][1],
+                    "color": [220, 20, 60, 230]
+                })
+            return active_fires
+        return []
+    except: return []
+
 def get_hazards(limit=15, hours_back=None):
     with SessionLocal() as db:
         q = db.query(RegionalHazard)
@@ -352,7 +489,6 @@ def get_hazards(limit=15, hours_back=None):
         return to_dotdict_list(q.order_by(RegionalHazard.updated_at.desc()).limit(limit).all())
 
 def process_nws_alerts(data, selected_events, is_oos=False):
-    """Parses raw NWS GeoJSON using RAM-efficient Micro-Features and OOS guardrails."""
     map_diagnostics = []
     warn_geo = {"type": "FeatureCollection", "features": []}
     watch_geo = {"type": "FeatureCollection", "features": []}
@@ -362,41 +498,26 @@ def process_nws_alerts(data, selected_events, is_oos=False):
         map_diagnostics.append(f"⚠️ {'OOS' if is_oos else 'AR'} data empty or missing 'features'.")
         return warn_geo, watch_geo, zonewide_alerts, map_diagnostics
 
-    map_diagnostics.append(f"ℹ️ Processing {len(data['features'])} raw NWS features for {'OOS' if is_oos else 'AR'}.")
     ar_counties_geom = get_ar_counties_mapping()
 
     for idx, f_raw in enumerate(data.get("features", [])):
-        geom = f_raw.get("geometry")
-        event_type = f_raw.get("properties", {}).get("event", "Unknown")
-        headline = f_raw.get("properties", {}).get("headline", "No details provided.")
-        area_desc = f_raw.get("properties", {}).get("areaDesc", "Unknown Area")
+        geom, props = f_raw.get("geometry"), f_raw.get("properties", {})
+        event_type, headline, area_desc = props.get("event", "Unknown"), props.get("headline", ""), props.get("areaDesc", "Unknown Area")
 
         if event_type not in selected_events: continue
         prefix = "[OOS]" if is_oos else "[AR]"
-
         geometries_to_process = []
 
-        if geom:
-            geometries_to_process.append(geom)
+        if geom: geometries_to_process.append(geom)
         else:
             if is_oos:
-                map_diagnostics.append(f"  ⚠️ Feature {idx} ({event_type}) [OOS] has no polygon. Safely routed to Area-Wide alerts to prevent cross-state ghosting.")
                 zonewide_alerts.append({"Event": f"{prefix} {event_type}", "Affected Area": area_desc, "Details": headline})
                 continue
 
             found_counties = []
-            potential_counties = [c.strip().lower() for c in re.split(r'[;,]', area_desc)]
-
-            for c_name in potential_counties:
-                c_name = c_name.replace(" county", "").replace(" parish", "").strip()
-                if c_name in ar_counties_geom:
-                    geometries_to_process.append(ar_counties_geom[c_name])
-                    found_counties.append(c_name.title())
-
-            if geometries_to_process:
-                map_diagnostics.append(f"  ✅ Recovered missing polygon for Feature {idx} by mapping {len(found_counties)} AR counties.")
-            else:
-                map_diagnostics.append(f"  ⚠️ Feature {idx} ({event_type}) has no polygon and no AR counties matched. Routed to Area-Wide alerts.")
+            for c_name in [c.strip().lower().replace(" county", "").replace(" parish", "").strip() for c in re.split(r'[;,]', area_desc)]:
+                if c_name in ar_counties_geom: geometries_to_process.append(ar_counties_geom[c_name])
+            if not geometries_to_process:
                 zonewide_alerts.append({"Event": f"{prefix} {event_type}", "Affected Area": area_desc, "Details": headline})
                 continue
 
@@ -406,15 +527,7 @@ def process_nws_alerts(data, selected_events, is_oos=False):
                 is_severe = "Warning" in event_type or "Emergency" in event_type
                 severity = "Warning" if is_severe else "Watch/Advisory"
 
-                micro_feature = {
-                    "type": "Feature",
-                    "geometry": g,
-                    "properties": {
-                        "info": f"{prefix} {event_type}",
-                        "severity": severity,
-                        "shapely_obj": poly_shape
-                    }
-                }
+                micro_feature = {"type": "Feature", "geometry": g, "properties": {"info": f"{prefix} {event_type}", "severity": severity, "shapely_obj": poly_shape}}
 
                 if is_severe:
                     micro_feature['properties']['fill_color'] = [139, 0, 0, 60] if is_oos else [255, 0, 0, 60]
@@ -424,191 +537,125 @@ def process_nws_alerts(data, selected_events, is_oos=False):
                     micro_feature['properties']['fill_color'] = [204, 119, 34, 60] if is_oos else [255, 165, 0, 60]
                     micro_feature['properties']['line_color'] = [204, 119, 34, 255] if is_oos else [255, 165, 0, 255]
                     watch_geo["features"].append(micro_feature)
-
-            except Exception as e:
-                map_diagnostics.append(f"  ❌ Shapely Error on Feature {idx} ({event_type}): {e}")
-                continue
-
-    map_diagnostics.append(f"✅ Generated {len(warn_geo['features'])} Warns, {len(watch_geo['features'])} Watches, {len(zonewide_alerts)} Area-Wide.")
+            except Exception as e: continue
     return warn_geo, watch_geo, zonewide_alerts, map_diagnostics
 
+def get_weather_alerts_log(ar_data, oos_data, selected_events):
+    all_alert_details = []
+    for geo_ds, is_oos in [(ar_data, False), (oos_data, True)]:
+        if geo_ds and "features" in geo_ds:
+            for f in geo_ds["features"]:
+                props = f.get("properties", {})
+                event = props.get("event", "Unknown")
+                if event not in selected_events: continue
+                
+                prefix = "[OOS]" if is_oos else "[AR]"
+                all_alert_details.append({
+                    "Event": f"{prefix} {event}", "Severity": props.get("severity", "Unknown"), "Certainty": props.get("certainty", "Unknown"),
+                    "Headline": props.get("headline", "No headline available."), "Affected Area": props.get("areaDesc", "Unknown Area"),
+                    "Effective": props.get("effective", "N/A"), "Expires": props.get("expires", "N/A"),
+                    "Description": props.get("description", "No detailed description provided by NWS."),
+                    "Instructions": props.get("instruction", "No explicit instructions provided.")
+                })
+    return all_alert_details
+
 def calculate_site_intersections(map_df, active_polygons):
-    toggled_affected_sites = []
-    master_affected_sites = []
+    toggled_affected_sites, master_affected_sites = [], []
+    if map_df.empty or not active_polygons: return toggled_affected_sites, master_affected_sites
 
-    if map_df.empty or not active_polygons:
-        return toggled_affected_sites, master_affected_sites
-
-    for index, row in map_df.iterrows():
+    for _, row in map_df.iterrows():
         if pd.notna(row['Lat']) and pd.notna(row['Lon']):
             site_pt = Point(row['Lon'], row['Lat'])
-
             act_toggled = []
             for p in active_polygons:
                 if site_pt.within(p["shape"]):
                     act_toggled.append(p["event"])
-                    master_affected_sites.append({
-                        "Monitored Site": row['Name'], "Facility Type": row['Type'],
-                        "Priority": row['Priority'], "Hazard": p["event"], "Severity": p["severity"]
-                    })
-
-            if act_toggled:
-                toggled_affected_sites.append({
-                    "Monitored Site": row['Name'], "Facility Type": row['Type'],
-                    "Priority": row['Priority'], "Intersecting Hazards": ", ".join(list(set(act_toggled)))
-                })
-
+                    master_affected_sites.append({"Monitored Site": row['Name'], "Facility Type": row['Type'], "Priority": row['Priority'], "Hazard": p["event"], "Severity": p["severity"]})
+            if act_toggled: toggled_affected_sites.append({"Monitored Site": row['Name'], "Facility Type": row['Type'], "Priority": row['Priority'], "Intersecting Hazards": ", ".join(list(set(act_toggled)))})
     return toggled_affected_sites, master_affected_sites
+
+def get_infrastructure_analytics(map_df):
+    payload = {"at_risk_sites": 0, "highest_risk": "None", "risk_distribution": pd.DataFrame(), "type_distribution": pd.DataFrame(), "region_distribution": pd.DataFrame(), "priority_risk_matrix": pd.DataFrame(), "type_risk_matrix": pd.DataFrame(), "region_risk_matrix": pd.DataFrame()}
+    if not map_df.empty:
+        risk_order = ["HIGH", "MDT", "ENH", "SLGT", "MRGL", "TSTM", "None"]
+        map_df['Risk'] = pd.Categorical(map_df['Risk'], categories=risk_order, ordered=True)
+        risk_df = map_df[map_df['Risk'] != 'None']
+        map_df['Region'] = map_df['Name'].apply(lambda x: str(x).split()[0] if len(str(x).split()) > 1 else "HQ / Central")
+        
+        payload["at_risk_sites"] = len(risk_df)
+        payload["highest_risk"] = risk_df['Risk'].sort_values().iloc[0] if not risk_df.empty else "None"
+        
+        if not risk_df.empty: payload["risk_distribution"] = risk_df['Risk'].value_counts().reset_index().rename(columns={'Risk': 'Risk Level', 'count': 'Count'}).set_index('Risk Level')
+        payload["type_distribution"] = map_df['Type'].value_counts().reset_index().rename(columns={'Type': 'Facility Type', 'count': 'Count'}).set_index('Facility Type')
+        payload["region_distribution"] = map_df['Region'].value_counts().reset_index().rename(columns={'Region': 'Regional Zone', 'count': 'Count'}).set_index('Regional Zone')
+        
+        payload["priority_risk_matrix"] = pd.crosstab(map_df['Priority'], map_df['Risk'])
+        payload["type_risk_matrix"] = pd.crosstab(map_df['Type'], map_df['Risk'])
+        payload["region_risk_matrix"] = pd.crosstab(map_df['Region'], map_df['Risk'])
+    return payload
+
+def generate_hazard_sitrep_html(analytics_df):
+    p1_count = len(analytics_df[analytics_df['Priority'] == 1]['Monitored Site'].unique())
+    rows_html = ""
+    for _, r in analytics_df.sort_values(by=['Priority', 'Monitored Site']).iterrows():
+        p_style = "background-color: #d9534f; color: white;" if r['Priority'] == 1 else "background-color: #f0ad4e; color: white;" if r['Priority'] == 2 else "background-color: #6c757d; color: white;"
+        rows_html += f"<tr><td style='padding: 12px; border-bottom: 1px solid #e0e0e0;'>{r['Monitored Site']}</td><td style='padding: 12px; border-bottom: 1px solid #e0e0e0;'>{r['Facility Type']}</td><td style='padding: 12px; border-bottom: 1px solid #e0e0e0; text-align: center;'><span style='{p_style} padding: 4px 8px; border-radius: 4px; font-weight: bold;'>P{r['Priority']}</span></td><td style='padding: 12px; border-bottom: 1px solid #e0e0e0; color: #d9534f; font-weight: bold;'>{r['Hazard']}</td></tr>"
+
+    return f"""
+    <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+    <body style="margin: 0; padding: 0; background-color: #f4f7f6;">
+    <div style="font-family: Arial, sans-serif; max-width: 850px; margin: 0 auto; background-color: #f4f7f6; padding: 10px;">
+        <div style="background-color: #ffffff; border-radius: 8px; border-top: 6px solid #d9534f; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <div style="padding: 20px; border-bottom: 1px solid #eeeeee; background-color: #fafafa;">
+                <h2 style="margin: 0; color: #333333; font-size: 22px;">SEVERE WEATHER INFRASTRUCTURE IMPACT</h2>
+                <p style="margin: 5px 0 0 0; color: #777777; font-size: 13px;">Automated NOC Broadcast | {datetime.now(LOCAL_TZ).strftime('%Y-%m-%d %H:%M %Z')}</p>
+            </div>
+            <div style="padding: 20px;">
+                <h3 style="color: #2c3e50; font-size: 18px; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">Executive Overview</h3>
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <div style="display: inline-block; width: 45%; min-width: 200px; padding: 15px; background-color: #f8f9fa; border-radius: 6px; border: 1px solid #e9ecef; margin: 5px;">
+                        <div style="font-size: 28px; font-weight: bold; color: #333333;">{len(analytics_df['Monitored Site'].unique())}</div>
+                        <div style="font-size: 12px; color: #6c757d;">Total Sites Impacted</div>
+                    </div>
+                    <div style="display: inline-block; width: 45%; min-width: 200px; padding: 15px; background-color: #fff5f5; border-radius: 6px; border: 1px solid #ffe3e3; margin: 5px;">
+                        <div style="font-size: 28px; font-weight: bold; color: #d9534f;">{p1_count}</div>
+                        <div style="font-size: 12px; color: #d9534f;">Critical (P1) Exposures</div>
+                    </div>
+                </div>
+                <h3 style="color: #2c3e50; font-size: 18px; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">Detailed Impact Matrix</h3>
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px; text-align: left;">
+                    <thead><tr style="background-color: #343a40; color: #ffffff;"><th style="padding: 10px;">Monitored Site</th><th style="padding: 10px;">Type</th><th style="padding: 10px; text-align: center;">Priority</th><th style="padding: 10px;">Hazard</th></tr></thead>
+                    <tbody>{rows_html}</tbody>
+                </table>
+            </div>
+        </div>
+    </div></body></html>""".replace("\n", "")
 
 def import_locations(data):
     with SessionLocal() as db:
         added = 0
         existing_names = {l[0] for l in db.query(MonitoredLocation.name).all()}
         for item in data:
-            name = item.get("name")
-            lat, lon = item.get("lat"), item.get("lon")
+            name, lat, lon = item.get("name"), item.get("lat"), item.get("lon")
             if name and lat is not None and lon is not None and name not in existing_names:
-                db.add(MonitoredLocation(
-                    name=name, lat=float(lat), lon=float(lon),
-                    loc_type=item.get("type", "General"), priority=int(item.get("priority", 3))
-                ))
-                existing_names.add(name)
-                added += 1
+                db.add(MonitoredLocation(name=name, lat=float(lat), lon=float(lon), loc_type=item.get("type", "General"), priority=int(item.get("priority", 3))))
+                existing_names.add(name); added += 1
         db.commit()
     get_cached_locations.clear()
     return added
 
 def update_locations(edited_df):
     with SessionLocal() as db:
-        for index, row in edited_df.iterrows():
+        for _, row in edited_df.iterrows():
             db_loc = db.query(MonitoredLocation).filter_by(id=row['id']).first()
             if db_loc:
-                db_loc.name = row['Name']
-                db_loc.loc_type = row['Type']
-                db_loc.priority = row['Priority']
-                db_loc.lat = row['Lat']
-                db_loc.lon = row['Lon']
+                db_loc.name, db_loc.loc_type, db_loc.priority, db_loc.lat, db_loc.lon = row['Name'], row['Type'], row['Priority'], row['Lat'], row['Lon']
         db.commit()
     get_cached_locations.clear()
 
-def get_infrastructure_analytics(map_df):
-    """Processes raw map data into aggregated analytics payloads and extracts regional zones."""
-    import pandas as pd
-    
-    payload = {
-        "at_risk_sites": 0,
-        "highest_risk": "None",
-        "risk_distribution": pd.DataFrame(),
-        "type_distribution": pd.DataFrame(),
-        "region_distribution": pd.DataFrame(),
-        "priority_risk_matrix": pd.DataFrame(),
-        "type_risk_matrix": pd.DataFrame(),
-        "region_risk_matrix": pd.DataFrame()
-    }
-    
-    if not map_df.empty:
-        # Standardize Risk Ordering
-        risk_order = ["HIGH", "MDT", "ENH", "SLGT", "MRGL", "TSTM", "None"]
-        map_df['Risk'] = pd.Categorical(map_df['Risk'], categories=risk_order, ordered=True)
-        risk_df = map_df[map_df['Risk'] != 'None']
-        
-        # Dynamic Regional Extractor (Assumes first word of facility name is the region/city)
-        map_df['Region'] = map_df['Name'].apply(lambda x: str(x).split()[0] if len(str(x).split()) > 1 else "HQ / Central")
-        
-        payload["at_risk_sites"] = len(risk_df)
-        payload["highest_risk"] = risk_df['Risk'].sort_values().iloc[0] if not risk_df.empty else "None"
-        
-        # --- PRETTY BAR CHART DISTRIBUTIONS ---
-        if not risk_df.empty:
-            rc = risk_df['Risk'].value_counts().reset_index()
-            rc.columns = ['Risk Level', 'Count']
-            payload["risk_distribution"] = rc.set_index('Risk Level')
-            
-        tc = map_df['Type'].value_counts().reset_index()
-        tc.columns = ['Facility Type', 'Count']
-        payload["type_distribution"] = tc.set_index('Facility Type')
-        
-        reg_c = map_df['Region'].value_counts().reset_index()
-        reg_c.columns = ['Regional Zone', 'Count']
-        payload["region_distribution"] = reg_c.set_index('Regional Zone')
-        
-        # --- DEEP DATA CUTS (MATRICES) ---
-        payload["priority_risk_matrix"] = pd.crosstab(map_df['Priority'], map_df['Risk'])
-        payload["type_risk_matrix"] = pd.crosstab(map_df['Type'], map_df['Risk'])
-        payload["region_risk_matrix"] = pd.crosstab(map_df['Region'], map_df['Risk'])
-        
-    return payload
-
-def generate_hazard_sitrep_html(analytics_df):
-    """Generates a boardroom-ready HTML email containing the filtered hazard data."""
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    LOCAL_TZ = ZoneInfo("America/Chicago")
-    
-    p1_count = len(analytics_df[analytics_df['Priority'] == 1]['Monitored Site'].unique())
-    rows_html = ""
-    
-    for _, r in analytics_df.sort_values(by=['Priority', 'Monitored Site']).iterrows():
-        if r['Priority'] == 1: p_style = "background-color: #d9534f; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
-        elif r['Priority'] == 2: p_style = "background-color: #f0ad4e; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
-        else: p_style = "background-color: #6c757d; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
-        
-        rows_html += f"""
-        <tr>
-            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; font-weight: bold; color: #333333;">{r['Monitored Site']}</td>
-            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; color: #555555;">{r['Facility Type']}</td>
-            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; text-align: center;"><span style="{p_style}">P{r['Priority']}</span></td>
-            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; color: #d9534f; font-weight: bold;">{r['Hazard']}</td>
-        </tr>"""
-
-    html_body = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-    <body style="margin: 0; padding: 0; background-color: #f4f7f6;">
-    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 850px; margin: 0 auto; background-color: #f4f7f6; padding: 10px;">
-        <div style="background-color: #ffffff; border-radius: 8px; border-top: 6px solid #d9534f; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden;">
-            <div style="padding: 20px; border-bottom: 1px solid #eeeeee; background-color: #fafafa;">
-                <h2 style="margin: 0; color: #333333; font-size: 22px;">SEVERE WEATHER INFRASTRUCTURE IMPACT</h2>
-                <p style="margin: 5px 0 0 0; color: #777777; font-size: 13px;">Automated NOC Intelligence Broadcast | {datetime.now(LOCAL_TZ).strftime('%Y-%m-%d %H:%M %Z')}</p>
-            </div>
-            <div style="padding: 20px;">
-                <h3 style="color: #2c3e50; margin-top: 0; font-size: 18px; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">Executive Overview</h3>
-                <div style="text-align: center; margin-bottom: 20px;">
-                    <div style="display: inline-block; width: 45%; min-width: 200px; padding: 15px; background-color: #f8f9fa; border-radius: 6px; border: 1px solid #e9ecef; margin: 5px; box-sizing: border-box;">
-                        <div style="font-size: 28px; font-weight: bold; color: #333333;">{len(analytics_df['Monitored Site'].unique())}</div>
-                        <div style="font-size: 12px; color: #6c757d; text-transform: uppercase; letter-spacing: 1px;">Total Sites Impacted</div>
-                    </div>
-                    <div style="display: inline-block; width: 45%; min-width: 200px; padding: 15px; background-color: #fff5f5; border-radius: 6px; border: 1px solid #ffe3e3; margin: 5px; box-sizing: border-box;">
-                        <div style="font-size: 28px; font-weight: bold; color: #d9534f;">{p1_count}</div>
-                        <div style="font-size: 12px; color: #d9534f; text-transform: uppercase; letter-spacing: 1px;">Critical (P1) Exposures</div>
-                    </div>
-                </div>
-                <h3 style="color: #2c3e50; margin-top: 20px; font-size: 18px; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">Detailed Impact Matrix</h3>
-                <div style="overflow-x: auto;">
-                    <table style="width: 100%; min-width: 400px; border-collapse: collapse; margin-top: 10px; font-size: 14px; text-align: left;">
-                        <thead>
-                            <tr style="background-color: #343a40; color: #ffffff;">
-                                <th style="padding: 10px; font-weight: 600;">Monitored Site</th>
-                                <th style="padding: 10px; font-weight: 600;">Type</th>
-                                <th style="padding: 10px; font-weight: 600; text-align: center;">Priority</th>
-                                <th style="padding: 10px; font-weight: 600;">Hazard</th>
-                            </tr>
-                        </thead>
-                        <tbody>{rows_html}</tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-    </body>
-    </html>
-    """
-    return html_body.replace("\n", "")
-
 
 # ==========================================
-# 5. THREAT HUNTING & IOCs
+# 6. THREAT HUNTING & IOCs
 # ==========================================
 
 def get_iocs(days_back=3):
@@ -629,15 +676,20 @@ def get_iocs(days_back=3):
 def search_articles_for_hunting(target, days_back):
     with SessionLocal() as db:
         cutoff = datetime.utcnow() - timedelta(days=days_back)
-        arts = db.query(Article).filter(
-            Article.published_date >= cutoff,
-            (Article.title.ilike(f"%{target}%") | Article.summary.ilike(f"%{target}%"))
-        ).limit(30).all()
+        arts = db.query(Article).filter(Article.published_date >= cutoff, (Article.title.ilike(f"%{target}%") | Article.summary.ilike(f"%{target}%"))).limit(30).all()
         return to_dotdict_list(arts)
+
+def get_osint_pivot_link(ioc_type, value):
+    if ioc_type in ["SHA256", "MD5", "SHA1"]: return f"https://www.virustotal.com/gui/file/{value}"
+    elif ioc_type == "IPv4": return f"https://www.shodan.io/host/{value}"
+    elif ioc_type == "Domain": return f"https://www.virustotal.com/gui/domain/{value}"
+    elif ioc_type == "CVE": return f"https://nvd.nist.gov/vuln/detail/{value}"
+    elif ioc_type == "MITRE ATT&CK": return f"https://attack.mitre.org/techniques/{value.replace('.', '/')}"
+    return None
 
 
 # ==========================================
-# 6. AIOps RCA (Root Cause Analysis)
+# 7. AIOps RCA (Root Cause Analysis)
 # ==========================================
 
 def get_aiops_dashboard_data():
@@ -673,9 +725,7 @@ def save_alias(alias_id, new_mapped_name):
     with SessionLocal() as db:
         a = db.query(NodeAlias).filter_by(id=alias_id).first()
         if a:
-            a.mapped_location_name = new_mapped_name
-            a.is_verified = True
-            a.confidence_score = 100.0
+            a.mapped_location_name, a.is_verified, a.confidence_score = new_mapped_name, True, 100.0
             db.commit()
 
 def generate_global_sitrep(sys_config_dict):
@@ -686,12 +736,7 @@ def generate_global_sitrep(sys_config_dict):
         active_grid = db.query(RegionalOutage).filter_by(is_resolved=False).all()
         locs_db = db.query(MonitoredLocation).all()
 
-        report = f"###  Global Situation Report (SitRep)\n\n"
-        report += f"**Active Node Failures:** {len(down_nodes)} | "
-        report += f"**Cloud Outages:** {len(active_clouds)} | "
-        report += f"**Grid/Weather Anomalies:** {len(active_weather) + len(active_grid)}\n\n"
-        report += "####  Deterministic Causal Links\n"
-
+        report = f"###  Global Situation Report (SitRep)\n\n**Active Node Failures:** {len(down_nodes)} | **Cloud Outages:** {len(active_clouds)} | **Grid/Weather Anomalies:** {len(active_weather) + len(active_grid)}\n\n####  Deterministic Causal Links\n"
         isolated_nodes = []
 
         for alert in down_nodes:
@@ -700,46 +745,48 @@ def generate_global_sitrep(sys_config_dict):
 
             if active_clouds:
                 c_names = [c.provider.lower() for c in active_clouds]
-                payload_str = str(alert.raw_payload).lower() if alert.raw_payload else ""
-                if any(c in str(alert.details).lower() or c in payload_str for c in c_names):
+                if any(c in str(alert.details).lower() or c in (str(alert.raw_payload).lower() if alert.raw_payload else "") for c in c_names):
                     causation_factors.append("☁️ Upstream Cloud Service Outage")
 
             if n_loc and n_loc.lat and n_loc.lon:
                 for issue in active_grid:
-                    if issue.lat and issue.lon:
-                        dist_km = (((n_loc.lon - issue.lon)**2 + (n_loc.lat - issue.lat)**2)**0.5) * 111
-                        if dist_km <= issue.radius_km:
-                            causation_factors.append(f"⚡ {issue.outage_type} Outage Geometry ({issue.provider})")
-
+                    if issue.lat and issue.lon and ((((n_loc.lon - issue.lon)**2 + (n_loc.lat - issue.lat)**2)**0.5) * 111) <= issue.radius_km:
+                        causation_factors.append(f"⚡ {issue.outage_type} Outage Geometry ({issue.provider})")
                 if n_loc.current_spc_risk not in ["None", "Unknown"]:
                     causation_factors.append(f"🌪️ Severe Weather Hazard ({n_loc.current_spc_risk})")
 
-            if causation_factors:
-                report += f"- **{alert.node_name}** ({alert.mapped_location}) is likely impacted by: " + ", ".join(list(set(causation_factors))) + "\n"
-            else:
-                isolated_nodes.append(f"**{alert.node_name}** ({alert.mapped_location})")
+            if causation_factors: report += f"- **{alert.node_name}** ({alert.mapped_location}) is likely impacted by: " + ", ".join(list(set(causation_factors))) + "\n"
+            else: isolated_nodes.append(f"**{alert.node_name}** ({alert.mapped_location})")
 
         report += "\n#### 🛠️ Isolated Anomalies (Network Faults)\n"
         if isolated_nodes:
-            report += "No external factors detected. Treat as localized hardware/software failures:\n"
-            for n in isolated_nodes:
-                report += f"- {n}\n"
-        else:
-            report += "- None detected. All failures are correlated to external events.\n"
+            report += "No external factors detected. Treat as localized failures:\n" + "".join([f"- {n}\n" for n in isolated_nodes])
+        else: report += "- None detected. All failures are correlated to external events.\n"
 
         if sys_config_dict and sys_config_dict.get('is_active'):
             from src.llm import call_llm
-            sys_prompt = "You are an elite NOC AIOps Engine. Summarize the following deterministic IT SitRep into a technical 2-sentence executive summary."
-            ai_summary = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": report}], sys_config_dict, temperature=0.1)
-
-            if ai_summary and "⚠️" not in ai_summary:
-                report = f"### 🤖 AI Executive Summary\n> {ai_summary}\n\n---\n\n" + report
+            ai_summary = call_llm([{"role": "system", "content": "You are an elite NOC AIOps Engine. Summarize the following deterministic IT SitRep into a technical 2-sentence executive summary."}, {"role": "user", "content": report}], sys_config_dict, temperature=0.1)
+            if ai_summary and "⚠️" not in ai_summary: report = f"### 🤖 AI Executive Summary\n> {ai_summary}\n\n---\n\n" + report
 
         return report
 
+def generate_rca_ticket_text(site, data, priority, patient_zero, root_cause):
+    pz_obj = data.get('patient_zero')
+    trigger_time = pz_obj.received_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ).strftime('%m/%d/%Y %I:%M %p %Z') if pz_obj and pz_obj.received_at else "Unknown Time"
+    
+    ticket_text = f"Automated Comms Outage\n\n{site} - Trouble\n\nA communications failure occurred on {trigger_time} and did not recover. This is affecting SCADA connectivity. IT is requesting a technician onsite to investigate.\n\n"
+    ticket_text += "="*50 + f"\nPRIORITY: {priority}\nSITE/LOCATION: {site}\nSUSPECTED ORIGIN (PATIENT ZERO): {patient_zero}\nTOTAL NODES AFFECTED: {len(data.get('alerts', []))}\n" + "="*50 + f"\n\nROOT CAUSE ANALYSIS:\n" + "-"*20 + f"\n{root_cause}\n\nAFFECTED INFRASTRUCTURE DETAILS:\n" + "-"*30 + "\n"
+    
+    for idx, alert in enumerate(data.get('alerts', []), 1):
+        rcv_time = alert.received_at.strftime('%Y-%m-%d %H:%M:%S UTC') if alert.received_at else "Unknown"
+        ticket_text += f"[{idx}] Node: {alert.node_name} | IP: {alert.ip_address} | Type: {alert.device_type}\n    Status: {alert.status} | Severity: {alert.severity}\n    Event Category: {alert.event_category}\n    Logged Time: {rcv_time}\n"
+        if alert.details: ticket_text += f"    Details: {alert.details.strip()}\n"
+        ticket_text += "\n"
+    return ticket_text
+
 
 # ==========================================
-# 7. REPORT CENTER
+# 8. REPORT CENTER
 # ==========================================
 
 def search_articles(query, limit):
@@ -757,209 +804,9 @@ def save_custom_report(title, author, content):
         db.add(SavedReport(title=title, author=author, content=content))
         db.commit()
 
-def get_executive_grid_intel(active_warn_count, recent_crimes):
-    """Synthesizes LIVE OSINT telemetry, Local Perimeter Crime, and DB-native ICS-CERT into a unified matrix."""
-    from src.database import Article, SessionLocal
-    from datetime import datetime, timedelta
-    
-    with SessionLocal() as db:
-        t48 = datetime.utcnow() - timedelta(hours=48)
-        t14 = datetime.utcnow() - timedelta(days=14)
-        
-        # --- 1. CYBER OSINT ---
-        raw_cyber_articles = db.query(Article).filter(
-            Article.published_date >= t48, 
-            Article.category == 'Cyber', 
-            Article.score >= 50
-        ).order_by(Article.score.desc()).all()
-        
-        # --- 2. ICS-CERT ---
-        raw_ics_articles = db.query(Article).filter(
-            Article.published_date >= t14
-        ).order_by(Article.published_date.desc()).all()
-        
-        # --- 3. PHYSICAL OSINT (Arkansas/Grid Filtered) ---
-        raw_phys_articles = db.query(Article).filter(
-            Article.published_date >= t48,
-            Article.category.in_(['Physical/Weather', 'Geopolitics/News']),
-            Article.score >= 50
-        ).order_by(Article.score.desc()).all()
-
-        # Process Cyber
-        pure_cyber_articles = []
-        geopolitical_noise_words = ["troop", "missile", "election", "ballot", "warfare", "kinetic", "embassy"]
-        for art in raw_cyber_articles:
-            text_check = f"{art.title} {art.summary}".lower()
-            if not any(noise in text_check for noise in geopolitical_noise_words):
-                pure_cyber_articles.append(art)
-        cyber_list = [{"title": a.title, "link": a.link, "source": a.source, "score": a.score} for a in pure_cyber_articles]
-
-        # Process Physical (Strict Local + Threat Requirements)
-        pure_phys_articles = []
-        ar_keywords = ["arkansas", "little rock", "pulaski", "benton", "entergy", "aecc", "cooperative"]
-        threat_keywords = ["terror", "attack", "grid", "substation", "sabotage", "vandalism", "infrastructure", "transformer", "sniper", "shoot", "explosive"]
-        
-        for art in raw_phys_articles:
-            text_check = f"{art.title} {art.summary}".lower()
-            
-            is_ar_related = any(kw in text_check for kw in ar_keywords)
-            has_threat = any(kw in text_check for kw in threat_keywords)
-            has_geo_noise = any(kw in text_check for kw in geopolitical_noise_words)
-            
-            # Drop pure geopolitical news UNLESS it explicitly mentions attacks on grid infrastructure
-            if has_geo_noise and not any(k in text_check for k in ["grid", "substation", "infrastructure"]):
-                continue
-            
-            # Keep if it is geographically relevant AND contains an attack/threat keyword
-            if is_ar_related and has_threat:
-                pure_phys_articles.append(art)
-                
-        phys_list = [{"title": a.title, "link": a.link, "source": a.source, "score": a.score} for a in pure_phys_articles]
-
-        # Process ICS
-        ics_advisories = []
-        critical_vendors = ["SEL", "SCHWEITZER", "SIEMENS", "SCHNEIDER", "GE ", "ABB", "ROCKWELL", "EMERSON", "HONEYWELL", "OMRON"]
-        for art in raw_ics_articles:
-            source_upper = art.source.upper() if art.source else ""
-            if "ICS" in source_upper or "CISA" in source_upper:
-                is_critical = any(v in art.title.upper() for v in critical_vendors)
-                ics_advisories.append({
-                    "title": art.title,
-                    "link": art.link,
-                    "published": art.published_date.strftime("%Y-%m-%d"),
-                    "is_critical": is_critical
-                })
-
-    # --- CYBER SCORE CALCULATION ---
-    critical_ics = [a for a in ics_advisories if a['is_critical']]
-    if len(pure_cyber_articles) > 5 or any(a.score >= 80 for a in pure_cyber_articles) or len(critical_ics) > 0:
-        cyber_score = "High"
-    elif len(pure_cyber_articles) > 0 or len(ics_advisories) > 0:
-        cyber_score = "Medium"
-    else:
-        cyber_score = "Low"
-        
-    cyber_brief = f"Tracking {len(pure_cyber_articles)} verified OSINT threats (48h). "
-    if ics_advisories:
-        cyber_brief += f"CISA ICS-CERT issued {len(ics_advisories)} industrial control advisories in 14 days ({len(critical_ics)} affecting critical BES vendors). "
-    else:
-        cyber_brief += "No recent CISA ICS-CERT advisories. "
-        
-    if pure_cyber_articles:
-        cyber_brief += f"Top OSINT concern: '{pure_cyber_articles[0].title}'."
-    
-    # --- PHYSICAL SCORE CALCULATION (De-emphasized Crime) ---
-    critical_crimes = [c for c in recent_crimes if c.get("severity") == "Critical"]
-    high_crimes = [c for c in recent_crimes if c.get("severity") == "High"]
-    med_crimes = [c for c in recent_crimes if c.get("severity") == "Medium"]
-    
-    # Physical OSINT trumps routine crime. It now takes 8 High crimes to spike the score.
-    if active_warn_count > 3 or len(critical_crimes) > 0 or len(high_crimes) >= 8 or len(pure_phys_articles) >= 1:
-        physical_score = "High"
-    elif active_warn_count > 0 or len(high_crimes) >= 4 or len(med_crimes) >= 10:
-        physical_score = "Medium"
-    else:
-        physical_score = "Low"
-        
-    physical_brief = f"Tracking {active_warn_count} severe weather hazards. Perimeter logs show {len(recent_crimes)} total incidents ({len(high_crimes)} High Risk). "
-    
-    if len(pure_phys_articles) > 0:
-        physical_brief += f"🚨 OSINT detected {len(pure_phys_articles)} local physical/grid threats. "
-    elif len(high_crimes) >= 8:
-        physical_brief += "⚠️ Significant uptick in high-risk perimeter crime. "
-    else:
-        physical_brief += "Routine perimeter activity level. "
-
-    # --- UNIFIED SCORING LOGIC ---
-    if "High" in [cyber_score, physical_score]: unified_risk = "HIGH"
-    elif "Medium" in [cyber_score, physical_score]: unified_risk = "MEDIUM"
-    else: unified_risk = "LOW"
-    
-    return {
-        "timestamp": datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z"),
-        "unified_risk": unified_risk,
-        "cyber_score": cyber_score,
-        "cyber_brief": cyber_brief,
-        "physical_score": physical_score,
-        "physical_brief": physical_brief,
-        "cyber_articles": cyber_list,
-        "phys_articles": phys_list, # Added physical articles to payload
-        "recent_crimes": recent_crimes,
-        "ics_advisories": ics_advisories
-    }
-
-
-# --- OUTLOOK HTML MAILER ---
-def generate_outlook_html_report(intel):
-    color_map = {"LOW": "#28a745", "MEDIUM": "#ffc107", "HIGH": "#dc3545"}
-    badge_color = color_map.get(intel["unified_risk"].upper(), "#000000")
-    
-    html = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 20px;">
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; max-width: 600px; margin: 0 auto; border: 1px solid #dddddd; border-radius: 8px;">
-            <tr>
-                <td style="padding: 20px; background-color: #0f172a; border-radius: 8px 8px 0 0; text-align: center;">
-                    <h2 style="color: #ffffff; margin: 0;">BES Threat Intelligence Summary</h2>
-                    <p style="color: #94a3b8; margin: 5px 0 0 0; font-size: 12px;">Generated: {intel['timestamp']}</p>
-                </td>
-            </tr>
-            <tr>
-                <td style="padding: 30px 20px; text-align: center;">
-                    <h3 style="margin: 0; color: #333333; text-transform: uppercase;">Unified Threat Posture</h3>
-                    <div style="margin-top: 15px; padding: 10px 20px; background-color: {badge_color}; color: #ffffff; display: inline-block; font-size: 24px; font-weight: bold; border-radius: 4px;">
-                        {intel['unified_risk']} RISK
-                    </div>
-                </td>
-            </tr>
-            <tr>
-                <td style="padding: 20px;">
-                    <h4 style="color: #0056b3; border-bottom: 2px solid #eeeeee; padding-bottom: 5px;">⚡ Physical & Crime Intelligence</h4>
-                    <p style="color: #444444; line-height: 1.6; font-size: 14px;"><strong>Status: {intel['physical_score']}</strong><br/>{intel['physical_brief']}</p>
-                </td>
-            </tr>
-            <tr>
-                <td style="padding: 20px; padding-top: 0;">
-                    <h4 style="color: #0056b3; border-bottom: 2px solid #eeeeee; padding-bottom: 5px;">🛡️ Cyber & SCADA Intelligence</h4>
-                    <p style="color: #444444; line-height: 1.6; font-size: 14px;"><strong>Status: {intel['cyber_score']}</strong><br/>{intel['cyber_brief']}</p>
-                </td>
-            </tr>
-            <tr>
-                <td style="padding: 20px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; font-size: 11px; color: #666666; text-align: center;">
-                    <strong>Sources:</strong> CISA ICS-CERT, National Interagency Fire Center (NIFC), National Weather Service (NWS), SpotCrime Open RSS API.<br/>
-                    <em>CONFIDENTIAL: For Executive Leadership Only.</em>
-                </td>
-            </tr>
-        </table>
-    </body>
-    </html>
-    """
-    return html
-
-# --- THE SMTP MAILER (FIXED ARGUMENT SIGNATURE) ---
-def send_executive_report(recipient_email, intel, sys_config):
-    """Sends the HTML report via the central mailer script."""
-    try:
-        # Generate the Outlook-optimized HTML payload
-        html_body = generate_outlook_html_report(intel)
-        
-        # Import your existing mailer
-        from src.mailer import send_alert_email
-        
-        # Dispatch using your existing infrastructure
-        success, msg = send_alert_email(
-            subject=f"Grid Threat Intelligence Update - Posture: {intel['unified_risk']}", 
-            body=html_body, 
-            recipient_override=recipient_email, 
-            is_html=True
-        )
-        return success, msg
-    except Exception as e:
-        return False, f"Email Dispatch Failed: {e}"
-
 
 # ==========================================
-# 8. SETTINGS & ADMINISTRATION
+# 9. SETTINGS & ADMINISTRATION
 # ==========================================
 
 @st.cache_data(ttl=300)
@@ -968,42 +815,33 @@ def get_all_roles():
         return to_dotdict_list(db.query(Role).all())
 
 def create_role(name, allowed_pages, allowed_actions):
-    """Creates a new custom RBAC role."""
     with SessionLocal() as db:
         if db.query(Role).filter(Role.name == name).first(): return False
-        new_role = Role(name=name, allowed_pages=allowed_pages, allowed_actions=allowed_actions)
-        db.add(new_role)
+        db.add(Role(name=name, allowed_pages=allowed_pages, allowed_actions=allowed_actions))
         db.commit()
         return True
 
 def update_role(name, allowed_pages, allowed_actions):
-    """Updates permissions for an existing role."""
     with SessionLocal() as db:
         role = db.query(Role).filter(Role.name == name).first()
         if role:
-            role.allowed_pages = allowed_pages
-            role.allowed_actions = allowed_actions
+            role.allowed_pages, role.allowed_actions = allowed_pages, allowed_actions
             db.commit()
             return True
         return False
 
 def create_user(username, password, role):
-    """Securely hashes a password and creates a new system user."""
     with SessionLocal() as db:
         if db.query(User).filter(User.username == username).first(): return False
-        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        new_user = User(username=username, password_hash=hashed, role=role)
-        db.add(new_user)
+        db.add(User(username=username, password_hash=bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'), role=role))
         db.commit()
         return True
 
 def force_reset_pwd(username, new_password):
-    """Allows admins to overwrite a user's password and force a session logout."""
     with SessionLocal() as db:
         user = db.query(User).filter(User.username == username).first()
         if user:
-            user.password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-            user.session_token = None
+            user.password_hash, user.session_token = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'), None
             db.commit()
             return True
         return False
@@ -1012,8 +850,7 @@ def update_user_role(username, new_role):
     with SessionLocal() as db:
         u = db.query(User).filter_by(username=username).first()
         if u:
-            u.role = new_role
-            u.session_token = None
+            u.role, u.session_token = new_role, None
             db.commit()
 
 def save_global_config(data):
@@ -1039,8 +876,7 @@ def add_bulk_feeds(raw_text):
         for line in raw_text.split('\n'):
             if line.strip():
                 parts = line.split(',')
-                url = parts[0].strip()
-                name = parts[1].strip() if len(parts) > 1 else "New Feed"
+                url, name = parts[0].strip(), parts[1].strip() if len(parts) > 1 else "New Feed"
                 if not db.query(FeedSource).filter_by(url=url).first(): db.add(FeedSource(url=url, name=name))
         db.commit()
 
@@ -1052,14 +888,11 @@ def delete_record(model_name, record_id):
 
 def get_admin_lists():
     with SessionLocal() as db:
-        return to_dotdict_list(db.query(Keyword).order_by(Keyword.weight.desc()).all()), \
-               to_dotdict_list(db.query(FeedSource).all()), \
-               to_dotdict_list(db.query(User).all())
+        return to_dotdict_list(db.query(Keyword).order_by(Keyword.weight.desc()).all()), to_dotdict_list(db.query(FeedSource).all()), to_dotdict_list(db.query(User).all())
 
 def get_ml_counts():
     with SessionLocal() as db:
-        pos = db.query(Article).filter(Article.human_feedback == 2).count()
-        neg = db.query(Article).filter(Article.human_feedback == 1).count()
+        pos, neg = db.query(Article).filter(Article.human_feedback == 2).count(), db.query(Article).filter(Article.human_feedback == 1).count()
         return pos, neg, pos + neg
 
 def get_backup_data():
@@ -1075,164 +908,34 @@ def restore_backup_data(data):
     added = {"kw": 0, "feeds": 0, "locs": 0, "alias": 0}
     with SessionLocal() as db:
         for kw in data.get("keywords", []):
-            if not db.query(Keyword).filter_by(word=kw["word"]).first():
-                db.add(Keyword(word=kw["word"], weight=kw["weight"])); added["kw"] += 1
+            if not db.query(Keyword).filter_by(word=kw["word"]).first(): db.add(Keyword(word=kw["word"], weight=kw["weight"])); added["kw"] += 1
         for f in data.get("feeds", []):
-            if not db.query(FeedSource).filter_by(url=f["url"]).first():
-                db.add(FeedSource(url=f["url"], name=f["name"])); added["feeds"] += 1
+            if not db.query(FeedSource).filter_by(url=f["url"]).first(): db.add(FeedSource(url=f["url"], name=f["name"])); added["feeds"] += 1
         for l in data.get("locations", []):
-            if not db.query(MonitoredLocation).filter_by(name=l["name"]).first():
-                db.add(MonitoredLocation(name=l["name"], lat=l["lat"], lon=l["lon"], loc_type=l.get("type", "General"), priority=l.get("prio", 3))); added["locs"] += 1
+            if not db.query(MonitoredLocation).filter_by(name=l["name"]).first(): db.add(MonitoredLocation(name=l["name"], lat=l["lat"], lon=l["lon"], loc_type=l.get("type", "General"), priority=l.get("prio", 3))); added["locs"] += 1
         for a in data.get("aliases", []):
-            if not db.query(NodeAlias).filter_by(node_pattern=a["pattern"]).first():
-                db.add(NodeAlias(node_pattern=a["pattern"], mapped_location_name=a["mapped"], confidence_score=a["conf"], is_verified=a["ver"])); added["alias"] += 1
+            if not db.query(NodeAlias).filter_by(node_pattern=a["pattern"]).first(): db.add(NodeAlias(node_pattern=a["pattern"], mapped_location_name=a["mapped"], confidence_score=a["conf"], is_verified=a["ver"])); added["alias"] += 1
         db.commit()
     return added
 
 def recategorize_all_articles():
     from src.categorizer import categorize_text
     with SessionLocal() as db:
-        arts = db.query(Article).filter(Article.category == "General").all()
-        count = 0
+        arts, count = db.query(Article).filter(Article.category == "General").all(), 0
         for a in arts:
             cat = categorize_text(f"{a.title} {a.summary}")
-            if cat != "General":
-                a.category = cat
-                count += 1
+            if cat != "General": a.category, count = cat, count + 1
         db.commit()
         return count
 
 def nuke_tables(model_names):
-    """Database-agnostic way to wipe tables without causing SQLite syntax errors."""
-    models_map = {
-        "CloudOutage": CloudOutage,
-        "MonitoredLocation": MonitoredLocation,
-        "Article": Article,
-        "ExtractedIOC": ExtractedIOC,
-        "FeedSource": FeedSource,
-        "Keyword": Keyword
-    }
+    models_map = {"CloudOutage": CloudOutage, "MonitoredLocation": MonitoredLocation, "Article": Article, "ExtractedIOC": ExtractedIOC, "FeedSource": FeedSource, "Keyword": Keyword}
     with SessionLocal() as db:
         for name in model_names:
-            if name in models_map:
-                db.query(models_map[name]).delete(synchronize_session=False)
+            if name in models_map: db.query(models_map[name]).delete(synchronize_session=False)
         db.commit()
 
 def truncate_db_table(table_query):
-    """
-    WARNING INTERCEPTOR: The UI previously sent raw PostgreSQL TRUNCATE commands.
-    This function catches that command, extracts the target table, and safely routes
-    it to the database-agnostic nuke_tables() function so SQLite doesn't crash.
-    """
     if "monitored_locations" in table_query.lower():
         nuke_tables(["MonitoredLocation"])
         get_cached_locations.clear()
-
-
-# ==========================================
-# 9. UI OFFLOAD ENGINES & HELPERS
-# ==========================================
-
-def generate_daily_report_email_html(report_date, markdown_content):
-    """Converts the raw Markdown report into a boardroom-ready HTML email."""
-    import re
-    
-    # Native Mini-Parser to convert Markdown to HTML without external libraries
-    def native_md_to_html(text):
-        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#2c3e50; margin-bottom:5px;">\1</h3>', text, flags=re.MULTILINE)
-        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#2980b9; margin-bottom:5px; border-bottom:1px solid #eee;">\1</h2>', text, flags=re.MULTILINE)
-        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#2c3e50;">\1</h1>', text, flags=re.MULTILINE)
-        text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
-        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#3498db; text-decoration:none;">\1</a>', text)
-        text = re.sub(r'^\* (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
-        text = re.sub(r'^- (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
-        text = text.replace('\n', '<br>')
-        text = text.replace('<br><br><h', '<br><h')
-        return text
-
-    raw_html = native_md_to_html(markdown_content)
-    
-    # Wrap it in a clean, professional email container
-    formatted_html = f"""
-    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 0 auto; color: #333; line-height: 1.5;">
-        <div style="background-color: #fcfcfc; padding: 20px; border-radius: 6px; border-left: 4px solid #d9534f; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <h2 style="color: #2c3e50; margin-top: 0;">📰 NOC Daily Fusion Report</h2>
-            <p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 20px;"><strong>Date:</strong> {report_date}</p>
-            <div style="font-size: 14px; background-color: #ffffff; padding: 15px; border-radius: 4px; border: 1px solid #eee;">
-                {raw_html}
-            </div>
-        </div>
-    </div>
-    """
-    return formatted_html
-
-def get_osint_pivot_link(ioc_type, value):
-    """Generates the appropriate OSINT investigation link based on IOC type."""
-    if ioc_type in ["SHA256", "MD5", "SHA1"]: return f"https://www.virustotal.com/gui/file/{value}"
-    elif ioc_type == "IPv4": return f"https://www.shodan.io/host/{value}"
-    elif ioc_type == "Domain": return f"https://www.virustotal.com/gui/domain/{value}"
-    elif ioc_type == "CVE": return f"https://nvd.nist.gov/vuln/detail/{value}"
-    elif ioc_type == "MITRE ATT&CK": return f"https://attack.mitre.org/techniques/{value.replace('.', '/')}"
-    return None
-
-def generate_rca_ticket_text(site, data, priority, patient_zero, root_cause):
-    """Formats the massive RemedyForce/ServiceNow IT ticket body for AIOps RCA."""
-    from zoneinfo import ZoneInfo
-    LOCAL_TZ = ZoneInfo("America/Chicago")
-    
-    pz_obj = data.get('patient_zero')
-    trigger_time = pz_obj.received_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ).strftime('%m/%d/%Y %I:%M %p %Z') if pz_obj and pz_obj.received_at else "Unknown Time"
-    
-    ticket_text = "Automated Comms Outage\n\n"
-    ticket_text += f"{site} - Trouble\n\n"
-    ticket_text += f"A communications failure occurred on {trigger_time} and did not recover. This is affecting SCADA connectivity. IT is requesting a technician onsite to investigate.\n\n"
-    
-    ticket_text += "="*50 + "\n"
-    ticket_text += f"PRIORITY: {priority}\n"
-    ticket_text += f"SITE/LOCATION: {site}\n"
-    ticket_text += f"SUSPECTED ORIGIN (PATIENT ZERO): {patient_zero}\n"
-    ticket_text += f"TOTAL NODES AFFECTED: {len(data.get('alerts', []))}\n"
-    ticket_text += "="*50 + "\n\n"
-    
-    ticket_text += "ROOT CAUSE ANALYSIS:\n"
-    ticket_text += "-"*20 + "\n"
-    ticket_text += f"{root_cause}\n\n"
-    
-    ticket_text += "AFFECTED INFRASTRUCTURE DETAILS:\n"
-    ticket_text += "-"*30 + "\n"
-    
-    for idx, alert in enumerate(data.get('alerts', []), 1):
-        rcv_time = alert.received_at.strftime('%Y-%m-%d %H:%M:%S UTC') if alert.received_at else "Unknown"
-        ticket_text += f"[{idx}] Node: {alert.node_name} | IP: {alert.ip_address} | Type: {alert.device_type}\n"
-        ticket_text += f"    Status: {alert.status} | Severity: {alert.severity}\n"
-        ticket_text += f"    Event Category: {alert.event_category}\n"
-        ticket_text += f"    Logged Time: {rcv_time}\n"
-        if alert.details:
-            ticket_text += f"    Details: {alert.details.strip()}\n"
-        ticket_text += "\n"
-        
-    return ticket_text
-
-def get_weather_alerts_log(ar_data, oos_data, selected_events):
-    """Parses massive NWS GeoJSON blocks into a clean list of dictionaries for the UI Log."""
-    all_alert_details = []
-    for geo_ds, is_oos in [(ar_data, False), (oos_data, True)]:
-        if geo_ds and "features" in geo_ds:
-            for f in geo_ds["features"]:
-                props = f.get("properties", {})
-                event = props.get("event", "Unknown")
-                if event not in selected_events: continue
-                
-                prefix = "[OOS]" if is_oos else "[AR]"
-                all_alert_details.append({
-                    "Event": f"{prefix} {event}",
-                    "Severity": props.get("severity", "Unknown"),
-                    "Certainty": props.get("certainty", "Unknown"),
-                    "Headline": props.get("headline", "No headline available."),
-                    "Affected Area": props.get("areaDesc", "Unknown Area"),
-                    "Effective": props.get("effective", "N/A"),
-                    "Expires": props.get("expires", "N/A"),
-                    "Description": props.get("description", "No detailed description provided by NWS."),
-                    "Instructions": props.get("instruction", "No explicit instructions provided.")
-                })
-    return all_alert_details
