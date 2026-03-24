@@ -991,23 +991,12 @@ elif page == "📡 Threat Telemetry":
                         if "Tab: Regional Grid -> Executive Dash" in st.session_state.allowed_actions:
                             with rg_tabs[rg_idx]:
                                 st.subheader("📊 Infrastructure Threat Dashboard")
-                                with st.expander("ℹ️ Understanding SPC Convective Risk Categories"):
-                                    st.markdown("""
-                                    The **Storm Prediction Center (SPC)** issues national forecasts for severe thunderstorms, tornadoes, and extreme winds:
-                                    * 🌩️ **TSTM:** General, non-severe thunderstorms.
-                                    * 🟩 **MRGL (1/5):** Isolated severe thunderstorms possible.
-                                    * 🟨 **SLGT (2/5):** Scattered severe thunderstorms possible.
-                                    * 🟧 **ENH (3/5):** Numerous severe thunderstorms possible.
-                                    * 🟥 **MDT (4/5):** Widespread severe thunderstorms likely.
-                                    * 🟪 **HIGH (5/5):** Widespread, long-lived, particularly dangerous outbreak expected.
-                                    """)
-
+                                
                                 if map_df.empty:
                                     st.info("No monitored locations match current filters.")
                                 else:
-                                    risk_order = ["HIGH", "MDT", "ENH", "SLGT", "MRGL", "TSTM", "None"]
-                                    map_df['Risk'] = pd.Categorical(map_df['Risk'], categories=risk_order, ordered=True)
-                                    risk_df = map_df[map_df['Risk'] != 'None']
+                                    # Fetch pre-calculated analytics from the service layer
+                                    analytics = svc.get_infrastructure_analytics(map_df.copy())
                                     
                                     st.download_button(
                                         label="📥 Export Infrastructure Risk Report (CSV)",
@@ -1017,35 +1006,41 @@ elif page == "📡 Threat Telemetry":
                                     )
                                     st.divider()
                                     
+                                    # Top Level Metrics
                                     c_m1, c_m2, c_m3 = st.columns(3)
                                     c_m1.metric("Total Tracked Sites", len(map_df))
-                                    c_m2.metric("Sites in Active Risk Areas", len(risk_df))
-                                    highest_risk = risk_df['Risk'].sort_values().iloc[0] if not risk_df.empty else "None"
-                                    c_m3.metric("Highest Current Risk", highest_risk)
+                                    c_m2.metric("Sites in Active Risk Areas", analytics["at_risk_sites"])
+                                    c_m3.metric("Highest Current Risk", analytics["highest_risk"])
                                     st.write("")
                                     
-                                    c1, c2 = st.columns(2)
+                                    # The Pretty Bar Charts
+                                    c1, c2, c3 = st.columns(3)
                                     with c1:
                                         st.markdown("**Sites by Risk Level**")
-                                        if not risk_df.empty:
-                                            risk_counts = risk_df['Risk'].value_counts().reset_index()
-                                            risk_counts.columns = ['Risk Level', 'Count']
-                                            st.bar_chart(risk_counts.set_index('Risk Level'), color="#ff4b4b", width="stretch")
-                                        else: st.success("All monitored sites are clear.")
+                                        if not analytics["risk_distribution"].empty:
+                                            st.bar_chart(analytics["risk_distribution"], color="#ff4b4b", width="stretch")
+                                        else: st.success("All clear.")
                                     with c2:
+                                        st.markdown("**Sites by Regional Zone**")
+                                        st.bar_chart(analytics["region_distribution"], color="#28a745", width="stretch")
+                                    with c3:
                                         st.markdown("**Sites by Facility Type**")
-                                        type_counts = map_df['Type'].value_counts().reset_index()
-                                        type_counts.columns = ['Location Type', 'Count']
-                                        st.bar_chart(type_counts.set_index('Location Type'), color="#1f77b4", width="stretch")
+                                        st.bar_chart(analytics["type_distribution"], color="#1f77b4", width="stretch")
 
                                     st.divider()
-                                    c3, c4 = st.columns(2)
-                                    with c3:
+                                    
+                                    # The Deep Data Cuts
+                                    st.markdown("### 🧮 Advanced Data Intersections")
+                                    cx1, cx2, cx3 = st.columns(3)
+                                    with cx1:
                                         st.markdown("**Risk by Priority Level**")
-                                        st.dataframe(pd.crosstab(map_df['Priority'], map_df['Risk']), width="stretch")
-                                    with c4:
+                                        st.dataframe(analytics["priority_risk_matrix"], width="stretch")
+                                    with cx2:
+                                        st.markdown("**Risk by Regional Zone**")
+                                        st.dataframe(analytics["region_risk_matrix"], width="stretch")
+                                    with cx3:
                                         st.markdown("**Risk by Facility Type**")
-                                        st.dataframe(pd.crosstab(map_df['Type'], map_df['Risk']), width="stretch")
+                                        st.dataframe(analytics["type_risk_matrix"], width="stretch")
                             rg_idx += 1
 
                         if "Tab: Regional Grid -> Hazard Analytics" in st.session_state.allowed_actions:
@@ -1068,20 +1063,7 @@ elif page == "📡 Threat Telemetry":
                                     c4.metric("Unique Hazards", len(analytics_df['Hazard'].unique()))
                                     
                                     st.divider()
-                                    st.markdown("### 🧮 Infrastructure Threat Matrices")
                                     
-                                    col_a, col_b = st.columns(2)
-                                    with col_a:
-                                        st.write("**Site Priority vs. Hazard Type**")
-                                        pivot_priority = pd.crosstab(analytics_df['Hazard'], analytics_df['Priority'], margins=True, margins_name="Total Sites")
-                                        pivot_priority.columns = [f"Priority {c}" if isinstance(c, int) else c for c in pivot_priority.columns]
-                                        st.dataframe(pivot_priority, width="stretch")
-                                        
-                                    with col_b:
-                                        st.write("**Facility Type vs. Hazard Type**")
-                                        pivot_facility = pd.crosstab(analytics_df['Hazard'], analytics_df['Facility Type'], margins=True, margins_name="Total Sites")
-                                        st.dataframe(pivot_facility, width="stretch")
-                                        
                                     st.write("**Complete Intersectional Dataset**")
                                     st.dataframe(analytics_df.sort_values(by=['Priority', 'Severity', 'Monitored Site']), width="stretch", hide_index=True)
                                     
@@ -1089,7 +1071,6 @@ elif page == "📡 Threat Telemetry":
                                     st.subheader("Broadcast Executive HTML SitRep")
                                     st.caption("Generates a boardroom-ready HTML email containing the filtered hazard data.")
                                     
-                                    # Added User Input for target email address
                                     c_em1, c_em2 = st.columns([2, 1])
                                     default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
                                     sitrep_recipients = c_em1.text_input("Recipient Email(s)", value=default_email, key="sitrep_recip")
@@ -1099,78 +1080,14 @@ elif page == "📡 Threat Telemetry":
                                             st.error("Please enter at least one recipient email.")
                                         else:
                                             with st.spinner("Compiling HTML and transmitting..."):
-                                                rows_html = ""
-                                                for _, r in analytics_df.sort_values(by=['Priority', 'Monitored Site']).iterrows():
-                                                    if r['Priority'] == 1: p_style = "background-color: #d9534f; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
-                                                    elif r['Priority'] == 2: p_style = "background-color: #f0ad4e; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
-                                                    else: p_style = "background-color: #6c757d; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold;"
-                                                    
-                                                    rows_html += f"""
-                                                    <tr>
-                                                        <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; font-weight: bold; color: #333333;">{r['Monitored Site']}</td>
-                                                        <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; color: #555555;">{r['Facility Type']}</td>
-                                                        <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; text-align: center;"><span style="{p_style}">P{r['Priority']}</span></td>
-                                                        <td style="padding: 12px; border-bottom: 1px solid #e0e0e0; color: #d9534f; font-weight: bold;">{r['Hazard']}</td>
-                                                    </tr>"""
-
-                                                # Wrapped in a mobile-responsive HTML envelope using flexible blocks
-                                                html_body = f"""
-                                                <!DOCTYPE html>
-                                                <html>
-                                                <head>
-                                                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                                                </head>
-                                                <body style="margin: 0; padding: 0; background-color: #f4f7f6;">
-                                                <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 850px; margin: 0 auto; background-color: #f4f7f6; padding: 10px;">
-                                                    <div style="background-color: #ffffff; border-radius: 8px; border-top: 6px solid #d9534f; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden;">
-                                                        <div style="padding: 20px; border-bottom: 1px solid #eeeeee; background-color: #fafafa;">
-                                                            <h2 style="margin: 0; color: #333333; font-size: 22px;">SEVERE WEATHER INFRASTRUCTURE IMPACT</h2>
-                                                            <p style="margin: 5px 0 0 0; color: #777777; font-size: 13px;">Automated NOC Intelligence Broadcast | {datetime.now(LOCAL_TZ).strftime('%Y-%m-%d %H:%M %Z')}</p>
-                                                        </div>
-                                                        <div style="padding: 20px;">
-                                                            <h3 style="color: #2c3e50; margin-top: 0; font-size: 18px; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">Executive Overview</h3>
-                                                            
-                                                            <div style="text-align: center; margin-bottom: 20px;">
-                                                                <div style="display: inline-block; width: 45%; min-width: 200px; padding: 15px; background-color: #f8f9fa; border-radius: 6px; border: 1px solid #e9ecef; margin: 5px; box-sizing: border-box;">
-                                                                    <div style="font-size: 28px; font-weight: bold; color: #333333;">{len(analytics_df['Monitored Site'].unique())}</div>
-                                                                    <div style="font-size: 12px; color: #6c757d; text-transform: uppercase; letter-spacing: 1px;">Total Sites Impacted</div>
-                                                                </div>
-                                                                <div style="display: inline-block; width: 45%; min-width: 200px; padding: 15px; background-color: #fff5f5; border-radius: 6px; border: 1px solid #ffe3e3; margin: 5px; box-sizing: border-box;">
-                                                                    <div style="font-size: 28px; font-weight: bold; color: #d9534f;">{p1_count}</div>
-                                                                    <div style="font-size: 12px; color: #d9534f; text-transform: uppercase; letter-spacing: 1px;">Critical (P1) Exposures</div>
-                                                                </div>
-                                                            </div>
-                                                            
-                                                            <h3 style="color: #2c3e50; margin-top: 20px; font-size: 18px; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">Detailed Impact Matrix</h3>
-                                                            
-                                                            <div style="overflow-x: auto;">
-                                                                <table style="width: 100%; min-width: 400px; border-collapse: collapse; margin-top: 10px; font-size: 14px; text-align: left;">
-                                                                    <thead>
-                                                                        <tr style="background-color: #343a40; color: #ffffff;">
-                                                                            <th style="padding: 10px; font-weight: 600;">Monitored Site</th>
-                                                                            <th style="padding: 10px; font-weight: 600;">Type</th>
-                                                                            <th style="padding: 10px; font-weight: 600; text-align: center;">Priority</th>
-                                                                            <th style="padding: 10px; font-weight: 600;">Hazard</th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody>{rows_html}</tbody>
-                                                                </table>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                </body>
-                                                </html>
-                                                """
-                                                html_safe = html_body.replace("\n", "")
+                                                # Call the offloaded HTML generator from services.py!
+                                                html_safe = svc.generate_hazard_sitrep_html(analytics_df)
                                                 from src.mailer import send_alert_email
                                                 
-                                                # Send using the newly captured user input
                                                 success, msg = send_alert_email("URGENT: Active Severe Weather Impacting Operations", html_safe, recipient_override=sitrep_recipients, is_html=True)
                                                 if success: st.success("Executive HTML SitRep successfully transmitted!")
                                                 else: st.error(f"SMTP Error: {msg}")
                             rg_idx += 1
-
                         if "Tab: Regional Grid -> Location Matrix" in st.session_state.allowed_actions:
                             with rg_tabs[rg_idx]:
                                 st.subheader("Active Infrastructure Matrix")
