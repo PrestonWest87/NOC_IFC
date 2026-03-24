@@ -743,28 +743,17 @@ def send_executive_report(recipient_email, intel, sys_config):
         # Generate the Outlook-optimized HTML payload
         html_body = generate_outlook_html_report(intel)
         
+        # Import your existing mailer
         from src.mailer import send_alert_email
         
-        try:
-            # Standard approach: using 'body' instead of 'html_content'
-            success, msg = send_alert_email(
-                subject=f"Grid Threat Intelligence Update - Posture: {intel['unified_risk']}", 
-                body=html_body, 
-                recipient_override=recipient_email, 
-                is_html=True
-            )
-            return success, msg
-        except TypeError:
-            # FALLBACK: If keywords still don't match, we bypass keywords entirely 
-            # and just pass them in the standard positional order: (subject, body, recipient, is_html)
-            success, msg = send_alert_email(
-                f"Grid Threat Intelligence Update - Posture: {intel['unified_risk']}", 
-                html_body, 
-                recipient_email, 
-                True
-            )
-            return success, msg
-
+        # Dispatch using your existing infrastructure
+        success, msg = send_alert_email(
+            subject=f"Grid Threat Intelligence Update - Posture: {intel['unified_risk']}", 
+            body=html_body, 
+            recipient_override=recipient_email, 
+            is_html=True
+        )
+        return success, msg
     except Exception as e:
         return False, f"Email Dispatch Failed: {e}"
 
