@@ -297,8 +297,8 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     return {
             "timestamp": datetime.now(LOCAL_TZ).strftime("%H:%M:%S %Z"),
             "unified_risk": unified_risk,
-            "physical_score": phys_score,
-            "physical_brief": phys_brief,
+            "physical_score": physical_score,  # Corrected variable name
+            "physical_brief": physical_brief,  # Corrected variable name
             "cyber_score": cyber_score,
             "cyber_brief": cyber_brief,
             "recent_crimes": crime_data,
