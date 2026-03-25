@@ -85,7 +85,7 @@ def fetch_live_crimes():
         response.raise_for_status()
         data = response.json()
         
-        hq_lat, hq_lon = 34.6836, -92.3350
+        hq_lat, hq_lon = 34.6755, -92.3235
         seven_days_ago = datetime.now() - timedelta(hours=168)
         
         with SessionLocal() as db:
