@@ -266,32 +266,28 @@ def init_db():
     session = SessionLocal()
     try:
         all_pages = [
-            "🌐 Operational Dashboard", 
-            "📊 Executive Dashboard", 
-            "📰 Daily Fusion Report",
+            "👁️ Global Dashboards", 
             "📡 Threat Telemetry", 
-            "🚨 Crime Intelligence",
             "🎯 Threat Hunting & IOCs",
             "⚡ AIOps RCA", 
-            "📑 Report Center", 
+            "📑 Reporting & Briefings", 
             "⚙️ Settings & Admin"
         ]
         
         # EXACT match to descriptive strings deployed in app.py UI
         all_actions = [
             "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score", 
-            "Action: Trigger AI Functions", "Action: Manually Sync Data",
-            "Action: Dispatch Exec Report",
+            "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
+            "Tab: Dashboards -> Operational", "Tab: Dashboards -> Executive",
             "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV", 
-            "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Regional Grid",
-            "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash", "Tab: Regional Grid -> Hazard Analytics", 
-            "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", 
-            "Tab: Regional Grid -> Manage Locations", "Tab: Threat Hunting -> Global IOC Matrix", 
-            "Tab: Threat Hunting -> Deep Hunt Builder", "Tab: AIOps RCA -> Active Board", 
-            "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
-            "Tab: Report Center -> Report Builder", "Tab: Report Center -> Shared Library",
-            "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training", "Tab: Settings -> AI & SMTP", 
-            "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
+            "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Regional Grid", "Tab: Threat Telemetry -> Perimeter Crime",
+            "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash", 
+            "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", 
+            "Tab: Threat Hunting -> Global IOC Matrix", "Tab: Threat Hunting -> Deep Hunt Builder", 
+            "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
+            "Tab: Reporting -> Daily Fusion", "Tab: Reporting -> Report Builder", "Tab: Reporting -> Shared Library",
+            "Tab: Settings -> Facility Locations", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training", 
+            "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
         ]
 
         admin_role = session.query(Role).filter_by(name="admin").first()
