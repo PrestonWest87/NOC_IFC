@@ -268,6 +268,7 @@ def init_db():
         all_pages = [
             "👁️ Global Dashboards", 
             "📡 Threat Telemetry", 
+            "🗺️ Regional Grid",     # <-- NEW STANDALONE PAGE
             "🎯 Threat Hunting & IOCs",
             "⚡ AIOps RCA", 
             "📑 Reporting & Briefings", 
@@ -280,7 +281,7 @@ def init_db():
             "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
             "Tab: Dashboards -> Operational", "Tab: Dashboards -> Executive",
             "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV", 
-            "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Regional Grid", "Tab: Threat Telemetry -> Perimeter Crime",
+            "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",
             "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash", 
             "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", 
             "Tab: Threat Hunting -> Global IOC Matrix", "Tab: Threat Hunting -> Deep Hunt Builder", 
