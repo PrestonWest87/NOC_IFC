@@ -42,6 +42,7 @@ def apply_cooldown(key):
 ALL_POSSIBLE_PAGES = [
     "👁️ Global Dashboards", 
     "📡 Threat Telemetry", 
+    "🗺️ Regional Grid",     # <-- NEW STANDALONE PAGE
     "🎯 Threat Hunting & IOCs",
     "⚡ AIOps RCA", 
     "📑 Reporting & Briefings", 
@@ -53,7 +54,7 @@ ALL_POSSIBLE_ACTIONS = [
     "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
     "Tab: Dashboards -> Operational", "Tab: Dashboards -> Executive",
     "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV", 
-    "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Regional Grid", "Tab: Threat Telemetry -> Perimeter Crime",
+    "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",
     "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash", 
     "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", 
     "Tab: Threat Hunting -> Global IOC Matrix", "Tab: Threat Hunting -> Deep Hunt Builder", 
@@ -62,7 +63,6 @@ ALL_POSSIBLE_ACTIONS = [
     "Tab: Settings -> Facility Locations", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training", 
     "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
 ]
-
 if "current_user" not in st.session_state:
     st.session_state.current_user = None
     st.session_state.current_role = None
@@ -227,8 +227,13 @@ def render_article_feed(feed_articles, key_prefix=""):
             c_title, c_score = st.columns([4, 1])
             c_title.markdown(f"**{get_score_badge(art.score)} [{art.title}]({art.link})**")
             c_title.caption(f"📅 {format_local_time(art.published_date)} | 📡 {art.source} | {get_cat_icon(art.category)} {art.category}")
-            if art.ai_bluf: st.success(f"**AI BLUF:** {art.ai_bluf}")
-            else: st.caption(art.summary[:250] + "..." if art.summary else "No summary.")
+            
+            # --- UPDATED RENDERING LOGIC ---
+            if art.ai_bluf: 
+                st.success(f"**AI BLUF:** {art.ai_bluf}")
+            
+            # Always show the snippet, and increase the preview length to 500 characters
+            st.caption(art.summary[:500] + "..." if art.summary else "No summary available.")
                 
             c1, c2, c3, c4, c5 = st.columns(5)
             if c1.button("📍 Unpin" if art.is_pinned else "📌 Pin", key=f"{key_prefix}pin_{art.id}", disabled=not can_pin): svc.toggle_pin(art.id); safe_rerun()
@@ -398,7 +403,6 @@ elif page == "📡 Threat Telemetry":
     if "Tab: Threat Telemetry -> RSS Triage" in st.session_state.allowed_actions: tt_tab_names.append("📰 RSS Triage")
     if "Tab: Threat Telemetry -> CISA KEV" in st.session_state.allowed_actions: tt_tab_names.append("🪲 Exploits (KEV)")
     if "Tab: Threat Telemetry -> Cloud Services" in st.session_state.allowed_actions: tt_tab_names.append("☁️ Cloud Services")
-    if "Tab: Threat Telemetry -> Regional Grid" in st.session_state.allowed_actions: tt_tab_names.append("🗺️ Regional Grid")
     if "Tab: Threat Telemetry -> Perimeter Crime" in st.session_state.allowed_actions: tt_tab_names.append("🚨 Perimeter Crime")
     
     if not tt_tab_names: 
@@ -505,283 +509,6 @@ elif page == "📡 Threat Telemetry":
                     for o in resolved_outages:
                         st.markdown(f"✅ **{o.provider}** | {o.service} <br><small>[{o.title}]({o.link})</small>", unsafe_allow_html=True)
             tab_idx += 1
-            
-        if "Tab: Threat Telemetry -> Regional Grid" in st.session_state.allowed_actions:
-            with tabs[tab_idx]:
-                col_sync1, col_sync2 = st.columns([3, 1])
-                is_infra_cooling = check_cooldown("sync_infra", 60)
-                if col_sync2.button("⏳ Syncing..." if is_infra_cooling else "🔄 Sync Regional Telemetry", disabled=not can_sync or is_infra_cooling, key="tt_sync_infra", width="stretch"):
-                    apply_cooldown("sync_infra")
-                    with st.spinner("Pulling Radar & Calculating Geospatial Intersections..."):
-                        from src.infra_worker import fetch_regional_hazards
-                        fetch_regional_hazards()
-                        time.sleep(1)
-                        svc.get_cached_geojson.clear()
-                        safe_rerun()
-                
-                locs = svc.get_cached_locations()
-                df = pd.DataFrame([{
-                    "id": l.id, "Name": l.name, "Type": l.loc_type, 
-                    "Priority": l.priority, "Risk": l.current_spc_risk, 
-                    "Lat": l.lat, "Lon": l.lon
-                } for l in locs]) if locs else pd.DataFrame()
-                
-                spc_data, ar_data, oos_data = svc.get_cached_geojson()
-                
-                active_event_types = set()
-                for geo_dataset in [ar_data, oos_data]:
-                    if geo_dataset:
-                        for f in geo_dataset.get("features", []):
-                            active_event_types.add(f.get("properties", {}).get("event", "Unknown"))
-                active_event_types = sorted(list(active_event_types))
-
-                ctrl_panel, main_panel = st.columns([1, 4])
-                
-                with ctrl_panel:
-                    st.subheader("⚙️ Map Controls")
-                    with st.container(border=True):
-                        st.markdown("**Master Layers**")
-                        show_radar_overlay = st.toggle("📡 Radar Overlay", value=True)
-                        show_radar_panel = st.toggle("📺 Animated Panel", value=False)
-                        st.divider()
-                        show_spc = st.toggle("⛈️ SPC Convective", value=True)
-                        show_warn = st.toggle("🚨 Warnings (AR)", value=True)
-                        show_watch = st.toggle("⚠️ Watches (AR)", value=True)
-                        show_oos = st.toggle("🌍 Out-of-State", value=True)
-                        
-                        st.divider()
-                        show_fire_risk = st.toggle("🔥 NWS Fire Weather & Red Flags", value=False)
-                        show_active_wildfires = st.toggle("🚒 Active Wildfires (NIFC)", value=False)
-                        
-                        if show_fire_risk or show_active_wildfires:
-                            with st.container(border=True):
-                                st.markdown("**🔥 Fire Desk Legend:**")
-                                if show_fire_risk:
-                                    st.markdown("🔴 **Red Flag Warning** *(Extreme/Burn Ban)*")
-                                    st.markdown("🟠 **Fire Weather Watch** *(High Risk)*")
-                                if show_active_wildfires:
-                                    st.markdown("🚨 **Active Wildfire** *(Scales by Acreage)*")
-                    
-                    with st.container(border=True):
-                        st.markdown("**Hazard Isolation**")
-                        if not active_event_types:
-                            st.info("No active hazards to filter.")
-                            selected_events = []
-                        else:
-                            st.caption("Select specific warnings to render:")
-                            selected_events = st.multiselect("Active Threats", active_event_types, default=active_event_types, label_visibility="collapsed")
-                    
-                    with st.container(border=True):
-                        st.markdown("**Facility Filters**")
-                        if not df.empty:
-                            available_types = df['Type'].unique().tolist()
-                            available_prios = sorted(df['Priority'].unique().tolist())
-                            selected_types = st.multiselect("Facility Type", available_types, default=available_types)
-                            selected_prios = st.multiselect("Priority Level", available_prios, default=available_prios)
-                            map_df = df[df['Type'].isin(selected_types) & df['Priority'].isin(selected_prios)].copy()
-                            map_df['info'] = map_df['Name'] + "\nType: " + map_df['Type'] + "\nRisk: " + map_df['Risk']
-                        else:
-                            map_df = df.copy()
-
-                with main_panel:
-                    rg_tab_names = []
-                    if "Tab: Regional Grid -> Geospatial Map" in st.session_state.allowed_actions: rg_tab_names.append("🗺️ Geospatial Overlay")
-                    if "Tab: Regional Grid -> Executive Dash" in st.session_state.allowed_actions: rg_tab_names.append("📊 Executive Dashboard")
-                    if "Tab: Regional Grid -> Hazard Analytics" in st.session_state.allowed_actions: rg_tab_names.append("🌪️ Deep Hazard Analytics")
-                    if "Tab: Regional Grid -> Location Matrix" in st.session_state.allowed_actions: rg_tab_names.append("🗄️ Location Matrix")
-                    if "Tab: Regional Grid -> Weather Alerts Log" in st.session_state.allowed_actions: rg_tab_names.append("📜 Weather Alerts Log")
-
-                    if not rg_tab_names:
-                        st.warning("You do not have permission to view any modules within the Regional Grid.")
-                    else:
-                        rg_tabs = st.tabs(rg_tab_names)
-                        rg_idx = 0
-
-                        map_toggles = {
-                            "radar": show_radar_overlay, 
-                            "spc": show_spc,
-                            "warn": show_warn, 
-                            "watch": show_watch, 
-                            "oos": show_oos,
-                            "fire_risk": show_fire_risk, 
-                            "active_wildfires": show_active_wildfires
-                        }
-                        
-                        layers, view_state, map_diagnostics, toggled_affected_sites, master_affected_sites = svc.compile_regional_grid_map(
-                            map_df, spc_data, ar_data, oos_data, selected_events, map_toggles
-                        )
-
-                        if "Tab: Regional Grid -> Geospatial Map" in st.session_state.allowed_actions:
-                            with rg_tabs[rg_idx]:
-                                if show_radar_panel: c_map_main, c_map_side = st.columns([2, 1])
-                                else: c_map_main, c_map_side = st.columns([1, 0.0001])
-                                    
-                                with c_map_main:
-                                    st.subheader("Live Threat Overlay")
-                                    st.pydeck_chart(pdk.Deck(layers=layers, initial_view_state=view_state, tooltip={"text": "{info}"}), width="stretch")
-                                    
-                                if show_radar_panel:
-                                    with c_map_side:
-                                        st.subheader("Precipitation Loop")
-                                        components.html("""<iframe src="https://www.rainviewer.com/map.html?loc=34.8,-92.2,6&oFa=0&oC=1&oU=0&oCS=1&oF=0&oAP=1&c=3&o=83&lm=1&layer=radar&sm=1&sn=1" width="100%" height="500" frameborder="0" style="border-radius: 8px;" allowfullscreen></iframe>""", height=500)
-                                    
-                                st.divider()
-                                
-                                with st.expander("🛠️ Map Diagnostics & Parsing Logs"):
-                                    for log_msg in map_diagnostics: st.text(log_msg)
-                                
-                                st.subheader("⚠️ Sites Impacted by Currently Toggled Layers")
-                                st.caption("This table dynamically updates based on the layer switches and filters in the left sidebar.")
-                                
-                                if not toggled_affected_sites: 
-                                    st.success("✅ No sites intersect with the specific layers and hazard types currently rendered on the map.")
-                                else: 
-                                    st.dataframe(pd.DataFrame(toggled_affected_sites).sort_values(by=['Priority', 'Monitored Site']), hide_index=True, width="stretch")
-                            rg_idx += 1
-
-                        if "Tab: Regional Grid -> Executive Dash" in st.session_state.allowed_actions:
-                            with rg_tabs[rg_idx]:
-                                st.subheader("📊 Infrastructure Threat Dashboard")
-                                
-                                if map_df.empty:
-                                    st.info("No monitored locations match current filters.")
-                                else:
-                                    analytics = svc.get_infrastructure_analytics(map_df.copy())
-                                    
-                                    st.download_button(
-                                        label="📥 Export Infrastructure Risk Report (CSV)",
-                                        data=map_df.sort_values(by=['Risk', 'Priority']).to_csv(index=False).encode('utf-8'),
-                                        file_name=f"Infrastructure_Risk_{datetime.now(LOCAL_TZ).strftime('%Y%m%d_%H%M')}.csv",
-                                        mime='text/csv', width="stretch"
-                                    )
-                                    st.divider()
-                                    
-                                    c_m1, c_m2, c_m3 = st.columns(3)
-                                    c_m1.metric("Total Tracked Sites", len(map_df))
-                                    c_m2.metric("Sites in Active Risk Areas", analytics["at_risk_sites"])
-                                    c_m3.metric("Highest Current Risk", analytics["highest_risk"])
-                                    st.write("")
-                                    
-                                    c1, c2, c3 = st.columns(3)
-                                    with c1:
-                                        st.markdown("**Sites by Risk Level**")
-                                        if not analytics["risk_distribution"].empty:
-                                            st.bar_chart(analytics["risk_distribution"], color="#ff4b4b", width="stretch")
-                                        else: st.success("All clear.")
-                                    with c2:
-                                        st.markdown("**Sites by Regional Zone**")
-                                        st.bar_chart(analytics["region_distribution"], color="#28a745", width="stretch")
-                                    with c3:
-                                        st.markdown("**Sites by Facility Type**")
-                                        st.bar_chart(analytics["type_distribution"], color="#1f77b4", width="stretch")
-
-                                    st.divider()
-                                    
-                                    st.markdown("### 🧮 Advanced Data Intersections")
-                                    cx1, cx2, cx3 = st.columns(3)
-                                    with cx1:
-                                        st.markdown("**Risk by Priority Level**")
-                                        st.dataframe(analytics["priority_risk_matrix"], width="stretch")
-                                    with cx2:
-                                        st.markdown("**Risk by Regional Zone**")
-                                        st.dataframe(analytics["region_risk_matrix"], width="stretch")
-                                    with cx3:
-                                        st.markdown("**Risk by Facility Type**")
-                                        st.dataframe(analytics["type_risk_matrix"], width="stretch")
-                            rg_idx += 1
-
-                        if "Tab: Regional Grid -> Hazard Analytics" in st.session_state.allowed_actions:
-                            with rg_tabs[rg_idx]:
-                                st.subheader("🌪️ Deep Hazard Analytics & Executive Broadcast")
-                                st.markdown("Comprehensive breakdown of active weather geometry against physical infrastructure.")
-                                
-                                if not master_affected_sites:
-                                    st.success("🎉 All infrastructure is currently clear of severe weather geometry based on your current filters.")
-                                else:
-                                    analytics_df = pd.DataFrame(master_affected_sites).drop_duplicates()
-                                    
-                                    p1_count = len(analytics_df[analytics_df['Priority'] == 1]['Monitored Site'].unique())
-                                    p2_count = len(analytics_df[analytics_df['Priority'] == 2]['Monitored Site'].unique())
-                                    
-                                    c1, c2, c3, c4 = st.columns(4)
-                                    c1.metric("Total Sites Impacted", len(analytics_df['Monitored Site'].unique()))
-                                    c2.metric("Critical (P1) Impacts", p1_count, delta="High Risk" if p1_count > 0 else None, delta_color="inverse")
-                                    c3.metric("High (P2) Impacts", p2_count)
-                                    c4.metric("Unique Hazards", len(analytics_df['Hazard'].unique()))
-                                    
-                                    st.divider()
-                                    
-                                    st.write("**Complete Intersectional Dataset**")
-                                    st.dataframe(analytics_df.sort_values(by=['Priority', 'Severity', 'Monitored Site']), width="stretch", hide_index=True)
-                                    
-                                    st.divider()
-                                    st.subheader("Broadcast Executive HTML SitRep")
-                                    st.caption("Generates a boardroom-ready HTML email containing the filtered hazard data.")
-                                    
-                                    c_em1, c_em2 = st.columns([2, 1])
-                                    default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
-                                    sitrep_recipients = c_em1.text_input("Recipient Email(s)", value=default_email, key="sitrep_recip")
-                                    
-                                    if c_em2.button("Transmit Priority SitRep", type="primary", use_container_width=True):
-                                        if not sitrep_recipients:
-                                            st.error("Please enter at least one recipient email.")
-                                        else:
-                                            with st.spinner("Compiling HTML and transmitting..."):
-                                                html_safe = svc.generate_hazard_sitrep_html(analytics_df)
-                                                from src.mailer import send_alert_email
-                                                success, msg = send_alert_email("URGENT: Active Severe Weather Impacting Operations", html_safe, recipient_override=sitrep_recipients, is_html=True)
-                                                if success: st.success("Executive HTML SitRep successfully transmitted!")
-                                                else: st.error(f"SMTP Error: {msg}")
-                            rg_idx += 1
-
-                        if "Tab: Regional Grid -> Location Matrix" in st.session_state.allowed_actions:
-                            with rg_tabs[rg_idx]:
-                                st.subheader("Active Infrastructure Matrix")
-                                st.caption("All tracked locations overlaid with current SPC Convective Outlooks.")
-                                if not map_df.empty:
-                                    display_df = map_df.drop(columns=['id', 'Lat', 'Lon', 'info'])
-                                    st.dataframe(display_df.sort_values(by=['Risk', 'Priority'], ascending=[True, True]), width="stretch", hide_index=True)
-                            rg_idx += 1
-
-                        if "Tab: Regional Grid -> Weather Alerts Log" in st.session_state.allowed_actions:
-                            with rg_tabs[rg_idx]:
-                                st.subheader("📜 Comprehensive Weather Alerts Log")
-                                st.markdown("Human-readable log of all active NWS Watches, Warnings, and Special Weather Statements.")
-                                
-                                all_alert_details = svc.get_weather_alerts_log(ar_data, oos_data, selected_events)
-                                
-                                if not all_alert_details:
-                                    st.success("✅ No active weather alerts matching your current hazard filters.")
-                                else:
-                                    df_alerts = pd.DataFrame(all_alert_details)
-                                    
-                                    for col in ['Effective', 'Expires']:
-                                        df_alerts[col] = pd.to_datetime(df_alerts[col], errors='coerce').dt.strftime('%Y-%m-%d %H:%M')
-                                        df_alerts[col] = df_alerts[col].fillna("N/A")
-                                        
-                                    st.dataframe(df_alerts[["Event", "Severity", "Affected Area", "Expires", "Headline"]], hide_index=True, width="stretch")
-                                    
-                                    st.divider()
-                                    st.subheader("🔍 Deep Dive Inspection")
-                                    
-                                    dropdown_options = [f"{a['Event']} - {a['Affected Area'][:40]}..." for a in all_alert_details]
-                                    sel_alert_idx = st.selectbox("Select Alert to Review Full Details", range(len(dropdown_options)), format_func=lambda x: dropdown_options[x])
-                                    
-                                    if sel_alert_idx is not None:
-                                        details = all_alert_details[sel_alert_idx]
-                                        with st.container(border=True):
-                                            st.markdown(f"### {details['Event']}")
-                                            st.write(f"**Affected Zones/Counties:** {details['Affected Area']}")
-                                            st.write(f"**Severity:** {details['Severity']} | **Certainty:** {details['Certainty']}")
-                                            st.write(f"**Effective:** {details['Effective']} | **Expires:** {details['Expires']}")
-                                            
-                                            st.divider()
-                                            st.markdown("**NWS Description:**\n\n> " + details['Description'].replace('\n', '\n> '))
-                                            
-                                            if details['Instructions'] and details['Instructions'] != "No explicit instructions provided.":
-                                                st.error(f"**NWS Actionable Instructions:**\n\n{details['Instructions']}")
-                            rg_idx += 1
-            tab_idx += 1
 
         if "Tab: Threat Telemetry -> Perimeter Crime" in st.session_state.allowed_actions:
             with tabs[tab_idx]:
@@ -823,6 +550,286 @@ elif page == "📡 Threat Telemetry":
                         display_crimes = df_crimes[["timestamp", "distance_miles", "category", "severity", "raw_title"]]
                         st.dataframe(display_crimes, use_container_width=True, hide_index=True)
             tab_idx += 1
+
+# ================= NEW 3: REGIONAL GRID =================
+elif page == "🗺️ Regional Grid":
+    st.title("🗺️ Regional Grid & Hazard Analytics")
+    
+    col_sync1, col_sync2 = st.columns([3, 1])
+    is_infra_cooling = check_cooldown("sync_infra", 60)
+    if col_sync2.button("⏳ Syncing..." if is_infra_cooling else "🔄 Sync Regional Telemetry", disabled=not can_sync or is_infra_cooling, key="tt_sync_infra", width="stretch"):
+        apply_cooldown("sync_infra")
+        with st.spinner("Pulling Radar & Calculating Geospatial Intersections..."):
+            from src.infra_worker import fetch_regional_hazards
+            fetch_regional_hazards()
+            time.sleep(1)
+            svc.get_cached_geojson.clear()
+            safe_rerun()
+    
+    locs = svc.get_cached_locations()
+    df = pd.DataFrame([{
+        "id": l.id, "Name": l.name, "Type": l.loc_type, 
+        "Priority": l.priority, "Risk": l.current_spc_risk, 
+        "Lat": l.lat, "Lon": l.lon
+    } for l in locs]) if locs else pd.DataFrame()
+    
+    spc_data, ar_data, oos_data = svc.get_cached_geojson()
+    
+    active_event_types = set()
+    for geo_dataset in [ar_data, oos_data]:
+        if geo_dataset:
+            for f in geo_dataset.get("features", []):
+                active_event_types.add(f.get("properties", {}).get("event", "Unknown"))
+    active_event_types = sorted(list(active_event_types))
+
+    ctrl_panel, main_panel = st.columns([1, 4])
+    
+    with ctrl_panel:
+        st.subheader("⚙️ Map Controls")
+        with st.container(border=True):
+            st.markdown("**Master Layers**")
+            show_radar_overlay = st.toggle("📡 Radar Overlay", value=True)
+            show_radar_panel = st.toggle("📺 Animated Panel", value=False)
+            st.divider()
+            show_spc = st.toggle("⛈️ SPC Convective", value=True)
+            show_warn = st.toggle("🚨 Warnings (AR)", value=True)
+            show_watch = st.toggle("⚠️ Watches (AR)", value=True)
+            show_oos = st.toggle("🌍 Out-of-State", value=True)
+            
+            st.divider()
+            show_fire_risk = st.toggle("🔥 NWS Fire Weather & Red Flags", value=False)
+            show_active_wildfires = st.toggle("🚒 Active Wildfires (NIFC)", value=False)
+            
+            if show_fire_risk or show_active_wildfires:
+                with st.container(border=True):
+                    st.markdown("**🔥 Fire Desk Legend:**")
+                    if show_fire_risk:
+                        st.markdown("🔴 **Red Flag Warning** *(Extreme/Burn Ban)*")
+                        st.markdown("🟠 **Fire Weather Watch** *(High Risk)*")
+                    if show_active_wildfires:
+                        st.markdown("🚨 **Active Wildfire** *(Scales by Acreage)*")
+        
+        with st.container(border=True):
+            st.markdown("**Hazard Isolation**")
+            if not active_event_types:
+                st.info("No active hazards to filter.")
+                selected_events = []
+            else:
+                st.caption("Select specific warnings to render:")
+                selected_events = st.multiselect("Active Threats", active_event_types, default=active_event_types, label_visibility="collapsed")
+        
+        with st.container(border=True):
+            st.markdown("**Facility Filters**")
+            if not df.empty:
+                available_types = df['Type'].unique().tolist()
+                available_prios = sorted(df['Priority'].unique().tolist())
+                selected_types = st.multiselect("Facility Type", available_types, default=available_types)
+                selected_prios = st.multiselect("Priority Level", available_prios, default=available_prios)
+                map_df = df[df['Type'].isin(selected_types) & df['Priority'].isin(selected_prios)].copy()
+                map_df['info'] = map_df['Name'] + "\nType: " + map_df['Type'] + "\nRisk: " + map_df['Risk']
+            else:
+                map_df = df.copy()
+
+    with main_panel:
+        rg_tab_names = []
+        if "Tab: Regional Grid -> Geospatial Map" in st.session_state.allowed_actions: rg_tab_names.append("🗺️ Geospatial Overlay")
+        if "Tab: Regional Grid -> Executive Dash" in st.session_state.allowed_actions: rg_tab_names.append("📊 Executive Dashboard")
+        if "Tab: Regional Grid -> Hazard Analytics" in st.session_state.allowed_actions: rg_tab_names.append("🌪️ Deep Hazard Analytics")
+        if "Tab: Regional Grid -> Location Matrix" in st.session_state.allowed_actions: rg_tab_names.append("🗄️ Location Matrix")
+        if "Tab: Regional Grid -> Weather Alerts Log" in st.session_state.allowed_actions: rg_tab_names.append("📜 Weather Alerts Log")
+
+        if not rg_tab_names:
+            st.warning("You do not have permission to view any modules within the Regional Grid.")
+        else:
+            rg_tabs = st.tabs(rg_tab_names)
+            rg_idx = 0
+
+            # Pack the UI toggles into a clean dictionary
+            map_toggles = {
+                "radar": show_radar_overlay, 
+                "spc": show_spc,
+                "warn": show_warn, 
+                "watch": show_watch, 
+                "oos": show_oos,
+                "fire_risk": show_fire_risk, 
+                "active_wildfires": show_active_wildfires
+            }
+            
+            # The single function call that builds the entire ecosystem
+            layers, view_state, map_diagnostics, toggled_affected_sites, master_affected_sites = svc.compile_regional_grid_map(
+                map_df, spc_data, ar_data, oos_data, selected_events, map_toggles
+            )
+
+            if "Tab: Regional Grid -> Geospatial Map" in st.session_state.allowed_actions:
+                with rg_tabs[rg_idx]:
+                    if show_radar_panel: c_map_main, c_map_side = st.columns([2, 1])
+                    else: c_map_main, c_map_side = st.columns([1, 0.0001])
+                        
+                    with c_map_main:
+                        st.subheader("Live Threat Overlay")
+                        st.pydeck_chart(pdk.Deck(layers=layers, initial_view_state=view_state, tooltip={"text": "{info}"}), width="stretch")
+                        
+                    if show_radar_panel:
+                        with c_map_side:
+                            st.subheader("Precipitation Loop")
+                            components.html("""<iframe src="https://www.rainviewer.com/map.html?loc=34.8,-92.2,6&oFa=0&oC=1&oU=0&oCS=1&oF=0&oAP=1&c=3&o=83&lm=1&layer=radar&sm=1&sn=1" width="100%" height="500" frameborder="0" style="border-radius: 8px;" allowfullscreen></iframe>""", height=500)
+                        
+                    st.divider()
+                    
+                    with st.expander("🛠️ Map Diagnostics & Parsing Logs"):
+                        for log_msg in map_diagnostics: st.text(log_msg)
+                    
+                    st.subheader("⚠️ Sites Impacted by Currently Toggled Layers")
+                    st.caption("This table dynamically updates based on the layer switches and filters in the left sidebar.")
+                    
+                    if not toggled_affected_sites: 
+                        st.success("✅ No sites intersect with the specific layers and hazard types currently rendered on the map.")
+                    else: 
+                        st.dataframe(pd.DataFrame(toggled_affected_sites).sort_values(by=['Priority', 'Monitored Site']), hide_index=True, width="stretch")
+                rg_idx += 1
+
+            if "Tab: Regional Grid -> Executive Dash" in st.session_state.allowed_actions:
+                with rg_tabs[rg_idx]:
+                    st.subheader("📊 Infrastructure Threat Dashboard")
+                    
+                    if map_df.empty:
+                        st.info("No monitored locations match current filters.")
+                    else:
+                        analytics = svc.get_infrastructure_analytics(map_df.copy())
+                        
+                        st.download_button(
+                            label="📥 Export Infrastructure Risk Report (CSV)",
+                            data=map_df.sort_values(by=['Risk', 'Priority']).to_csv(index=False).encode('utf-8'),
+                            file_name=f"Infrastructure_Risk_{datetime.now(LOCAL_TZ).strftime('%Y%m%d_%H%M')}.csv",
+                            mime='text/csv', width="stretch"
+                        )
+                        st.divider()
+                        
+                        c_m1, c_m2, c_m3 = st.columns(3)
+                        c_m1.metric("Total Tracked Sites", len(map_df))
+                        c_m2.metric("Sites in Active Risk Areas", analytics["at_risk_sites"])
+                        c_m3.metric("Highest Current Risk", analytics["highest_risk"])
+                        st.write("")
+                        
+                        c1, c2, c3 = st.columns(3)
+                        with c1:
+                            st.markdown("**Sites by Risk Level**")
+                            if not analytics["risk_distribution"].empty:
+                                st.bar_chart(analytics["risk_distribution"], color="#ff4b4b", width="stretch")
+                            else: st.success("All clear.")
+                        with c2:
+                            st.markdown("**Sites by Regional Zone**")
+                            st.bar_chart(analytics["region_distribution"], color="#28a745", width="stretch")
+                        with c3:
+                            st.markdown("**Sites by Facility Type**")
+                            st.bar_chart(analytics["type_distribution"], color="#1f77b4", width="stretch")
+
+                        st.divider()
+                        
+                        st.markdown("### 🧮 Advanced Data Intersections")
+                        cx1, cx2, cx3 = st.columns(3)
+                        with cx1:
+                            st.markdown("**Risk by Priority Level**")
+                            st.dataframe(analytics["priority_risk_matrix"], width="stretch")
+                        with cx2:
+                            st.markdown("**Risk by Regional Zone**")
+                            st.dataframe(analytics["region_risk_matrix"], width="stretch")
+                        with cx3:
+                            st.markdown("**Risk by Facility Type**")
+                            st.dataframe(analytics["type_risk_matrix"], width="stretch")
+                rg_idx += 1
+
+            if "Tab: Regional Grid -> Hazard Analytics" in st.session_state.allowed_actions:
+                with rg_tabs[rg_idx]:
+                    st.subheader("🌪️ Deep Hazard Analytics & Executive Broadcast")
+                    st.markdown("Comprehensive breakdown of active weather geometry against physical infrastructure.")
+                    
+                    if not master_affected_sites:
+                        st.success("🎉 All infrastructure is currently clear of severe weather geometry based on your current filters.")
+                    else:
+                        analytics_df = pd.DataFrame(master_affected_sites).drop_duplicates()
+                        
+                        p1_count = len(analytics_df[analytics_df['Priority'] == 1]['Monitored Site'].unique())
+                        p2_count = len(analytics_df[analytics_df['Priority'] == 2]['Monitored Site'].unique())
+                        
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("Total Sites Impacted", len(analytics_df['Monitored Site'].unique()))
+                        c2.metric("Critical (P1) Impacts", p1_count, delta="High Risk" if p1_count > 0 else None, delta_color="inverse")
+                        c3.metric("High (P2) Impacts", p2_count)
+                        c4.metric("Unique Hazards", len(analytics_df['Hazard'].unique()))
+                        
+                        st.divider()
+                        
+                        st.write("**Complete Intersectional Dataset**")
+                        st.dataframe(analytics_df.sort_values(by=['Priority', 'Severity', 'Monitored Site']), width="stretch", hide_index=True)
+                        
+                        st.divider()
+                        st.subheader("Broadcast Executive HTML SitRep")
+                        st.caption("Generates a boardroom-ready HTML email containing the filtered hazard data.")
+                        
+                        c_em1, c_em2 = st.columns([2, 1])
+                        default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
+                        sitrep_recipients = c_em1.text_input("Recipient Email(s)", value=default_email, key="sitrep_recip")
+                        
+                        if c_em2.button("Transmit Priority SitRep", type="primary", use_container_width=True):
+                            if not sitrep_recipients:
+                                st.error("Please enter at least one recipient email.")
+                            else:
+                                with st.spinner("Compiling HTML and transmitting..."):
+                                    html_safe = svc.generate_hazard_sitrep_html(analytics_df)
+                                    from src.mailer import send_alert_email
+                                    success, msg = send_alert_email("URGENT: Active Severe Weather Impacting Operations", html_safe, recipient_override=sitrep_recipients, is_html=True)
+                                    if success: st.success("Executive HTML SitRep successfully transmitted!")
+                                    else: st.error(f"SMTP Error: {msg}")
+                rg_idx += 1
+
+            if "Tab: Regional Grid -> Location Matrix" in st.session_state.allowed_actions:
+                with rg_tabs[rg_idx]:
+                    st.subheader("Active Infrastructure Matrix")
+                    st.caption("All tracked locations overlaid with current SPC Convective Outlooks.")
+                    if not map_df.empty:
+                        display_df = map_df.drop(columns=['id', 'Lat', 'Lon', 'info'])
+                        st.dataframe(display_df.sort_values(by=['Risk', 'Priority'], ascending=[True, True]), width="stretch", hide_index=True)
+                rg_idx += 1
+
+            if "Tab: Regional Grid -> Weather Alerts Log" in st.session_state.allowed_actions:
+                with rg_tabs[rg_idx]:
+                    st.subheader("📜 Comprehensive Weather Alerts Log")
+                    st.markdown("Human-readable log of all active NWS Watches, Warnings, and Special Weather Statements.")
+                    
+                    all_alert_details = svc.get_weather_alerts_log(ar_data, oos_data, selected_events)
+                    
+                    if not all_alert_details:
+                        st.success("✅ No active weather alerts matching your current hazard filters.")
+                    else:
+                        df_alerts = pd.DataFrame(all_alert_details)
+                        
+                        for col in ['Effective', 'Expires']:
+                            df_alerts[col] = pd.to_datetime(df_alerts[col], errors='coerce').dt.strftime('%Y-%m-%d %H:%M')
+                            df_alerts[col] = df_alerts[col].fillna("N/A")
+                            
+                        st.dataframe(df_alerts[["Event", "Severity", "Affected Area", "Expires", "Headline"]], hide_index=True, width="stretch")
+                        
+                        st.divider()
+                        st.subheader("🔍 Deep Dive Inspection")
+                        
+                        dropdown_options = [f"{a['Event']} - {a['Affected Area'][:40]}..." for a in all_alert_details]
+                        sel_alert_idx = st.selectbox("Select Alert to Review Full Details", range(len(dropdown_options)), format_func=lambda x: dropdown_options[x])
+                        
+                        if sel_alert_idx is not None:
+                            details = all_alert_details[sel_alert_idx]
+                            with st.container(border=True):
+                                st.markdown(f"### {details['Event']}")
+                                st.write(f"**Affected Zones/Counties:** {details['Affected Area']}")
+                                st.write(f"**Severity:** {details['Severity']} | **Certainty:** {details['Certainty']}")
+                                st.write(f"**Effective:** {details['Effective']} | **Expires:** {details['Expires']}")
+                                
+                                st.divider()
+                                st.markdown("**NWS Description:**\n\n> " + details['Description'].replace('\n', '\n> '))
+                                
+                                if details['Instructions'] and details['Instructions'] != "No explicit instructions provided.":
+                                    st.error(f"**NWS Actionable Instructions:**\n\n{details['Instructions']}")
+                rg_idx += 1
 
 # ================= 3. THREAT HUNTING & IOCS =================
 elif page == "🎯 Threat Hunting & IOCs":
