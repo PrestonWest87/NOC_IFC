@@ -123,30 +123,31 @@ ai_enabled = sys_config.is_active if sys_config else False
 if "ui_theme" not in st.session_state:
     st.session_state.ui_theme = "Standard"
 
+# Define CSS rules WITHOUT the <style> wrappers so Markdown doesn't parse them as code blocks
 theme_css = {
     "Standard": "",
     "NOC Terminal": """
-        <style>
-            .stApp { background-color: #0e1117; color: #00ff00; }
-            h1, h2, h3 { color: #00ff00 !important; font-family: 'Courier New', Courier, monospace; }
-            [data-testid="stSidebar"] { background-color: #000000; border-right: 1px solid #00ff00; }
-            div[data-testid="stMetricValue"] { color: #00ff00; }
-            .stButton>button { background-color: #002200; color: #00ff00; border: 1px solid #00ff00; }
-            .stButton>button:hover { background-color: #00ff00; color: #000000; }
-            [data-testid="stContainer"] { background-color: #050505; border: 1px solid #00ff00 !important; }
-        </style>
+        .stApp { background-color: #0e1117; color: #00ff00; }
+        h1, h2, h3 { color: #00ff00 !important; font-family: 'Courier New', Courier, monospace; }
+        [data-testid="stSidebar"] { background-color: #000000; border-right: 1px solid #00ff00; }
+        div[data-testid="stMetricValue"] { color: #00ff00; }
+        .stButton>button { background-color: #002200; color: #00ff00; border: 1px solid #00ff00; }
+        .stButton>button:hover { background-color: #00ff00; color: #000000; }
+        [data-testid="stContainer"] { background-color: #050505; border: 1px solid #00ff00 !important; }
     """,
     "High Contrast": """
-        <style>
-            .stApp { background-color: #ffffff; color: #000000; }
-            h1, h2, h3 { color: #000000 !important; font-weight: 900 !important; }
-            [data-testid="stSidebar"] { background-color: #f0f0f0; border-right: 3px solid #000000; }
-            .stButton>button { background-color: #000000; color: #ffffff; border: 2px solid #000000; font-weight: bold; }
-            [data-testid="stContainer"] { background-color: #ffffff; border: 3px solid #000000 !important; box-shadow: 4px 4px 0px #000000; }
-        </style>
+        .stApp { background-color: #ffffff; color: #000000; }
+        h1, h2, h3 { color: #000000 !important; font-weight: 900 !important; }
+        [data-testid="stSidebar"] { background-color: #f0f0f0; border-right: 3px solid #000000; }
+        .stButton>button { background-color: #000000; color: #ffffff; border: 2px solid #000000; font-weight: bold; }
+        [data-testid="stContainer"] { background-color: #ffffff; border: 3px solid #000000 !important; box-shadow: 4px 4px 0px #000000; }
     """
 }
 
+# Safely extract the chosen theme's CSS
+custom_css = theme_css.get(st.session_state.ui_theme, "")
+
+# Inject everything inside a single, unified <style> block
 st.markdown(f"""
     <style>
         .block-container {{ padding-top: 1rem; padding-bottom: 0rem; padding-left: 1rem; padding-right: 1rem; max-width: 100%; }}
@@ -156,11 +157,11 @@ st.markdown(f"""
         [data-testid="stVerticalBlockBorderWrapper"] p, [data-testid="stVerticalBlockBorderWrapper"] li, [data-testid="stExpanderDetails"] p, [data-testid="stExpanderDetails"] li {{ font-size: 0.9rem !important; margin-bottom: 0.2rem !important; line-height: 1.3 !important; }}
         hr {{ margin-top: 0.5rem; margin-bottom: 0.5rem; }}
         .stButton>button {{ padding: 0rem 0.5rem !important; min-height: 2rem !important; }}
+        
+        /* --- INJECT SELECTED THEME --- */
+        {custom_css}
     </style>
-    {theme_css.get(st.session_state.ui_theme, "")}
 """, unsafe_allow_html=True)
-
-
 # --- SIDEBAR ---
 st.sidebar.title("NOC Fusion")
 display_name = current_user_obj.full_name if current_user_obj and current_user_obj.full_name else st.session_state.current_user.capitalize()
