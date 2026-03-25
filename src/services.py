@@ -699,6 +699,19 @@ def update_locations(edited_df):
         db.commit()
     get_cached_locations.clear()
 
+def nuke_crime_data():
+    """Wipes all records from the CrimeIncident table."""
+    from src.database import CrimeIncident
+    with SessionLocal() as db:
+        try:
+            # Delete all rows and grab the count of how many were removed
+            deleted_count = db.query(CrimeIncident).delete()
+            db.commit()
+            return True, deleted_count
+        except Exception as e:
+            db.rollback()
+            return False, str(e)
+
 
 # ==========================================
 # 6. THREAT HUNTING & IOCs
