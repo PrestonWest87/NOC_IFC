@@ -421,7 +421,7 @@ if page == "👁️ Global Dashboards":
                         if res and ("clear" in res.lower() or "no active" in res.lower()): st.success("✅ " + res)
                         else: st.error(f"⚠️ **MATCH DETECTED:**\n{res}")
 
-   with dash_tabs[1]:
+    with dash_tabs[1]:
         st.subheader("📊 Executive Grid Threat Matrix")
         st.caption("Real-time synthesis of Physical, Cyber, and Crime telemetry for Bulk Electric System (BES) infrastructure.")
         
