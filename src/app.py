@@ -502,7 +502,7 @@ elif page == "🚨 Crime Intelligence":
 
     crime_data = svc.get_recent_crimes()
     
-    if not crime_data:
+        if not crime_data:
             st.success("✅ No crime incidents logged within 1 mile of HQ in the last 7 days.")
         else:
             df_crimes = pd.DataFrame(crime_data)
