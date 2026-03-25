@@ -120,34 +120,72 @@ sys_config = svc.get_cached_config()
 ai_enabled = sys_config.is_active if sys_config else False
 
 # --- DYNAMIC THEMING ENGINE ---
-if "ui_theme" not in st.session_state:
-    st.session_state.ui_theme = "Standard"
+theme_options = [
+    "Standard", 
+    "NOC Terminal", 
+    "High Contrast (Dark)", 
+    "Cyberpunk", 
+    "Solarized Dark", 
+    "Midnight Ocean"
+]
 
-# Define CSS rules WITHOUT the <style> wrappers so Markdown doesn't parse them as code blocks
+# Fetch the user's saved theme from their cookie (if it exists)
+theme_cookie_key = f"noc_theme_{st.session_state.current_user}" if st.session_state.current_user else "noc_theme_guest"
+saved_theme = cookie_controller.get(theme_cookie_key)
+
+if "ui_theme" not in st.session_state:
+    st.session_state.ui_theme = saved_theme if saved_theme in theme_options else "Standard"
+
+# Aggressive CSS overrides to prevent Streamlit's default colors from bleeding through
 theme_css = {
     "Standard": "",
     "NOC Terminal": """
-        .stApp { background-color: #0e1117; color: #00ff00; }
-        h1, h2, h3 { color: #00ff00 !important; font-family: 'Courier New', Courier, monospace; }
-        [data-testid="stSidebar"] { background-color: #000000; border-right: 1px solid #00ff00; }
-        div[data-testid="stMetricValue"] { color: #00ff00; }
-        .stButton>button { background-color: #002200; color: #00ff00; border: 1px solid #00ff00; }
-        .stButton>button:hover { background-color: #00ff00; color: #000000; }
-        [data-testid="stContainer"] { background-color: #050505; border: 1px solid #00ff00 !important; }
+        .stApp { background-color: #0e1117 !important; color: #00ff00 !important; }
+        h1, h2, h3, p, span, div, label { color: #00ff00 !important; font-family: 'Courier New', Courier, monospace; }
+        [data-testid="stSidebar"] { background-color: #000000 !important; border-right: 1px solid #00ff00 !important; }
+        .stButton>button { background-color: #002200 !important; color: #00ff00 !important; border: 1px solid #00ff00 !important; }
+        .stButton>button:hover { background-color: #00ff00 !important; color: #000000 !important; }
+        [data-testid="stContainer"] { background-color: #050505 !important; border: 1px solid #00ff00 !important; }
     """,
-    "High Contrast": """
-        .stApp { background-color: #ffffff; color: #000000; }
-        h1, h2, h3 { color: #000000 !important; font-weight: 900 !important; }
-        [data-testid="stSidebar"] { background-color: #f0f0f0; border-right: 3px solid #000000; }
-        .stButton>button { background-color: #000000; color: #ffffff; border: 2px solid #000000; font-weight: bold; }
-        [data-testid="stContainer"] { background-color: #ffffff; border: 3px solid #000000 !important; box-shadow: 4px 4px 0px #000000; }
+    "High Contrast (Dark)": """
+        .stApp { background-color: #000000 !important; color: #FFFF00 !important; }
+        h1, h2, h3, p, span, div, label { color: #FFFF00 !important; font-weight: 700 !important; }
+        [data-testid="stSidebar"] { background-color: #000000 !important; border-right: 3px solid #FFFF00 !important; }
+        .stButton>button { background-color: #000000 !important; color: #FFFF00 !important; border: 2px solid #FFFF00 !important; font-weight: 900 !important; }
+        .stButton>button:hover { background-color: #FFFF00 !important; color: #000000 !important; }
+        [data-testid="stContainer"] { background-color: #000000 !important; border: 3px solid #FFFF00 !important; box-shadow: none !important; }
+    """,
+    "Cyberpunk": """
+        .stApp { background-color: #0b0213 !important; color: #00ffcc !important; }
+        h1, h2, h3 { color: #ff007f !important; text-shadow: 0 0 5px #ff007f; }
+        p, span, label, div { color: #00ffcc !important; }
+        [data-testid="stSidebar"] { background-color: #120422 !important; border-right: 2px solid #ff007f !important; }
+        .stButton>button { background-color: #120422 !important; color: #00ffcc !important; border: 1px solid #00ffcc !important; box-shadow: 0 0 5px #00ffcc; }
+        .stButton>button:hover { background-color: #00ffcc !important; color: #120422 !important; border: 1px solid #ff007f !important; }
+        [data-testid="stContainer"] { background-color: #1a0633 !important; border: 1px solid #ff007f !important; box-shadow: 0 0 10px rgba(255,0,127,0.2) !important; }
+    """,
+    "Solarized Dark": """
+        .stApp { background-color: #002b36 !important; color: #839496 !important; }
+        h1, h2, h3 { color: #b58900 !important; }
+        p, span, label, div { color: #839496 !important; }
+        [data-testid="stSidebar"] { background-color: #073642 !important; border-right: 1px solid #586e75 !important; }
+        .stButton>button { background-color: #073642 !important; color: #2aa198 !important; border: 1px solid #2aa198 !important; }
+        .stButton>button:hover { background-color: #2aa198 !important; color: #002b36 !important; }
+        [data-testid="stContainer"] { background-color: #073642 !important; border: 1px solid #586e75 !important; }
+    """,
+    "Midnight Ocean": """
+        .stApp { background-color: #011627 !important; color: #94a3b8 !important; }
+        h1, h2, h3 { color: #38bdf8 !important; }
+        p, span, label, div { color: #cbd5e1 !important; }
+        [data-testid="stSidebar"] { background-color: #0f172a !important; border-right: 1px solid #1e293b !important; }
+        .stButton>button { background-color: #1e293b !important; color: #38bdf8 !important; border: 1px solid #38bdf8 !important; border-radius: 6px !important;}
+        .stButton>button:hover { background-color: #38bdf8 !important; color: #0f172a !important; }
+        [data-testid="stContainer"] { background-color: #0f172a !important; border: 1px solid #1e293b !important; border-radius: 8px !important; }
     """
 }
 
-# Safely extract the chosen theme's CSS
 custom_css = theme_css.get(st.session_state.ui_theme, "")
 
-# Inject everything inside a single, unified <style> block
 st.markdown(f"""
     <style>
         .block-container {{ padding-top: 1rem; padding-bottom: 0rem; padding-left: 1rem; padding-right: 1rem; max-width: 100%; }}
@@ -157,11 +195,11 @@ st.markdown(f"""
         [data-testid="stVerticalBlockBorderWrapper"] p, [data-testid="stVerticalBlockBorderWrapper"] li, [data-testid="stExpanderDetails"] p, [data-testid="stExpanderDetails"] li {{ font-size: 0.9rem !important; margin-bottom: 0.2rem !important; line-height: 1.3 !important; }}
         hr {{ margin-top: 0.5rem; margin-bottom: 0.5rem; }}
         .stButton>button {{ padding: 0rem 0.5rem !important; min-height: 2rem !important; }}
-        
-        /* --- INJECT SELECTED THEME --- */
         {custom_css}
     </style>
 """, unsafe_allow_html=True)
+
+
 # --- SIDEBAR ---
 st.sidebar.title("NOC Fusion")
 display_name = current_user_obj.full_name if current_user_obj and current_user_obj.full_name else st.session_state.current_user.capitalize()
@@ -174,10 +212,23 @@ if st.sidebar.button("🚪 Log Out", width="stretch"):
     st.session_state.current_user = None; st.session_state.current_role = None
     time.sleep(0.5); safe_rerun()
 
-st.sidebar.divider()
-st.session_state.ui_theme = st.sidebar.selectbox("🎨 UI Theme", ["Standard", "NOC Terminal", "High Contrast"], index=["Standard", "NOC Terminal", "High Contrast"].index(st.session_state.ui_theme))
-
 with st.sidebar.expander("📝 My Profile"):
+    # 1. UI Theme Selector (with persistence)
+    selected_theme = st.selectbox(
+        "🎨 UI Theme", 
+        theme_options, 
+        index=theme_options.index(st.session_state.ui_theme)
+    )
+    
+    if selected_theme != st.session_state.ui_theme:
+        st.session_state.ui_theme = selected_theme
+        cookie_controller.set(theme_cookie_key, selected_theme, max_age=30*86400) # Save for 30 days
+        time.sleep(0.1)
+        safe_rerun()
+        
+    st.divider()
+    
+    # 2. Profile Details Form
     with st.form("my_profile_form"):
         new_fn = st.text_input("Full Name", value=current_user_obj.full_name or "")
         new_jt = st.text_input("Job Title", value=current_user_obj.job_title or "")
