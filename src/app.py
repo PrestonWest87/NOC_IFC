@@ -428,7 +428,7 @@ if page == "👁️ Global Dashboards":
         ar_warn = svc.get_cached_geojson()[1] or {}
         oos_warn = svc.get_cached_geojson()[2] or {}
         active_nws = len(ar_warn.get("features", [])) + len(oos_warn.get("features", []))
-        crime_data = svc.get_recent_crimes()
+        crime_data = svc.get_recent_crimes(max_distance=1.0)
         
         intel = svc.get_executive_grid_intel(active_nws, crime_data)
         risk_color = "red" if intel['unified_risk'] == "HIGH" else "orange" if intel['unified_risk'] == "MEDIUM" else "green"
@@ -606,24 +606,29 @@ elif page == "📡 Threat Telemetry":
 
         if "Tab: Threat Telemetry -> Perimeter Crime" in st.session_state.allowed_actions:
             with tabs[tab_idx]:
-                col1, col2 = st.columns([3, 1])
+                # Expand to 3 columns to fit the new filter
+                col1, col2, col3 = st.columns([2, 1, 1])
                 with col1:
                     st.subheader("🚨 Perimeter Crime Telemetry")
-                    st.caption("LRPD incident aggregation geofenced to 1-Mile radius around HQ.")
+                    st.caption("LRPD incident aggregation geofenced around HQ.")
                 with col2:
+                    # --- NEW: DYNAMIC RADIUS FILTER ---
+                    radius_filter = st.selectbox("Geofence Radius", [1, 3, 5, 10], index=0, format_func=lambda x: f"{x} Miles")
+                with col3:
                     st.write("")
                     if st.button("🔄 Force Fetch LRPD", use_container_width=True):
-                        with st.spinner("Polling Little Rock Data Gov..."):
+                        with st.spinner("Polling Little Rock Dispatches..."):
                             if svc.force_fetch_crime_data():
                                 st.success("Sync Complete!")
-                                st.rerun() 
+                                safe_rerun() 
                             else:
                                 st.error("Fetch Failed. Check Logs.")
 
-                crime_data = svc.get_recent_crimes()
+                # Fetch crimes using the selected radius
+                crime_data = svc.get_recent_crimes(max_distance=radius_filter)
                 
                 if not crime_data:
-                    st.success("✅ No crime incidents logged within 1 mile of HQ in the last 7 days.")
+                    st.success(f"✅ No crime incidents logged within {radius_filter} miles of HQ in the last 7 days.")
                 else:
                     df_crimes = pd.DataFrame(crime_data)
                     
@@ -633,6 +638,10 @@ elif page == "📡 Threat Telemetry":
                         df_crimes = df_crimes.dropna(subset=['lat', 'lon'])
                         layers, view_state = svc.build_crime_map_layers(df_crimes)
                         
+                        # Auto-zoom the map slightly if they select a massive radius
+                        map_zoom = 15.5 if radius_filter == 1 else 13.5 if radius_filter == 3 else 12.0
+                        view_state.zoom = map_zoom
+                        
                         st.pydeck_chart(pdk.Deck(
                             layers=layers, 
                             initial_view_state=view_state, 
@@ -640,7 +649,7 @@ elif page == "📡 Threat Telemetry":
                         ), use_container_width=True)
                         
                         st.divider()
-                        st.subheader("Raw Incident Logs (1 Mile Radius)")
+                        st.subheader(f"Raw Incident Logs ({radius_filter} Mile Radius)")
                         display_crimes = df_crimes[["timestamp", "distance_miles", "category", "severity", "raw_title"]]
                         st.dataframe(display_crimes, use_container_width=True, hide_index=True)
             tab_idx += 1
