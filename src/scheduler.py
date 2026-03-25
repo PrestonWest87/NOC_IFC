@@ -119,6 +119,7 @@ def bulk_save_to_db(db_session, arts_data):
                 ]
                 db_session.add_all(ioc_objs)
             db_session.commit()
+            db_session.expunge_all()
             added += 1
         except IntegrityError:
             db_session.rollback()
