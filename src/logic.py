@@ -63,5 +63,16 @@ class HybridScorer:
 
         return min(final_score, 100.0), reasons
 
+_SCORER_INSTANCE = None
+
 def get_scorer():
-    return HybridScorer()
+    """True Singleton: Ensures the heavy ML model is only loaded into RAM once."""
+    global _SCORER_INSTANCE
+    if _SCORER_INSTANCE is None:
+        _SCORER_INSTANCE = HybridScorer()
+    return _SCORER_INSTANCE
+
+def force_reload_scorer():
+    """Call this after retraining the ML model to clear the old one from RAM."""
+    global _SCORER_INSTANCE
+    _SCORER_INSTANCE = HybridScorer()
