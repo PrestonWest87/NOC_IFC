@@ -502,29 +502,29 @@ elif page == "🚨 Crime Intelligence":
 
     crime_data = svc.get_recent_crimes()
     
-        if not crime_data:
-            st.success("✅ No crime incidents logged within 1 mile of HQ in the last 7 days.")
+    if not crime_data:
+        st.success("✅ No crime incidents logged within 1 mile of HQ in the last 7 days.")
+    else:
+        df_crimes = pd.DataFrame(crime_data)
+        
+        if "lat" not in df_crimes.columns or "lon" not in df_crimes.columns:
+            st.error("🚨 Coordinate data missing from cache! Please run `python src/crime_worker.py` in your terminal to fetch fresh geometry.")
         else:
-            df_crimes = pd.DataFrame(crime_data)
+            df_crimes = df_crimes.dropna(subset=['lat', 'lon'])
             
-            if "lat" not in df_crimes.columns or "lon" not in df_crimes.columns:
-                st.error("🚨 Coordinate data missing from cache! Please run `python src/crime_worker.py` in your terminal to fetch fresh geometry.")
-            else:
-                df_crimes = df_crimes.dropna(subset=['lat', 'lon'])
-                
-                # --- NEW CLEAN MAP RENDERING ---
-                layers, view_state = svc.build_crime_map_layers(df_crimes)
-                
-                st.pydeck_chart(pdk.Deck(
-                    layers=layers, 
-                    initial_view_state=view_state, 
-                    tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Dist: {distance_miles} miles"}
-                ), use_container_width=True)
-                
-                st.divider()
-                st.subheader("Raw Incident Logs (1 Mile Radius)")
-                display_crimes = df_crimes[["timestamp", "distance_miles", "category", "severity", "raw_title"]]
-                st.dataframe(display_crimes, use_container_width=True, hide_index=True)
+            # --- NEW CLEAN MAP RENDERING ---
+            layers, view_state = svc.build_crime_map_layers(df_crimes)
+            
+            st.pydeck_chart(pdk.Deck(
+                layers=layers, 
+                initial_view_state=view_state, 
+                tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Dist: {distance_miles} miles"}
+            ), use_container_width=True)
+            
+            st.divider()
+            st.subheader("Raw Incident Logs (1 Mile Radius)")
+            display_crimes = df_crimes[["timestamp", "distance_miles", "category", "severity", "raw_title"]]
+            st.dataframe(display_crimes, use_container_width=True, hide_index=True)
             
 # ================= 3. THREAT TELEMETRY =================
 elif page == "📡 Threat Telemetry":
