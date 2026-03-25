@@ -503,64 +503,28 @@ elif page == "🚨 Crime Intelligence":
     crime_data = svc.get_recent_crimes()
     
     if not crime_data:
-        st.success("✅ No crime incidents logged within 1 mile of HQ in the last 7 days.")
-    else:
-        df_crimes = pd.DataFrame(crime_data)
-        
-        # SAFETY CHECK: Ensure coordinates exist before feeding to PyDeck
-        if "lat" not in df_crimes.columns or "lon" not in df_crimes.columns:
-            st.error("🚨 Coordinate data missing from cache! Please run `python src/crime_worker.py` in your terminal to fetch fresh geometry.")
+            st.success("✅ No crime incidents logged within 1 mile of HQ in the last 7 days.")
         else:
-            # Drop any random null coordinates
-            df_crimes = df_crimes.dropna(subset=['lat', 'lon'])
+            df_crimes = pd.DataFrame(crime_data)
             
-            # Map Rendering - Offloaded to services.py
-            layers, view_state = svc.build_crime_map_layers(df_crimes)
-            
-            st.pydeck_chart(pdk.Deck(
-                layers=layers, 
-                initial_view_state=view_state, 
-                tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Dist: {distance_miles} miles"}
-            ), use_container_width=True)
-            
-            st.divider()
-            st.pydeck_chart(pdk.Deck(
-                initial_view_state=pdk.ViewState(
-                    latitude=34.6755, # Recentered slightly for the new polygon
-                    longitude=-92.3235, 
-                    zoom=15.5, # Tighter zoom for the specific campus footprint
-                    pitch=45 
-                ),
-                layers=[
-                    # Campus Perimeter Layer
-                    pdk.Layer(
-                        "PolygonLayer",
-                        polygon_df,
-                        get_polygon="coordinates",
-                        get_fill_color=[0, 255, 100, 45], # Subtle green tint
-                        get_line_color=[0, 255, 100, 255], # Solid green border
-                        line_width_min_pixels=2,
-                        stroked=True,
-                        filled=True,
-                    ),
-                    # Crime Incident Points
-                    pdk.Layer(
-                        "ScatterplotLayer",
-                        data=df_crimes,
-                        get_position="[lon, lat]",
-                        get_radius=50, # Smaller radius since we are zoomed in tighter
-                        get_fill_color=[255, 69, 0, 220],
-                        pickable=True,
-                        auto_highlight=True
-                    )
-                ],
-                tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Dist: {distance_miles} miles"}
-            ), use_container_width=True)
-            
-            st.divider()
-            st.subheader("Raw Incident Logs (1 Mile Radius)")
-            display_crimes = df_crimes[["timestamp", "distance_miles", "category", "severity", "raw_title"]]
-            st.dataframe(display_crimes, use_container_width=True, hide_index=True)
+            if "lat" not in df_crimes.columns or "lon" not in df_crimes.columns:
+                st.error("🚨 Coordinate data missing from cache! Please run `python src/crime_worker.py` in your terminal to fetch fresh geometry.")
+            else:
+                df_crimes = df_crimes.dropna(subset=['lat', 'lon'])
+                
+                # --- NEW CLEAN MAP RENDERING ---
+                layers, view_state = svc.build_crime_map_layers(df_crimes)
+                
+                st.pydeck_chart(pdk.Deck(
+                    layers=layers, 
+                    initial_view_state=view_state, 
+                    tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Dist: {distance_miles} miles"}
+                ), use_container_width=True)
+                
+                st.divider()
+                st.subheader("Raw Incident Logs (1 Mile Radius)")
+                display_crimes = df_crimes[["timestamp", "distance_miles", "category", "severity", "raw_title"]]
+                st.dataframe(display_crimes, use_container_width=True, hide_index=True)
             
 # ================= 3. THREAT TELEMETRY =================
 elif page == "📡 Threat Telemetry":
