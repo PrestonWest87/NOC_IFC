@@ -158,6 +158,9 @@ def fetch_feeds(source="Scheduled"):
                 log(f"💥 Processing error on {f_name}: {e}", "WORKER")
 
     log(f"🏁 Cycle complete. Added {total_added} items.", source)
+    main_session.close()
+    
+    gc.collect()
 
 
 # =====================================================================
