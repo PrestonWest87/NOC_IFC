@@ -777,155 +777,49 @@ elif page == "📡 Threat Telemetry":
                         rg_tabs = st.tabs(rg_tab_names)
                         rg_idx = 0
 
-                        master_polygons = []
-                        toggled_polygons = []
-                        layers = []
-                        layer_id = str(uuid.uuid4())[:6]
-
-                        if show_radar_overlay:
-                            layers.append(pdk.Layer("TileLayer", data=["https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png"], opacity=0.6, pickable=False))
-
-                        # 1. PROCESS SPC DATA
-                        spc_micro_collection = {"type": "FeatureCollection", "features": []}
-                        if spc_data:
-                            color_map = {"TSTM": [192, 232, 192, 100], "MRGL": [124, 205, 124, 150], "SLGT": [246, 246, 123, 150], "ENH": [230, 153, 0, 150], "MDT": [255, 0, 0, 150], "HIGH": [255, 0, 255, 150]}
-                            
-                            for f in spc_data.get('features', []):
-                                label = f.get('properties', {}).get('LABEL', '')
-                                try:
-                                    poly_shape = shape(f.get("geometry"))
-                                    poly_dict = {"event": f"SPC: {label}", "shape": poly_shape, "severity": "Watch"}
-                                    master_polygons.append(poly_dict)
-                                    if show_spc: toggled_polygons.append(poly_dict)
-                                    
-                                    micro_feature = {
-                                        "type": "Feature",
-                                        "geometry": f.get("geometry"),
-                                        "properties": {
-                                            "fill_color": color_map.get(label, [0, 0, 0, 0]),
-                                            "line_color": [0, 0, 0, 255],
-                                            "info": f"SPC Risk: {label}"
-                                        }
-                                    }
-                                    spc_micro_collection["features"].append(micro_feature)
-                                except Exception: pass
-                            
-                            if show_spc and spc_micro_collection["features"]:
-                                layers.append(pdk.Layer("GeoJsonLayer", spc_micro_collection, id=f"spc_layer_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=1))
-
-                        # 2. PROCESS NWS ALERTS
-                        ar_warn, ar_watch, ar_zonewide, ar_logs = svc.process_nws_alerts(ar_data, selected_events, is_oos=False)
-                        oos_warn, oos_watch, oos_zonewide, oos_logs = svc.process_nws_alerts(oos_data, selected_events, is_oos=True)
-
-                        all_zonewide = (ar_zonewide or []) + (oos_zonewide or [])
-                        map_diagnostics = ar_logs + oos_logs
-
-                        for f in ar_warn["features"] + ar_watch["features"] + oos_warn["features"] + oos_watch["features"]:
-                            master_polygons.append({"event": f['properties']['info'], "shape": f['properties']['shapely_obj'], "severity": f['properties']['severity']})
-                            is_oos_feature = "[OOS]" in f['properties']['info']
-                            is_severe_feature = f['properties']['severity'] == "Warning"
-                            if (is_oos_feature and show_oos) or (not is_oos_feature and is_severe_feature and show_warn) or (not is_oos_feature and not is_severe_feature and show_watch):
-                                toggled_polygons.append({"event": f['properties']['info'], "shape": f['properties']['shapely_obj'], "severity": f['properties']['severity']})
-                            f['properties'].pop('shapely_obj', None)
-
-                        # --- NWS FIRE WEATHER POLYGONS ---
-                        if show_fire_risk:
-                            ar_fire_geo = {"type": "FeatureCollection", "features": []}
-                            ar_counties = svc.get_ar_counties_mapping()
-                            
-                            fire_events = {}
-                            for geo_ds in [ar_data, oos_data]:
-                                if geo_ds:
-                                    for f in geo_ds.get('features', []):
-                                        event = f.get('properties', {}).get('event', '')
-                                        area_desc = f.get('properties', {}).get('areaDesc', '')
-                                        
-                                        if any(k in event for k in ["Fire Weather", "Red Flag", "Fire Warning", "Extreme Fire"]):
-                                            severity = "Extreme (Burn Ban / Red Flag)" if "Red Flag" in event or "Warning" in event else "High (Fire Weather Watch)"
-                                            fill_color = [139, 0, 0, 160] if "Red Flag" in event or "Warning" in event else [255, 140, 0, 120]
-                                            line_color = [255, 0, 0, 255] if "Red Flag" in event or "Warning" in event else [255, 140, 0, 255]
-                                            
-                                            counties = [c.strip().lower().replace(" county", "").replace(" parish", "") for c in re.split(r'[;,]', area_desc)]
-                                            for c in counties:
-                                                fire_events[c] = {"severity": severity, "color": fill_color, "line_color": line_color, "event": event}
-
-                            for c_name, geom in ar_counties.items():
-                                if c_name in fire_events:
-                                    info = fire_events[c_name]
-                                    feature = {
-                                        "type": "Feature",
-                                        "geometry": geom,
-                                        "properties": {
-                                            "info": f"{c_name.title()} County\nRisk Level: {info['severity']}\nNWS Alert: {info['event']}",
-                                            "fill_color": info["color"],
-                                            "line_color": info["line_color"]
-                                        }
-                                    }
-                                    ar_fire_geo["features"].append(feature)
-                                    
-                                    try:
-                                        poly_dict = {"event": f"Wildfire Risk: {info['event']}", "shape": shape(geom), "severity": "High"}
-                                        master_polygons.append(poly_dict)
-                                        toggled_polygons.append(poly_dict)
-                                    except: pass
-
-                            if ar_fire_geo["features"]:
-                                layers.append(pdk.Layer(
-                                    "GeoJsonLayer", 
-                                    data=ar_fire_geo, 
-                                    id=f"fire_risk_layer_{layer_id}", 
-                                    pickable=True, 
-                                    stroked=True, 
-                                    filled=True, 
-                                    get_fill_color="properties.fill_color", 
-                                    get_line_color="properties.line_color", 
-                                    line_width_min_pixels=2
-                                ))
-                        # ------------------------------------
-
-                        # Render Standard NWS layers
-                        if show_warn and ar_warn["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=ar_warn, id=f"ar_warn_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
-                        if show_watch and ar_watch["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=ar_watch, id=f"ar_watch_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
-                        if show_oos and oos_warn["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=oos_warn, id=f"oos_warn_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
-                        if show_oos and oos_watch["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=oos_watch, id=f"oos_watch_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
-
-                        # --- NEW: NIFC ACTIVE WILDFIRES ---
-                        if show_active_wildfires:
-                            nifc_data = svc.get_active_wildfires()
-                            if nifc_data:
-                                df_fires = pd.DataFrame(nifc_data)
-                                df_fires['info'] = "🔥 " + df_fires['name'] + " (" + df_fires['state'] + ")\nAcres: " + df_fires['acres'].astype(str) + "\nContainment: " + df_fires['contained'].astype(str) + "%"
-                                
-                                layers.append(pdk.Layer(
-                                    "ScatterplotLayer",
-                                    data=df_fires,
-                                    id=f"nifc_active_fires_{layer_id}",
-                                    pickable=True,
-                                    opacity=0.9,
-                                    stroked=True,
-                                    filled=True,
-                                    get_radius="1500 + (acres * 15)", # Radius scales up as the fire grows
-                                    radius_min_pixels=5,
-                                    radius_max_pixels=35,
-                                    line_width_min_pixels=1,
-                                    get_position="[lon, lat]",
-                                    get_fill_color="color",
-                                    get_line_color=[0, 0, 0, 255]
-                                ))
-                                
-                                # Add exact fire points (with a 2-mile buffer) into the Site Hazard Matrix
-                                for _, row in df_fires.iterrows():
-                                    try:
-                                        fire_poly = Point(row['lon'], row['lat']).buffer(0.03)
-                                        poly_dict = {"event": f"Active Wildfire: {row['name']}", "shape": fire_poly, "severity": "High"}
-                                        master_polygons.append(poly_dict)
-                                        toggled_polygons.append(poly_dict)
-                                    except: pass
-                        # ------------------------------------
-
+                        map_toggles = {
+                            "radar": show_radar_overlay, 
+                            "spc": show_spc,
+                            "warn": show_warn, 
+                            "watch": show_watch, 
+                            "oos": show_oos,
+                            "fire_risk": show_fire_risk, 
+                            "active_wildfires": show_active_wildfires
+                        }
                         
-                        # 3. CALCULATE INTERSECTIONS 
-                        toggled_affected_sites, master_affected_sites = svc.calculate_site_intersections(map_df, toggled_polygons)
+                        # The single function call that builds the entire ecosystem
+                        layers, view_state, map_diagnostics, toggled_affected_sites, master_affected_sites = svc.compile_regional_grid_map(
+                            map_df, spc_data, ar_data, oos_data, selected_events, map_toggles
+                        )
+
+                        # --- RENDER ROLE-GATED TABS ---
+                        if "Tab: Regional Grid -> Geospatial Map" in st.session_state.allowed_actions:
+                            with rg_tabs[rg_idx]:
+                                if show_radar_panel: c_map_main, c_map_side = st.columns([2, 1])
+                                else: c_map_main, c_map_side = st.columns([1, 0.0001])
+                                    
+                                with c_map_main:
+                                    st.subheader("Live Threat Overlay")
+                                    st.pydeck_chart(pdk.Deck(layers=layers, initial_view_state=view_state, tooltip={"text": "{info}"}), width="stretch")
+                                    
+                                if show_radar_panel:
+                                    with c_map_side:
+                                        st.subheader("Precipitation Loop")
+                                        components.html("""<iframe src="https://www.rainviewer.com/map.html?loc=34.8,-92.2,6&oFa=0&oC=1&oU=0&oCS=1&oF=0&oAP=1&c=3&o=83&lm=1&layer=radar&sm=1&sn=1" width="100%" height="500" frameborder="0" style="border-radius: 8px;" allowfullscreen></iframe>""", height=500)
+                                    
+                                st.divider()
+                                
+                                with st.expander("🛠️ Map Diagnostics & Parsing Logs"):
+                                    for log_msg in map_diagnostics: st.text(log_msg)
+                                
+                                st.subheader("⚠️ Sites Impacted by Currently Toggled Layers")
+                                st.caption("This table dynamically updates based on the layer switches and filters in the left sidebar.")
+                                
+                                if not toggled_affected_sites: 
+                                    st.success("✅ No sites intersect with the specific layers and hazard types currently rendered on the map.")
+                                else: 
+                                    st.dataframe(pd.DataFrame(toggled_affected_sites).sort_values(by=['Priority', 'Monitored Site']), hide_index=True, width="stretch")
+                            rg_idx += 1
 
                         # --- RENDER ROLE-GATED TABS ---
                         if "Tab: Regional Grid -> Geospatial Map" in st.session_state.allowed_actions:
