@@ -1,62 +1,29 @@
-# Enterprise Architecture & Data Dictionary: `src/database.py` *(Updated)*
+### Core System & IAM (Identity and Access Management) Models
+These tables manage system state, global configurations, and Role-Based Access Control (RBAC).
 
-## 1. Executive Overview
+* **`User`** (Table: `users`): Manages authentication and user profiles. It stores the username, bcrypt-hashed passwords, session tokens (for persistent 30-day logins), and contact information.
+* **`Role`** (Table: `roles`): The backbone of the granular RBAC system. It stores highly descriptive JSON arrays (`allowed_pages` and `allowed_actions`) that dictate exactly which dashboards, tabs, and buttons a specific user role (e.g., "admin" vs. "analyst") is permitted to access.
+* **`SystemConfig`** (Table: `system_config`): A single-row table that holds global application state. This includes LLM API endpoints and keys, internal tech stack definitions (used by the AI Auditor), the cached text for the rolling AI shift briefing, and SMTP credentials for autonomous report broadcasting.
+* **`Keyword`** (Table: `keywords`): Stores the weighted dictionary used by the triage engines to heuristically score incoming intelligence articles based on organizational relevance.
+* **`FeedSource`** (Table: `feed_sources`): Manages the URLs and descriptive names of the external RSS feeds that the background workers continuously poll for cyber and geopolitical intelligence.
+* **`SavedReport`** (Table: `saved_reports`): A shared library archive where analysts can persistently save the bespoke, AI-synthesized intelligence reports generated in the Report Center module.
 
-The `src/database.py` module is the **Data Persistence and ORM Foundation** of the Intelligence Fusion Center (IFC). In its latest architectural iteration, this module has been heavily refactored to prioritize **High-Throughput Concurrency** and **Read-Optimized Indexing** for edge deployments.
+### Intelligence & Threat Models
+These tables store the parsed, scored, and categorized Open-Source Intelligence (OSINT) and cybersecurity threat data.
 
-To maximize performance and deployment simplicity in restricted environments, the engine now strictly enforces an optimized file-based SQLite configuration. The Object-Relational Mapping (ORM) models have also been expanded to support the new Kinetic Crime Tracking and Executive Dashboard features, with strategic indexing to prevent database locks during massive, asynchronous telemetry ingestion bursts.
+* **`Article`** (Table: `articles`): The central repository for ingested intelligence. It stores the raw article content, the assigned threat score, the regex-determined category (e.g., "Cyber: Malware"), the AI-generated Bottom Line Up Front (BLUF), and flags indicating if it is "pinned" to the NOC dashboard.
+* **`ExtractedIOC`** (Table: `extracted_iocs`): Houses specific Indicators of Compromise (e.g., IPv4 addresses, SHA256 hashes, CVEs) automatically extracted from the text of incoming articles by the Threat Hunting workers.
+* **`CveItem`** (Table: `cve_items`): A localized, synchronized mirror of the CISA Known Exploited Vulnerabilities (KEV) catalog. It allows the system to rapidly cross-reference emerging exploits against the organization's tech stack without querying external APIs.
+* **`DailyBriefing`** (Table: `daily_briefings`): Archives the "Daily Master Fusion Report," an AI-synthesized situational report generated every morning summarizing the last 24 hours of global cyber and physical telemetry.
 
----
+### Grid, Weather, & AIOps Models
+These tables manage the physical footprint of the organization, external infrastructure dependencies, and raw telemetry clustering for Root Cause Analysis.
 
-## 2. Engine Architecture & Concurrency Optimization
-
-The database engine has been aggressively tuned for edge-compute hardware via specific SQLite PRAGMA commands, transforming it into a high-concurrency datastore capable of handling parallel background worker ingestion alongside rapid UI rendering.
-
-### 2.1 Enforced SQLite Configuration
-The system explicitly overrides external `DATABASE_URL` injections to guarantee SQLite execution (`sqlite:////app/data/noc_fusion.db`). This ensures zero-config deployments and guarantees the application utilizes the following high-performance connection arguments (`check_same_thread=False`).
-
-### 2.2 Memory & Concurrency Optimization (PRAGMA Injections)
-Using an `@event.listens_for(engine, "connect")` decorator, the engine injects five critical PRAGMA commands upon every connection:
-* **Write-Ahead Logging (`journal_mode=WAL`):** Bypasses traditional file-locking, allowing background workers to write telemetry simultaneously while the Streamlit UI performs heavy dashboard reads.
-* **Asynchronous Sync (`synchronous=NORMAL`):** Relaxes strict disk-sync constraints to drastically speed up bulk inserts (e.g., pulling thousands of KEVs or RSS articles).
-* **RAM Caching (`cache_size=-64000`):** Dedicates a massive 64MB of RAM specifically to the DB cache, accelerating rapid UI reloads and pagination.
-* **In-Memory Temp Storage (`temp_store=MEMORY`):** Forces complex `.filter()` queries and temporary table operations into RAM rather than writing to disk.
-* **Memory-Mapped I/O (`mmap_size=3000000000`):** Allocates up to 3GB for memory mapping, allowing the OS page cache to deliver lightning-fast data retrieval for the Executive Dashboards.
-
----
-
-## 3. Object-Relational Mapping (ORM) & Strategic Indexing
-
-To support the massive volume of data parsed by the IFC, the SQLAlchemy schema (`declarative_base()`) utilizes strategic indexing (`index=True`). This ensures heavy queries executed by the AIOps engine run in $O(\log n)$ time rather than triggering full table scans.
-
-### 3.1 High-Frequency Filter Indexes
-* **Booleans:** Fields that are constantly polled by background engines are strictly indexed. 
-    * `SolarWindsAlert.is_correlated` (Polled rapidly by the AIOps Engine).
-    * `CloudOutage.is_resolved` & `RegionalOutage.is_resolved` (Polled for active HUD rendering).
-    * `Article.is_pinned` (Polled constantly by the RSS pagination engine).
-* **Timestamps:** `published_date`, `updated_at`, `detected_at`, and `received_at` across various tables are indexed to support rapid temporal windowing (e.g., fetching only the last 7 days of crime telemetry).
-
-### 3.2 Core Schema Domains
-* **IAM (RBAC):** `User`, `Role`.
-* **OSINT & Threat Intel:** `Article`, `FeedSource`, `Keyword`, `ExtractedIOC`, `CveItem`.
-* **Physical & Cloud Infrastructure:** `MonitoredLocation`, `RegionalHazard`, `RegionalOutage`, `CloudOutage`, `BgpAnomaly`.
-* **Kinetic Perimeter Threat (New):**
-    * **`CrimeIncident`**: A newly introduced table storing heavily filtered, localized kinetic threats (arson, theft, violence). Indexed by `id` (incident number) and `timestamp` for rapid spatial/temporal bounding.
-* **AIOps & Root Cause:** `SolarWindsAlert`, `TimelineEvent`.
-* **System State:** `SystemConfig`, `DailyBriefing`, `SavedReport`.
-
----
-
-## 4. Database Bootstrap & Auto-Healing (`init_db`)
-
-The `init_db()` function executes a self-healing initialization sequence at application startup, heavily refactored for transactional safety and RBAC modernization.
-
-### 4.1 Descriptive RBAC Auto-Healing
-The Role-Based Access Control matrix was entirely rewritten to use highly descriptive, human-readable strings. The seed data now dynamically includes the newly engineered UI modules:
-* **Pages Added:** `"📊 Executive Dashboard"`, `"🚨 Crime Intelligence"`.
-* **Actions Added:** `"Action: Dispatch Exec Report"`.
-
-**State Check & Override:** Upon startup, `init_db` queries the existing `admin` and `analyst` roles. Rather than just creating them if missing, it forcefully *overwrites* their `allowed_pages` and `allowed_actions` JSON arrays with the new descriptive syntax. This seamlessly "auto-heals" legacy databases to the new module layouts without requiring manual operator intervention.
-
-### 4.2 Strict Session Lifecycle
-The entire bootstrap sequence is wrapped in a strict `try...except...finally` block. If a database integrity error occurs during the seeding phase, `session.rollback()` is fired. Crucially, the `finally: session.close()` ensures the initialization connection is permanently released back to the pool, preventing memory leaks and race conditions upon Docker Compose spin-ups.
+* **`MonitoredLocation`** (Table: `monitored_locations`): Defines the organization's physical asset footprint (e.g., Data Centers, HQ, POPs). It stores exact latitude and longitude coordinates, facility type, and criticality priority (P1-P3) required for geospatial risk calculations.
+* **`RegionalHazard`** (Table: `regional_hazards`): Tracks active National Weather Service (NWS) and Storm Prediction Center (SPC) weather polygons (e.g., Tornado Warnings, Wildfires). This is used to calculate intersecting blast radii with `MonitoredLocations`.
+* **`CrimeIncident`** (Table: `crime_incidents`): Logs hyper-localized kinetic threats (arson, theft, violence) polled from municipal law enforcement APIs. It records the incident type, severity, and exact distance (in miles) from critical facilities.
+* **`CloudOutage`** (Table: `cloud_outages`): Tracks active service degradations across 18+ Tier-1 SaaS and IaaS providers (AWS, Azure, Cloudflare) used to determine if an internal IT failure is actually caused by an upstream vendor.
+* **`BgpAnomaly`** (Table: `bgp_anomalies`): Logs global internet routing anomalies affecting specific carrier Autonomous System Numbers (ASNs).
+* **`RegionalOutage`** (Table: `regional_outages`): Tracks broad, utility-level failures, such as county-wide power grid outages.
+* **`SolarWindsAlert`** (Table: `solarwinds_alerts`): The primary ingestion table for raw NMS/ITSM telemetry. It stores the webhook payload, node details, mapped physical location, and the AI-calculated root cause. It is heavily indexed (`is_correlated`, `received_at`) to support rapid querying by the AIOps correlation engine.
+* **`TimelineEvent`** (Table: `timeline_events`): A chronological event logger that populates the active ticker tape on the AIOps RCA board, tracking incoming alerts, system resolutions, and operator acknowledgments.
