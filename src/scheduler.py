@@ -56,11 +56,21 @@ async def fetch_single_feed(session, f_name, f_url):
         log(f"⚠️ Async Fetch Error on {f_name}: {e}", "WORKER")
         return f_name, None
 
-async def fetch_all_feeds(feed_data):
-    """Network I/O is cheap, so we download everything concurrently."""
+async def fetch_all_feeds_chunked(feed_data, chunk_size=5):
+    """Fetches feeds in smaller batches to prevent RAM spikes."""
+    results = []
     async with aiohttp.ClientSession() as session:
-        tasks = [fetch_single_feed(session, f_name, f_url) for _, f_name, f_url in feed_data]
-        return await asyncio.gather(*tasks)
+        for i in range(0, len(feed_data), chunk_size):
+            chunk = feed_data[i:i + chunk_size]
+            tasks = [fetch_single_feed(session, f_name, f_url) for _, f_name, f_url in chunk]
+            chunk_results = await asyncio.gather(*tasks)
+            results.extend(chunk_results)
+            # Brief pause to let the async loop breathe and garbage collect
+            await asyncio.sleep(0.1) 
+    return results
+
+# Then, down in your fetch_feeds() function, update the call:
+def fetch_feeds(source="Scheduled"):
 
 def parse_and_score_feed(f_name, content, known_links):
     from src.ioc_extractor import ioc_engine 
@@ -139,7 +149,7 @@ def fetch_feeds(source="Scheduled"):
         known_links = {link[0] for link in known_links_query}
 
         # Phase 1: Download everything concurrently (Cheap on CPU)
-        results = asyncio.run(fetch_all_feeds(feed_data))
+        results = asyncio.run(fetch_all_feeds_chunked(feed_data, chunk_size=5))
         total_added = 0
         
         # Phase 2: Sequential Processing with Yielding (Hyper-efficient)
