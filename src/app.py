@@ -770,9 +770,6 @@ elif page == "🗺️ Regional Grid":
                         
                     st.divider()
                     
-                    with st.expander("🛠️ Map Diagnostics & Parsing Logs"):
-                        for log_msg in map_diagnostics: st.text(log_msg)
-                    
                     st.subheader("⚠️ Sites Impacted by Currently Toggled Layers")
                     st.caption("This table dynamically updates based on the layer switches and filters in the left sidebar.")
                     
