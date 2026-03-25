@@ -525,6 +525,8 @@ elif page == "🚨 Crime Intelligence":
             st.subheader("Raw Incident Logs (1 Mile Radius)")
             display_crimes = df_crimes[["timestamp", "distance_miles", "category", "severity", "raw_title"]]
             st.dataframe(display_crimes, use_container_width=True, hide_index=True)
+
+
             
 if "Tab: Threat Telemetry -> Regional Grid" in st.session_state.allowed_actions:
             with tabs[tab_idx]:
