@@ -1,118 +1,61 @@
-# Enterprise Architecture & Functional Specification: `src/database.py` (Extended Table & Function Deep Dive)
+# Enterprise Architecture & Algorithmic Specification: `src/llm.py`
 
 ## 1. Executive Overview
 
-This document serves as an exhaustive, function-by-function and table-by-table reference guide for `src/database.py`. It is designed to allow onboarding engineers to immediately understand the exact purpose, schema design, and operational role of every data structure within the Intelligence Fusion Center (IFC).
+The `src/llm.py` module acts as the Cognitive Processing Hub of the Intelligence Fusion Center (IFC). In its latest architectural iteration, this module has been heavily refactored to optimize for Local Edge Compute and GPU Memory constraints, such as running open-weights models via LM Studio, Ollama, or vLLM.
+
+To prevent massive context-window overflows, CUDA Out-Of-Memory crashes, and severe UI latency, the engine implements aggressive text truncation, dynamic chunk resizing, universal Map-Reduce pipelines, and extended timeout tolerances for local inference speeds.
 
 ---
 
-## 2. Engine Initialization & Concurrency Functions
+## 2. Core Architecture: Compute & Context Optimization
 
-The module begins by establishing the core SQLAlchemy connection, forcing an optimized SQLite deployment path to guarantee zero-configuration edge capabilities.
+Standard LLM API calls are highly sequential and prone to context bloat. The updated engine introduces several utilities to strictly manage the data payload sent to the LLM and handle the latency inherent to local hosting.
 
-### `set_sqlite_pragma(dbapi_connection, connection_record)`
-* **Functionality:** An event listener attached to the SQLAlchemy engine via the `@event.listens_for(engine, "connect")` decorator. It intercepts every new connection to the database and injects low-level SQLite C-library configurations.
-* **Operational Impact:**
-    * `PRAGMA journal_mode=WAL`: Enables Write-Ahead Logging, decoupling read locks from write locks. Essential for allowing the Streamlit UI to read dashboards while background workers concurrently insert thousands of CVEs.
-    * `PRAGMA cache_size=-64000`: Allocates 64MB of RAM to the database cache, dramatically reducing disk I/O for frequent queries.
-    * `PRAGMA temp_store=MEMORY` & `PRAGMA mmap_size=3000000000`: Forces temporary tables and memory-mapped files into RAM, executing complex `GROUP BY` and geospatial queries instantly.
+### 2.1 Universal API Gateway: `call_llm(messages, config, temperature)`
+* **Extended Latency Tolerance:** The `requests.post` timeout has been explicitly increased to 120 seconds to accommodate the slower generation speeds of locally hosted LLMs without crashing the application thread.
+* **Built-In Error Surfacing:** Catches `Timeout` and `ConnectionError` exceptions, returning formatted network error strings directly to the UI rather than throwing backend Python exceptions.
 
----
+### 2.2 Context Management Utilities
+* **`chunk_list(data, size)`:** A helper generator that chunks lists to prevent LLM context-window overflows.
+* **`truncate_text(text, max_chars)`:** Aggressively trims long article summaries down to a predefined character limit, which defaults to 300 characters. This prevents the LLM context window from overflowing when batching multiple intelligence articles together.
 
-## 3. Core System & IAM (Identity and Access Management) Models
-
-These ORM classes define the operational state of the application and control user authorization.
-
-### `User` (Table: `users`)
-* **Purpose:** Manages human operator identities and authentication state.
-* **Key Fields:**
-    * `password_hash`: Stores bcrypt-hashed credentials.
-    * `session_token`: Stores persistent UUIDs for browser cookie validation.
-    * `role`: A foreign-key equivalent linking the user to a specific RBAC profile.
-
-### `Role` (Table: `roles`)
-* **Purpose:** The architectural backbone of the application's Role-Based Access Control.
-* **Key Fields:**
-    * `allowed_pages` (JSON): An array of strings defining exactly which top-level Streamlit modules the role can render (e.g., `["🌐 Operational Dashboard", "🚨 Crime Intelligence"]`).
-    * `allowed_actions` (JSON): An array of granular permission strings enabling specific tabs and UI buttons (e.g., `"Action: Dispatch Exec Report"`).
-
-### `SystemConfig` (Table: `system_config`)
-* **Purpose:** A singleton table holding global variables required by background services and the LLM abstraction layer.
-* **Key Fields:**
-    * `llm_endpoint`, `llm_api_key`, `llm_model_name`: Hot-swappable connection strings for the universal LLM engine.
-    * `tech_stack`: A user-defined string of internal vendors (e.g., "SolarWinds, Cisco") cross-referenced by the AI Auditor against new CVEs.
-    * `rolling_summary`: Caches the expensive LLM-generated shift briefing to prevent API spam.
-    * `smtp_server` -> `smtp_enabled`: Stores the mailing credentials used to autonomously dispatch Outlook HTML SitReps.
-
-### `Keyword` & `FeedSource` (Tables: `keywords`, `feed_sources`)
-* **Purpose:** Defines the ingestion scope for the Cyber Threat Intelligence pipelines.
-* **Key Fields:** `FeedSource.url` targets the specific RSS endpoint, while `Keyword.weight` determines the numeric value added to an article's threat score if the `Keyword.word` is detected via Regex.
-
-### `SavedReport` (Table: `saved_reports`)
-* **Purpose:** A shared organizational repository storing the raw Markdown of deep-dive intelligence reports synthesized via the Map-Reduce LLM engine.
+### 2.3 The Universal Pipeline: `_map_reduce_summarize(...)`
+A newly abstracted, universal Map-Reduce pipeline designed to safely process large arrays of database objects without triggering context limits or timeouts.
+* **Tier 1 (Map Phase):** Takes a large array of database items, chunks them into small micro-batches (defaulting to 6 items), and runs a "Map Prompt" with a strict temperature of 0.1 against each chunk to extract core facts.
+* **Tier 2 (Reduce Phase):** If multiple batches were processed, it concatenates the resulting summaries and runs a final "Reduce Prompt" with a slightly higher variance (temperature 0.2) to synthesize a single, cohesive narrative.
+* **Fault Tolerance:** Automatically ignores chunks that return network error strings during the Map phase, allowing the Reduce phase to continue with the successful batches rather than failing the entire pipeline.
 
 ---
 
-## 4. Intelligence & Threat Models
+## 3. High-Velocity Tactical Intelligence
 
-These tables manage the normalized Open-Source Intelligence (OSINT) required for situational awareness.
+### 3.1 Unified BLUF Generation: `generate_bluf(article, session)`
+The generation of the "Bottom Line Up Front" (BLUF) prioritizes self-attention and contextual accuracy using a single unified prompt.
 
-### `Article` (Table: `articles`)
-* **Purpose:** The primary storage unit for all incoming cyber, physical, and geopolitical threat intelligence.
-* **Key Fields:**
-    * `category`: The specific operational domain assigned by the high-speed Regex triage engine.
-    * `score`: The deterministic sum of matched keywords, dictating dashboard prioritization.
-    * `ai_bluf`: The LLM-generated Bottom Line Up Front.
-    * `is_pinned`: An indexed boolean allowing operators to manually force critical articles to the top of the Operational Dashboard.
-
-### `ExtractedIOC` (Table: `extracted_iocs`)
-* **Purpose:** Stores atomized Indicators of Compromise (IPv4, SHA256, Domains) parsed from `Article` text, establishing a relational link for the Threat Hunting UI.
-
-### `CveItem` (Table: `cve_items`)
-* **Purpose:** A synchronized, local mirror of the CISA Known Exploited Vulnerabilities catalog.
-* **Key Fields:** `cve_id`, `vendor`, `product`. Indexed heavily to allow the AI Security Auditor to rapidly cross-reference emerging exploits offline.
-
-### `DailyBriefing` (Table: `daily_briefings`)
-* **Purpose:** Acts as a historical archive for the daily, autonomous Map-Reduce situational reports generated at 06:00 AM.
+* **Architecture:** Uses a single context-aware call to preserve self-attention, rather than splitting prompts concurrently.
+* **Context Preservation:** Passes a generously truncated 1500-character article summary to the LLM.
+* **Strict Output Structuring:** Forces the LLM to output exactly four concise bullet points: Core Event, Impact Radius, Technical Details, and Actionable Posture. It executes with a strict temperature of 0.1 to avoid conversational filler.
 
 ---
 
-## 5. Grid, Weather, & AIOps Models
+## 4. Strategic & Analytical Pipelines (Tuned Chunking)
 
-These tables construct the physical ontology of the organization and house the raw network telemetry utilized by the RCA deterministic engine.
+All strategic reporting functions have had their chunk sizes and ingestion limits aggressively tuned to accommodate the throughput of local models and prevent hallucination due to context dilution.
 
-### `MonitoredLocation` (Table: `monitored_locations`)
-* **Purpose:** Defines the exact geospatial locations of critical NOC infrastructure (Data Centers, Cellular Towers).
-* **Key Fields:** `lat`, `lon` (for Haversine radius calculations), and `priority` (an integer denoting criticality).
-
-### `CrimeIncident` (Table: `crime_incidents`)
-* **Purpose:** The storage target for the `crime_worker.py` daemon. It holds kinetic, real-world events (arson, theft) extracted from local law enforcement APIs.
-* **Key Fields:** `distance_miles` guarantees the incident occurred within a strict geofence of HQ, while `severity` triggers UI alarms.
-
-### `RegionalHazard` & `RegionalOutage` (Tables: `regional_hazards`, `regional_outages`)
-* **Purpose:** Stores active polygons and geographic warnings generated by the Storm Prediction Center and NWS (e.g., Wildfires, Tornados). The AIOps engine checks these geometries against `MonitoredLocation` coordinates to verify physical kinetic impacts.
-
-### `CloudOutage` & `BgpAnomaly` (Tables: `cloud_outages`, `bgp_anomalies`)
-* **Purpose:** Tracks external macro-scale digital failures (e.g., AWS Region outages, Carrier Route Leaks). Used by the AIOps engine to determine if internal alarms are actually upstream dependency failures.
-
-### `SolarWindsAlert` (Table: `solarwinds_alerts`)
-* **Purpose:** The heaviest table in the database. It stores the raw JSON payloads received by the FastAPI webhook endpoint.
-* **Key Fields:** * `raw_payload`: Stores the unparsed ITSM JSON for ML retraining.
-    * `mapped_location`: The physical site name assigned by the heuristic mapping engine.
-    * `is_correlated`: An indexed boolean allowing the correlation engine to rapidly skip alerts that have already been packaged into an incident cluster.
-
-### `TimelineEvent` (Table: `timeline_events`)
-* **Purpose:** A lightweight, chronological ledger tracking system events and node state changes, rendered as the scrolling ticker tape on the Active Incident Board.
+* **`cross_reference_cves`:** Chunks Known Exploited Vulnerabilities (KEVs) into batches of 8. It executes a strict scan (temperature 0.0) against the internal tech stack during the Map phase, and then reduces any matches into a Master Alert.
+* **`build_custom_intel_report`:** Utilizes a chunk limit of 3 and sets text truncation to 600 characters. This ensures exhaustive extraction of technical details, IOCs, and targeted systems during the Map phase without losing intelligence.
+* **`analyze_cascading_impacts` & `generate_briefing`:** Utilizes the universal `_map_reduce_summarize` pipeline with chunk sizes of 8 and 10, respectively, securely fitting within standard context windows. `analyze_cascading_impacts` aggressively truncates input summaries to 200 characters.
 
 ---
 
-## 6. Initialization & Data Seeding
+## 5. Automated Scheduled Reporting
 
-### `init_db()`
-* **Functionality:** A self-healing bootstrap sequence executed immediately upon application start.
-* **Operational Flow:**
-    1.  **Race Condition Mitigation:** Executes `time.sleep(random.uniform(0.1, 1.5))` to prevent database lock collisions when multiple Docker microservices spin up simultaneously.
-    2.  **Schema Generation:** Uses `Base.metadata.create_all(bind=engine)` to natively build the SQLite tables if they do not exist.
-    3.  **RBAC Auto-Healing:** Hardcodes the `all_pages` and `all_actions` arrays utilizing the new descriptive nomenclature. It checks for the existence of the `admin` and `analyst` roles. If they exist, it *forcefully overwrites* their JSON arrays to ensure legacy databases are automatically upgraded to support the new Executive Dashboard and Crime Intelligence features.
-    4.  **Admin Seeding:** If the `User` table is entirely empty, it generates a default `admin` user with a securely hashed bcrypt password.
-    5.  **Transactional Integrity:** Operates within a strict `try...except...finally` block, executing `session.rollback()` on failure and `session.close()` to ensure the connection pool is not depleted during bootstrap.
+### 5.1 Shift Context: `generate_rolling_summary(session)`
+* **Temporal Scoping:** Generates a cohesive executive narrative scoped strictly to the last 6 hours.
+* **Native String Compression:** Because the 6-hour volume is relatively small, this function bypasses the Map-Reduce pipeline. It natively gathers up to 10 top-scoring cyber articles, 10 hazards, and 10 cloud outages, appending them into a single context string. This is passed to a Master Editor prompt (temperature 0.2) to weave a fast-paced 2-paragraph executive summary.
+
+### 5.2 Master SitRep: `generate_daily_fusion_report(session)`
+* **Architecture:** Refactored to route entirely through the `_map_reduce_summarize` pipeline across four distinct infrastructure domains.
+* **Execution:** Iterates over the previous day's telemetry. Each domain executes its own Map-Reduce pipeline with tuned chunk sizes: Cyber (chunk 6), Vulnerabilities (chunk 8), Infrastructure Hazards (chunk 6), and Cloud Services (chunk 5).
+* **Master Editor & Fallback:** The four resulting domain summaries are concatenated and sent to a final Senior Director prompt for narrative smoothing and Markdown formatting. If the Master Editor fails or times out, the function falls back to a hardcoded string concatenation, guaranteeing the daily report is consistently generated regardless of LLM stability.
