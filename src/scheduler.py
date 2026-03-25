@@ -69,9 +69,6 @@ async def fetch_all_feeds_chunked(feed_data, chunk_size=5):
             await asyncio.sleep(0.1) 
     return results
 
-# Then, down in your fetch_feeds() function, update the call:
-def fetch_feeds(source="Scheduled"):
-
 def parse_and_score_feed(f_name, content, known_links):
     from src.ioc_extractor import ioc_engine 
     from src.categorizer import categorize_text
