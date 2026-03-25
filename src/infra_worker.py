@@ -104,6 +104,7 @@ def fetch_regional_hazards():
     """Main wrapper for infrastructure telemetry."""
     fetch_nws_warnings()
     fetch_spc_outlooks()
+    gc.collect()
 
 if __name__ == "__main__":
     fetch_regional_hazards()
