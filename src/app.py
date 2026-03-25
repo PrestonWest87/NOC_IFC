@@ -526,127 +526,7 @@ elif page == "🚨 Crime Intelligence":
             display_crimes = df_crimes[["timestamp", "distance_miles", "category", "severity", "raw_title"]]
             st.dataframe(display_crimes, use_container_width=True, hide_index=True)
             
-# ================= 3. THREAT TELEMETRY =================
-elif page == "📡 Threat Telemetry":
-    st.title("📡 Unified Threat Telemetry")
-    tt_tab_names = []
-    
-    if "Tab: Threat Telemetry -> RSS Triage" in st.session_state.allowed_actions: tt_tab_names.append("📰 RSS Triage")
-    if "Tab: Threat Telemetry -> CISA KEV" in st.session_state.allowed_actions: tt_tab_names.append("🪲 Exploits (KEV)")
-    if "Tab: Threat Telemetry -> Cloud Services" in st.session_state.allowed_actions: tt_tab_names.append("☁️ Cloud Services")
-    if "Tab: Threat Telemetry -> Regional Grid" in st.session_state.allowed_actions: tt_tab_names.append("🗺️ Regional Grid")
-    
-    if not tt_tab_names: st.warning("No permission to view tabs in this module.")
-    else:
-        tabs = st.tabs(tt_tab_names)
-        tab_idx = 0
-        
-        if "Tab: Threat Telemetry -> RSS Triage" in st.session_state.allowed_actions:
-            with tabs[tab_idx]:
-                col_title, col_btn = st.columns([3, 1])
-                is_rss_cooling = check_cooldown("sync_rss", 60)
-                if col_btn.button("⏳ Syncing..." if is_rss_cooling else "🔄 Force Fetch Feeds", width="stretch", disabled=not can_sync or is_rss_cooling):
-                    apply_cooldown("sync_rss")
-                    with st.spinner("Fetching feeds..."):
-                        fetch_feeds(source="User Force")
-                        time.sleep(1)
-                        safe_rerun()
-                cat_filter = st.selectbox("🎯 Filter Active Feeds", [
-                    "All", "Cyber: Exploits & Vulns", "Cyber: Malware & Threats", 
-                    "ICS/OT & SCADA", "Cloud & IT Infra", "Physical Security", 
-                    "Severe Weather", "Geopolitics & Policy", "AI & Emerging Tech", "General"
-                ])
-                st.divider()
-
-                def handle_pagination(feed_id, q_type, pg_size, s_term=None, m_score=0):
-                    s_key = f"page_{feed_id}"
-                    if s_key not in st.session_state: st.session_state[s_key] = 1
-                    items, t_items, t_pages, cur_page = svc.get_paginated_articles(q_type, cat_filter, st.session_state[s_key], pg_size, s_term, m_score)
-                    st.session_state[s_key] = cur_page
-                    
-                    def p_ctrls(loc):
-                        c1, c2, c3 = st.columns([1, 2, 1])
-                        if c1.button("⬅️ Previous", key=f"p_{feed_id}_{loc}", disabled=(cur_page<=1), width="stretch"): st.session_state[s_key] -= 1; safe_rerun()
-                        c2.markdown(f"<div style='text-align: center; margin-top: 0.4rem;'><b>Page {cur_page} of {t_pages}</b> <span style='font-size: 0.85em; color: gray;'>(Total: {t_items})</span></div>", unsafe_allow_html=True)
-                        if c3.button("Next ➡️", key=f"n_{feed_id}_{loc}", disabled=(cur_page>=t_pages), width="stretch"): st.session_state[s_key] += 1; safe_rerun()
-
-                    if t_items > pg_size: p_ctrls("top"); st.divider()
-                    elif t_items == 0: st.info("No articles found."); return
-                    render_article_feed(items, key_prefix=f"{feed_id}_")
-                    if t_items > pg_size: st.divider(); p_ctrls("bot")
-
-                s1, s2, s3, s4 = st.tabs(["📌 Pinned", "📡 Live", "📉 Low", "🔍 Search"])
-                with s1: handle_pagination("pinned", "pinned", 10)
-                with s2: handle_pagination("live", "live", 20)
-                with s3: handle_pagination("low", "low", 20)
-                with s4:
-                    sc1, sc2, sc3 = st.columns([2, 1, 1])
-                    s_term = sc1.text_input("Search")
-                    m_score = sc2.number_input("Min Score", value=0)
-                    pg_sz = sc3.selectbox("Items per Page", [10, 20, 50], index=1)
-                    handle_pagination("search", "search", pg_sz, s_term, m_score)
-            tab_idx += 1
-            
-        if "Tab: Threat Telemetry -> CISA KEV" in st.session_state.allowed_actions:
-            with tabs[tab_idx]:
-                is_kev_cooling = check_cooldown("sync_kev", 60)
-                if st.button("⏳ Syncing..." if is_kev_cooling else "🔄 Sync CISA KEV", disabled=not can_sync or is_kev_cooling, width="stretch"):
-                    apply_cooldown("sync_kev")
-                    with st.spinner("Fetching CISA Database..."):
-                        from src.cve_worker import fetch_cisa_kev; fetch_cisa_kev(); safe_rerun()
-                for cve in svc.get_cves(limit=50, days_back=30):
-                    with st.expander(f"🚨 {cve.cve_id} | {cve.vendor} {cve.product}"): st.markdown(f"**{cve.vulnerability_name}**\n\n{cve.description}")
-            tab_idx += 1
-            
-        if "Tab: Threat Telemetry -> Cloud Services" in st.session_state.allowed_actions:
-            with tabs[tab_idx]:
-                is_cloud_cooling = check_cooldown("sync_cloud", 60)
-                if st.button("⏳ Syncing..." if is_cloud_cooling else "🔄 Sync Cloud Status", disabled=not can_sync or is_cloud_cooling, width="stretch"):
-                    apply_cooldown("sync_cloud")
-                    with st.spinner("Pulling data from Global Providers..."):
-                        from src.cloud_worker import fetch_cloud_outages; fetch_cloud_outages(); safe_rerun()
-                
-                raw_outages = svc.get_cloud_outages(active_only=True)
-                active_outages = []
-                now = datetime.utcnow()
-                today_fmts = [now.strftime("%b %d").lower(), now.strftime("%B %d").lower(), now.strftime("%Y-%m-%d"), now.strftime("%m/%d/%Y")]
-                
-                for o in raw_outages:
-                    text = (o.title + " " + str(o.description)).lower()
-                    is_maint = any(k in text for k in ["maintenance", "scheduled", "upcoming", "update"])
-                    is_active = any(k in text for k in ["in progress", "started", "currently undergoing"])
-                    
-                    if is_maint and not is_active and not any(fmt in text for fmt in today_fmts):
-                        continue 
-                    
-                    active_outages.append(o)
-
-                if not active_outages: 
-                    st.success("✅ All tracked global SaaS and IaaS providers are reporting Operational status.")
-                else:
-                    affected_providers = sorted(list(set([o.provider for o in active_outages])))
-                    st.warning(f"⚠️ Active service degradations detected across {len(affected_providers)} providers.")
-                    provider_tabs = st.tabs(affected_providers)
-                    
-                    for p_idx, provider_name in enumerate(affected_providers):
-                        with provider_tabs[p_idx]:
-                            prov_outs = [o for o in active_outages if o.provider == provider_name]
-                            for o in prov_outs:
-                                with st.expander(f"🚨 {o.service} ({format_local_time(o.updated_at)})"):
-                                    st.markdown(f"**[{o.title}]({o.link})**\n\n{o.description}")
-                                    
-                st.divider()
-                with st.expander("📚 View Historical / Resolved Incidents (Last 72 Hours)"):
-                    all_recent_outages = svc.get_cloud_outages(active_only=False, limit=100)
-                    resolved_outages = [o for o in all_recent_outages if o.is_resolved]
-                    
-                    if not resolved_outages:
-                        st.info("No recently resolved incidents.")
-                    for o in resolved_outages:
-                        st.markdown(f"✅ **{o.provider}** | {o.service} <br><small>[{o.title}]({o.link})</small>", unsafe_allow_html=True)
-            tab_idx += 1
-            
-        if "Tab: Threat Telemetry -> Regional Grid" in st.session_state.allowed_actions:
+if "Tab: Threat Telemetry -> Regional Grid" in st.session_state.allowed_actions:
             with tabs[tab_idx]:
                 col_sync1, col_sync2 = st.columns([3, 1])
                 is_infra_cooling = check_cooldown("sync_infra", 60)
@@ -689,12 +569,10 @@ elif page == "📡 Threat Telemetry":
                         show_watch = st.toggle("⚠️ Watches (AR)", value=True)
                         show_oos = st.toggle("🌍 Out-of-State", value=True)
                         
-                        # --- FIRE DESK CONTROLS ---
                         st.divider()
                         show_fire_risk = st.toggle("🔥 NWS Fire Weather & Red Flags", value=False)
                         show_active_wildfires = st.toggle("🚒 Active Wildfires (NIFC)", value=False)
                         
-                        # Dynamic Fire Legend
                         if show_fire_risk or show_active_wildfires:
                             with st.container(border=True):
                                 st.markdown("**🔥 Fire Desk Legend:**")
@@ -703,7 +581,6 @@ elif page == "📡 Threat Telemetry":
                                     st.markdown("🟠 **Fire Weather Watch** *(High Risk)*")
                                 if show_active_wildfires:
                                     st.markdown("🚨 **Active Wildfire** *(Scales by Acreage)*")
-                        # ------------------------------------
                     
                     with st.container(border=True):
                         st.markdown("**Hazard Isolation**")
@@ -751,12 +628,10 @@ elif page == "📡 Threat Telemetry":
                             "active_wildfires": show_active_wildfires
                         }
                         
-                        # The single function call that builds the entire ecosystem
                         layers, view_state, map_diagnostics, toggled_affected_sites, master_affected_sites = svc.compile_regional_grid_map(
                             map_df, spc_data, ar_data, oos_data, selected_events, map_toggles
                         )
 
-                        # --- RENDER ROLE-GATED TABS ---
                         if "Tab: Regional Grid -> Geospatial Map" in st.session_state.allowed_actions:
                             with rg_tabs[rg_idx]:
                                 if show_radar_panel: c_map_main, c_map_side = st.columns([2, 1])
@@ -785,36 +660,6 @@ elif page == "📡 Threat Telemetry":
                                     st.dataframe(pd.DataFrame(toggled_affected_sites).sort_values(by=['Priority', 'Monitored Site']), hide_index=True, width="stretch")
                             rg_idx += 1
 
-                        # --- RENDER ROLE-GATED TABS ---
-                        if "Tab: Regional Grid -> Geospatial Map" in st.session_state.allowed_actions:
-                            with rg_tabs[rg_idx]:
-                                if not map_df.empty:
-                                    layers.append(pdk.Layer("ScatterplotLayer", map_df, pickable=True, opacity=0.9, stroked=True, filled=True, radius_scale=6, radius_min_pixels=4, radius_max_pixels=12, line_width_min_pixels=1, get_position="[Lon, Lat]", get_fill_color=[255, 255, 255], get_line_color=[0, 0, 0]))
-                                
-                                if show_radar_panel: c_map_main, c_map_side = st.columns([2, 1])
-                                else: c_map_main, c_map_side = st.columns([1, 0.0001])
-                                    
-                                with c_map_main:
-                                    st.subheader("Live Threat Overlay")
-                                    view_state = pdk.ViewState(latitude=34.8, longitude=-92.2, zoom=5.5, pitch=0)
-                                    st.pydeck_chart(pdk.Deck(layers=layers, initial_view_state=view_state, tooltip={"text": "{info}"}), width="stretch")
-                                    
-                                if show_radar_panel:
-                                    with c_map_side:
-                                        st.subheader("Precipitation Loop")
-                                        components.html("""<iframe src="https://www.rainviewer.com/map.html?loc=34.8,-92.2,6&oFa=0&oC=1&oU=0&oCS=1&oF=0&oAP=1&c=3&o=83&lm=1&layer=radar&sm=1&sn=1" width="100%" height="500" frameborder="0" style="border-radius: 8px;" allowfullscreen></iframe>""", height=500)
-                                    
-                                st.divider()
-                                
-                                with st.expander("🛠️ Map Diagnostics & Parsing Logs"):
-                                    for log_msg in map_diagnostics: st.text(log_msg)
-                                
-                                st.subheader("⚠️ Sites Impacted by Currently Toggled Layers")
-                                st.caption("This table dynamically updates based on the layer switches and filters in the left sidebar.")
-                                if not toggled_affected_sites: st.success("✅ No sites intersect with the specific layers and hazard types currently rendered on the map.")
-                                else: st.dataframe(pd.DataFrame(toggled_affected_sites).sort_values(by=['Priority', 'Monitored Site']), hide_index=True, width="stretch")
-                            rg_idx += 1
-
                         if "Tab: Regional Grid -> Executive Dash" in st.session_state.allowed_actions:
                             with rg_tabs[rg_idx]:
                                 st.subheader("📊 Infrastructure Threat Dashboard")
@@ -822,7 +667,6 @@ elif page == "📡 Threat Telemetry":
                                 if map_df.empty:
                                     st.info("No monitored locations match current filters.")
                                 else:
-                                    # Fetch pre-calculated analytics from the service layer
                                     analytics = svc.get_infrastructure_analytics(map_df.copy())
                                     
                                     st.download_button(
@@ -833,14 +677,12 @@ elif page == "📡 Threat Telemetry":
                                     )
                                     st.divider()
                                     
-                                    # Top Level Metrics
                                     c_m1, c_m2, c_m3 = st.columns(3)
                                     c_m1.metric("Total Tracked Sites", len(map_df))
                                     c_m2.metric("Sites in Active Risk Areas", analytics["at_risk_sites"])
                                     c_m3.metric("Highest Current Risk", analytics["highest_risk"])
                                     st.write("")
                                     
-                                    # The Pretty Bar Charts
                                     c1, c2, c3 = st.columns(3)
                                     with c1:
                                         st.markdown("**Sites by Risk Level**")
@@ -856,7 +698,6 @@ elif page == "📡 Threat Telemetry":
 
                                     st.divider()
                                     
-                                    # The Deep Data Cuts
                                     st.markdown("### 🧮 Advanced Data Intersections")
                                     cx1, cx2, cx3 = st.columns(3)
                                     with cx1:
@@ -907,14 +748,13 @@ elif page == "📡 Threat Telemetry":
                                             st.error("Please enter at least one recipient email.")
                                         else:
                                             with st.spinner("Compiling HTML and transmitting..."):
-                                                # Call the offloaded HTML generator from services.py!
                                                 html_safe = svc.generate_hazard_sitrep_html(analytics_df)
                                                 from src.mailer import send_alert_email
-                                                
                                                 success, msg = send_alert_email("URGENT: Active Severe Weather Impacting Operations", html_safe, recipient_override=sitrep_recipients, is_html=True)
                                                 if success: st.success("Executive HTML SitRep successfully transmitted!")
                                                 else: st.error(f"SMTP Error: {msg}")
                             rg_idx += 1
+
                         if "Tab: Regional Grid -> Location Matrix" in st.session_state.allowed_actions:
                             with rg_tabs[rg_idx]:
                                 st.subheader("Active Infrastructure Matrix")
@@ -929,7 +769,6 @@ elif page == "📡 Threat Telemetry":
                                 st.subheader("📜 Comprehensive Weather Alerts Log")
                                 st.markdown("Human-readable log of all active NWS Watches, Warnings, and Special Weather Statements.")
                                 
-                                # Offloaded to services.py
                                 all_alert_details = svc.get_weather_alerts_log(ar_data, oos_data, selected_events)
                                 
                                 if not all_alert_details:
@@ -937,7 +776,6 @@ elif page == "📡 Threat Telemetry":
                                 else:
                                     df_alerts = pd.DataFrame(all_alert_details)
                                     
-                                    # Format dates if they exist
                                     for col in ['Effective', 'Expires']:
                                         df_alerts[col] = pd.to_datetime(df_alerts[col], errors='coerce').dt.strftime('%Y-%m-%d %H:%M')
                                         df_alerts[col] = df_alerts[col].fillna("N/A")
@@ -947,7 +785,6 @@ elif page == "📡 Threat Telemetry":
                                     st.divider()
                                     st.subheader("🔍 Deep Dive Inspection")
                                     
-                                    # Create a dropdown that includes the area so analysts can differentiate between similarly named events
                                     dropdown_options = [f"{a['Event']} - {a['Affected Area'][:40]}..." for a in all_alert_details]
                                     sel_alert_idx = st.selectbox("Select Alert to Review Full Details", range(len(dropdown_options)), format_func=lambda x: dropdown_options[x])
                                     
@@ -981,7 +818,7 @@ elif page == "📡 Threat Telemetry":
                                                 added = svc.import_locations(data)
                                                 st.success(f"Imported {added} new locations!"); time.sleep(1.5); safe_rerun()
                                             except Exception as e: st.error(f"Import failed: {e}")
-                                                
+                                            
                                 with c_ed:
                                     st.subheader("Manual Adjustments")
                                     if not df.empty:
@@ -989,7 +826,7 @@ elif page == "📡 Threat Telemetry":
                                         if st.button("💾 Save Manual Adjustments", width="stretch"):
                                             svc.update_locations(edited_df)
                                             st.success("Changes saved!"); time.sleep(1); safe_rerun()
-                                    
+                                            
                                     st.divider()
                                     st.write("**Danger Zone**")
                                     if st.button("🗑️ Delete All Locations", width="stretch"):
