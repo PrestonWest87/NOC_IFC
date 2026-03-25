@@ -301,7 +301,7 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
             "physical_brief": physical_brief,  # Corrected variable name
             "cyber_score": cyber_score,
             "cyber_brief": cyber_brief,
-            "recent_crimes": crime_data,
+            "recent_crimes": recent_crimes,
             "raw_cyber_articles": raw_cyber_articles,
             "raw_phys_articles": raw_phys_articles
         }
