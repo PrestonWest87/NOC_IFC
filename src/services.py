@@ -232,9 +232,10 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
             Article.score >= 50
         ).order_by(Article.score.desc()).all()
 
+        geopolitical_noise_words = ["troop", "missile", "election", "ballot", "warfare", "kinetic", "embassy"]
+
         # Process Cyber
         pure_cyber_articles = []
-        geopolitical_noise_words = ["troop", "missile", "election", "ballot", "warfare", "kinetic", "embassy"]
         for art in raw_cyber_articles:
             text_check = f"{art.title} {art.summary}".lower()
             if not any(noise in text_check for noise in geopolitical_noise_words):
@@ -244,16 +245,28 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
         # Process Physical
         pure_phys_articles = []
         ar_keywords = ["arkansas", "little rock", "pulaski", "benton", "entergy", "aecc", "cooperative"]
-        threat_keywords = ["terror", "attack", "grid", "substation", "sabotage", "vandalism", "infrastructure", "transformer", "sniper", "shoot", "explosive"]
+        
+        # Expanded threat parameters to ensure Severe Weather passes the check
+        threat_keywords = ["terror", "attack", "grid", "substation", "sabotage", "vandalism", "infrastructure", "transformer", "sniper", "shoot", "explosive", "tornado", "hurricane", "flood", "storm", "warning"]
         
         for art in raw_phys_articles:
             text_check = f"{art.title} {art.summary}".lower()
+            source_lower = art.source.lower() if art.source else ""
+            
+            # --- THE FIX: EXPLICIT CYBER/CISA BLOCKER ---
+            # Automatically reject any Geopolitics article that is actually an IT Advisory
+            if "cisa" in source_lower or "cyber" in text_check or "cve-" in text_check or "ics-cert" in source_lower:
+                continue
+                
             is_ar_related = any(kw in text_check for kw in ar_keywords)
             has_threat = any(kw in text_check for kw in threat_keywords)
             has_geo_noise = any(kw in text_check for kw in geopolitical_noise_words)
             
             if has_geo_noise and not any(k in text_check for k in ["grid", "substation", "infrastructure"]): continue
-            if is_ar_related and has_threat: pure_phys_articles.append(art)
+            
+            # Only append if it's explicitly tied to Arkansas AND contains a kinetic/weather threat
+            if is_ar_related and has_threat: 
+                pure_phys_articles.append(art)
                 
         phys_list = [{"title": a.title, "link": a.link, "source": a.source, "score": a.score} for a in pure_phys_articles]
 
@@ -297,15 +310,15 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     return {
             "timestamp": datetime.now(LOCAL_TZ).strftime("%H:%M:%S %Z"),
             "unified_risk": unified_risk,
-            "physical_score": physical_score,  # Corrected variable name
-            "physical_brief": physical_brief,  # Corrected variable name
+            "physical_score": physical_score,
+            "physical_brief": physical_brief,
             "cyber_score": cyber_score,
             "cyber_brief": cyber_brief,
             "recent_crimes": recent_crimes,
-            "raw_cyber_articles": raw_cyber_articles,
-            "raw_phys_articles": raw_phys_articles
+            # --- THE FIX: PASSED THE PURE LISTS TO THE UI INSTEAD OF THE RAW ONES ---
+            "raw_cyber_articles": pure_cyber_articles,
+            "raw_phys_articles": pure_phys_articles
         }
-
 def generate_outlook_html_report(intel):
     color_map = {"LOW": "#28a745", "MEDIUM": "#ffc107", "HIGH": "#dc3545"}
     badge_color = color_map.get(intel["unified_risk"].upper(), "#000000")
