@@ -1082,6 +1082,17 @@ elif page == "⚡ AIOps RCA":
         
         if "Tab: AIOps RCA -> Active Board" in st.session_state.allowed_actions:
             with ai_tabs[ai_idx]:
+                # --- AUTO-REFRESH INJECTION ---
+                c_head, c_tog = st.columns([5, 1])
+                with c_tog:
+                    # Toggle defaults to True, allowing analysts to pause it if they need to type a ticket
+                    live_polling = st.toggle("🔄 Live 5s Polling", value=True, key="aiops_live_poll")
+                
+                if live_polling:
+                    from streamlit_autorefresh import st_autorefresh
+                    st_autorefresh(interval=5000, key="aiops_5sec_refresh")
+                # ------------------------------
+
                 alerts, events, grid = svc.get_aiops_dashboard_data()
                 c_l, c_s = st.columns([3, 1])
                 with c_s:
@@ -1174,7 +1185,6 @@ elif page == "⚡ AIOps RCA":
                                         svc.acknowledge_cluster([a.id for a in data['alerts']])
                                         safe_rerun()
             ai_idx += 1
-
         if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions:
             with ai_tabs[ai_idx]:
                 st.subheader("📈 Predictive Analytics & Chronic Degradation")
