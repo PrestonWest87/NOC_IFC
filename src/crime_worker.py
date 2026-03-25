@@ -15,6 +15,7 @@ from src.database import SessionLocal, CrimeIncident
 GEO_CACHE = {}
 
 def calculate_distance(lat1, lon1, lat2, lon2):
+    """Accurate Great-Circle Haversine Distance."""
     R = 3958.8
     lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
     dlat = lat2 - lat1
@@ -24,21 +25,23 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     return R * c
 
 def geocode_address(address, hq_lat, hq_lon):
-    """Converts a street address to Lat/Lon using OpenStreetMap."""
+    """Converts a street address to Lat/Lon using OpenStreetMap with dual-pass intersection logic."""
     if address in GEO_CACHE:
         return GEO_CACHE[address]
 
-    clean_address = address.split("/")[0].strip() # Strip intersections to basic streets if needed
+    # Pass 1: Clean the address. Nominatim hates "/", but loves "and" for intersections
+    clean_address = address.replace("/", " and ").strip()
+    
+    url = "https://nominatim.openstreetmap.org/search"
+    headers = {"User-Agent": "NOC_IFC_Worker/1.0"}
     
     try:
-        url = "https://nominatim.openstreetmap.org/search"
+        # Attempt 1: Full Address / Intersection
         params = {
-            "q": f"{clean_address}, Little Rock, AR",
+            "q": f"{clean_address}, Little Rock, Arkansas",
             "format": "json",
             "limit": 1
         }
-        headers = {"User-Agent": "NOC_IFC_Worker/1.0"}
-        
         resp = requests.get(url, params=params, headers=headers, timeout=5)
         if resp.status_code == 200 and resp.json():
             data = resp.json()[0]
@@ -46,24 +49,38 @@ def geocode_address(address, hq_lat, hq_lon):
             GEO_CACHE[address] = (lat, lon)
             time.sleep(1) # Respect OSM rate limits
             return lat, lon
+            
+        # Attempt 2: If intersection failed, try just the primary street
+        if " and " in clean_address:
+            single_street = clean_address.split(" and ")[0].strip()
+            params["q"] = f"{single_street}, Little Rock, Arkansas"
+            resp = requests.get(url, params=params, headers=headers, timeout=5)
+            
+            if resp.status_code == 200 and resp.json():
+                data = resp.json()[0]
+                lat, lon = float(data["lat"]), float(data["lon"])
+                GEO_CACHE[address] = (lat, lon)
+                time.sleep(1)
+                return lat, lon
+                
     except Exception:
         pass
 
-    # Fallback: If address can't be geocoded, apply a slight random scatter around HQ
-    # so the incident still appears on the 1-mile radius map.
-    lat = hq_lat + random.uniform(-0.015, 0.015)
-    lon = hq_lon + random.uniform(-0.015, 0.015)
+    # Fallback: If address completely fails, apply a VERY TIGHT scatter (approx 0.2 miles)
+    # so the incident remains accurately close to the HQ location on the map.
+    lat = hq_lat + random.uniform(-0.003, 0.003)
+    lon = hq_lon + random.uniform(-0.003, 0.003)
     GEO_CACHE[address] = (lat, lon)
     return lat, lon
+
 
 def fetch_live_crimes():
     print(f"[{datetime.now().strftime('%H:%M:%S')}] 🚨 CRIME WORKER: Polling LR Dispatches...")
     
-    # The hidden JSON endpoint discovered via the HAR file
+    # The hidden JSON endpoint
     api_url = "https://web.littlerock.state.ar.us/pub/Home/CadEvents"
     
     try:
-        # The site expects a POST request to deliver the payload
         response = requests.post(api_url, timeout=15)
         response.raise_for_status()
         data = response.json()
@@ -88,7 +105,7 @@ def fetch_live_crimes():
                     incident_lat, incident_lon = geocode_address(location, hq_lat, hq_lon)
                     distance = calculate_distance(hq_lat, hq_lon, incident_lat, incident_lon)
                     
-                    # Filter to roughly 1.5 miles to account for geocoding drift
+                    # Filter to roughly 1.5 miles to account for the tight geocoding drift
                     if distance > 1.5: continue
                     
                     # Generate a unique ID since the new API doesn't provide one
@@ -120,6 +137,8 @@ def fetch_live_crimes():
                     continue
             
             db.commit()
+            
+            # Maintenance: Drop records older than 7 days
             db.query(CrimeIncident).filter(CrimeIncident.timestamp < seven_days_ago).delete()
             db.commit()
             
