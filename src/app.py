@@ -25,6 +25,12 @@ def setup_database():
 setup_database()
 st.set_page_config(page_title="Intelligence Fusion Center", layout="wide")
 
+@st.cache_resource
+def get_black_ops_state():
+    return {"nick_enabled": False, "dean_target": None, "dean_start": 0}
+
+black_ops = get_black_ops_state()
+
 LOCAL_TZ = ZoneInfo("America/Chicago")
 cookie_controller = CookieController()
 
@@ -118,6 +124,29 @@ can_sync = "Action: Manually Sync Data" in st.session_state.allowed_actions
 current_user_obj = svc.get_user_by_username(st.session_state.current_user)
 sys_config = svc.get_cached_config()
 ai_enabled = sys_config.is_active if sys_config else False
+
+if black_ops["nick_enabled"] and st.session_state.current_user == "nwilson":
+    import random
+    if "nick_troll_end" not in st.session_state:
+        # 15% chance to trigger the lock on any UI refresh or click
+        if random.random() < 0.15: 
+            st.session_state.nick_troll_end = time.time() + 10
+    
+    if "nick_troll_end" in st.session_state:
+        if time.time() < st.session_state.nick_troll_end:
+            st.markdown("""
+                <div style='position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: black; z-index: 999999; display: flex; justify-content: center; align-items: center;'>
+                    <h1 style='color: red; font-size: 15vw; font-family: Impact, sans-serif; text-transform: uppercase;'>YOU SUCK</h1>
+                </div>
+            """, unsafe_allow_html=True)
+            # Force the page to auto-refresh and unlock after 10 seconds
+            from streamlit_autorefresh import st_autorefresh
+            st_autorefresh(interval=10000, limit=2, key="troll_refresh") 
+            st.stop()
+        else:
+            del st.session_state.nick_troll_end
+
+
 
 # --- DYNAMIC THEMING ENGINE ---
 theme_options = [
@@ -1005,6 +1034,29 @@ elif page == "⚡ AIOps RCA":
                 with c_l:
                     st.subheader("🗺️ Overlays")
                     locs = svc.get_cached_locations()
+
+                    # --- UNDOCUMENTED TROLLING MECHANISM (OPERATION: DEAN) ---
+                    # Only inject the fake alerts if the person viewing the map is the chosen target
+                    if black_ops["dean_target"] == st.session_state.current_user:
+                        start_t = black_ops["dean_start"]
+                        elapsed = time.time() - start_t
+                        num_fake_reds = int(elapsed // 30) # 1 new site turns red every 30 seconds
+                        
+                        if locs and num_fake_reds >= len(locs):
+                            black_ops["dean_target"] = None
+                            st.toast("Operation: Dean complete. Grid reverted to normal.")
+                        elif locs:
+                            import random
+                            rng = random.Random(int(start_t)) 
+                            fake_locs = rng.sample(locs, min(num_fake_reds, len(locs)))
+                            
+                            class FakeAlert:
+                                def __init__(self, name): self.mapped_location = name
+                                
+                            for fl in fake_locs:
+                                alerts.append(FakeAlert(fl.name))
+                    # ---------------------------------------------------------
+
                     layers, view_state = svc.build_aiops_map_layers(alerts, locs)
 
                     st.pydeck_chart(pdk.Deck(
@@ -1577,4 +1629,44 @@ elif page == "⚙️ Settings & Admin":
                         svc.nuke_tables(["Article", "ExtractedIOC", "FeedSource", "Keyword", "MonitoredLocation"])
                         svc.get_cached_locations.clear()
                         safe_rerun()
+
+                st.divider()
+                st.markdown("### 🎭 Black Ops (Undocumented Features)")
+                c_troll1, c_troll2 = st.columns(2)
+                
+                with c_troll1:
+                    if st.session_state.current_user == "pwest":
+                        with st.container(border=True):
+                            st.write("**Operation: Nick**")
+                            st.caption("Target: `nwilson`. 15% chance on refresh to lock their screen.")
+                            tn = st.toggle("Enable Nick Troll", value=black_ops["nick_enabled"])
+                            if tn != black_ops["nick_enabled"]:
+                                black_ops["nick_enabled"] = tn
+                                safe_rerun()
+                    else:
+                        st.info("Classified Operations Area.")
+                        
+                with c_troll2:
+                    if st.session_state.current_role == "admin":
+                        with st.container(border=True):
+                            st.write("**Operation: Dean**")
+                            st.caption("Targeted silent cascading failure simulation (2 sites/min until 100%).")
+                            
+                            # Get all active users to populate the target list
+                            usrs = [u.username for u in svc.get_admin_lists()[2]] if svc.get_admin_lists()[2] else []
+                            tgt_idx = usrs.index(black_ops["dean_target"]) if black_ops["dean_target"] in usrs else 0
+                            
+                            selected_target = st.selectbox("Select Target User", ["None"] + usrs, index=(tgt_idx + 1 if black_ops["dean_target"] else 0))
+                            td = st.toggle("Engage Protocol", value=(black_ops["dean_target"] is not None))
+                            
+                            # Logic to trigger and save to global memory
+                            if td and selected_target != "None":
+                                if black_ops["dean_target"] != selected_target:
+                                    black_ops["dean_target"] = selected_target
+                                    black_ops["dean_start"] = time.time()
+                                    safe_rerun()
+                            elif not td and black_ops["dean_target"] is not None:
+                                black_ops["dean_target"] = None
+                                safe_rerun()
+                        
             set_idx += 1
