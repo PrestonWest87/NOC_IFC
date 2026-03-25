@@ -37,7 +37,7 @@ def train():
     # - LogisticRegression: Provides highly accurate probability scaling
     # - class_weight='balanced': Prevents the model from just guessing "Noise" every time
     model = make_pipeline(
-        TfidfVectorizer(stop_words='english', ngram_range=(1, 2), max_df=0.9, min_df=1),
+        TfidfVectorizer(stop_words='english', ngram_range=(1, 2), max_df=0.9, min_df=3, max_features=50000),
         LogisticRegression(class_weight='balanced', max_iter=1000)
     )
 
