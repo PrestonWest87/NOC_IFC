@@ -99,9 +99,7 @@ def fetch_live_crimes():
                     # Use the new ArcGIS geocoder
                     incident_lat, incident_lon, is_approx = geocode_address_arcgis(location, hq_lat, hq_lon)
                     distance = calculate_distance(hq_lat, hq_lon, incident_lat, incident_lon)
-                    
-                    if distance > 1.5: continue
-                    
+                                        
                     inc_id = f"LR_{incident_date.strftime('%Y%m%d%H%M%S')}_{abs(hash(location)) % 10000}"
                     
                     severity = "Low"
