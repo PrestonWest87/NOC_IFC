@@ -21,3 +21,4 @@ fastapi
 uvicorn
 rapidfuzz
 pydeck
+plotly==5.18.0
