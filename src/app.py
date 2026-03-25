@@ -780,55 +780,109 @@ elif page == "🗺️ Regional Grid":
                 rg_idx += 1
 
             if "Tab: Regional Grid -> Executive Dash" in st.session_state.allowed_actions:
-                with rg_tabs[rg_idx]:
-                    st.subheader("📊 Infrastructure Threat Dashboard")
-                    
-                    if map_df.empty:
-                        st.info("No monitored locations match current filters.")
-                    else:
-                        analytics = svc.get_infrastructure_analytics(map_df.copy())
-                        
-                        st.download_button(
-                            label="📥 Export Infrastructure Risk Report (CSV)",
-                            data=map_df.sort_values(by=['Risk', 'Priority']).to_csv(index=False).encode('utf-8'),
-                            file_name=f"Infrastructure_Risk_{datetime.now(LOCAL_TZ).strftime('%Y%m%d_%H%M')}.csv",
-                            mime='text/csv', width="stretch"
-                        )
-                        st.divider()
-                        
-                        c_m1, c_m2, c_m3 = st.columns(3)
-                        c_m1.metric("Total Tracked Sites", len(map_df))
-                        c_m2.metric("Sites in Active Risk Areas", analytics["at_risk_sites"])
-                        c_m3.metric("Highest Current Risk", analytics["highest_risk"])
-                        st.write("")
-                        
-                        c1, c2, c3 = st.columns(3)
-                        with c1:
-                            st.markdown("**Sites by Risk Level**")
-                            if not analytics["risk_distribution"].empty:
-                                st.bar_chart(analytics["risk_distribution"], color="#ff4b4b", width="stretch")
-                            else: st.success("All clear.")
-                        with c2:
-                            st.markdown("**Sites by Regional Zone**")
-                            st.bar_chart(analytics["region_distribution"], color="#28a745", width="stretch")
-                        with c3:
-                            st.markdown("**Sites by Facility Type**")
-                            st.bar_chart(analytics["type_distribution"], color="#1f77b4", width="stretch")
+                            with rg_tabs[rg_idx]:
+                                st.subheader("📊 Executive Infrastructure Threat Dashboard")
+                                st.markdown("High-level overview of physical asset exposure to regional hazards and severe weather.")
+                                
+                                if map_df.empty:
+                                    st.info("No monitored locations match current filters.")
+                                else:
+                                    import plotly.express as px
+                                    import plotly.graph_objects as go
+                                    
+                                    analytics = svc.get_infrastructure_analytics(map_df.copy())
+                                    
+                                    # --- 1. EXECUTIVE SCORECARD (KPIs) ---
+                                    # Calculate P1 (Critical) specific metrics
+                                    p1_df = map_df[map_df['Priority'] == 1]
+                                    p1_at_risk = len(p1_df[p1_df['Risk'] != 'None'])
+                                    total_at_risk = analytics.get("at_risk_sites", 0)
+                                    risk_pct = round((total_at_risk / len(map_df)) * 100, 1) if len(map_df) > 0 else 0
+                                    
+                                    with st.container(border=True):
+                                        c_kpi1, c_kpi2, c_kpi3, c_kpi4 = st.columns(4)
+                                        c_kpi1.metric("Total Tracked Assets", len(map_df))
+                                        c_kpi2.metric("Assets in Active Risk Zones", total_at_risk, f"{risk_pct}% Exposure", delta_color="inverse")
+                                        c_kpi3.metric("Critical (P1) Assets at Risk", p1_at_risk, "Immediate Attention" if p1_at_risk > 0 else "Clear", delta_color="inverse")
+                                        c_kpi4.metric("Highest Regional Risk", analytics["highest_risk"])
+                                    
+                                    st.divider()
+                                    
+                                    # --- 2. EXPOSURE VISUALIZATIONS ---
+                                    c_viz1, c_viz2 = st.columns(2)
+                                    
+                                    with c_viz1:
+                                        st.markdown("### 🎯 Network Risk Distribution")
+                                        risk_counts = map_df[map_df['Risk'] != 'None']['Risk'].value_counts().reset_index()
+                                        risk_counts.columns = ['Risk Level', 'Count']
+                                        
+                                        if not risk_counts.empty and risk_counts['Count'].sum() > 0:
+                                            # Custom color mapping for NWS/SPC standard colors
+                                            color_map = {"HIGH": "#dc3545", "MDT": "#e67e22", "ENH": "#f39c12", "SLGT": "#f1c40f", "MRGL": "#17a2b8", "TSTM": "#28a745", "None": "#6c757d"}
+                                            fig_donut = px.pie(risk_counts, values='Count', names='Risk Level', hole=0.6, color='Risk Level', color_discrete_map=color_map)
+                                            fig_donut.update_layout(margin=dict(t=20, b=20, l=20, r=20), showlegend=True)
+                                            st.plotly_chart(fig_donut, use_container_width=True)
+                                        else:
+                                            st.success("✅ No assets currently exposed to severe weather geometry.")
+                                            
+                                    with c_viz2:
+                                        st.markdown("### 🏢 Exposure by Facility Type")
+                                        # Filter to only show sites at risk for the executive breakdown
+                                        at_risk_df = map_df[map_df['Risk'] != 'None']
+                                        if not at_risk_df.empty:
+                                            type_counts = at_risk_df.groupby(['Type', 'Risk']).size().reset_index(name='Count')
+                                            fig_bar = px.bar(type_counts, x='Count', y='Type', color='Risk', orientation='h', color_discrete_map=color_map)
+                                            fig_bar.update_layout(margin=dict(t=20, b=20, l=20, r=20), xaxis_title="Impacted Assets", yaxis_title="")
+                                            st.plotly_chart(fig_bar, use_container_width=True)
+                                        else:
+                                            st.success("✅ All facility types report nominal weather conditions.")
 
-                        st.divider()
-                        
-                        st.markdown("### 🧮 Advanced Data Intersections")
-                        cx1, cx2, cx3 = st.columns(3)
-                        with cx1:
-                            st.markdown("**Risk by Priority Level**")
-                            st.dataframe(analytics["priority_risk_matrix"], width="stretch")
-                        with cx2:
-                            st.markdown("**Risk by Regional Zone**")
-                            st.dataframe(analytics["region_risk_matrix"], width="stretch")
-                        with cx3:
-                            st.markdown("**Risk by Facility Type**")
-                            st.dataframe(analytics["type_risk_matrix"], width="stretch")
-                rg_idx += 1
+                                    st.divider()
+
+                                    # --- 3. EXECUTIVE HEATMAPS ---
+                                    st.markdown("### 🗺️ Geospatial & Priority Heatmaps")
+                                    st.caption("Darker red indicates a higher concentration of assets falling within specific risk classifications.")
+                                    
+                                    c_heat1, c_heat2 = st.columns(2)
+                                    with c_heat1:
+                                        st.markdown("**Exposure Concentration by Region**")
+                                        reg_matrix = analytics["region_risk_matrix"]
+                                        if not reg_matrix.empty:
+                                            fig_heat_reg = px.imshow(reg_matrix, text_auto=True, aspect="auto", color_continuous_scale="Reds")
+                                            fig_heat_reg.update_layout(margin=dict(t=10, b=10, l=10, r=10), coloraxis_showscale=False)
+                                            st.plotly_chart(fig_heat_reg, use_container_width=True)
+                                        
+                                    with c_heat2:
+                                        st.markdown("**Exposure Concentration by Priority**")
+                                        prio_matrix = analytics["priority_risk_matrix"]
+                                        if not prio_matrix.empty:
+                                            fig_heat_prio = px.imshow(prio_matrix, text_auto=True, aspect="auto", color_continuous_scale="Reds")
+                                            fig_heat_prio.update_layout(margin=dict(t=10, b=10, l=10, r=10), coloraxis_showscale=False)
+                                            st.plotly_chart(fig_heat_prio, use_container_width=True)
+
+                                    st.divider()
+                                    
+                                    # --- 4. DATA EXPORT & RAW MATRICES ---
+                                    with st.expander("🧮 View Raw Matrices & Export Data"):
+                                        c_dl, c_space = st.columns([1, 2])
+                                        c_dl.download_button(
+                                            label="📥 Export Complete Infrastructure Risk Report (CSV)",
+                                            data=map_df.sort_values(by=['Risk', 'Priority']).to_csv(index=False).encode('utf-8'),
+                                            file_name=f"Infrastructure_Risk_{datetime.now(LOCAL_TZ).strftime('%Y%m%d_%H%M')}.csv",
+                                            mime='text/csv', width="stretch"
+                                        )
+                                        st.write("")
+                                        cx1, cx2, cx3 = st.columns(3)
+                                        with cx1:
+                                            st.markdown("**Risk by Priority Level**")
+                                            st.dataframe(analytics["priority_risk_matrix"], width="stretch")
+                                        with cx2:
+                                            st.markdown("**Risk by Regional Zone**")
+                                            st.dataframe(analytics["region_risk_matrix"], width="stretch")
+                                        with cx3:
+                                            st.markdown("**Risk by Facility Type**")
+                                            st.dataframe(analytics["type_risk_matrix"], width="stretch")
+                            rg_idx += 1
 
             if "Tab: Regional Grid -> Hazard Analytics" in st.session_state.allowed_actions:
                 with rg_tabs[rg_idx]:
