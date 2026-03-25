@@ -1697,14 +1697,14 @@ elif page == "⚙️ Settings & Admin":
                         safe_rerun()
 
                     st.write("**Crime Data Reset**")
-                        st.caption("Purges all local LRPD dispatch and crime records from the database.")
-                        if st.button("🚔 PURGE CRIME DATA", width="stretch"):
-                            success, count = svc.nuke_crime_data()
-                            if success:
-                                st.toast(f"✅ Successfully purged {count} crime records.")
-                                safe_rerun()
-                            else:
-                                st.error(f"Failed to purge crime data: {count}")
+                    st.caption("Purges all local LRPD dispatch and crime records from the database.")
+                    if st.button("🚔 PURGE CRIME DATA", width="stretch"):
+                        success, count = svc.nuke_crime_data()
+                        if success:
+                            st.toast(f"✅ Successfully purged {count} crime records.")
+                            safe_rerun()
+                        else:
+                            st.error(f"Failed to purge crime data: {count}")
                         
                 with col3:
                     st.write("**Factory Reset**")
