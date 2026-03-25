@@ -20,16 +20,13 @@ engine = create_engine(
 @event.listens_for(engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
-    # Write-Ahead Logging for high-concurrency (simultaneous reads/writes)
     cursor.execute("PRAGMA journal_mode=WAL")
-    # Reduces sync overhead to disk, vastly improving write speeds
     cursor.execute("PRAGMA synchronous=NORMAL")
-    # Dedicate 64MB of RAM to the DB cache
-    cursor.execute("PRAGMA cache_size=-64000") 
-    # Process complex queries and temporary tables in RAM, not on disk
+    # Reduce cache from 64MB to 16MB
+    cursor.execute("PRAGMA cache_size=-16000") 
     cursor.execute("PRAGMA temp_store=MEMORY")
-    # Use Memory-Mapped I/O for lightning-fast dashboard reads
-    cursor.execute("PRAGMA mmap_size=3000000000") 
+    # Reduce memory map limit from 3GB to 256MB
+    cursor.execute("PRAGMA mmap_size=268435456") 
     cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
