@@ -1,60 +1,118 @@
-# Enterprise Architecture & Algorithmic Specification: `src/llm.py` *(Updated)*
+# Enterprise Architecture & Functional Specification: `src/database.py` (Extended Table & Function Deep Dive)
 
 ## 1. Executive Overview
 
-The `src/llm.py` module acts as the **Cognitive Processing Hub** of the Intelligence Fusion Center (IFC). In its latest architectural iteration, this module has been heavily refactored to optimize for **Local Edge Compute and GPU Memory constraints** (e.g., running open-weights models via LM Studio, Ollama, or vLLM).
-
-To prevent massive context-window overflows, CUDA Out-Of-Memory (OOM) crashes, and severe UI latency, the engine now implements aggressive text truncation, dynamic chunk resizing, universal Map-Reduce pipelines, and highly parallelized concurrent LLM queries.
+This document serves as an exhaustive, function-by-function and table-by-table reference guide for `src/database.py`. It is designed to allow onboarding engineers to immediately understand the exact purpose, schema design, and operational role of every data structure within the Intelligence Fusion Center (IFC).
 
 ---
 
-## 2. Core Architecture: Compute & Context Optimization
+## 2. Engine Initialization & Concurrency Functions
 
-Standard LLM API calls are highly sequential and prone to context bloat. The updated engine introduces several utilities to strictly manage the data payload sent to the LLM.
+The module begins by establishing the core SQLAlchemy connection, forcing an optimized SQLite deployment path to guarantee zero-configuration edge capabilities.
 
-### 2.1 VRAM Conservation: `truncate_text(text, max_chars)`
-* **Purpose:** Aggressively trims long article summaries down to a predefined character limit (default 250, or 600 for deep reports).
-* **Impact:** Prevents the LLM context window from overflowing when batching 10+ intelligence articles together, ensuring stable performance on consumer-grade or edge-deployed GPUs.
-
-### 2.2 The Universal Pipeline: `_map_reduce_summarize(...)`
-A newly abstracted, universal pipeline function designed to process massive daily datasets (like the 24-hour Daily Briefing) without triggering timeouts.
-* **Map Phase:** Takes a large array of database items (e.g., 15 CVEs), chunks them into very small micro-batches (e.g., 6 items), and runs a "Map Prompt" against each chunk to extract core facts.
-* **Reduce Phase:** If multiple batches were processed, it concatenates the resulting summaries and runs a final "Reduce Prompt" to synthesize a single, cohesive narrative.
-* **Fault Tolerance:** Automatically checks for the `⚠️` error string returned by `call_llm` on timeouts. If a single chunk fails due to network latency, it skips it rather than crashing the entire daily report generation.
+### `set_sqlite_pragma(dbapi_connection, connection_record)`
+* **Functionality:** An event listener attached to the SQLAlchemy engine via the `@event.listens_for(engine, "connect")` decorator. It intercepts every new connection to the database and injects low-level SQLite C-library configurations.
+* **Operational Impact:**
+    * `PRAGMA journal_mode=WAL`: Enables Write-Ahead Logging, decoupling read locks from write locks. Essential for allowing the Streamlit UI to read dashboards while background workers concurrently insert thousands of CVEs.
+    * `PRAGMA cache_size=-64000`: Allocates 64MB of RAM to the database cache, dramatically reducing disk I/O for frequent queries.
+    * `PRAGMA temp_store=MEMORY` & `PRAGMA mmap_size=3000000000`: Forces temporary tables and memory-mapped files into RAM, executing complex `GROUP BY` and geospatial queries instantly.
 
 ---
 
-## 3. High-Velocity Tactical Intelligence
+## 3. Core System & IAM (Identity and Access Management) Models
 
-### 3.1 Concurrent BLUF Generation: `generate_bluf(article, session)`
-The generation of the "Bottom Line Up Front" (BLUF) has been fundamentally redesigned to reduce UI latency using Python's `concurrent.futures`.
+These ORM classes define the operational state of the application and control user authorization.
 
-* **The Problem:** Asking an LLM to generate a complex, multi-part response in a single prompt often results in slow generation speeds and muddled formatting.
-* **The Concurrent Solution:** The function breaks the BLUF into three distinct, hyper-focused prompts:
-    1.  *Core Event* (What happened?)
-    2.  *Cascading Impact* (What is the blast radius?)
-    3.  *Strategic Posture* (What should the NOC do?)
-* **Execution:** It spins up a `ThreadPoolExecutor(max_workers=3)` and fires all three prompts to the LLM endpoint **simultaneously**. 
-* **Impact:** By executing in parallel, a process that previously took 6 seconds sequentially now completes in ~2 seconds, reassembling the final output mathematically and drastically improving the operator experience.
+### `User` (Table: `users`)
+* **Purpose:** Manages human operator identities and authentication state.
+* **Key Fields:**
+    * `password_hash`: Stores bcrypt-hashed credentials.
+    * `session_token`: Stores persistent UUIDs for browser cookie validation.
+    * `role`: A foreign-key equivalent linking the user to a specific RBAC profile.
+
+### `Role` (Table: `roles`)
+* **Purpose:** The architectural backbone of the application's Role-Based Access Control.
+* **Key Fields:**
+    * `allowed_pages` (JSON): An array of strings defining exactly which top-level Streamlit modules the role can render (e.g., `["🌐 Operational Dashboard", "🚨 Crime Intelligence"]`).
+    * `allowed_actions` (JSON): An array of granular permission strings enabling specific tabs and UI buttons (e.g., `"Action: Dispatch Exec Report"`).
+
+### `SystemConfig` (Table: `system_config`)
+* **Purpose:** A singleton table holding global variables required by background services and the LLM abstraction layer.
+* **Key Fields:**
+    * `llm_endpoint`, `llm_api_key`, `llm_model_name`: Hot-swappable connection strings for the universal LLM engine.
+    * `tech_stack`: A user-defined string of internal vendors (e.g., "SolarWinds, Cisco") cross-referenced by the AI Auditor against new CVEs.
+    * `rolling_summary`: Caches the expensive LLM-generated shift briefing to prevent API spam.
+    * `smtp_server` -> `smtp_enabled`: Stores the mailing credentials used to autonomously dispatch Outlook HTML SitReps.
+
+### `Keyword` & `FeedSource` (Tables: `keywords`, `feed_sources`)
+* **Purpose:** Defines the ingestion scope for the Cyber Threat Intelligence pipelines.
+* **Key Fields:** `FeedSource.url` targets the specific RSS endpoint, while `Keyword.weight` determines the numeric value added to an article's threat score if the `Keyword.word` is detected via Regex.
+
+### `SavedReport` (Table: `saved_reports`)
+* **Purpose:** A shared organizational repository storing the raw Markdown of deep-dive intelligence reports synthesized via the Map-Reduce LLM engine.
 
 ---
 
-## 4. Strategic & Analytical Pipelines (Tuned Chunking)
+## 4. Intelligence & Threat Models
 
-All strategic reporting functions have had their chunk sizes and ingestion limits aggressively tuned downwards to accommodate the throughput of local models.
+These tables manage the normalized Open-Source Intelligence (OSINT) required for situational awareness.
 
-* **`cross_reference_cves`:** Reduced chunk limits from 15 to 8. Ensures the AI Security Auditor does not hallucinate false positive infrastructure matches due to context dilution.
-* **`build_custom_intel_report`:** Reduced chunk limits from 3 to 2. Forces the AI to extract highly technical IOCs and TTPs from only two articles at a time, ensuring zero intelligence is lost during the Map phase.
-* **`analyze_cascading_impacts` & `generate_briefing`:** Capped array limits to 10 articles and utilized the new `truncate_text` helper to safely fit within standard 4k-8k context windows.
+### `Article` (Table: `articles`)
+* **Purpose:** The primary storage unit for all incoming cyber, physical, and geopolitical threat intelligence.
+* **Key Fields:**
+    * `category`: The specific operational domain assigned by the high-speed Regex triage engine.
+    * `score`: The deterministic sum of matched keywords, dictating dashboard prioritization.
+    * `ai_bluf`: The LLM-generated Bottom Line Up Front.
+    * `is_pinned`: An indexed boolean allowing operators to manually force critical articles to the top of the Operational Dashboard.
+
+### `ExtractedIOC` (Table: `extracted_iocs`)
+* **Purpose:** Stores atomized Indicators of Compromise (IPv4, SHA256, Domains) parsed from `Article` text, establishing a relational link for the Threat Hunting UI.
+
+### `CveItem` (Table: `cve_items`)
+* **Purpose:** A synchronized, local mirror of the CISA Known Exploited Vulnerabilities catalog.
+* **Key Fields:** `cve_id`, `vendor`, `product`. Indexed heavily to allow the AI Security Auditor to rapidly cross-reference emerging exploits offline.
+
+### `DailyBriefing` (Table: `daily_briefings`)
+* **Purpose:** Acts as a historical archive for the daily, autonomous Map-Reduce situational reports generated at 06:00 AM.
 
 ---
 
-## 5. Automated Scheduled Reporting
+## 5. Grid, Weather, & AIOps Models
 
-### 5.1 Shift Context: `generate_rolling_summary(session)`
-* Maintains its strict 6-hour temporal scoping for the live Operational Dashboard HUD.
-* **Geographic Alignment:** The prompt for the "Cloud Services" chunk was explicitly updated (`"Include the geographic regions mentioned."`). This allows the LLM to process the newly appended US/Foreign region tags injected by the upgraded `cloud_worker.py` and output highly localized cloud status summaries (e.g., *"Monitored cloud platforms are tracking Azure degradation localized to US-East"*).
+These tables construct the physical ontology of the organization and house the raw network telemetry utilized by the RCA deterministic engine.
 
-### 5.2 Master SitRep: `generate_daily_fusion_report(session)`
-* **Architecture:** Completely stripped of its procedural LLM calls and refactored to route entirely through the new `_map_reduce_summarize` pipeline.
-* **Execution:** It formats database objects (Articles, Hazards, CVEs) into single-line bullet strings using inline `lambda` functions, passing them alongside specialized Map and Reduce prompts. This ensures the daily Master Report is consistently generated every morning at 06:00 AM, regardless of the underlying LLM's speed or memory constraints.
+### `MonitoredLocation` (Table: `monitored_locations`)
+* **Purpose:** Defines the exact geospatial locations of critical NOC infrastructure (Data Centers, Cellular Towers).
+* **Key Fields:** `lat`, `lon` (for Haversine radius calculations), and `priority` (an integer denoting criticality).
+
+### `CrimeIncident` (Table: `crime_incidents`)
+* **Purpose:** The storage target for the `crime_worker.py` daemon. It holds kinetic, real-world events (arson, theft) extracted from local law enforcement APIs.
+* **Key Fields:** `distance_miles` guarantees the incident occurred within a strict geofence of HQ, while `severity` triggers UI alarms.
+
+### `RegionalHazard` & `RegionalOutage` (Tables: `regional_hazards`, `regional_outages`)
+* **Purpose:** Stores active polygons and geographic warnings generated by the Storm Prediction Center and NWS (e.g., Wildfires, Tornados). The AIOps engine checks these geometries against `MonitoredLocation` coordinates to verify physical kinetic impacts.
+
+### `CloudOutage` & `BgpAnomaly` (Tables: `cloud_outages`, `bgp_anomalies`)
+* **Purpose:** Tracks external macro-scale digital failures (e.g., AWS Region outages, Carrier Route Leaks). Used by the AIOps engine to determine if internal alarms are actually upstream dependency failures.
+
+### `SolarWindsAlert` (Table: `solarwinds_alerts`)
+* **Purpose:** The heaviest table in the database. It stores the raw JSON payloads received by the FastAPI webhook endpoint.
+* **Key Fields:** * `raw_payload`: Stores the unparsed ITSM JSON for ML retraining.
+    * `mapped_location`: The physical site name assigned by the heuristic mapping engine.
+    * `is_correlated`: An indexed boolean allowing the correlation engine to rapidly skip alerts that have already been packaged into an incident cluster.
+
+### `TimelineEvent` (Table: `timeline_events`)
+* **Purpose:** A lightweight, chronological ledger tracking system events and node state changes, rendered as the scrolling ticker tape on the Active Incident Board.
+
+---
+
+## 6. Initialization & Data Seeding
+
+### `init_db()`
+* **Functionality:** A self-healing bootstrap sequence executed immediately upon application start.
+* **Operational Flow:**
+    1.  **Race Condition Mitigation:** Executes `time.sleep(random.uniform(0.1, 1.5))` to prevent database lock collisions when multiple Docker microservices spin up simultaneously.
+    2.  **Schema Generation:** Uses `Base.metadata.create_all(bind=engine)` to natively build the SQLite tables if they do not exist.
+    3.  **RBAC Auto-Healing:** Hardcodes the `all_pages` and `all_actions` arrays utilizing the new descriptive nomenclature. It checks for the existence of the `admin` and `analyst` roles. If they exist, it *forcefully overwrites* their JSON arrays to ensure legacy databases are automatically upgraded to support the new Executive Dashboard and Crime Intelligence features.
+    4.  **Admin Seeding:** If the `User` table is entirely empty, it generates a default `admin` user with a securely hashed bcrypt password.
+    5.  **Transactional Integrity:** Operates within a strict `try...except...finally` block, executing `session.rollback()` on failure and `session.close()` to ensure the connection pool is not depleted during bootstrap.
