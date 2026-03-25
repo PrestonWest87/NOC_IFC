@@ -25,15 +25,17 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     return R * c
 
 def geocode_address(address, hq_lat, hq_lon):
-    """Converts a street address to Lat/Lon using OpenStreetMap with dual-pass intersection logic."""
+    """Converts a street address to Lat/Lon using OSM with Donut Fallback."""
     if address in GEO_CACHE:
         return GEO_CACHE[address]
 
-    # Pass 1: Clean the address. Nominatim hates "/", but loves "and" for intersections
-    clean_address = address.replace("/", " and ").strip()
+    # Pass 1: Aggressive cleaning for Nominatim
+    clean_address = address.replace("/", " and ").replace(" BLK ", " ").replace(" BLOCK ", " ").strip()
+    clean_address = " ".join(clean_address.split()) # Remove double spaces
     
     url = "https://nominatim.openstreetmap.org/search"
-    headers = {"User-Agent": "NOC_IFC_Worker/1.0"}
+    # A unique user agent prevents generic blocking by OSM
+    headers = {"User-Agent": "NOC_IFC_GeoWorker/2.0 (noc_admin@local)"} 
     
     try:
         # Attempt 1: Full Address / Intersection
@@ -46,9 +48,9 @@ def geocode_address(address, hq_lat, hq_lon):
         if resp.status_code == 200 and resp.json():
             data = resp.json()[0]
             lat, lon = float(data["lat"]), float(data["lon"])
-            GEO_CACHE[address] = (lat, lon)
-            time.sleep(1) # Respect OSM rate limits
-            return lat, lon
+            GEO_CACHE[address] = (lat, lon, False) # False = Not a fallback
+            time.sleep(1.1) # Strict respect for OSM 1-req/sec limit
+            return lat, lon, False
             
         # Attempt 2: If intersection failed, try just the primary street
         if " and " in clean_address:
@@ -59,25 +61,28 @@ def geocode_address(address, hq_lat, hq_lon):
             if resp.status_code == 200 and resp.json():
                 data = resp.json()[0]
                 lat, lon = float(data["lat"]), float(data["lon"])
-                GEO_CACHE[address] = (lat, lon)
-                time.sleep(1)
-                return lat, lon
+                GEO_CACHE[address] = (lat, lon, True) # Tag as approx (street only)
+                time.sleep(1.1)
+                return lat, lon, True
                 
     except Exception:
         pass
 
-    # Fallback: If address completely fails, apply a VERY TIGHT scatter (approx 0.2 miles)
-    # so the incident remains accurately close to the HQ location on the map.
-    lat = hq_lat + random.uniform(-0.003, 0.003)
-    lon = hq_lon + random.uniform(-0.003, 0.003)
-    GEO_CACHE[address] = (lat, lon)
-    return lat, lon
+    # THE DONUT OF UNCERTAINTY: 
+    # If the address is totally broken, place it randomly in a ring 0.6 to 1.2 miles away.
+    # This prevents unmapped crimes from artificially inflating the immediate perimeter risk.
+    radius_deg = random.uniform(0.009, 0.018) 
+    angle = random.uniform(0, 2 * math.pi)
+    lat = hq_lat + radius_deg * math.cos(angle)
+    lon = hq_lon + radius_deg * math.sin(angle)
+    
+    GEO_CACHE[address] = (lat, lon, True)
+    return lat, lon, True
 
 
 def fetch_live_crimes():
     print(f"[{datetime.now().strftime('%H:%M:%S')}] 🚨 CRIME WORKER: Polling LR Dispatches...")
     
-    # The hidden JSON endpoint
     api_url = "https://web.littlerock.state.ar.us/pub/Home/CadEvents"
     
     try:
@@ -85,6 +90,7 @@ def fetch_live_crimes():
         response.raise_for_status()
         data = response.json()
         
+        # Perfectly aligned with your UI PyDeck map
         hq_lat, hq_lon = 34.6755, -92.3235
         seven_days_ago = datetime.now() - timedelta(hours=168)
         
@@ -101,14 +107,12 @@ def fetch_live_crimes():
                     incident_date = datetime.strptime(raw_date, "%m/%d/%Y %H:%M:%S")
                     if incident_date < seven_days_ago: continue
                     
-                    # Geocode the raw address
-                    incident_lat, incident_lon = geocode_address(location, hq_lat, hq_lon)
+                    # Geocode with fallback detection
+                    incident_lat, incident_lon, is_approx = geocode_address(location, hq_lat, hq_lon)
                     distance = calculate_distance(hq_lat, hq_lon, incident_lat, incident_lon)
                     
-                    # Filter to roughly 1.5 miles to account for the tight geocoding drift
                     if distance > 1.5: continue
                     
-                    # Generate a unique ID since the new API doesn't provide one
                     inc_id = f"LR_{incident_date.strftime('%Y%m%d%H%M%S')}_{abs(hash(location)) % 10000}"
                     
                     severity = "Low"
@@ -118,12 +122,16 @@ def fetch_live_crimes():
                     elif any(k in desc for k in ["VANDALISM", "TRESPASS", "PROWLER", "DISTURBANCE", "SUSPICIOUS"]): category, severity = "Perimeter Breach/Vandalism", "Medium"
                     else: category, severity = "General Police Activity", "Low"
                     
+                    # Append tag if geocoder had to guess
+                    display_title = f"{desc.title()}"
+                    if is_approx: display_title += " (Approx Loc)"
+                    
                     existing_incident = db.query(CrimeIncident).filter_by(id=inc_id).first()
                     if not existing_incident:
                         new_inc = CrimeIncident(
                             id=inc_id,
                             category=category,
-                            raw_title=desc.title(),
+                            raw_title=display_title,
                             timestamp=incident_date,
                             distance_miles=round(distance, 2),
                             severity=severity,
@@ -137,8 +145,6 @@ def fetch_live_crimes():
                     continue
             
             db.commit()
-            
-            # Maintenance: Drop records older than 7 days
             db.query(CrimeIncident).filter(CrimeIncident.timestamp < seven_days_ago).delete()
             db.commit()
             
