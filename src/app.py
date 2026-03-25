@@ -9,14 +9,13 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from streamlit_autorefresh import st_autorefresh
 import pydeck as pdk
-from shapely.geometry import Point, shape 
 import streamlit.components.v1 as components
 
-# --- IMPORT SERVICES ONLY (No Database Models Allowed) ---
+# --- IMPORT SERVICES ONLY ---
 import src.services as svc
 from src.database import init_db
 from src.scheduler import fetch_feeds
-from src.llm import generate_briefing, generate_bluf, analyze_cascading_impacts, cross_reference_cves, build_custom_intel_report, generate_feed_overview, generate_rolling_summary, generate_daily_fusion_report, call_llm
+from src.llm import generate_bluf, cross_reference_cves, build_custom_intel_report, generate_rolling_summary, generate_daily_fusion_report, call_llm
 
 @st.cache_resource
 def setup_database():
@@ -32,43 +31,36 @@ cookie_controller = CookieController()
 def safe_rerun():
     st.rerun()
 
-# --- RATE LIMITING / DEBOUNCE HELPERS ---
 def check_cooldown(key, cooldown_seconds=60):
-    """Checks if a button was clicked recently to prevent spamming."""
     last_click = st.session_state.get(f"cooldown_{key}", 0)
     return (time.time() - last_click) < cooldown_seconds
 
 def apply_cooldown(key):
-    """Activates the cooldown timer for a specific button."""
     st.session_state[f"cooldown_{key}"] = time.time()
 
-# --- DESCRIPTIVE RBAC CONSTANTS ---
+# --- REFACTORED RBAC CONSTANTS ---
 ALL_POSSIBLE_PAGES = [
-    "🌐 Operational Dashboard", 
-    "📊 Executive Dashboard", 
-    "📰 Daily Fusion Report",
+    "👁️ Global Dashboards", 
     "📡 Threat Telemetry", 
-    "🚨 Crime Intelligence",
     "🎯 Threat Hunting & IOCs",
     "⚡ AIOps RCA", 
-    "📑 Report Center", 
+    "📑 Reporting & Briefings", 
     "⚙️ Settings & Admin"
 ]
 
 ALL_POSSIBLE_ACTIONS = [
     "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score", 
-    "Action: Trigger AI Functions", "Action: Manually Sync Data",
-    "Action: Dispatch Exec Report",
+    "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
+    "Tab: Dashboards -> Operational", "Tab: Dashboards -> Executive",
     "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV", 
-    "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Regional Grid",
-    "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash", "Tab: Regional Grid -> Hazard Analytics", 
-    "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", 
-    "Tab: Regional Grid -> Manage Locations", "Tab: Threat Hunting -> Global IOC Matrix", 
-    "Tab: Threat Hunting -> Deep Hunt Builder", "Tab: AIOps RCA -> Active Board", 
-    "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
-    "Tab: Report Center -> Report Builder", "Tab: Report Center -> Shared Library",
-    "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training", "Tab: Settings -> AI & SMTP", 
-    "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
+    "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Regional Grid", "Tab: Threat Telemetry -> Perimeter Crime",
+    "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash", 
+    "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", 
+    "Tab: Threat Hunting -> Global IOC Matrix", "Tab: Threat Hunting -> Deep Hunt Builder", 
+    "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
+    "Tab: Reporting -> Daily Fusion", "Tab: Reporting -> Report Builder", "Tab: Reporting -> Shared Library",
+    "Tab: Settings -> Facility Locations", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training", 
+    "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
 ]
 
 if "current_user" not in st.session_state:
@@ -77,7 +69,7 @@ if "current_user" not in st.session_state:
     st.session_state.allowed_pages = []
     st.session_state.allowed_actions = []
 
-# --- AUTHENTICATION & ADMIN OVERRIDE ---
+# --- AUTHENTICATION ---
 if st.session_state.current_user is None:
     saved_token = cookie_controller.get("noc_session_token")
     if saved_token:
@@ -85,7 +77,6 @@ if st.session_state.current_user is None:
         if user:
             st.session_state.current_user = user.username
             st.session_state.current_role = user.role
-            
             if user.role == "admin":
                 st.session_state.allowed_pages = ALL_POSSIBLE_PAGES
                 st.session_state.allowed_actions = ALL_POSSIBLE_ACTIONS
@@ -93,7 +84,7 @@ if st.session_state.current_user is None:
                 roles = svc.get_all_roles()
                 role_obj = next((r for r in roles if r.name == user.role), None)
                 if role_obj:
-                    st.session_state.allowed_pages = [p if p != "⚡ AIOps RCA (Staging)" else "⚡ AIOps RCA" for p in role_obj.allowed_pages]
+                    st.session_state.allowed_pages = role_obj.allowed_pages
                     st.session_state.allowed_actions = role_obj.allowed_actions or []
             safe_rerun()
 
@@ -114,18 +105,10 @@ if st.session_state.current_user is None:
                 else: st.error("❌ Invalid credentials.")
     st.stop() 
 
-# --- SESSION REFRESH ---
 if st.session_state.current_role == "admin":
     st.session_state.allowed_pages = ALL_POSSIBLE_PAGES
     st.session_state.allowed_actions = ALL_POSSIBLE_ACTIONS
-else:
-    roles = svc.get_all_roles()
-    role_obj = next((r for r in roles if r.name == st.session_state.current_role), None)
-    if role_obj:
-        st.session_state.allowed_pages = role_obj.allowed_pages
-        st.session_state.allowed_actions = role_obj.allowed_actions or []
 
-# Corrected Action Checks
 can_pin = "Action: Pin Articles" in st.session_state.allowed_actions
 can_train = "Action: Train ML Model" in st.session_state.allowed_actions
 can_boost = "Action: Boost Threat Score" in st.session_state.allowed_actions
@@ -136,17 +119,47 @@ current_user_obj = svc.get_user_by_username(st.session_state.current_user)
 sys_config = svc.get_cached_config()
 ai_enabled = sys_config.is_active if sys_config else False
 
-st.markdown("""
+# --- DYNAMIC THEMING ENGINE ---
+if "ui_theme" not in st.session_state:
+    st.session_state.ui_theme = "Standard"
+
+theme_css = {
+    "Standard": "",
+    "NOC Terminal": """
+        <style>
+            .stApp { background-color: #0e1117; color: #00ff00; }
+            h1, h2, h3 { color: #00ff00 !important; font-family: 'Courier New', Courier, monospace; }
+            [data-testid="stSidebar"] { background-color: #000000; border-right: 1px solid #00ff00; }
+            div[data-testid="stMetricValue"] { color: #00ff00; }
+            .stButton>button { background-color: #002200; color: #00ff00; border: 1px solid #00ff00; }
+            .stButton>button:hover { background-color: #00ff00; color: #000000; }
+            [data-testid="stContainer"] { background-color: #050505; border: 1px solid #00ff00 !important; }
+        </style>
+    """,
+    "High Contrast": """
+        <style>
+            .stApp { background-color: #ffffff; color: #000000; }
+            h1, h2, h3 { color: #000000 !important; font-weight: 900 !important; }
+            [data-testid="stSidebar"] { background-color: #f0f0f0; border-right: 3px solid #000000; }
+            .stButton>button { background-color: #000000; color: #ffffff; border: 2px solid #000000; font-weight: bold; }
+            [data-testid="stContainer"] { background-color: #ffffff; border: 3px solid #000000 !important; box-shadow: 4px 4px 0px #000000; }
+        </style>
+    """
+}
+
+st.markdown(f"""
     <style>
-        .block-container { padding-top: 1rem; padding-bottom: 0rem; padding-left: 1rem; padding-right: 1rem; max-width: 100%; }
-        h1 { font-size: 1.8rem !important; margin-bottom: 0rem !important; padding-bottom: 0rem !important; }
-        h2 { font-size: 1.4rem !important; margin-bottom: 0rem !important; padding-bottom: 0rem !important; }
-        h3 { font-size: 1.1rem !important; margin-bottom: 0rem !important; padding-bottom: 0rem !important; }
-        [data-testid="stVerticalBlockBorderWrapper"] p, [data-testid="stVerticalBlockBorderWrapper"] li, [data-testid="stExpanderDetails"] p, [data-testid="stExpanderDetails"] li { font-size: 0.9rem !important; margin-bottom: 0.2rem !important; line-height: 1.3 !important; }
-        hr { margin-top: 0.5rem; margin-bottom: 0.5rem; }
-        .stButton>button { padding: 0rem 0.5rem !important; min-height: 2rem !important; }
+        .block-container {{ padding-top: 1rem; padding-bottom: 0rem; padding-left: 1rem; padding-right: 1rem; max-width: 100%; }}
+        h1 {{ font-size: 1.8rem !important; margin-bottom: 0rem !important; padding-bottom: 0rem !important; }}
+        h2 {{ font-size: 1.4rem !important; margin-bottom: 0rem !important; padding-bottom: 0rem !important; }}
+        h3 {{ font-size: 1.1rem !important; margin-bottom: 0rem !important; padding-bottom: 0rem !important; }}
+        [data-testid="stVerticalBlockBorderWrapper"] p, [data-testid="stVerticalBlockBorderWrapper"] li, [data-testid="stExpanderDetails"] p, [data-testid="stExpanderDetails"] li {{ font-size: 0.9rem !important; margin-bottom: 0.2rem !important; line-height: 1.3 !important; }}
+        hr {{ margin-top: 0.5rem; margin-bottom: 0.5rem; }}
+        .stButton>button {{ padding: 0rem 0.5rem !important; min-height: 2rem !important; }}
     </style>
+    {theme_css.get(st.session_state.ui_theme, "")}
 """, unsafe_allow_html=True)
+
 
 # --- SIDEBAR ---
 st.sidebar.title("NOC Fusion")
@@ -159,6 +172,9 @@ if st.sidebar.button("🚪 Log Out", width="stretch"):
     cookie_controller.remove("noc_session_token")
     st.session_state.current_user = None; st.session_state.current_role = None
     time.sleep(0.5); safe_rerun()
+
+st.sidebar.divider()
+st.session_state.ui_theme = st.sidebar.selectbox("🎨 UI Theme", ["Standard", "NOC Terminal", "High Contrast"], index=["Standard", "NOC Terminal", "High Contrast"].index(st.session_state.ui_theme))
 
 with st.sidebar.expander("📝 My Profile"):
     with st.form("my_profile_form"):
@@ -186,14 +202,9 @@ st.sidebar.divider()
 refresh_count = 0
 current_refresh_sec = 0
 
-if page == "⚡ AIOps RCA":
-    refresh_rate = st.sidebar.selectbox("🔴 RCA Live Sync", ["5 Seconds", "10 Seconds", "30 Seconds", "Paused"], index=0)
-    rmap = {"5 Seconds": 5, "10 Seconds": 10, "30 Seconds": 30, "Paused": 0}
-    current_refresh_sec = rmap[refresh_rate]
-    if current_refresh_sec > 0: refresh_count = st_autorefresh(interval=current_refresh_sec * 1000)
-elif page == "🌐 Operational Dashboard":
-    refresh_rate = st.sidebar.selectbox("🔄 Dashboard Refresh", ["Off", "1 Minute", "2 Minutes", "5 Minutes"], index=2)
-    rmap = {"Off": 0, "1 Minute": 60, "2 Minutes": 120, "5 Minutes": 300}
+if page in ["⚡ AIOps RCA", "👁️ Global Dashboards"]:
+    refresh_rate = st.sidebar.selectbox("🔄 Live Refresh", ["Off", "10 Seconds", "1 Minute", "5 Minutes"], index=0)
+    rmap = {"Off": 0, "10 Seconds": 10, "1 Minute": 60, "5 Minutes": 300}
     current_refresh_sec = rmap[refresh_rate]
     if current_refresh_sec > 0: refresh_count = st_autorefresh(interval=current_refresh_sec * 1000)
 
@@ -222,8 +233,6 @@ def render_article_feed(feed_articles, key_prefix=""):
             c1, c2, c3, c4, c5 = st.columns(5)
             if c1.button("📍 Unpin" if art.is_pinned else "📌 Pin", key=f"{key_prefix}pin_{art.id}", disabled=not can_pin): svc.toggle_pin(art.id); safe_rerun()
             if c2.button("⏫ +15 Score", key=f"{key_prefix}boost_{art.id}", disabled=not can_boost): svc.boost_score(art.id, 15); safe_rerun()
-            
-            # --- RESTORED ML BUTTONS ---
             if c3.button("🧠 Keep", key=f"{key_prefix}keep_{art.id}", disabled=not can_train): svc.change_status(art.id, 2); safe_rerun()
             if c4.button("🧠 Dismiss", key=f"{key_prefix}dism_{art.id}", disabled=not can_train): svc.change_status(art.id, 1); safe_rerun()
             
@@ -235,300 +244,153 @@ def render_article_feed(feed_articles, key_prefix=""):
                         b = generate_bluf(art, svc.SessionLocal())
                         if b: svc.save_ai_bluf(art.id, b); safe_rerun()
 
-# ================= 1. OPERATIONAL DASHBOARD =================
-if page == "🌐 Operational Dashboard":
-    st.title("🌐 Operational Dashboard")
-    metrics = svc.get_dashboard_metrics()
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("High-Threat RSS (24h)", metrics["rss_count"])
-    c2.metric("Active KEVs (24h)", metrics["cve_count"])
-    c3.metric("Hazards (24h)", metrics["hazard_count"])
-    c4.metric("Cloud Outages (24h)", metrics["cloud_count"])
-    st.divider()
+
+# ================= 1. GLOBAL DASHBOARDS =================
+if page == "👁️ Global Dashboards":
+    st.title("👁️ Global NOC Dashboards")
+    dash_tabs = st.tabs(["🌐 Operational Dashboard", "📊 Executive Matrix"])
     
-    dash_panels = ["🔥 Threat Triage", "🛡️ Infrastructure Status", "🤖 AI Analysis"]
-    if "auto_rotate_dash" not in st.session_state: st.session_state.auto_rotate_dash = True
-    c_tog, c_space = st.columns([1, 5])
-    auto_rotate = c_tog.toggle("🔄 Auto-Rotate", key="auto_rotate_dash")
-
-    calculated_index = refresh_count % len(dash_panels) if auto_rotate else 0
-    selected_panel = st.radio("Views", dash_panels, index=calculated_index, horizontal=True, label_visibility="collapsed")
-    st.write("")
-
-    if selected_panel == "🔥 Threat Triage":
-        col_pin, col_rss = st.columns([1, 1])
-        with col_pin:
-            st.subheader("📌 Pinned Intel")
-            for art in svc.get_pinned_articles():
-                st.markdown(f"{get_score_badge(art.score)} [{art.title}]({art.link}) <br><small>📡 {art.source} | {get_cat_icon(art.category)} {art.category}</small>", unsafe_allow_html=True)
-                if art.ai_bluf: st.success(f"**AI BLUF:** {art.ai_bluf}")
-                st.write("")
-        with col_rss:
-            st.subheader("🚨 Live Feed (Top 15)")
-            for art in svc.get_live_articles():
-                st.markdown(f"{get_score_badge(art.score)} [{art.title}]({art.link}) <br><small>📡 {art.source} | {get_cat_icon(art.category)} {art.category}</small>", unsafe_allow_html=True)
-
-    elif selected_panel == "🛡️ Infrastructure Status":
-        col_cve, col_cld, col_reg = st.columns(3)
-        with col_cve:
-            st.subheader("🪲 CISA KEVs (Top 15)")
-            for cve in svc.get_cves(limit=15):
-                st.markdown(f"🚨 **[{cve.cve_id}](https://nvd.nist.gov/vuln/detail/{cve.cve_id})**<br><small>{cve.vendor} {cve.product}</small>", unsafe_allow_html=True)
-        with col_cld:
-            st.subheader("☁️ Active Cloud Outages")
-            outages = svc.get_cloud_outages(active_only=True, limit=5)
-            if not outages: st.success("Clear.")
-            for out in outages: st.markdown(f"🚨 **{out.provider}**<br><small>[{out.title}]({out.link})</small>", unsafe_allow_html=True)
-        with col_reg:
-            st.subheader("🌪️ Regional Hazards")
-            hazards = svc.get_hazards(limit=15)
-            if not hazards: st.success("Clear.")
-            for haz in hazards:
-                icon = "🔴" if haz.severity in ["Extreme", "Severe"] else "🟠" if haz.severity == "Moderate" else "🔵"
-                st.markdown(f"{icon} **{haz.severity}**<br><small>{haz.title} ({haz.location})</small>", unsafe_allow_html=True)
-
-    elif selected_panel == "🤖 AI Analysis":
-        col_ai1, col_ai2 = st.columns([2, 1])
-        with col_ai1:
-            st.subheader("🤖 AI Shift Briefing")
-            if ai_enabled:
-                now = datetime.utcnow()
-                if not sys_config.rolling_summary or not sys_config.rolling_summary_time or (now - sys_config.rolling_summary_time).total_seconds() > 1800:
-                    with st.spinner("🤖 Updating..."):
-                        ns = generate_rolling_summary(svc.SessionLocal())
-                        if ns: svc.save_global_config({"rolling_summary": ns, "rolling_summary_time": now})
-                c_time, c_btn = st.columns([3, 2])
-                c_time.caption(f"Last Sync: {format_local_time(sys_config.rolling_summary_time)}")
-                
-                is_ai_refresh_cooling = check_cooldown("ai_refresh", 120)
-                if c_btn.button("⏳ Generating..." if is_ai_refresh_cooling else "🔄 Force Refresh Briefing", width="stretch", disabled=not can_trigger_ai or is_ai_refresh_cooling):
-                    apply_cooldown("ai_refresh")
-                    with st.spinner("🤖 Forcing AI Summary..."):
-                        ns = generate_rolling_summary(svc.SessionLocal())
-                        if ns: svc.save_global_config({"rolling_summary": ns, "rolling_summary_time": datetime.utcnow()}); safe_rerun()
-                st.info(sys_config.rolling_summary if sys_config.rolling_summary else "Initializing...")
-            else: st.info("AI Disabled.")
-            
-        with col_ai2:
-            st.subheader("🤖 Security Auditor")
-            is_scan_cooling = check_cooldown("ai_scan", 60)
-            if st.button("⏳ Scanning..." if is_scan_cooling else "Scan Stack Against 30-Day KEVs", width="stretch", disabled=not can_trigger_ai or is_scan_cooling):
-                apply_cooldown("ai_scan")
-                with st.spinner("Scanning..."):
-                    from src.database import CveItem
-                    with svc.SessionLocal() as dbtmp:
-                        cves = dbtmp.query(CveItem).filter(CveItem.date_added >= datetime.utcnow() - timedelta(days=30)).all()
-                        res = cross_reference_cves(cves, dbtmp)
-                    if res and ("clear" in res.lower() or "no active" in res.lower()): st.success("✅ " + res)
-                    else: st.error(f"⚠️ **MATCH DETECTED:**\n{res}")
-
-
-# ================= 2. DAILY FUSION REPORT =================
-elif page == "📰 Daily Fusion Report":
-    st.title("📰 Daily Master Fusion Report")
-    st.markdown("AI-synthesized situational report covering Cyber, Vulnerabilities, Physical Hazards, and Cloud Infrastructure.")
-    
-    yesterday_local = (datetime.now(LOCAL_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    yesterday_str = yesterday_local.strftime('%Y-%m-%d')
-    all_reports = svc.get_all_daily_briefings()
-    has_yesterday = any(r.report_date.strftime('%Y-%m-%d') == yesterday_str for r in all_reports)
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col2:
-        if not has_yesterday:
-            is_report_cooling = check_cooldown("gen_report", 300) 
-            if st.button("⏳ Compiling Data..." if is_report_cooling else "🤖 Generate Yesterday's Report", width="stretch", type="primary", disabled=not can_trigger_ai or is_report_cooling):
-                if not ai_enabled: 
-                    st.error("AI is disabled.")
-                else:
-                    apply_cooldown("gen_report")
-                    with st.spinner("Processing massive datasets..."):
-                        date_obj, report_markdown = generate_daily_fusion_report(svc.SessionLocal())
-                        if report_markdown:
-                            svc.save_daily_briefing(date_obj, report_markdown)
-                            st.success("Report Generated!"); time.sleep(1); safe_rerun()
-        else:
-            st.success("✅ Latest report is ready for review.")
-
-    st.divider()
-    
-    if not all_reports:
-        st.info("No historical reports found. Click the generation button above to synthesize your first shift briefing.")
-    else:
-        report_options = {r.report_date.strftime('%A, %B %d, %Y'): r for r in all_reports}
-        c_sel, c_space = st.columns([2, 3])
-        selected_date = c_sel.selectbox(
-            "📅 Select Historical Briefing", 
-            options=list(report_options.keys()), 
-            index=0
-        )
-        selected_report = report_options[selected_date]
+    with dash_tabs[0]:
+        metrics = svc.get_dashboard_metrics()
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("High-Threat RSS (24h)", metrics["rss_count"])
+        c2.metric("Active KEVs (24h)", metrics["cve_count"])
+        c3.metric("Hazards (24h)", metrics["hazard_count"])
+        c4.metric("Cloud Outages (24h)", metrics["cloud_count"])
+        st.divider()
         
-        with st.container(border=True): 
-            st.markdown(selected_report.content)
+        dash_panels = ["🔥 Threat Triage", "🛡️ Infrastructure Status", "🤖 AI Analysis"]
+        if "auto_rotate_dash" not in st.session_state: st.session_state.auto_rotate_dash = True
+        c_tog, c_space = st.columns([1, 5])
+        auto_rotate = c_tog.toggle("🔄 Auto-Rotate", key="auto_rotate_dash")
+
+        calculated_index = refresh_count % len(dash_panels) if auto_rotate else 0
+        selected_panel = st.radio("Views", dash_panels, index=calculated_index, horizontal=True, label_visibility="collapsed")
+        st.write("")
+
+        if selected_panel == "🔥 Threat Triage":
+            col_pin, col_rss = st.columns([1, 1])
+            with col_pin:
+                st.subheader("📌 Pinned Intel")
+                for art in svc.get_pinned_articles():
+                    st.markdown(f"{get_score_badge(art.score)} [{art.title}]({art.link}) <br><small>📡 {art.source} | {get_cat_icon(art.category)} {art.category}</small>", unsafe_allow_html=True)
+                    if art.ai_bluf: st.success(f"**AI BLUF:** {art.ai_bluf}")
+                    st.write("")
+            with col_rss:
+                st.subheader("🚨 Live Feed (Top 15)")
+                for art in svc.get_live_articles():
+                    st.markdown(f"{get_score_badge(art.score)} [{art.title}]({art.link}) <br><small>📡 {art.source} | {get_cat_icon(art.category)} {art.category}</small>", unsafe_allow_html=True)
+
+        elif selected_panel == "🛡️ Infrastructure Status":
+            col_cve, col_cld, col_reg = st.columns(3)
+            with col_cve:
+                st.subheader("🪲 CISA KEVs (Top 15)")
+                for cve in svc.get_cves(limit=15):
+                    st.markdown(f"🚨 **[{cve.cve_id}](https://nvd.nist.gov/vuln/detail/{cve.cve_id})**<br><small>{cve.vendor} {cve.product}</small>", unsafe_allow_html=True)
+            with col_cld:
+                st.subheader("☁️ Active Cloud Outages")
+                outages = svc.get_cloud_outages(active_only=True, limit=5)
+                if not outages: st.success("Clear.")
+                for out in outages: st.markdown(f"🚨 **{out.provider}**<br><small>[{out.title}]({out.link})</small>", unsafe_allow_html=True)
+            with col_reg:
+                st.subheader("🌪️ Regional Hazards")
+                hazards = svc.get_hazards(limit=15)
+                if not hazards: st.success("Clear.")
+                for haz in hazards:
+                    icon = "🔴" if haz.severity in ["Extreme", "Severe"] else "🟠" if haz.severity == "Moderate" else "🔵"
+                    st.markdown(f"{icon} **{haz.severity}**<br><small>{haz.title} ({haz.location})</small>", unsafe_allow_html=True)
+
+        elif selected_panel == "🤖 AI Analysis":
+            col_ai1, col_ai2 = st.columns([2, 1])
+            with col_ai1:
+                st.subheader("🤖 AI Shift Briefing")
+                if ai_enabled:
+                    now = datetime.utcnow()
+                    if not sys_config.rolling_summary or not sys_config.rolling_summary_time or (now - sys_config.rolling_summary_time).total_seconds() > 1800:
+                        with st.spinner("🤖 Updating..."):
+                            ns = generate_rolling_summary(svc.SessionLocal())
+                            if ns: svc.save_global_config({"rolling_summary": ns, "rolling_summary_time": now})
+                    c_time, c_btn = st.columns([3, 2])
+                    c_time.caption(f"Last Sync: {format_local_time(sys_config.rolling_summary_time)}")
+                    
+                    is_ai_refresh_cooling = check_cooldown("ai_refresh", 120)
+                    if c_btn.button("⏳ Generating..." if is_ai_refresh_cooling else "🔄 Force Refresh Briefing", width="stretch", disabled=not can_trigger_ai or is_ai_refresh_cooling):
+                        apply_cooldown("ai_refresh")
+                        with st.spinner("🤖 Forcing AI Summary..."):
+                            ns = generate_rolling_summary(svc.SessionLocal())
+                            if ns: svc.save_global_config({"rolling_summary": ns, "rolling_summary_time": datetime.utcnow()}); safe_rerun()
+                    st.info(sys_config.rolling_summary if sys_config.rolling_summary else "Initializing...")
+                else: st.info("AI Disabled.")
+                
+            with col_ai2:
+                st.subheader("🤖 Security Auditor")
+                is_scan_cooling = check_cooldown("ai_scan", 60)
+                if st.button("⏳ Scanning..." if is_scan_cooling else "Scan Stack Against 30-Day KEVs", width="stretch", disabled=not can_trigger_ai or is_scan_cooling):
+                    apply_cooldown("ai_scan")
+                    with st.spinner("Scanning..."):
+                        from src.database import CveItem
+                        with svc.SessionLocal() as dbtmp:
+                            cves = dbtmp.query(CveItem).filter(CveItem.date_added >= datetime.utcnow() - timedelta(days=30)).all()
+                            res = cross_reference_cves(cves, dbtmp)
+                        if res and ("clear" in res.lower() or "no active" in res.lower()): st.success("✅ " + res)
+                        else: st.error(f"⚠️ **MATCH DETECTED:**\n{res}")
+
+    with dash_tabs[1]:
+        st.subheader("📊 Executive Grid Threat Matrix")
+        st.caption("Real-time synthesis of Physical, Cyber, and Crime telemetry for Bulk Electric System (BES) infrastructure.")
+        
+        ar_warn = svc.get_cached_geojson()[1] or {}
+        oos_warn = svc.get_cached_geojson()[2] or {}
+        active_nws = len(ar_warn.get("features", [])) + len(oos_warn.get("features", []))
+        crime_data = svc.get_recent_crimes()
+        
+        intel = svc.get_executive_grid_intel(active_nws, crime_data)
+        risk_color = "red" if intel['unified_risk'] == "HIGH" else "orange" if intel['unified_risk'] == "MEDIUM" else "green"
+        
+        st.markdown(f"""
+        <div style='text-align: center; padding: 20px; background-color: #1e1e1e; border-radius: 10px; border: 2px solid {risk_color}; margin-bottom: 30px;'>
+            <h3 style='margin:0; color: #a0a0a0;'>UNIFIED THREAT POSTURE</h3>
+            <h1 style='margin:0; font-size: 3rem; color: {risk_color};'>{intel['unified_risk']}</h1>
+            <p style='margin:0; color: #a0a0a0;'>Last Updated: {intel['timestamp']}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col_phys, col_cyber = st.columns(2)
+        with col_phys:
+            st.subheader("⚡ Physical & Perimeter (1 Mile)")
+            st.info(f"**Risk Level: {intel['physical_score']}**")
+            st.write(intel['physical_brief'])
+            if intel["recent_crimes"]:
+                st.markdown("**🚨 Recent Perimeter Incidents:**")
+                for c in intel["recent_crimes"][:5]:
+                    icon = "🔴" if c['severity'] == "High" else "🟠"
+                    st.caption(f"{icon} **{c['raw_title']}** ({c['distance_miles']} mi away) - *{c['timestamp']}*")
+                if len(intel["recent_crimes"]) > 5:
+                    st.caption(f"...and {len(intel['recent_crimes']) - 5} more (See Threat Telemetry).")
+            
+        with col_cyber:
+            st.subheader("🛡️ Cyber & SCADA (48 Hours)")
+            st.warning(f"**Risk Level: {intel['cyber_score']}**")
+            st.write(intel['cyber_brief'])
             
         st.divider()
-        st.subheader("📧 Broadcast Report")
-        st.caption("Send this report via email. Markdown formatting will be natively converted to HTML and emojis will be preserved.")
-        
-        c_em1, c_em2 = st.columns([3, 1])
+        st.subheader("📤 Dispatch Intelligence Report")
+        col_email, col_btn = st.columns([3, 1])
         default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
-        report_recipients = c_em1.text_input("Recipient Email(s)", value=default_email, key="report_recip")
+        target_email = col_email.text_input("Recipient Email Address", value=default_email, label_visibility="collapsed")
         
-        if c_em2.button("✉️ Transmit Report", type="primary", use_container_width=True):
-            if not report_recipients:
-                st.error("Please enter at least one recipient email.")
+        can_dispatch = "Action: Dispatch Exec Report" in st.session_state.allowed_actions
+        if col_btn.button("📧 Send Outlook HTML Report", use_container_width=True, type="primary", disabled=not can_dispatch):
+            if target_email:
+                with st.spinner("Compiling and transmitting..."):
+                    success, msg = svc.send_executive_report(target_email, intel, sys_config)
+                    if success: st.success(f"Report dispatched to {target_email}")
+                    else: st.error(msg)
             else:
-                with st.spinner("Converting formatting and transmitting report..."):
-                    # Offloaded HTML Processing to services.py
-                    formatted_html = svc.generate_daily_report_email_html(selected_date, selected_report.content)
-                    
-                    from src.mailer import send_alert_email
-                    success, msg = send_alert_email(f"Daily Fusion Report - {selected_date}", formatted_html, recipient_override=report_recipients, is_html=True)
-                    
-                    if success: st.success("✅ Report successfully transmitted!")
-                    else: st.error(f"❌ SMTP Error: {msg}")
-
-# ================= NEW: EXECUTIVE DASHBOARD =================
-elif page == "📊 Executive Dashboard":
-    st.title("📊 Executive Grid Threat Matrix")
-    st.caption("Real-time synthesis of Physical, Cyber, and Crime telemetry for Bulk Electric System (BES) infrastructure.")
-    
-    active_nws = len(ar_warn.get("features", [])) + len(oos_warn.get("features", [])) if 'ar_warn' in locals() else 0
-    crime_data = svc.get_recent_crimes()
-    
-    # Pass the actual list of crimes to the engine
-    intel = svc.get_executive_grid_intel(active_nws, crime_data)
-    
-    risk_color = "red" if intel['unified_risk'] == "HIGH" else "orange" if intel['unified_risk'] == "MEDIUM" else "green"
-    
-    st.markdown(f"""
-    <div style='text-align: center; padding: 20px; background-color: #1e1e1e; border-radius: 10px; border: 2px solid {risk_color}; margin-bottom: 30px;'>
-        <h3 style='margin:0; color: #a0a0a0;'>UNIFIED THREAT POSTURE</h3>
-        <h1 style='margin:0; font-size: 3rem; color: {risk_color};'>{intel['unified_risk']}</h1>
-        <p style='margin:0; color: #a0a0a0;'>Last Updated: {intel['timestamp']}</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    col_phys, col_cyber = st.columns(2)
-    with col_phys:
-        st.subheader("⚡ Physical & Perimeter (1 Mile)")
-        st.info(f"**Risk Level: {intel['physical_score']}**")
-        st.write(intel['physical_brief'])
-        
-        # EXPLICITLY LIST THE 1-MILE INCIDENTS
-        if intel["recent_crimes"]:
-            st.markdown("**🚨 Recent Perimeter Incidents:**")
-            for c in intel["recent_crimes"][:5]: # Show top 5 to save space
-                icon = "🔴" if c['severity'] == "High" else "🟠"
-                st.caption(f"{icon} **{c['raw_title']}** ({c['distance_miles']} mi away) - *{c['timestamp']}*")
-            if len(intel["recent_crimes"]) > 5:
-                st.caption(f"...and {len(intel['recent_crimes']) - 5} more (See Crime Intel tab).")
-        
-    with col_cyber:
-        st.subheader("🛡️ Cyber & SCADA (48 Hours)")
-        st.warning(f"**Risk Level: {intel['cyber_score']}**")
-        st.write(intel['cyber_brief'])
-        
-    st.divider()
-    
-    st.subheader("📤 Dispatch Intelligence Report")
-    col_email, col_btn = st.columns([3, 1])
-    default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
-    target_email = col_email.text_input("Recipient Email Address", value=default_email, label_visibility="collapsed")
-    
-    can_dispatch = "Action: Dispatch Exec Report" in st.session_state.allowed_actions
-    if col_btn.button("📧 Send Outlook HTML Report", use_container_width=True, type="primary", disabled=not can_dispatch):
-        if target_email:
-            with st.spinner("Compiling and transmitting..."):
-                success, msg = svc.send_executive_report(target_email, intel, sys_config)
-                if success: st.success(f"Report dispatched to {target_email}")
-                else: st.error(msg)
-        else:
-            st.warning("Please enter a recipient email address.")
-
-    st.divider()
-    with st.expander("🗄️ Intelligence Sources & Telemetry Feeds", expanded=True):
-        
-        st.markdown("**🛡️ CISA ICS-CERT Advisories (Last 14 Days):**")
-        if intel.get("ics_advisories"):
-            for adv in intel["ics_advisories"]:
-                icon = "🚨 **[CRITICAL VENDOR]**" if adv["is_critical"] else "⚠️"
-                st.markdown(f"- {icon} [{adv['title']}]({adv['link']}) *(Pub: {adv['published']})*")
-        else:
-            st.markdown("*No active ICS-CERT advisories in the reporting window.*")
-        
-        st.markdown("---")
-            
-        st.markdown("**🌐 General Cyber OSINT (48-Hour Filtered Pipeline):**")
-        if intel.get("cyber_articles"):
-            for a in intel["cyber_articles"]:
-                st.markdown(f"- **[{int(a['score'])}]** [{a['title']}]({a['link']}) *(Source: {a['source']})*")
-        else:
-            st.markdown("*No active high-priority general cyber articles in the last 48h.*")
-            
-        st.markdown("---")
-        
-        # --- UPDATED LOCAL PHYSICAL OSINT BLOCK ---
-        st.markdown("**⚡ Local Physical & Geopolitical OSINT (48-Hour Filtered):**")
-        if intel.get("phys_articles"):
-            for a in intel["phys_articles"]:
-                st.markdown(f"- 🚨 **[{int(a['score'])}]** [{a['title']}]({a['link']}) *(Source: {a['source']})*")
-        else:
-            st.markdown("*No Arkansas-specific infrastructure or physical threat articles detected in the last 48h.*")
-            
-        st.markdown("""
-        **⚡ Utility Baseline Telemetry:**
-        * **NWS:** National Weather Service (Severe Weather).
-        * **Crime:** LRPD Open Data API (Geofenced Perimeter).
-        """)
-# ================= NEW: CRIME INTELLIGENCE =================
-elif page == "🚨 Crime Intelligence":
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.title("🚨 Perimeter Crime Telemetry")
-        st.caption("LRPD incident aggregation geofenced to 1-Mile radius around HQ.")
-    
-    with col2:
-        st.write("") # Padding
-        if st.button("🔄 Force Fetch LRPD", use_container_width=True):
-            with st.spinner("Polling Little Rock Data Gov..."):
-                if svc.force_fetch_crime_data():
-                    st.success("Sync Complete!")
-                    st.rerun() # Refresh the map with new data
-                else:
-                    st.error("Fetch Failed. Check Logs.")
-
-    crime_data = svc.get_recent_crimes()
-    
-    if not crime_data:
-        st.success("✅ No crime incidents logged within 1 mile of HQ in the last 7 days.")
-    else:
-        df_crimes = pd.DataFrame(crime_data)
-        
-        if "lat" not in df_crimes.columns or "lon" not in df_crimes.columns:
-            st.error("🚨 Coordinate data missing from cache! Please run `python src/crime_worker.py` in your terminal to fetch fresh geometry.")
-        else:
-            df_crimes = df_crimes.dropna(subset=['lat', 'lon'])
-            
-            # --- NEW CLEAN MAP RENDERING ---
-            layers, view_state = svc.build_crime_map_layers(df_crimes)
-            
-            st.pydeck_chart(pdk.Deck(
-                layers=layers, 
-                initial_view_state=view_state, 
-                tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Dist: {distance_miles} miles"}
-            ), use_container_width=True)
-            
-            st.divider()
-            st.subheader("Raw Incident Logs (1 Mile Radius)")
-            display_crimes = df_crimes[["timestamp", "distance_miles", "category", "severity", "raw_title"]]
-            st.dataframe(display_crimes, use_container_width=True, hide_index=True)
+                st.warning("Please enter a recipient email address.")
 
 
-            
-# ================= 3. THREAT TELEMETRY =================
+# ================= 2. THREAT TELEMETRY =================
 elif page == "📡 Threat Telemetry":
     st.title("📡 Unified Threat Telemetry")
     tt_tab_names = []
@@ -537,6 +399,7 @@ elif page == "📡 Threat Telemetry":
     if "Tab: Threat Telemetry -> CISA KEV" in st.session_state.allowed_actions: tt_tab_names.append("🪲 Exploits (KEV)")
     if "Tab: Threat Telemetry -> Cloud Services" in st.session_state.allowed_actions: tt_tab_names.append("☁️ Cloud Services")
     if "Tab: Threat Telemetry -> Regional Grid" in st.session_state.allowed_actions: tt_tab_names.append("🗺️ Regional Grid")
+    if "Tab: Threat Telemetry -> Perimeter Crime" in st.session_state.allowed_actions: tt_tab_names.append("🚨 Perimeter Crime")
     
     if not tt_tab_names: 
         st.warning("No permission to view tabs in this module.")
@@ -727,7 +590,6 @@ elif page == "📡 Threat Telemetry":
                     if "Tab: Regional Grid -> Hazard Analytics" in st.session_state.allowed_actions: rg_tab_names.append("🌪️ Deep Hazard Analytics")
                     if "Tab: Regional Grid -> Location Matrix" in st.session_state.allowed_actions: rg_tab_names.append("🗄️ Location Matrix")
                     if "Tab: Regional Grid -> Weather Alerts Log" in st.session_state.allowed_actions: rg_tab_names.append("📜 Weather Alerts Log")
-                    if "Tab: Regional Grid -> Manage Locations" in st.session_state.allowed_actions: rg_tab_names.append("📍 Manage Locations")
 
                     if not rg_tab_names:
                         st.warning("You do not have permission to view any modules within the Regional Grid.")
@@ -735,7 +597,6 @@ elif page == "📡 Threat Telemetry":
                         rg_tabs = st.tabs(rg_tab_names)
                         rg_idx = 0
 
-                        # Pack the UI toggles into a clean dictionary
                         map_toggles = {
                             "radar": show_radar_overlay, 
                             "spc": show_spc,
@@ -746,7 +607,6 @@ elif page == "📡 Threat Telemetry":
                             "active_wildfires": show_active_wildfires
                         }
                         
-                        # The single function call that builds the entire ecosystem
                         layers, view_state, map_diagnostics, toggled_affected_sites, master_affected_sites = svc.compile_regional_grid_map(
                             map_df, spc_data, ar_data, oos_data, selected_events, map_toggles
                         )
@@ -921,40 +781,50 @@ elif page == "📡 Threat Telemetry":
                                             if details['Instructions'] and details['Instructions'] != "No explicit instructions provided.":
                                                 st.error(f"**NWS Actionable Instructions:**\n\n{details['Instructions']}")
                             rg_idx += 1
-
-                        if "Tab: Regional Grid -> Manage Locations" in st.session_state.allowed_actions:
-                            with rg_tabs[rg_idx]:
-                                c_up, c_ed = st.columns([1, 2])
-                                with c_up:
-                                    st.subheader("Mass Import (JSON)")
-                                    st.caption("Requires 'name', 'lat', 'lon'. Optional: 'type', 'priority'.")
-                                    uploaded_file = st.file_uploader("Upload Sites", type=["json"], key="loc_uploader")
-                                    if uploaded_file is not None:
-                                        if st.button("📥 Import Data", width="stretch"):
-                                            import json
-                                            try:
-                                                data = json.load(uploaded_file)
-                                                added = svc.import_locations(data)
-                                                st.success(f"Imported {added} new locations!"); time.sleep(1.5); safe_rerun()
-                                            except Exception as e: st.error(f"Import failed: {e}")
-                                            
-                                with c_ed:
-                                    st.subheader("Manual Adjustments")
-                                    if not df.empty:
-                                        edited_df = st.data_editor(df, hide_index=True, disabled=["id", "Risk"], width="stretch", key="loc_editor")
-                                        if st.button("💾 Save Manual Adjustments", width="stretch"):
-                                            svc.update_locations(edited_df)
-                                            st.success("Changes saved!"); time.sleep(1); safe_rerun()
-                                            
-                                    st.divider()
-                                    st.write("**Danger Zone**")
-                                    if st.button("🗑️ Delete All Locations", width="stretch"):
-                                        svc.nuke_tables(["MonitoredLocation"])
-                                        svc.get_cached_locations.clear()
-                                        st.success("All locations deleted!"); time.sleep(1); safe_rerun()
-                            rg_idx += 1
             tab_idx += 1
-# ================= 4. THREAT HUNTING & IOCS =================
+
+        if "Tab: Threat Telemetry -> Perimeter Crime" in st.session_state.allowed_actions:
+            with tabs[tab_idx]:
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.subheader("🚨 Perimeter Crime Telemetry")
+                    st.caption("LRPD incident aggregation geofenced to 1-Mile radius around HQ.")
+                with col2:
+                    st.write("")
+                    if st.button("🔄 Force Fetch LRPD", use_container_width=True):
+                        with st.spinner("Polling Little Rock Data Gov..."):
+                            if svc.force_fetch_crime_data():
+                                st.success("Sync Complete!")
+                                st.rerun() 
+                            else:
+                                st.error("Fetch Failed. Check Logs.")
+
+                crime_data = svc.get_recent_crimes()
+                
+                if not crime_data:
+                    st.success("✅ No crime incidents logged within 1 mile of HQ in the last 7 days.")
+                else:
+                    df_crimes = pd.DataFrame(crime_data)
+                    
+                    if "lat" not in df_crimes.columns or "lon" not in df_crimes.columns:
+                        st.error("🚨 Coordinate data missing from cache! Please run `python src/crime_worker.py` in your terminal to fetch fresh geometry.")
+                    else:
+                        df_crimes = df_crimes.dropna(subset=['lat', 'lon'])
+                        layers, view_state = svc.build_crime_map_layers(df_crimes)
+                        
+                        st.pydeck_chart(pdk.Deck(
+                            layers=layers, 
+                            initial_view_state=view_state, 
+                            tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Dist: {distance_miles} miles"}
+                        ), use_container_width=True)
+                        
+                        st.divider()
+                        st.subheader("Raw Incident Logs (1 Mile Radius)")
+                        display_crimes = df_crimes[["timestamp", "distance_miles", "category", "severity", "raw_title"]]
+                        st.dataframe(display_crimes, use_container_width=True, hide_index=True)
+            tab_idx += 1
+
+# ================= 3. THREAT HUNTING & IOCS =================
 elif page == "🎯 Threat Hunting & IOCs":
     st.title("🎯 Active Threat Hunting & Detection Engineering")
     st.markdown("Automated IOC extraction, 1-Click OSINT Pivoting, and LLM-assisted YARA/SIEM generation.")
@@ -978,7 +848,6 @@ elif page == "🎯 Threat Hunting & IOCs":
                     st.info("No active IOCs extracted in the last 72 hours.")
                 else:
                     for ioc in ioc_data: 
-                        # Offloaded to services.py
                         ioc["OSINT Pivot"] = svc.get_osint_pivot_link(ioc["Type"], ioc["Indicator"])
                     
                     df = pd.DataFrame(ioc_data)
@@ -1040,7 +909,7 @@ elif page == "🎯 Threat Hunting & IOCs":
                                         for a in target_arts: st.markdown(f"- [{a.title}]({a.link})")
             th_idx += 1
 
-# ================= 5. AIOps RCA =================
+# ================= 4. AIOps RCA =================
 elif page == "⚡ AIOps RCA":
     st.title("⚡ AIOps Root Cause Analysis")
     st.caption("Live correlation of non-uniform monitoring alerts with Regional Intelligence.")
@@ -1068,21 +937,15 @@ elif page == "⚡ AIOps RCA":
                     if st.button("🧹 Clear", width="stretch"): svc.clear_timeline_events(); safe_rerun()
                     if st.button("🗑️ Nuke", width="stretch"): svc.nuke_active_alerts(); safe_rerun()
                     for e in events:
-                        # 1. Convert UTC database time to Local Time (12-hour AM/PM format)
                         local_time = e.timestamp.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ)
                         time_str = local_time.strftime('%I:%M %p')
-                        
-                        # 2. Strip emojis and corrupted '??' characters
                         clean_msg = re.sub(r'[\U00010000-\U0010ffff]', '', e.message)
                         clean_msg = clean_msg.replace('?', '').strip()
-                        
                         st.caption(f"{time_str} | {clean_msg}")
                 
                 with c_l:
                     st.subheader("🗺️ Overlays")
                     locs = svc.get_cached_locations()
-                    
-                    # Map Generation - Offloaded to services.py
                     layers, view_state = svc.build_aiops_map_layers(alerts, locs)
 
                     st.pydeck_chart(pdk.Deck(
@@ -1103,7 +966,6 @@ elif page == "⚡ AIOps RCA":
                             
                         incidents = ai_engine.analyze_and_cluster(raw_alerts)
                         for site, data in incidents.items():
-                            # NOTE: Passing wea, cld, and bgp into the new advanced correlation engine
                             c, cf, p, e, b, p0, cs = ai_engine.calculate_root_cause(site, data, wea, cld, bgp)
                             
                             with st.container(border=True):
@@ -1120,12 +982,9 @@ elif page == "⚡ AIOps RCA":
                                         clean_c = c.replace("??", "").replace("???", "").replace("?", "").replace("??", "").replace("??", "").strip()
                                         clean_p0 = p0 if p0 else "Indeterminate (Simultaneous Failure)"
                                         
-                                        # Offloaded massive ticket generation to services.py!
                                         ticket_text = svc.generate_rca_ticket_text(site, data, clean_p, clean_p0, clean_c)
-                                        
                                         ticket_body = st.text_area("Ticket Notes / RCA Summary", value=ticket_text, height=350, key=f"t_body_{site}")
                                         
-                                        # Hardcoded Default Emails (No user input option)
                                         fixed_recipients = "remedyforceworkflow@aecc.com, noc@aecc.com"
                                         st.info(f"Ticket will be automatically dispatched to: **{fixed_recipients}**")
                                         
@@ -1213,22 +1072,84 @@ elif page == "⚡ AIOps RCA":
                             else: st.error(msg)
             ai_idx += 1
 
-# ================= 6. REPORT CENTER =================
-elif page == "📑 Report Center":
-    st.title("📑 Report Center")
+# ================= 5. REPORTING & BRIEFINGS =================
+elif page == "📑 Reporting & Briefings":
+    st.title("📑 Intelligence Reporting & Briefings")
     
     rc_tab_names = []
     
-    if "Tab: Report Center -> Report Builder" in st.session_state.allowed_actions: rc_tab_names.append("📝 Report Builder")
-    if "Tab: Report Center -> Shared Library" in st.session_state.allowed_actions: rc_tab_names.append("📚 Shared Library")
+    if "Tab: Reporting -> Daily Fusion" in st.session_state.allowed_actions: rc_tab_names.append("📰 Daily Fusion Briefing")
+    if "Tab: Reporting -> Report Builder" in st.session_state.allowed_actions: rc_tab_names.append("📝 Custom Report Builder")
+    if "Tab: Reporting -> Shared Library" in st.session_state.allowed_actions: rc_tab_names.append("📚 Shared Library")
     
     if not rc_tab_names: st.warning("No permission to view tabs in this module.")
     else:
         tabs = st.tabs(rc_tab_names)
         tab_idx = 0
         
-        if "Tab: Report Center -> Report Builder" in st.session_state.allowed_actions:
+        if "Tab: Reporting -> Daily Fusion" in st.session_state.allowed_actions:
             with tabs[tab_idx]:
+                st.subheader("📰 Daily Master Fusion Report")
+                st.markdown("AI-synthesized situational report covering Cyber, Vulnerabilities, Physical Hazards, and Cloud Infrastructure.")
+                
+                yesterday_local = (datetime.now(LOCAL_TZ) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                yesterday_str = yesterday_local.strftime('%Y-%m-%d')
+                all_reports = svc.get_all_daily_briefings()
+                has_yesterday = any(r.report_date.strftime('%Y-%m-%d') == yesterday_str for r in all_reports)
+                
+                col1, col2 = st.columns([3, 1])
+                with col2:
+                    if not has_yesterday:
+                        is_report_cooling = check_cooldown("gen_report", 300) 
+                        if st.button("⏳ Compiling Data..." if is_report_cooling else "🤖 Generate Yesterday's Report", width="stretch", type="primary", disabled=not can_trigger_ai or is_report_cooling):
+                            if not ai_enabled: 
+                                st.error("AI is disabled.")
+                            else:
+                                apply_cooldown("gen_report")
+                                with st.spinner("Processing massive datasets..."):
+                                    date_obj, report_markdown = generate_daily_fusion_report(svc.SessionLocal())
+                                    if report_markdown:
+                                        svc.save_daily_briefing(date_obj, report_markdown)
+                                        st.success("Report Generated!"); time.sleep(1); safe_rerun()
+                    else:
+                        st.success("✅ Latest report is ready for review.")
+
+                st.divider()
+                
+                if not all_reports:
+                    st.info("No historical reports found. Click the generation button above to synthesize your first shift briefing.")
+                else:
+                    report_options = {r.report_date.strftime('%A, %B %d, %Y'): r for r in all_reports}
+                    c_sel, c_space = st.columns([2, 3])
+                    selected_date = c_sel.selectbox("📅 Select Historical Briefing", options=list(report_options.keys()), index=0)
+                    selected_report = report_options[selected_date]
+                    
+                    with st.container(border=True): 
+                        st.markdown(selected_report.content)
+                        
+                    st.divider()
+                    st.subheader("📧 Broadcast Report")
+                    st.caption("Send this report via email. Markdown formatting will be natively converted to HTML and emojis will be preserved.")
+                    
+                    c_em1, c_em2 = st.columns([3, 1])
+                    default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
+                    report_recipients = c_em1.text_input("Recipient Email(s)", value=default_email, key="report_recip")
+                    
+                    if c_em2.button("✉️ Transmit Report", type="primary", use_container_width=True):
+                        if not report_recipients:
+                            st.error("Please enter at least one recipient email.")
+                        else:
+                            with st.spinner("Converting formatting and transmitting report..."):
+                                formatted_html = svc.generate_daily_report_email_html(selected_date, selected_report.content)
+                                from src.mailer import send_alert_email
+                                success, msg = send_alert_email(f"Daily Fusion Report - {selected_date}", formatted_html, recipient_override=report_recipients, is_html=True)
+                                if success: st.success("✅ Report successfully transmitted!")
+                                else: st.error(f"❌ SMTP Error: {msg}")
+            tab_idx += 1
+
+        if "Tab: Reporting -> Report Builder" in st.session_state.allowed_actions:
+            with tabs[tab_idx]:
+                st.subheader("📝 Custom Intel Report Builder")
                 if "generated_report" not in st.session_state: st.session_state.generated_report = None
                 
                 c_s, c_l = st.columns([3, 1])
@@ -1247,9 +1168,9 @@ elif page == "📑 Report Center":
                     cinfo = cm2.text_input("Contact", value=current_user_obj.contact_info or "")
                     obj = st.text_area("AI Objective", value="Generate an exhaustive technical report.")
                     
-                    is_rep_cooling = check_cooldown("gen_report", 60)
+                    is_rep_cooling = check_cooldown("gen_report_custom", 60)
                     if st.button("⏳ Synthesizing..." if is_rep_cooling else "🚀 Generate Report", type="primary", disabled=not can_trigger_ai or is_rep_cooling, width="stretch"):
-                        apply_cooldown("gen_report")
+                        apply_cooldown("gen_report_custom")
                         if not sels: st.error("Select at least one article.")
                         else:
                             arts = [amap[t] for t in sels]
@@ -1269,8 +1190,9 @@ elif page == "📑 Report Center":
                         st.success("Saved!")
             tab_idx += 1
             
-        if "Tab: Report Center -> Shared Library" in st.session_state.allowed_actions:
+        if "Tab: Reporting -> Shared Library" in st.session_state.allowed_actions:
             with tabs[tab_idx]:
+                st.subheader("📚 Organization Shared Library")
                 reps = svc.get_saved_reports()
                 if not reps: st.info("No reports saved yet.")
                 else:
@@ -1281,12 +1203,13 @@ elif page == "📑 Report Center":
                                 svc.delete_record("SavedReport", r.id); safe_rerun()
             tab_idx += 1
 
-# ================= 7. SETTINGS & ADMIN =================
+# ================= 6. SETTINGS & ADMIN =================
 elif page == "⚙️ Settings & Admin":
     st.title("⚙️ Settings & Engine Room")
     
     set_tab_names = []
     
+    if "Tab: Settings -> Facility Locations" in st.session_state.allowed_actions: set_tab_names.append("📍 Facilities")
     if "Tab: Settings -> RSS Sources" in st.session_state.allowed_actions: set_tab_names.append("📡 RSS Sources")
     if "Tab: Settings -> ML Training" in st.session_state.allowed_actions: set_tab_names.append("🧠 ML Training")
     if "Tab: Settings -> AI & SMTP" in st.session_state.allowed_actions: set_tab_names.append("🤖 AI & SMTP")
@@ -1298,6 +1221,34 @@ elif page == "⚙️ Settings & Admin":
     else:
         set_tabs = st.tabs(set_tab_names)
         set_idx = 0
+
+        if "Tab: Settings -> Facility Locations" in st.session_state.allowed_actions:
+            with set_tabs[set_idx]:
+                st.subheader("📍 Facility Database Management")
+                c_up, c_ed = st.columns([1, 2])
+                with c_up:
+                    st.markdown("**Mass Import (JSON)**")
+                    st.caption("Requires 'name', 'lat', 'lon'. Optional: 'type', 'priority'.")
+                    uploaded_file = st.file_uploader("Upload Sites", type=["json"], key="loc_uploader")
+                    if uploaded_file is not None:
+                        if st.button("📥 Import Data", width="stretch"):
+                            import json
+                            try:
+                                data = json.load(uploaded_file)
+                                added = svc.import_locations(data)
+                                st.success(f"Imported {added} new locations!"); time.sleep(1.5); safe_rerun()
+                            except Exception as e: st.error(f"Import failed: {e}")
+                            
+                with c_ed:
+                    st.markdown("**Manual Adjustments**")
+                    locs = svc.get_cached_locations()
+                    df_locs = pd.DataFrame([{"id": l.id, "Name": l.name, "Type": l.loc_type, "Priority": l.priority, "Lat": l.lat, "Lon": l.lon} for l in locs]) if locs else pd.DataFrame()
+                    if not df_locs.empty:
+                        edited_df = st.data_editor(df_locs, hide_index=True, disabled=["id"], width="stretch", key="loc_editor")
+                        if st.button("💾 Save Manual Adjustments", width="stretch"):
+                            svc.update_locations(edited_df)
+                            st.success("Changes saved!"); time.sleep(1); safe_rerun()
+            set_idx += 1
         
         if "Tab: Settings -> RSS Sources" in st.session_state.allowed_actions:
             with set_tabs[set_idx]:
