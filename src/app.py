@@ -421,7 +421,7 @@ if page == "👁️ Global Dashboards":
                         if res and ("clear" in res.lower() or "no active" in res.lower()): st.success("✅ " + res)
                         else: st.error(f"⚠️ **MATCH DETECTED:**\n{res}")
 
-    with dash_tabs[1]:
+   with dash_tabs[1]:
         st.subheader("📊 Executive Grid Threat Matrix")
         st.caption("Real-time synthesis of Physical, Cyber, and Crime telemetry for Bulk Electric System (BES) infrastructure.")
         
@@ -446,7 +446,15 @@ if page == "👁️ Global Dashboards":
             st.subheader("⚡ Physical & Perimeter (1 Mile)")
             st.info(f"**Risk Level: {intel['physical_score']}**")
             st.write(intel['physical_brief'])
-            if intel["recent_crimes"]:
+            
+            # --- RESTORED PHYSICAL SOURCES ---
+            phys_sources = intel.get('raw_phys_articles', []) or intel.get('raw_phys_sources', [])
+            if phys_sources:
+                with st.expander("🔗 View Contributing Physical Intelligence"):
+                    for src in phys_sources[:15]:
+                        st.markdown(f"- [{src.title}]({src.link}) <small>({src.source})</small>", unsafe_allow_html=True)
+            
+            if intel.get("recent_crimes"):
                 st.markdown("**🚨 Recent Perimeter Incidents:**")
                 for c in intel["recent_crimes"][:5]:
                     icon = "🔴" if c['severity'] == "High" else "🟠"
@@ -458,6 +466,13 @@ if page == "👁️ Global Dashboards":
             st.subheader("🛡️ Cyber & SCADA (48 Hours)")
             st.warning(f"**Risk Level: {intel['cyber_score']}**")
             st.write(intel['cyber_brief'])
+            
+            # --- RESTORED CYBER SOURCES ---
+            cyber_sources = intel.get('raw_cyber_articles', []) or intel.get('raw_cyber_sources', [])
+            if cyber_sources:
+                with st.expander("🔗 View Contributing Cyber Intelligence"):
+                    for src in cyber_sources[:15]:
+                        st.markdown(f"- [{src.title}]({src.link}) <small>({src.source})</small>", unsafe_allow_html=True)
             
         st.divider()
         st.subheader("📤 Dispatch Intelligence Report")
@@ -474,8 +489,6 @@ if page == "👁️ Global Dashboards":
                     else: st.error(msg)
             else:
                 st.warning("Please enter a recipient email address.")
-
-
 # ================= 2. THREAT TELEMETRY =================
 elif page == "📡 Threat Telemetry":
     st.title("📡 Unified Threat Telemetry")
