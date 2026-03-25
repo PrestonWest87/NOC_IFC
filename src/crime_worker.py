@@ -11,7 +11,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from src.database import SessionLocal, CrimeIncident
 
-# Simple memory cache to prevent spamming the geocoder with the same addresses
 GEO_CACHE = {}
 
 def calculate_distance(lat1, lon1, lat2, lon2):
@@ -24,53 +23,44 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     c = 2 * math.asin(math.sqrt(a))
     return R * c
 
-def geocode_address(address, hq_lat, hq_lon):
-    """Converts a street address to Lat/Lon using OSM with Donut Fallback."""
+def geocode_address_arcgis(address, hq_lat, hq_lon):
+    """Converts a street address to Lat/Lon using ArcGIS World Geocoding."""
     if address in GEO_CACHE:
         return GEO_CACHE[address]
 
-    # Pass 1: Aggressive cleaning for Nominatim
-    clean_address = address.replace("/", " and ").replace(" BLK ", " ").replace(" BLOCK ", " ").strip()
-    clean_address = " ".join(clean_address.split()) # Remove double spaces
+    # ArcGIS is very smart, but replacing "/" with "&" ensures it recognizes intersections perfectly
+    clean_address = address.replace("/", " & ").replace(" BLK ", " ").replace(" BLOCK ", " ").strip()
+    clean_address = " ".join(clean_address.split())
     
-    url = "https://nominatim.openstreetmap.org/search"
-    # A unique user agent prevents generic blocking by OSM
-    headers = {"User-Agent": "NOC_IFC_GeoWorker/2.0 (noc_admin@local)"} 
+    url = "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates"
+    params = {
+        "SingleLine": f"{clean_address}, Little Rock, Arkansas",
+        "f": "json",
+        "maxLocations": 1
+    }
     
     try:
-        # Attempt 1: Full Address / Intersection
-        params = {
-            "q": f"{clean_address}, Little Rock, Arkansas",
-            "format": "json",
-            "limit": 1
-        }
-        resp = requests.get(url, params=params, headers=headers, timeout=5)
-        if resp.status_code == 200 and resp.json():
-            data = resp.json()[0]
-            lat, lon = float(data["lat"]), float(data["lon"])
-            GEO_CACHE[address] = (lat, lon, False) # False = Not a fallback
-            time.sleep(1.1) # Strict respect for OSM 1-req/sec limit
-            return lat, lon, False
-            
-        # Attempt 2: If intersection failed, try just the primary street
-        if " and " in clean_address:
-            single_street = clean_address.split(" and ")[0].strip()
-            params["q"] = f"{single_street}, Little Rock, Arkansas"
-            resp = requests.get(url, params=params, headers=headers, timeout=5)
-            
-            if resp.status_code == 200 and resp.json():
-                data = resp.json()[0]
-                lat, lon = float(data["lat"]), float(data["lon"])
-                GEO_CACHE[address] = (lat, lon, True) # Tag as approx (street only)
-                time.sleep(1.1)
-                return lat, lon, True
+        resp = requests.get(url, params=params, timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            if "candidates" in data and len(data["candidates"]) > 0:
+                candidate = data["candidates"][0]
+                lat = candidate["location"]["y"]
+                lon = candidate["location"]["x"]
                 
-    except Exception:
+                # ArcGIS provides a confidence score! Anything under 90 usually means 
+                # it matched the street or zip, but not the exact point.
+                score = candidate.get("score", 0)
+                is_approx = score < 90 
+                
+                GEO_CACHE[address] = (lat, lon, is_approx)
+                return lat, lon, is_approx
+                
+    except Exception as e:
         pass
 
-    # THE DONUT OF UNCERTAINTY: 
-    # If the address is totally broken, place it randomly in a ring 0.6 to 1.2 miles away.
-    # This prevents unmapped crimes from artificially inflating the immediate perimeter risk.
+    # FALLBACK: The Donut of Uncertainty
+    # If the address is complete garbage (e.g. "UNKNOWN"), drop it in a 0.6 to 1.2 mile ring.
     radius_deg = random.uniform(0.009, 0.018) 
     angle = random.uniform(0, 2 * math.pi)
     lat = hq_lat + radius_deg * math.cos(angle)
@@ -81,7 +71,7 @@ def geocode_address(address, hq_lat, hq_lon):
 
 
 def fetch_live_crimes():
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] 🚨 CRIME WORKER: Polling LR Dispatches...")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] 🚨 CRIME WORKER: Polling LR Dispatches (ArcGIS Engine)...")
     
     api_url = "https://web.littlerock.state.ar.us/pub/Home/CadEvents"
     
@@ -90,7 +80,6 @@ def fetch_live_crimes():
         response.raise_for_status()
         data = response.json()
         
-        # Perfectly aligned with your UI PyDeck map
         hq_lat, hq_lon = 34.6755, -92.3235
         seven_days_ago = datetime.now() - timedelta(hours=168)
         
@@ -107,8 +96,8 @@ def fetch_live_crimes():
                     incident_date = datetime.strptime(raw_date, "%m/%d/%Y %H:%M:%S")
                     if incident_date < seven_days_ago: continue
                     
-                    # Geocode with fallback detection
-                    incident_lat, incident_lon, is_approx = geocode_address(location, hq_lat, hq_lon)
+                    # Use the new ArcGIS geocoder
+                    incident_lat, incident_lon, is_approx = geocode_address_arcgis(location, hq_lat, hq_lon)
                     distance = calculate_distance(hq_lat, hq_lon, incident_lat, incident_lon)
                     
                     if distance > 1.5: continue
@@ -122,7 +111,6 @@ def fetch_live_crimes():
                     elif any(k in desc for k in ["VANDALISM", "TRESPASS", "PROWLER", "DISTURBANCE", "SUSPICIOUS"]): category, severity = "Perimeter Breach/Vandalism", "Medium"
                     else: category, severity = "General Police Activity", "Low"
                     
-                    # Append tag if geocoder had to guess
                     display_title = f"{desc.title()}"
                     if is_approx: display_title += " (Approx Loc)"
                     
