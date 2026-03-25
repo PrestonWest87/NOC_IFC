@@ -177,16 +177,22 @@ def save_ai_bluf(art_id, bluf_text):
 # 3. EXECUTIVE DASHBOARD & CRIME INTELLIGENCE
 # ==========================================
 
-def get_recent_crimes():
-    """Queries the database for active 168-hour perimeter incidents."""
+def get_recent_crimes(max_distance=None):
+    """Queries the database for active 168-hour perimeter incidents, with optional radius filtering."""
     from src.database import SessionLocal, CrimeIncident
     from datetime import datetime, timedelta
     
     with SessionLocal() as db:
         forty_eight_hours_ago = datetime.utcnow() - timedelta(hours=168)
-        crimes = db.query(CrimeIncident).filter(
-            CrimeIncident.timestamp >= forty_eight_hours_ago
-        ).order_by(CrimeIncident.timestamp.desc()).all()
+        
+        # Base query for the last 7 days
+        query = db.query(CrimeIncident).filter(CrimeIncident.timestamp >= forty_eight_hours_ago)
+        
+        # Apply the radius filter if one is provided
+        if max_distance is not None:
+            query = query.filter(CrimeIncident.distance_miles <= max_distance)
+            
+        crimes = query.order_by(CrimeIncident.timestamp.desc()).all()
         
         return [{
             "id": c.id, "category": c.category, "raw_title": c.raw_title,
@@ -194,7 +200,6 @@ def get_recent_crimes():
             "distance_miles": c.distance_miles, "severity": c.severity,
             "lat": c.lat, "lon": c.lon
         } for c in crimes]
-
 def force_fetch_crime_data():
     """Triggers the crime worker logic manually from the UI."""
     try:
