@@ -514,23 +514,16 @@ elif page == "🚨 Crime Intelligence":
             # Drop any random null coordinates
             df_crimes = df_crimes.dropna(subset=['lat', 'lon'])
             
-            # --- PRECISE CAMPUS BOUNDARY (User Defined) ---
-            # Note: PyDeck requires [Longitude, Latitude] format
-            campus_boundary = [
-                [-92.325885, 34.678235], [-92.326196, 34.675942], [-92.324565, 34.675888],
-                [-92.324636, 34.674884], [-92.32406120583306, 34.67474187702983],
-                [-92.3238084241607, 34.67452124894587], [-92.32373734260989, 34.674349128685705],
-                [-92.32376809344501, 34.673623615079805], [-92.32351586802497, 34.67332173763069],
-                [-92.3220985004393, 34.67324489899573], [-92.32198879648926, 34.673705411555176],
-                [-92.32118128553886, 34.673676198116304], [-92.32110794479303, 34.67493955311931],
-                [-92.32189171929349, 34.67527638012709], [-92.32180319236035, 34.67672422178229],
-                [-92.3216835943636, 34.678465279952555], [-92.32589779219425, 34.67833455896807],
-                [-92.325885, 34.678235] # Closing the loop
-            ]
+            # Map Rendering - Offloaded to services.py
+            layers, view_state = svc.build_crime_map_layers(df_crimes)
             
-            polygon_df = pd.DataFrame([{"coordinates": campus_boundary}])
+            st.pydeck_chart(pdk.Deck(
+                layers=layers, 
+                initial_view_state=view_state, 
+                tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Dist: {distance_miles} miles"}
+            ), use_container_width=True)
             
-            # Map Rendering
+            st.divider()
             st.pydeck_chart(pdk.Deck(
                 initial_view_state=pdk.ViewState(
                     latitude=34.6755, # Recentered slightly for the new polygon
@@ -1275,33 +1268,13 @@ elif page == "⚡ AIOps RCA":
                 with c_l:
                     st.subheader("🗺️ Overlays")
                     locs = svc.get_cached_locations()
-                    map_data = []
-                    alert_pulses = []
                     
-                    alert_mapped = [a.mapped_location for a in alerts]
-                    
-                    for l in locs:
-                        c = alert_mapped.count(l.name)
-                        map_data.append({
-                            "name": l.name, 
-                            "lat": l.lat, 
-                            "lon": l.lon, 
-                            "color": [255,0,0,200] if c > 0 else [0,255,0,160]
-                        })
-                        if c > 0:
-                            alert_pulses.append({"lat": l.lat, "lon": l.lon, "radius": 4000 + (c * 2500)})
-
-                    layers = []
-                    layers.append(pdk.Layer("ScatterplotLayer", pd.DataFrame(map_data), get_position="[lon, lat]", get_fill_color="color", get_radius=1800, pickable=True))
-                    
-                    if alert_pulses:
-                        layers.append(pdk.Layer("ScatterplotLayer", pd.DataFrame(alert_pulses), get_position="[lon, lat]", get_fill_color=[255, 0, 0, 40], get_radius="radius"))
-
-                    overview_state = pdk.ViewState(latitude=34.8, longitude=-92.2, zoom=6.0, pitch=0)
+                    # Map Generation - Offloaded to services.py
+                    layers, view_state = svc.build_aiops_map_layers(alerts, locs)
 
                     st.pydeck_chart(pdk.Deck(
                         layers=layers, 
-                        initial_view_state=overview_state, 
+                        initial_view_state=view_state, 
                         tooltip={"text": "{name}"}
                     ))
                     
