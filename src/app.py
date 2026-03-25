@@ -421,74 +421,74 @@ if page == "👁️ Global Dashboards":
                         if res and ("clear" in res.lower() or "no active" in res.lower()): st.success("✅ " + res)
                         else: st.error(f"⚠️ **MATCH DETECTED:**\n{res}")
 
-       with dash_tabs[1]:
-            st.subheader("📊 Executive Grid Threat Matrix")
-            st.caption("Real-time synthesis of Physical, Cyber, and Crime telemetry for Bulk Electric System (BES) infrastructure.")
+   with dash_tabs[1]:
+        st.subheader("📊 Executive Grid Threat Matrix")
+        st.caption("Real-time synthesis of Physical, Cyber, and Crime telemetry for Bulk Electric System (BES) infrastructure.")
+        
+        ar_warn = svc.get_cached_geojson()[1] or {}
+        oos_warn = svc.get_cached_geojson()[2] or {}
+        active_nws = len(ar_warn.get("features", [])) + len(oos_warn.get("features", []))
+        crime_data = svc.get_recent_crimes()
+        
+        intel = svc.get_executive_grid_intel(active_nws, crime_data)
+        risk_color = "red" if intel['unified_risk'] == "HIGH" else "orange" if intel['unified_risk'] == "MEDIUM" else "green"
+        
+        st.markdown(f"""
+        <div style='text-align: center; padding: 20px; background-color: #1e1e1e; border-radius: 10px; border: 2px solid {risk_color}; margin-bottom: 30px;'>
+            <h3 style='margin:0; color: #a0a0a0;'>UNIFIED THREAT POSTURE</h3>
+            <h1 style='margin:0; font-size: 3rem; color: {risk_color};'>{intel['unified_risk']}</h1>
+            <p style='margin:0; color: #a0a0a0;'>Last Updated: {intel['timestamp']}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col_phys, col_cyber = st.columns(2)
+        with col_phys:
+            st.subheader("⚡ Physical & Perimeter (1 Mile)")
+            st.info(f"**Risk Level: {intel['physical_score']}**")
+            st.write(intel['physical_brief'])
             
-            ar_warn = svc.get_cached_geojson()[1] or {}
-            oos_warn = svc.get_cached_geojson()[2] or {}
-            active_nws = len(ar_warn.get("features", [])) + len(oos_warn.get("features", []))
-            crime_data = svc.get_recent_crimes()
+            # --- RESTORED PHYSICAL SOURCES ---
+            phys_sources = intel.get('raw_phys_articles', []) or intel.get('raw_phys_sources', [])
+            if phys_sources:
+                with st.expander("🔗 View Contributing Physical Intelligence"):
+                    for src in phys_sources[:15]:
+                        st.markdown(f"- [{src.title}]({src.link}) <small>({src.source})</small>", unsafe_allow_html=True)
             
-            intel = svc.get_executive_grid_intel(active_nws, crime_data)
-            risk_color = "red" if intel['unified_risk'] == "HIGH" else "orange" if intel['unified_risk'] == "MEDIUM" else "green"
+            if intel.get("recent_crimes"):
+                st.markdown("**🚨 Recent Perimeter Incidents:**")
+                for c in intel["recent_crimes"][:5]:
+                    icon = "🔴" if c['severity'] == "High" else "🟠"
+                    st.caption(f"{icon} **{c['raw_title']}** ({c['distance_miles']} mi away) - *{c['timestamp']}*")
+                if len(intel["recent_crimes"]) > 5:
+                    st.caption(f"...and {len(intel['recent_crimes']) - 5} more (See Threat Telemetry).")
             
-            st.markdown(f"""
-            <div style='text-align: center; padding: 20px; background-color: #1e1e1e; border-radius: 10px; border: 2px solid {risk_color}; margin-bottom: 30px;'>
-                <h3 style='margin:0; color: #a0a0a0;'>UNIFIED THREAT POSTURE</h3>
-                <h1 style='margin:0; font-size: 3rem; color: {risk_color};'>{intel['unified_risk']}</h1>
-                <p style='margin:0; color: #a0a0a0;'>Last Updated: {intel['timestamp']}</p>
-            </div>
-            """, unsafe_allow_html=True)
-    
-            col_phys, col_cyber = st.columns(2)
-            with col_phys:
-                st.subheader("⚡ Physical & Perimeter (1 Mile)")
-                st.info(f"**Risk Level: {intel['physical_score']}**")
-                st.write(intel['physical_brief'])
-                
-                # --- RESTORED PHYSICAL SOURCES ---
-                phys_sources = intel.get('raw_phys_articles', []) or intel.get('raw_phys_sources', [])
-                if phys_sources:
-                    with st.expander("🔗 View Contributing Physical Intelligence"):
-                        for src in phys_sources[:15]:
-                            st.markdown(f"- [{src.title}]({src.link}) <small>({src.source})</small>", unsafe_allow_html=True)
-                
-                if intel.get("recent_crimes"):
-                    st.markdown("**🚨 Recent Perimeter Incidents:**")
-                    for c in intel["recent_crimes"][:5]:
-                        icon = "🔴" if c['severity'] == "High" else "🟠"
-                        st.caption(f"{icon} **{c['raw_title']}** ({c['distance_miles']} mi away) - *{c['timestamp']}*")
-                    if len(intel["recent_crimes"]) > 5:
-                        st.caption(f"...and {len(intel['recent_crimes']) - 5} more (See Threat Telemetry).")
-                
-            with col_cyber:
-                st.subheader("🛡️ Cyber & SCADA (48 Hours)")
-                st.warning(f"**Risk Level: {intel['cyber_score']}**")
-                st.write(intel['cyber_brief'])
-                
-                # --- RESTORED CYBER SOURCES ---
-                cyber_sources = intel.get('raw_cyber_articles', []) or intel.get('raw_cyber_sources', [])
-                if cyber_sources:
-                    with st.expander("🔗 View Contributing Cyber Intelligence"):
-                        for src in cyber_sources[:15]:
-                            st.markdown(f"- [{src.title}]({src.link}) <small>({src.source})</small>", unsafe_allow_html=True)
-                
-            st.divider()
-            st.subheader("📤 Dispatch Intelligence Report")
-            col_email, col_btn = st.columns([3, 1])
-            default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
-            target_email = col_email.text_input("Recipient Email Address", value=default_email, label_visibility="collapsed")
+        with col_cyber:
+            st.subheader("🛡️ Cyber & SCADA (48 Hours)")
+            st.warning(f"**Risk Level: {intel['cyber_score']}**")
+            st.write(intel['cyber_brief'])
             
-            can_dispatch = "Action: Dispatch Exec Report" in st.session_state.allowed_actions
-            if col_btn.button("📧 Send Outlook HTML Report", use_container_width=True, type="primary", disabled=not can_dispatch):
-                if target_email:
-                    with st.spinner("Compiling and transmitting..."):
-                        success, msg = svc.send_executive_report(target_email, intel, sys_config)
-                        if success: st.success(f"Report dispatched to {target_email}")
-                        else: st.error(msg)
-                else:
-                    st.warning("Please enter a recipient email address.")
+            # --- RESTORED CYBER SOURCES ---
+            cyber_sources = intel.get('raw_cyber_articles', []) or intel.get('raw_cyber_sources', [])
+            if cyber_sources:
+                with st.expander("🔗 View Contributing Cyber Intelligence"):
+                    for src in cyber_sources[:15]:
+                        st.markdown(f"- [{src.title}]({src.link}) <small>({src.source})</small>", unsafe_allow_html=True)
+            
+        st.divider()
+        st.subheader("📤 Dispatch Intelligence Report")
+        col_email, col_btn = st.columns([3, 1])
+        default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
+        target_email = col_email.text_input("Recipient Email Address", value=default_email, label_visibility="collapsed")
+        
+        can_dispatch = "Action: Dispatch Exec Report" in st.session_state.allowed_actions
+        if col_btn.button("📧 Send Outlook HTML Report", use_container_width=True, type="primary", disabled=not can_dispatch):
+            if target_email:
+                with st.spinner("Compiling and transmitting..."):
+                    success, msg = svc.send_executive_report(target_email, intel, sys_config)
+                    if success: st.success(f"Report dispatched to {target_email}")
+                    else: st.error(msg)
+            else:
+                st.warning("Please enter a recipient email address.")
 # ================= 2. THREAT TELEMETRY =================
 elif page == "📡 Threat Telemetry":
     st.title("📡 Unified Threat Telemetry")
