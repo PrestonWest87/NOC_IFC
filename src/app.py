@@ -480,7 +480,7 @@ if page == "👁️ Global Dashboards":
         target_email = col_email.text_input("Recipient Email Address", value=default_email, label_visibility="collapsed")
         
         can_dispatch = "Action: Dispatch Exec Report" in st.session_state.allowed_actions
-        if col_btn.button("📧 Send Outlook HTML Report", use_container_width=True, type="primary", disabled=not can_dispatch):
+        if col_btn.button("📧 Send Outlook HTML Report", width='stretch', type="primary", disabled=not can_dispatch):
             if target_email:
                 with st.spinner("Compiling and transmitting..."):
                     success, msg = svc.send_executive_report(target_email, intel, sys_config)
@@ -615,7 +615,7 @@ elif page == "📡 Threat Telemetry":
                     radius_filter = st.selectbox("Geofence Radius", [1, 3, 5, 10], index=0, format_func=lambda x: f"{x} Miles")
                 with col3:
                     st.write("")
-                    if st.button("🔄 Force Fetch LRPD", use_container_width=True):
+                    if st.button("🔄 Force Fetch LRPD", width='stretch'):
                         with st.spinner("Polling Little Rock Dispatches..."):
                             if svc.force_fetch_crime_data():
                                 st.success("Sync Complete!")
@@ -645,12 +645,12 @@ elif page == "📡 Threat Telemetry":
                             layers=layers, 
                             initial_view_state=view_state, 
                             tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Dist: {distance_miles} miles"}
-                        ), use_container_width=True)
+                        ), width='stretch')
                         
                         st.divider()
                         st.subheader(f"Raw Incident Logs ({radius_filter} Mile Radius)")
                         display_crimes = df_crimes[["timestamp", "distance_miles", "category", "severity", "raw_title"]]
-                        st.dataframe(display_crimes, use_container_width=True, hide_index=True)
+                        st.dataframe(display_crimes, width='stretch', hide_index=True)
             tab_idx += 1
 
 # ================= NEW 3: REGIONAL GRID =================
@@ -820,7 +820,7 @@ elif page == "🗺️ Regional Grid":
                         if "exec_weather_brief" not in st.session_state:
                             st.session_state.exec_weather_brief = "Click 'Generate Briefing' to synthesize current telemetry."
                             
-                        if c_ai_btn.button("🔄 Generate Briefing", type="primary", use_container_width=True, disabled=not ai_enabled):
+                        if c_ai_btn.button("🔄 Generate Briefing", type="primary", width='stretch', disabled=not ai_enabled):
                             with st.spinner("Synthesizing meteorological telemetry..."):
                                 st.session_state.exec_weather_brief = generate_executive_weather_brief(analytics, p1_at_risk, sys_config)
                                 safe_rerun()
@@ -838,7 +838,7 @@ elif page == "🗺️ Regional Grid":
                             if not analytics["spc_distribution"].empty:
                                 fig_spc = px.pie(analytics["spc_distribution"], values='count', names='SPC Risk', hole=0.6, color='SPC Risk', color_discrete_map=color_map_spc)
                                 fig_spc.update_layout(margin=dict(t=10, b=10, l=10, r=10), showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
-                                st.plotly_chart(fig_spc, use_container_width=True)
+                                st.plotly_chart(fig_spc, width='stretch')
                             else: st.success("All Clear.")
                                 
                         with c_viz2:
@@ -846,7 +846,7 @@ elif page == "🗺️ Regional Grid":
                             if not analytics["nws_distribution"].empty:
                                 fig_nws = px.pie(analytics["nws_distribution"], values='count', names='NWS Alert', hole=0.6, color='NWS Alert', color_discrete_map=color_map_nws)
                                 fig_nws.update_layout(margin=dict(t=10, b=10, l=10, r=10), showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
-                                st.plotly_chart(fig_nws, use_container_width=True)
+                                st.plotly_chart(fig_nws, width='stretch')
                             else: st.success("All Clear.")
                                 
                         with c_viz3:
@@ -854,7 +854,7 @@ elif page == "🗺️ Regional Grid":
                             if not analytics["district_distribution"].empty:
                                 fig_dist = px.bar(analytics["district_distribution"].reset_index(), x='District', y='Count', color_discrete_sequence=['#1f77b4'])
                                 fig_dist.update_layout(margin=dict(t=10, b=10, l=10, r=10), xaxis_title="", yaxis_title="")
-                                st.plotly_chart(fig_dist, use_container_width=True)
+                                st.plotly_chart(fig_dist, width='stretch')
                             else: st.success("All Clear.")
 
                         st.divider()
@@ -969,7 +969,7 @@ elif page == "🗺️ Regional Grid":
                         default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
                         sitrep_recipients = c_em1.text_input("Recipient Email(s)", value=default_email, key="sitrep_recip")
                         
-                        if c_em2.button("Transmit Priority SitRep", type="primary", use_container_width=True):
+                        if c_em2.button("Transmit Priority SitRep", type="primary", width='stretch'):
                             if not sitrep_recipients:
                                 st.error("Please enter at least one recipient email.")
                             else:
@@ -1227,7 +1227,7 @@ elif page == "⚡ AIOps RCA":
                                         fixed_recipients = "remedyforceworkflow@aecc.com, noc@aecc.com"
                                         st.info(f"Ticket will be automatically dispatched to: **{fixed_recipients}**")
                                         
-                                        if st.button("Dispatch Ticket", key=f"t_send_{site}", use_container_width=True):
+                                        if st.button("Dispatch Ticket", key=f"t_send_{site}", width='stretch'):
                                             from src.mailer import send_alert_email
                                             with st.spinner("Dispatching to RemedyForce & NOC..."):
                                                 success, msg = send_alert_email(f"URGENT: {clean_p} Incident at {site}", ticket_body, fixed_recipients, is_html=False)
@@ -1373,7 +1373,7 @@ elif page == "📑 Reporting & Briefings":
                     default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
                     report_recipients = c_em1.text_input("Recipient Email(s)", value=default_email, key="report_recip")
                     
-                    if c_em2.button("✉️ Transmit Report", type="primary", use_container_width=True):
+                    if c_em2.button("✉️ Transmit Report", type="primary", width='stretch'):
                         if not report_recipients:
                             st.error("Please enter at least one recipient email.")
                         else:
