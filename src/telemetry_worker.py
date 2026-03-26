@@ -13,12 +13,19 @@ AR_COUNTY_COORDS = {
     "CRAIGHEAD": (35.83, -90.70), "SEBASTIAN": (35.18, -94.27), "LONOKE": (34.75, -91.87)
 }
 
+# --- THE FIX: Standardized Browser Headers to prevent API connection drops ---
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/json',
+    'Connection': 'keep-alive'
+}
+
 def fetch_ornl_odin_power():
     """Pulls live county-level power outages in Arkansas via ODIN API."""
     with SessionLocal() as session:
         try:
             url = "https://ornl.opendatasoft.com/api/explore/v2.1/catalog/datasets/odin-real-time-outages-county/records?limit=100&refine=state%3AArkansas"
-            resp = requests.get(url, timeout=15)
+            resp = requests.get(url, headers=HEADERS, timeout=20)
             if resp.status_code == 200:
                 data = resp.json().get("results", [])
                 session.query(RegionalOutage).filter(RegionalOutage.provider == "ORNL ODIN").delete()
@@ -55,7 +62,9 @@ def fetch_bgp_anomalies():
             for asn in asns:
                 clean_asn = asn.replace("AS", "").replace("as", "")
                 url = f"https://stat.ripe.net/data/routing-status/data.json?resource={clean_asn}"
-                resp = requests.get(url, timeout=15)
+                
+                # Added headers and increased timeout
+                resp = requests.get(url, headers=HEADERS, timeout=20)
                 
                 if resp.status_code == 200:
                     data = resp.json().get("data", {})
@@ -88,7 +97,7 @@ def fetch_ioda_isp_outages():
             total_alerts = 0
             
             # 1. Arkansas Regional ISP Outages
-            resp_ar = requests.get(f"{base_url}?entityType=region&entityCode=US-AR&from={past_epoch}&until={now_epoch}", timeout=15)
+            resp_ar = requests.get(f"{base_url}?entityType=region&entityCode=US-AR&from={past_epoch}&until={now_epoch}", headers=HEADERS, timeout=20)
             if resp_ar.status_code == 200:
                 for alert in resp_ar.json().get("data", []):
                     total_alerts += 1
@@ -105,7 +114,7 @@ def fetch_ioda_isp_outages():
             if config and config.monitored_asns:
                 asns = [asn.strip().replace("AS", "").replace("as", "") for asn in config.monitored_asns.split(",")]
                 for asn in asns:
-                    resp_asn = requests.get(f"{base_url}?entityType=asn&entityCode={asn}&from={past_epoch}&until={now_epoch}", timeout=15)
+                    resp_asn = requests.get(f"{base_url}?entityType=asn&entityCode={asn}&from={past_epoch}&until={now_epoch}", headers=HEADERS, timeout=20)
                     if resp_asn.status_code == 200:
                         for alert in resp_asn.json().get("data", []):
                             total_alerts += 1
