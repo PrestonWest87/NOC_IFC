@@ -200,6 +200,27 @@ def get_recent_crimes(max_distance=None):
             "distance_miles": c.distance_miles, "severity": c.severity,
             "lat": c.lat, "lon": c.lon
         } for c in crimes]
+
+def get_jackson_crimes():
+    """Queries the isolated database table for recent Jackson MS incidents."""
+    from src.database import SessionLocal, JmsCrimeIncident
+    from datetime import datetime, timedelta
+    
+    with SessionLocal() as db:
+        seven_days_ago = datetime.utcnow() - timedelta(hours=168)
+        
+        crimes = db.query(JmsCrimeIncident).filter(
+            JmsCrimeIncident.timestamp >= seven_days_ago
+        ).order_by(JmsCrimeIncident.timestamp.desc()).all()
+        
+        return [{
+            "id": c.id, "category": c.category, "raw_title": c.raw_title,
+            "timestamp": c.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "distance_miles": c.distance_miles, "severity": c.severity,
+            "lat": c.lat, "lon": c.lon
+        } for c in crimes]
+
+
 def force_fetch_crime_data():
     """Triggers the crime worker logic manually from the UI."""
     try:
