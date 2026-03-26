@@ -229,6 +229,7 @@ class MonitoredLocation(Base):
     lat = Column(Float)
     lon = Column(Float)
     loc_type = Column(String, default="General", index=True)
+    district = Column(String, default="Central")
     priority = Column(Integer, default=3, index=True)
     current_spc_risk = Column(String, default="None")
     last_updated = Column(DateTime, default=datetime.utcnow)
@@ -250,6 +251,14 @@ class CrimeIncident(Base):
 # ==========================================
 
 def init_db():
+    Base.metadata.create_all(bind=engine)
+    # Silent migration to add the district column to existing databases
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN district VARCHAR DEFAULT 'Central'"))
+            conn.commit()
+    except Exception:
+        pass # Column already exists
     # Minor sleep mitigates docker-compose DB container race conditions
     time.sleep(random.uniform(0.1, 1.5))
     
