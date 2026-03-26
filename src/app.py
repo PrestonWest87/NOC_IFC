@@ -15,8 +15,7 @@ import streamlit.components.v1 as components
 import src.services as svc
 from src.database import init_db
 from src.scheduler import fetch_feeds
-from src.llm import generate_bluf, cross_reference_cves, build_custom_intel_report, generate_rolling_summary, generate_daily_fusion_report, call_llm
-
+from src.llm import generate_bluf, cross_reference_cves, build_custom_intel_report, generate_rolling_summary, generate_daily_fusion_report, call_llm, generate_executive_weather_brief
 @st.cache_resource
 def setup_database():
     init_db()
@@ -825,7 +824,8 @@ elif page == "🗺️ Regional Grid":
                             
                         if c_ai_btn.button("🔄 Generate Briefing", type="primary", use_container_width=True, disabled=not ai_enabled):
                             with st.spinner("Synthesizing meteorological telemetry..."):
-                                st.session_state.exec_weather_brief = svc.generate_executive_weather_brief(analytics, map_df, sys_config)
+                                # --- UPDATED CALL (Removed svc.) ---
+                                st.session_state.exec_weather_brief = generate_executive_weather_brief(analytics, map_df, sys_config)
                                 safe_rerun()
                                 
                         st.info(st.session_state.exec_weather_brief)
