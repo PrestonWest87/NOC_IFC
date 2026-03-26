@@ -205,7 +205,6 @@ def generate_executive_weather_brief(analytics, p1_count, sys_config):
     if not sys_config or not sys_config.get('is_active'):
         return "AI is currently disabled in settings."
     
-    risk_counts = analytics['risk_distribution'].to_dict().get('Count', {}) if not analytics['risk_distribution'].empty else {}
     dist_counts = analytics['district_distribution'].to_dict().get('Count', {}) if not analytics['district_distribution'].empty else {}
     
     prompt = f"""
@@ -213,10 +212,10 @@ def generate_executive_weather_brief(analytics, p1_count, sys_config):
     Focus on the most severe risks, the operational districts most impacted, and critical (Priority 1) exposures.
     
     Data:
-    - Total Sites at Risk: {analytics['at_risk_sites']}
-    - Highest Current Risk Level: {analytics['highest_risk']}
+    - Total Monitored Sites: {analytics.get('total_sites', 0)}
+    - Total Sites at Risk: {analytics.get('at_risk_sites', 0)}
+    - Highest Current Risk Level: {analytics.get('highest_risk', 'None')}
     - Critical (P1) Sites Exposed: {p1_count}
-    - Risks by Level: {risk_counts}
     - Exposed Sites by District: {dist_counts}
     
     Tone: Professional, urgent but measured, executive summary style. No pleasantries.
