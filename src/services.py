@@ -626,23 +626,23 @@ def calculate_site_intersections(map_df, active_polygons):
     return toggled_affected_sites, master_affected_sites
 
 def get_infrastructure_analytics(map_df):
-    payload = {"at_risk_sites": 0, "highest_risk": "None", "risk_distribution": pd.DataFrame(), "type_distribution": pd.DataFrame(), "region_distribution": pd.DataFrame(), "priority_risk_matrix": pd.DataFrame(), "type_risk_matrix": pd.DataFrame(), "region_risk_matrix": pd.DataFrame()}
+    payload = {"at_risk_sites": 0, "highest_risk": "None", "risk_distribution": pd.DataFrame(), "type_distribution": pd.DataFrame(), "district_distribution": pd.DataFrame(), "priority_risk_matrix": pd.DataFrame(), "type_risk_matrix": pd.DataFrame(), "district_risk_matrix": pd.DataFrame()}
     if not map_df.empty:
         risk_order = ["HIGH", "MDT", "ENH", "SLGT", "MRGL", "TSTM", "None"]
         map_df['Risk'] = pd.Categorical(map_df['Risk'], categories=risk_order, ordered=True)
         risk_df = map_df[map_df['Risk'] != 'None']
-        map_df['Region'] = map_df['Name'].apply(lambda x: str(x).split()[0] if len(str(x).split()) > 1 else "HQ / Central")
         
         payload["at_risk_sites"] = len(risk_df)
         payload["highest_risk"] = risk_df['Risk'].sort_values().iloc[0] if not risk_df.empty else "None"
         
         if not risk_df.empty: payload["risk_distribution"] = risk_df['Risk'].value_counts().reset_index().rename(columns={'Risk': 'Risk Level', 'count': 'Count'}).set_index('Risk Level')
         payload["type_distribution"] = map_df['Type'].value_counts().reset_index().rename(columns={'Type': 'Facility Type', 'count': 'Count'}).set_index('Facility Type')
-        payload["region_distribution"] = map_df['Region'].value_counts().reset_index().rename(columns={'Region': 'Regional Zone', 'count': 'Count'}).set_index('Regional Zone')
         
+        # --- NEW DISTRICT SLICING ---
+        payload["district_distribution"] = map_df['District'].value_counts().reset_index().rename(columns={'District': 'District', 'count': 'Count'}).set_index('District')
         payload["priority_risk_matrix"] = pd.crosstab(map_df['Priority'], map_df['Risk'])
         payload["type_risk_matrix"] = pd.crosstab(map_df['Type'], map_df['Risk'])
-        payload["region_risk_matrix"] = pd.crosstab(map_df['Region'], map_df['Risk'])
+        payload["district_risk_matrix"] = pd.crosstab(map_df['District'], map_df['Risk'])
     return payload
 
 def generate_hazard_sitrep_html(analytics_df):
@@ -689,7 +689,8 @@ def import_locations(data):
         for item in data:
             name, lat, lon = item.get("name"), item.get("lat"), item.get("lon")
             if name and lat is not None and lon is not None and name not in existing_names:
-                db.add(MonitoredLocation(name=name, lat=float(lat), lon=float(lon), loc_type=item.get("type", "General"), priority=int(item.get("priority", 3))))
+                # ADDED DISTRICT HERE
+                db.add(MonitoredLocation(name=name, lat=float(lat), lon=float(lon), loc_type=item.get("type", "General"), district=item.get("district", "Central"), priority=int(item.get("priority", 3))))
                 existing_names.add(name); added += 1
         db.commit()
     get_cached_locations.clear()
@@ -700,7 +701,8 @@ def update_locations(edited_df):
         for _, row in edited_df.iterrows():
             db_loc = db.query(MonitoredLocation).filter_by(id=row['id']).first()
             if db_loc:
-                db_loc.name, db_loc.loc_type, db_loc.priority, db_loc.lat, db_loc.lon = row['Name'], row['Type'], row['Priority'], row['Lat'], row['Lon']
+                # ADDED DISTRICT HERE
+                db_loc.name, db_loc.loc_type, db_loc.district, db_loc.priority, db_loc.lat, db_loc.lon = row['Name'], row['Type'], row['District'], row['Priority'], row['Lat'], row['Lon']
         db.commit()
     get_cached_locations.clear()
 
