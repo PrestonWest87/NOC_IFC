@@ -23,8 +23,7 @@ from src.infra_worker import fetch_regional_hazards
 from src.cloud_worker import fetch_cloud_outages
 from src.telemetry_worker import run_telemetry_sync
 from src.train_model import train  
-from src.crime_worker import fetch_live_crimes
-
+from src.crime_worker import fetch_live_crimes, fetch_jackson_crimes
 init_db()
 
 def log(message, source="SYSTEM"):
@@ -262,6 +261,7 @@ if __name__ == "__main__":
     
     schedule.every(15).minutes.do(run_threaded, fetch_feeds)
     schedule.every(30).minutes.do(run_threaded, fetch_live_crimes)
+    schedule.every(3).hours.do(run_threaded, fetch_jackson_crimes)
     schedule.every(6).hours.do(run_threaded, fetch_cisa_kev)
     
     # High-Priority / High-Churn Telemetry
@@ -274,7 +274,7 @@ if __name__ == "__main__":
     # 3. Asynchronous Boot Sequence (Does not block the container from finishing startup)
     boot_jobs = [
         fetch_cisa_kev, fetch_regional_hazards, fetch_cloud_outages, 
-        run_telemetry_sync, fetch_live_crimes, fetch_feeds
+        run_telemetry_sync, fetch_live_crimes, fetch_jackson_crimes, fetch_feeds
     ]
     for job in boot_jobs:
         run_threaded(job)
