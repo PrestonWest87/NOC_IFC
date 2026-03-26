@@ -651,19 +651,6 @@ elif page == "📡 Threat Telemetry":
                         st.subheader(f"Raw Incident Logs ({radius_filter} Mile Radius)")
                         display_crimes = df_crimes[["timestamp", "distance_miles", "category", "severity", "raw_title"]]
                         st.dataframe(display_crimes, width='stretch', hide_index=True)
-                        st.divider()
-                        st.subheader("📍 Jackson, MS Incident Logs")
-                        st.caption("Isolated async 3-hour RSS feed tracking for Jackson County.")
-                        
-                        jms_data = svc.get_jackson_crimes()
-                        if not jms_data:
-                            st.info("No recent incidents logged in the Jackson MS database.")
-                        else:
-                            df_jms = pd.DataFrame(jms_data)
-                            display_jms = df_jms[["timestamp", "category", "severity", "raw_title"]]
-                            st.dataframe(display_jms, width="stretch", hide_index=True)
-                        # --------------------------------------
-                        
             tab_idx += 1
 
 # ================= NEW 3: REGIONAL GRID =================
