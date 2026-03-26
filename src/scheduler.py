@@ -261,7 +261,6 @@ if __name__ == "__main__":
     
     schedule.every(15).minutes.do(run_threaded, fetch_feeds)
     schedule.every(30).minutes.do(run_threaded, fetch_live_crimes)
-    schedule.every(3).hours.do(run_threaded, fetch_jackson_crimes)
     schedule.every(6).hours.do(run_threaded, fetch_cisa_kev)
     
     # High-Priority / High-Churn Telemetry
