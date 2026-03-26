@@ -1209,7 +1209,13 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, selected_even
 
     # 1. RADAR OVERLAY
     if show_radar:
-        layers.append(pdk.Layer("TileLayer", data=["https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png"], opacity=0.6, pickable=False))
+        # --- THE FIX: Removed the brackets [] so data is a pure string ---
+        layers.append(pdk.Layer(
+            "TileLayer", 
+            data="https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png", 
+            opacity=0.6, 
+            pickable=False
+        ))
 
     # 2. SPC CONVECTIVE OUTLOOKS
     spc_micro = {"type": "FeatureCollection", "features": []}
