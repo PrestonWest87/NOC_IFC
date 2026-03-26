@@ -273,7 +273,7 @@ if __name__ == "__main__":
     # 3. Asynchronous Boot Sequence (Does not block the container from finishing startup)
     boot_jobs = [
         fetch_cisa_kev, fetch_regional_hazards, fetch_cloud_outages, 
-        run_telemetry_sync, fetch_live_crimes, fetch_jackson_crimes, fetch_feeds
+        run_telemetry_sync, fetch_live_crimes, fetch_feeds
     ]
     for job in boot_jobs:
         run_threaded(job)
