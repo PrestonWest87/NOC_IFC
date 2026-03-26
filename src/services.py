@@ -796,14 +796,15 @@ def update_locations(edited_df):
     get_cached_locations.clear()
 
 def nuke_crime_data():
-    """Wipes all records from the CrimeIncident table."""
-    from src.database import CrimeIncident
+    """Wipes all records from both Little Rock and Jackson Crime tables."""
+    from src.database import CrimeIncident, JmsCrimeIncident
     with SessionLocal() as db:
         try:
-            # Delete all rows and grab the count of how many were removed
-            deleted_count = db.query(CrimeIncident).delete()
+            # Delete rows from both tables and combine the count
+            lr_deleted = db.query(CrimeIncident).delete()
+            jms_deleted = db.query(JmsCrimeIncident).delete()
             db.commit()
-            return True, deleted_count
+            return True, (lr_deleted + jms_deleted)
         except Exception as e:
             db.rollback()
             return False, str(e)
