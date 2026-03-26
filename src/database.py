@@ -4,6 +4,7 @@ import time
 import random
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Float, Boolean, JSON, event
 from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import text
 from datetime import datetime
 
 # Enforce SQLite connection string
@@ -229,7 +230,7 @@ class MonitoredLocation(Base):
     lat = Column(Float)
     lon = Column(Float)
     loc_type = Column(String, default="General", index=True)
-    district = Column(String, default="Central")
+    district = Column(String, default="Central", index=True) # <-- NEW DISTRICT COLUMN
     priority = Column(Integer, default=3, index=True)
     current_spc_risk = Column(String, default="None")
     last_updated = Column(DateTime, default=datetime.utcnow)
@@ -251,14 +252,6 @@ class CrimeIncident(Base):
 # ==========================================
 
 def init_db():
-    Base.metadata.create_all(bind=engine)
-    # Silent migration to add the district column to existing databases
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN district VARCHAR DEFAULT 'Central'"))
-            conn.commit()
-    except Exception:
-        pass # Column already exists
     # Minor sleep mitigates docker-compose DB container race conditions
     time.sleep(random.uniform(0.1, 1.5))
     
@@ -267,6 +260,15 @@ def init_db():
         Base.metadata.create_all(bind=engine)
     except Exception as e:
         print(f"Schema generation error: {e}")
+
+    # --- SILENT MIGRATION FIX ---
+    # Manually adds the district column if it doesn't exist in the live SQLite file yet
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN district VARCHAR DEFAULT 'Central'"))
+    except Exception:
+        pass # Column already exists, safe to ignore
+    # ----------------------------
     
     # Seed Initial Data
     session = SessionLocal()
@@ -274,7 +276,7 @@ def init_db():
         all_pages = [
             "👁️ Global Dashboards", 
             "📡 Threat Telemetry", 
-            "🗺️ Regional Grid",     # <-- NEW STANDALONE PAGE
+            "🗺️ Regional Grid",
             "🎯 Threat Hunting & IOCs",
             "⚡ AIOps RCA", 
             "📑 Reporting & Briefings", 
