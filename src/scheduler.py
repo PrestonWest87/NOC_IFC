@@ -5,6 +5,7 @@ import sys
 import asyncio
 import aiohttp
 import threading
+import gc
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 from datetime import datetime, timedelta
