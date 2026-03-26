@@ -4,14 +4,13 @@ import requests
 import math
 import random
 import time
-import feedparser
 import hashlib
 from datetime import datetime, timedelta
 
 # --- PATH FIX: Ensure Python can find the 'src' module ---
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.database import SessionLocal, CrimeIncident, JmsCrimeIncident
+from src.database import SessionLocal, CrimeIncident
 
 GEO_CACHE = {}
 
@@ -26,7 +25,7 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     return R * c
 
 def geocode_address_arcgis(address, hq_lat, hq_lon, region="Little Rock, AR"):
-    """Converts a street address to Lat/Lon using ArcGIS World Geocoding (Region Aware)."""
+    """Converts a street address to Lat/Lon using ArcGIS World Geocoding."""
     if address in GEO_CACHE: return GEO_CACHE[address]
 
     clean_address = address.replace("/", " and ").replace(" BLK ", " ").replace(" BLOCK ", " ").strip()
@@ -74,7 +73,7 @@ def fetch_live_crimes():
         
         with SessionLocal() as db:
             added_count = 0
-            seen_ids = set() # Protects against intra-payload duplicates
+            seen_ids = set() 
             
             for entry in data:
                 try:
@@ -86,11 +85,10 @@ def fetch_live_crimes():
                     incident_date = datetime.strptime(raw_date, "%m/%d/%Y %H:%M:%S")
                     if incident_date < seven_days_ago: continue
                     
-                    # Target Little Rock specifically
-                    incident_lat, incident_lon, is_approx = geocode_address_arcgis(location, hq_lat, hq_lon, "Little Rock, AR")
+                    incident_lat, incident_lon, is_approx = geocode_address_arcgis(location, hq_lat, hq_lon)
                     distance = calculate_distance(hq_lat, hq_lon, incident_lat, incident_lon)
                     
-                    # THE FIX: Deterministic MD5 Hash instead of randomized hash()
+                    # Deterministic MD5 Hash prevents duplicates
                     loc_hash = hashlib.md5(location.encode('utf-8')).hexdigest()[:6]
                     inc_id = f"LR_{incident_date.strftime('%Y%m%d%H%M%S')}_{loc_hash}"
                     
@@ -125,82 +123,7 @@ def fetch_live_crimes():
     except Exception as e:
         print(f"🚨 LR CRIME WORKER FAILED: {e}")
 
-def fetch_jackson_crimes():
-    """Fetches Jackson County MS RSS Data"""
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] 🚨 CRIME WORKER: Polling Jackson MS RSS...")
-    
-    try:
-        feed = feedparser.parse("https://www.co.jackson.ms.us/RSSFeed.aspx?ModID=1&CID=Crime-Reports-11")
-        
-        # Jackson County MS approximate central coordinates for fallback
-        hq_lat, hq_lon = 30.4126, -88.5833 
-        seven_days_ago = datetime.now() - timedelta(hours=168)
-        
-        with SessionLocal() as db:
-            added_count = 0
-            seen_ids = set()
-            
-            for entry in feed.entries:
-                try:
-                    raw_title = entry.get("title", "UNKNOWN")
-                    desc = entry.get("summary", "")
-                    
-                    if hasattr(entry, "published_parsed") and entry.published_parsed:
-                        incident_date = datetime(*entry.published_parsed[:6])
-                    else:
-                        incident_date = datetime.now()
-                        
-                    if incident_date < seven_days_ago: continue
-                    
-                    location = raw_title
-                    desc_str = raw_title
-                    if "-" in raw_title:
-                        parts = raw_title.split("-", 1)
-                        desc_str = parts[0].strip()
-                        location = parts[1].strip()
-
-                    incident_lat, incident_lon, is_approx = geocode_address_arcgis(location, hq_lat, hq_lon, "Jackson County, MS")
-                    distance = calculate_distance(hq_lat, hq_lon, incident_lat, incident_lon)
-                    
-                    # THE FIX: Deterministic MD5 Hash
-                    loc_hash = hashlib.md5(raw_title.encode('utf-8')).hexdigest()[:6]
-                    inc_id = f"JMS_{incident_date.strftime('%Y%m%d%H%M%S')}_{loc_hash}"
-                    
-                    if inc_id in seen_ids: continue
-                    seen_ids.add(inc_id)
-                    
-                    severity = "Low"
-                    upper_text = (desc_str + " " + desc).upper()
-                    if any(k in upper_text for k in ["ARSON", "EXPLOSIVE", "TERROR", "SABOTAGE", "SHOOTING", "MURDER"]): category, severity = "Critical Infrastructure Threat", "Critical"
-                    elif any(k in upper_text for k in ["THEFT", "BURGLARY", "ROBBERY", "BREAKING"]): category, severity = "Asset/Copper Theft Risk", "High"
-                    elif any(k in upper_text for k in ["ASSAULT", "BATTERY", "HOMICIDE", "WEAPON", "STABBING"]): category, severity = "Violent Proximity Threat", "High"
-                    elif any(k in upper_text for k in ["VANDALISM", "TRESPASS", "PROWLER", "DISTURBANCE", "SUSPICIOUS"]): category, severity = "Perimeter Breach/Vandalism", "Medium"
-                    else: category, severity = "General Police Activity", "Low"
-                    
-                    display_title = f"{desc_str.title()}"
-                    if is_approx: display_title += " (Approx Loc)"
-                    
-                    # Saves directly to the isolated JMS table
-                    existing_incident = db.query(JmsCrimeIncident).filter_by(id=inc_id).first()
-                    if not existing_incident:
-                        db.add(JmsCrimeIncident(
-                            id=inc_id, category=category, raw_title=display_title,
-                            timestamp=incident_date, distance_miles=round(distance, 2),
-                            severity=severity, lat=incident_lat, lon=incident_lon
-                        ))
-                        added_count += 1
-                except Exception: continue
-                
-            db.commit()
-            db.query(JmsCrimeIncident).filter(JmsCrimeIncident.timestamp < seven_days_ago).delete()
-            db.commit()
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ CRIME WORKER: {added_count} new Jackson County dispatches mapped.")
-
-    except Exception as e:
-        print(f"🚨 JACKSON CRIME WORKER FAILED: {e}")
-
 if __name__ == "__main__":
     from src.database import init_db
     init_db()
     fetch_live_crimes()
-    fetch_jackson_crimes()
