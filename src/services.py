@@ -643,60 +643,97 @@ def calculate_site_intersections(map_df, active_polygons):
 def get_infrastructure_analytics(map_df, master_affected_sites):
     """Generates real-time analytics by reading the live geospatial intersection array."""
     payload = {
-        "at_risk_sites": 0, "highest_risk": "None", "risk_distribution": pd.DataFrame(), 
+        "total_sites": len(map_df),
+        "at_risk_sites": 0, "highest_risk": "None", 
+        "spc_distribution": pd.DataFrame(), "nws_distribution": pd.DataFrame(),
         "type_distribution": pd.DataFrame(), "district_distribution": pd.DataFrame(), 
         "priority_risk_matrix": pd.DataFrame(), "type_risk_matrix": pd.DataFrame(), "district_risk_matrix": pd.DataFrame()
     }
     
-    if not master_affected_sites: return payload
-        
-    sites_df = pd.DataFrame(master_affected_sites)
+    spc_risks = {}
+    nws_alerts = {}
     
-    # Weighting system to figure out the "Worst" risk if a site is hit by multiple polygons
     severity_rank = {
         "HIGH": 100, "MDT": 90, "ENH": 80, "SLGT": 70, "MRGL": 60, "TSTM": 50,
         "Extreme": 95, "Severe": 85, "Moderate": 75, "Minor": 65,
-        "Warning": 85, "Watch": 75, "Advisory": 65, "Statement": 55
+        "WARNING": 85, "WATCH": 75, "ADVISORY": 65, "STATEMENT": 55, "NONE": 0
     }
     
-    def rank_hazard(hazard_str):
-        score = 0
-        for key, val in severity_rank.items():
-            if key.upper() in str(hazard_str).upper() and val > score: score = val
-        return score if score > 0 else 10 
+    if master_affected_sites:
+        sites_df = pd.DataFrame(master_affected_sites)
         
-    def get_primary_label(hazard_str):
-        s = str(hazard_str).upper()
-        if "HIGH" in s: return "HIGH"
-        if "MDT" in s: return "MDT"
-        if "ENH" in s: return "ENH"
-        if "SLGT" in s: return "SLGT"
-        if "MRGL" in s: return "MRGL"
-        if "TSTM" in s: return "TSTM"
-        if "WARNING" in s: return "WARNING"
-        if "WATCH" in s: return "WATCH"
-        if "ADVISORY" in s: return "ADVISORY"
-        return "OTHER"
+        def rank_hazard(hazard_str):
+            score = 0
+            for key, val in severity_rank.items():
+                if key.upper() in str(hazard_str).upper() and val > score: score = val
+            return score if score > 0 else 10 
 
-    sites_df['Risk_Score'] = sites_df['Hazard'].apply(rank_hazard)
-    sites_df['Risk_Label'] = sites_df['Hazard'].apply(get_primary_label)
+        sites_df['Risk_Score'] = sites_df['Hazard'].apply(rank_hazard)
+        worst_risks_df = sites_df.sort_values('Risk_Score', ascending=False).drop_duplicates(subset=['Monitored Site']).copy()
+        
+        for _, r in sites_df.iterrows():
+            site = r['Monitored Site']
+            haz = r['Hazard'].upper()
+            if "SPC:" in haz:
+                risk_lvl = "TSTM"
+                for lvl in ["HIGH", "MDT", "ENH", "SLGT", "MRGL", "TSTM"]:
+                    if lvl in haz: risk_lvl = lvl; break
+                if site not in spc_risks or severity_rank.get(risk_lvl, 0) > severity_rank.get(spc_risks.get(site, "NONE"), 0):
+                    spc_risks[site] = risk_lvl
+            else:
+                alert_type = "STATEMENT"
+                if "WARNING" in haz: alert_type = "WARNING"
+                elif "WATCH" in haz: alert_type = "WATCH"
+                elif "ADVISORY" in haz: alert_type = "ADVISORY"
+                if site not in nws_alerts or severity_rank.get(alert_type, 0) > severity_rank.get(nws_alerts.get(site, "NONE"), 0):
+                    nws_alerts[site] = alert_type
+
+        payload["at_risk_sites"] = len(worst_risks_df)
+        
+        def get_primary_label(hazard_str):
+            s = str(hazard_str).upper()
+            if "HIGH" in s: return "HIGH"
+            if "MDT" in s: return "MDT"
+            if "ENH" in s: return "ENH"
+            if "SLGT" in s: return "SLGT"
+            if "MRGL" in s: return "MRGL"
+            if "TSTM" in s: return "TSTM"
+            if "WARNING" in s: return "WARNING"
+            if "WATCH" in s: return "WATCH"
+            if "ADVISORY" in s: return "ADVISORY"
+            return "OTHER"
+            
+        payload["highest_risk"] = get_primary_label(worst_risks_df.iloc[0]['Hazard']) if not worst_risks_df.empty else "None"
+        
+        payload["type_distribution"] = worst_risks_df['Type'].value_counts().reset_index().rename(columns={'Type': 'Facility Type', 'count': 'Count'}).set_index('Facility Type')
+        payload["district_distribution"] = worst_risks_df['District'].value_counts().reset_index().rename(columns={'District': 'District', 'count': 'Count'}).set_index('District')
+        
+        worst_risks_df['Risk_Label'] = worst_risks_df['Hazard'].apply(get_primary_label)
+        payload["priority_risk_matrix"] = pd.crosstab(worst_risks_df['Priority'], worst_risks_df['Risk_Label'])
+        payload["type_risk_matrix"] = pd.crosstab(worst_risks_df['Type'], worst_risks_df['Risk_Label'])
+        payload["district_risk_matrix"] = pd.crosstab(worst_risks_df['District'], worst_risks_df['Risk_Label'])
     
-    # Sort by worst score, drop duplicates to only count each site ONCE
-    worst_risks_df = sites_df.sort_values('Risk_Score', ascending=False).drop_duplicates(subset=['Monitored Site']).copy()
+    # Map SPC and NWS back to ALL sites to get complete totals
+    spc_list = []
+    nws_list = []
+    for _, row in map_df.iterrows():
+        site = row['Name']
+        spc_list.append(spc_risks.get(site, "None"))
+        nws_list.append(nws_alerts.get(site, "None"))
+        
+    map_df_copy = map_df.copy()
+    map_df_copy['Live_SPC'] = spc_list
+    map_df_copy['Live_NWS'] = nws_list
     
-    payload["at_risk_sites"] = len(worst_risks_df)
-    payload["highest_risk"] = worst_risks_df.iloc[0]['Risk_Label'] if not worst_risks_df.empty else "None"
+    risk_order = ["HIGH", "MDT", "ENH", "SLGT", "MRGL", "TSTM", "None"]
+    map_df_copy['Live_SPC'] = pd.Categorical(map_df_copy['Live_SPC'], categories=risk_order, ordered=True)
+    payload["spc_distribution"] = map_df_copy['Live_SPC'].value_counts().reset_index().rename(columns={'Live_SPC': 'SPC Risk'})
     
-    payload["risk_distribution"] = worst_risks_df['Risk_Label'].value_counts().reset_index().rename(columns={'Risk_Label': 'Risk Level', 'count': 'Count'}).set_index('Risk Level')
-    payload["type_distribution"] = worst_risks_df['Type'].value_counts().reset_index().rename(columns={'Type': 'Facility Type', 'count': 'Count'}).set_index('Facility Type')
-    payload["district_distribution"] = worst_risks_df['District'].value_counts().reset_index().rename(columns={'District': 'District', 'count': 'Count'}).set_index('District')
-    
-    payload["priority_risk_matrix"] = pd.crosstab(worst_risks_df['Priority'], worst_risks_df['Risk_Label'])
-    payload["type_risk_matrix"] = pd.crosstab(worst_risks_df['Type'], worst_risks_df['Risk_Label'])
-    payload["district_risk_matrix"] = pd.crosstab(worst_risks_df['District'], worst_risks_df['Risk_Label'])
-    
+    nws_order = ["WARNING", "WATCH", "ADVISORY", "STATEMENT", "None"]
+    map_df_copy['Live_NWS'] = pd.Categorical(map_df_copy['Live_NWS'], categories=nws_order, ordered=True)
+    payload["nws_distribution"] = map_df_copy['Live_NWS'].value_counts().reset_index().rename(columns={'Live_NWS': 'NWS Alert'})
+
     return payload
-
 def generate_hazard_sitrep_html(analytics_df):
     p1_count = len(analytics_df[analytics_df['Priority'] == 1]['Monitored Site'].unique())
     rows_html = ""
