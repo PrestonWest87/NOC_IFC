@@ -1480,7 +1480,15 @@ elif page == "⚙️ Settings & Admin":
                 with c_ed:
                     st.markdown("**Manual Adjustments**")
                     locs = svc.get_cached_locations()
-                    df_locs = pd.DataFrame([{"id": l.id, "Name": l.name, "Type": l.loc_type, "Priority": l.priority, "Lat": l.lat, "Lon": l.lon} for l in locs]) if locs else pd.DataFrame()
+                    df_locs = pd.DataFrame([{
+                        "id": l.id, 
+                        "Name": l.name, 
+                        "Type": l.loc_type, 
+                        "District": l.district, 
+                        "Priority": l.priority, 
+                        "Lat": l.lat, 
+                        "Lon": l.lon
+                    } for l in locs]) if locs else pd.DataFrame()
                     if not df_locs.empty:
                         edited_df = st.data_editor(df_locs, hide_index=True, disabled=["id"], width="stretch", key="loc_editor")
                         if st.button("💾 Save Manual Adjustments", width="stretch"):
