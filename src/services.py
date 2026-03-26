@@ -201,25 +201,6 @@ def get_recent_crimes(max_distance=None):
             "lat": c.lat, "lon": c.lon
         } for c in crimes]
 
-def get_jackson_crimes():
-    """Queries the isolated database table for recent Jackson MS incidents."""
-    from src.database import SessionLocal, JmsCrimeIncident
-    from datetime import datetime, timedelta
-    
-    with SessionLocal() as db:
-        seven_days_ago = datetime.utcnow() - timedelta(hours=168)
-        
-        crimes = db.query(JmsCrimeIncident).filter(
-            JmsCrimeIncident.timestamp >= seven_days_ago
-        ).order_by(JmsCrimeIncident.timestamp.desc()).all()
-        
-        return [{
-            "id": c.id, "category": c.category, "raw_title": c.raw_title,
-            "timestamp": c.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-            "distance_miles": c.distance_miles, "severity": c.severity,
-            "lat": c.lat, "lon": c.lon
-        } for c in crimes]
-
 
 def force_fetch_crime_data():
     """Triggers the crime worker logic manually from the UI."""
@@ -817,13 +798,12 @@ def update_locations(edited_df):
     get_cached_locations.clear()
 
 def nuke_crime_data():
-    """Wipes all records from both Little Rock and Jackson Crime tables."""
+    """Wipes all records from Little Rock crime table."""
     from src.database import CrimeIncident, JmsCrimeIncident
     with SessionLocal() as db:
         try:
             # Delete rows from both tables and combine the count
             lr_deleted = db.query(CrimeIncident).delete()
-            jms_deleted = db.query(JmsCrimeIncident).delete()
             db.commit()
             return True, (lr_deleted + jms_deleted)
         except Exception as e:
