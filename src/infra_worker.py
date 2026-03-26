@@ -1,5 +1,6 @@
 import requests
 import uuid
+import gc
 from datetime import datetime
 from shapely.geometry import shape, Point
 from src.database import SessionLocal, RegionalHazard, MonitoredLocation
