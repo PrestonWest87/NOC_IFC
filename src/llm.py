@@ -200,14 +200,13 @@ def generate_feed_overview(articles, focus_prompt, session):
         map_p, reduce_p, config, chunk_size=10
     )
 
-def generate_executive_weather_brief(analytics, map_df, sys_config):
+def generate_executive_weather_brief(analytics, p1_count, sys_config):
     """Generates an executive briefing based on geospatial weather telemetry."""
     if not sys_config or not sys_config.get('is_active'):
         return "AI is currently disabled in settings."
     
-    risk_counts = map_df[map_df['Risk'] != 'None']['Risk'].value_counts().to_dict()
-    dist_counts = map_df[map_df['Risk'] != 'None']['District'].value_counts().to_dict()
-    p1_count = len(map_df[(map_df['Priority'] == 1) & (map_df['Risk'] != 'None')])
+    risk_counts = analytics['risk_distribution'].to_dict().get('Count', {}) if not analytics['risk_distribution'].empty else {}
+    dist_counts = analytics['district_distribution'].to_dict().get('Count', {}) if not analytics['district_distribution'].empty else {}
     
     prompt = f"""
     Analyze this weather threat data for our electrical grid infrastructure and write a 2-paragraph Executive Weather Briefing.
