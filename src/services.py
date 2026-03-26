@@ -625,24 +625,61 @@ def calculate_site_intersections(map_df, active_polygons):
             if act_toggled: toggled_affected_sites.append({"Monitored Site": row['Name'], "Facility Type": row['Type'], "Priority": row['Priority'], "Intersecting Hazards": ", ".join(list(set(act_toggled)))})
     return toggled_affected_sites, master_affected_sites
 
-def get_infrastructure_analytics(map_df):
-    payload = {"at_risk_sites": 0, "highest_risk": "None", "risk_distribution": pd.DataFrame(), "type_distribution": pd.DataFrame(), "district_distribution": pd.DataFrame(), "priority_risk_matrix": pd.DataFrame(), "type_risk_matrix": pd.DataFrame(), "district_risk_matrix": pd.DataFrame()}
-    if not map_df.empty:
-        risk_order = ["HIGH", "MDT", "ENH", "SLGT", "MRGL", "TSTM", "None"]
-        map_df['Risk'] = pd.Categorical(map_df['Risk'], categories=risk_order, ordered=True)
-        risk_df = map_df[map_df['Risk'] != 'None']
+def get_infrastructure_analytics(map_df, master_affected_sites):
+    """Generates real-time analytics by reading the live geospatial intersection array."""
+    payload = {
+        "at_risk_sites": 0, "highest_risk": "None", "risk_distribution": pd.DataFrame(), 
+        "type_distribution": pd.DataFrame(), "district_distribution": pd.DataFrame(), 
+        "priority_risk_matrix": pd.DataFrame(), "type_risk_matrix": pd.DataFrame(), "district_risk_matrix": pd.DataFrame()
+    }
+    
+    if not master_affected_sites: return payload
         
-        payload["at_risk_sites"] = len(risk_df)
-        payload["highest_risk"] = risk_df['Risk'].sort_values().iloc[0] if not risk_df.empty else "None"
+    sites_df = pd.DataFrame(master_affected_sites)
+    
+    # Weighting system to figure out the "Worst" risk if a site is hit by multiple polygons
+    severity_rank = {
+        "HIGH": 100, "MDT": 90, "ENH": 80, "SLGT": 70, "MRGL": 60, "TSTM": 50,
+        "Extreme": 95, "Severe": 85, "Moderate": 75, "Minor": 65,
+        "Warning": 85, "Watch": 75, "Advisory": 65, "Statement": 55
+    }
+    
+    def rank_hazard(hazard_str):
+        score = 0
+        for key, val in severity_rank.items():
+            if key.upper() in str(hazard_str).upper() and val > score: score = val
+        return score if score > 0 else 10 
         
-        if not risk_df.empty: payload["risk_distribution"] = risk_df['Risk'].value_counts().reset_index().rename(columns={'Risk': 'Risk Level', 'count': 'Count'}).set_index('Risk Level')
-        payload["type_distribution"] = map_df['Type'].value_counts().reset_index().rename(columns={'Type': 'Facility Type', 'count': 'Count'}).set_index('Facility Type')
-        
-        # --- NEW DISTRICT SLICING ---
-        payload["district_distribution"] = map_df['District'].value_counts().reset_index().rename(columns={'District': 'District', 'count': 'Count'}).set_index('District')
-        payload["priority_risk_matrix"] = pd.crosstab(map_df['Priority'], map_df['Risk'])
-        payload["type_risk_matrix"] = pd.crosstab(map_df['Type'], map_df['Risk'])
-        payload["district_risk_matrix"] = pd.crosstab(map_df['District'], map_df['Risk'])
+    def get_primary_label(hazard_str):
+        s = str(hazard_str).upper()
+        if "HIGH" in s: return "HIGH"
+        if "MDT" in s: return "MDT"
+        if "ENH" in s: return "ENH"
+        if "SLGT" in s: return "SLGT"
+        if "MRGL" in s: return "MRGL"
+        if "TSTM" in s: return "TSTM"
+        if "WARNING" in s: return "WARNING"
+        if "WATCH" in s: return "WATCH"
+        if "ADVISORY" in s: return "ADVISORY"
+        return "OTHER"
+
+    sites_df['Risk_Score'] = sites_df['Hazard'].apply(rank_hazard)
+    sites_df['Risk_Label'] = sites_df['Hazard'].apply(get_primary_label)
+    
+    # Sort by worst score, drop duplicates to only count each site ONCE
+    worst_risks_df = sites_df.sort_values('Risk_Score', ascending=False).drop_duplicates(subset=['Monitored Site']).copy()
+    
+    payload["at_risk_sites"] = len(worst_risks_df)
+    payload["highest_risk"] = worst_risks_df.iloc[0]['Risk_Label'] if not worst_risks_df.empty else "None"
+    
+    payload["risk_distribution"] = worst_risks_df['Risk_Label'].value_counts().reset_index().rename(columns={'Risk_Label': 'Risk Level', 'count': 'Count'}).set_index('Risk Level')
+    payload["type_distribution"] = worst_risks_df['Type'].value_counts().reset_index().rename(columns={'Type': 'Facility Type', 'count': 'Count'}).set_index('Facility Type')
+    payload["district_distribution"] = worst_risks_df['District'].value_counts().reset_index().rename(columns={'District': 'District', 'count': 'Count'}).set_index('District')
+    
+    payload["priority_risk_matrix"] = pd.crosstab(worst_risks_df['Priority'], worst_risks_df['Risk_Label'])
+    payload["type_risk_matrix"] = pd.crosstab(worst_risks_df['Type'], worst_risks_df['Risk_Label'])
+    payload["district_risk_matrix"] = pd.crosstab(worst_risks_df['District'], worst_risks_df['Risk_Label'])
+    
     return payload
 
 def generate_hazard_sitrep_html(analytics_df):
