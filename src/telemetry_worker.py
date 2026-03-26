@@ -1,4 +1,7 @@
 import requests
+import urllib3.util.connection as urllib3_cn
+urllib3_cn.HAS_IPV6 = False # <--- THE IPV6 DOCKER FIX
+
 import time
 from datetime import datetime
 from src.database import SessionLocal, RegionalOutage, BgpAnomaly, SystemConfig
