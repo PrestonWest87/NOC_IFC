@@ -621,8 +621,23 @@ def calculate_site_intersections(map_df, active_polygons):
             for p in active_polygons:
                 if site_pt.within(p["shape"]):
                     act_toggled.append(p["event"])
-                    master_affected_sites.append({"Monitored Site": row['Name'], "Facility Type": row['Type'], "Priority": row['Priority'], "Hazard": p["event"], "Severity": p["severity"]})
-            if act_toggled: toggled_affected_sites.append({"Monitored Site": row['Name'], "Facility Type": row['Type'], "Priority": row['Priority'], "Intersecting Hazards": ", ".join(list(set(act_toggled)))})
+                    # --- THE FIX: ADDED 'Type' AND 'District' KEYS TO THE DICTIONARY ---
+                    master_affected_sites.append({
+                        "Monitored Site": row['Name'], 
+                        "Type": row['Type'], 
+                        "District": row.get('District', 'Central'),
+                        "Priority": row['Priority'], 
+                        "Hazard": p["event"], 
+                        "Severity": p["severity"]
+                    })
+            if act_toggled: 
+                toggled_affected_sites.append({
+                    "Monitored Site": row['Name'], 
+                    "District": row.get('District', 'Central'),
+                    "Facility Type": row['Type'], 
+                    "Priority": row['Priority'], 
+                    "Intersecting Hazards": ", ".join(list(set(act_toggled)))
+                })
     return toggled_affected_sites, master_affected_sites
 
 def get_infrastructure_analytics(map_df, master_affected_sites):
