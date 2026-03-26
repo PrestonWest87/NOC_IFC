@@ -798,24 +798,22 @@ elif page == "🗺️ Regional Grid":
                         import plotly.express as px
                         import plotly.graph_objects as go
                         
-                        # --- THE FIX: PIPING LIVE GEOMETRY INTO THE ANALYTICS ---
                         analytics = svc.get_infrastructure_analytics(map_df, master_affected_sites)
                         
-                        # Calculate P1 (Critical) specific metrics directly from live data
                         p1_at_risk = len(set(site['Monitored Site'] for site in master_affected_sites if site['Priority'] == 1))
                         total_at_risk = analytics.get("at_risk_sites", 0)
-                        risk_pct = round((total_at_risk / len(map_df)) * 100, 1) if len(map_df) > 0 else 0
+                        total_sites = analytics.get("total_sites", 0)
+                        risk_pct = round((total_at_risk / total_sites) * 100, 1) if total_sites > 0 else 0
                         
                         with st.container(border=True):
                             c_kpi1, c_kpi2, c_kpi3, c_kpi4 = st.columns(4)
-                            c_kpi1.metric("Total Tracked Assets", len(map_df))
+                            c_kpi1.metric("Total Tracked Assets", total_sites)
                             c_kpi2.metric("Assets in Active Risk Zones", total_at_risk, f"{risk_pct}% Exposure", delta_color="inverse")
                             c_kpi3.metric("Critical (P1) Assets at Risk", p1_at_risk, "Immediate Attention" if p1_at_risk > 0 else "Clear", delta_color="inverse")
                             c_kpi4.metric("Highest Regional Risk", analytics["highest_risk"])
                         
                         st.divider()
                         
-                        # --- 2. AI EXECUTIVE BRIEFING ---
                         st.markdown("### 🧠 AI Executive Weather Briefing")
                         c_ai_text, c_ai_btn = st.columns([4, 1])
                         
@@ -831,39 +829,38 @@ elif page == "🗺️ Regional Grid":
                         
                         st.divider()
                         
-                        # --- 3. EXPOSURE VISUALIZATIONS ---
                         c_viz1, c_viz2, c_viz3 = st.columns(3)
-                        color_map = {"HIGH": "#dc3545", "MDT": "#e67e22", "ENH": "#f39c12", "SLGT": "#f1c40f", "MRGL": "#17a2b8", "TSTM": "#28a745", "WARNING": "#dc3545", "WATCH": "#f39c12", "ADVISORY": "#f1c40f", "OTHER": "#6c757d", "None": "#6c757d"}
+                        color_map_spc = {"HIGH": "#dc3545", "MDT": "#e67e22", "ENH": "#f39c12", "SLGT": "#f1c40f", "MRGL": "#17a2b8", "TSTM": "#28a745", "None": "#6c757d"}
+                        color_map_nws = {"WARNING": "#dc3545", "WATCH": "#f39c12", "ADVISORY": "#f1c40f", "STATEMENT": "#17a2b8", "None": "#6c757d"}
                         
                         with c_viz1:
-                            st.markdown("**Risk Distribution**")
-                            if not analytics["risk_distribution"].empty:
-                                fig_donut = px.pie(analytics["risk_distribution"].reset_index(), values='Count', names='Risk Level', hole=0.6, color='Risk Level', color_discrete_map=color_map)
-                                fig_donut.update_layout(margin=dict(t=10, b=10, l=10, r=10), showlegend=False)
-                                st.plotly_chart(fig_donut, use_container_width=True)
+                            st.markdown(f"**SPC Risk (Total Sites: {total_sites})**")
+                            if not analytics["spc_distribution"].empty:
+                                fig_spc = px.pie(analytics["spc_distribution"], values='count', names='SPC Risk', hole=0.6, color='SPC Risk', color_discrete_map=color_map_spc)
+                                fig_spc.update_layout(margin=dict(t=10, b=10, l=10, r=10), showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
+                                st.plotly_chart(fig_spc, use_container_width=True)
                             else: st.success("All Clear.")
                                 
                         with c_viz2:
-                            st.markdown("**Exposure by District**")
+                            st.markdown(f"**NWS Alerts (Total Sites: {total_sites})**")
+                            if not analytics["nws_distribution"].empty:
+                                fig_nws = px.pie(analytics["nws_distribution"], values='count', names='NWS Alert', hole=0.6, color='NWS Alert', color_discrete_map=color_map_nws)
+                                fig_nws.update_layout(margin=dict(t=10, b=10, l=10, r=10), showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
+                                st.plotly_chart(fig_nws, use_container_width=True)
+                            else: st.success("All Clear.")
+                                
+                        with c_viz3:
+                            st.markdown("**At-Risk Assets by District**")
                             if not analytics["district_distribution"].empty:
                                 fig_dist = px.bar(analytics["district_distribution"].reset_index(), x='District', y='Count', color_discrete_sequence=['#1f77b4'])
                                 fig_dist.update_layout(margin=dict(t=10, b=10, l=10, r=10), xaxis_title="", yaxis_title="")
                                 st.plotly_chart(fig_dist, use_container_width=True)
                             else: st.success("All Clear.")
-                                
-                        with c_viz3:
-                            st.markdown("**Exposure by Asset Type**")
-                            if not analytics["type_distribution"].empty:
-                                fig_type = px.bar(analytics["type_distribution"].reset_index(), x='Count', y='Facility Type', orientation='h', color_discrete_sequence=['#2ca02c'])
-                                fig_type.update_layout(margin=dict(t=10, b=10, l=10, r=10), xaxis_title="", yaxis_title="")
-                                st.plotly_chart(fig_type, use_container_width=True)
-                            else: st.success("All Clear.")
 
                         st.divider()
                         
-                        # --- 4. EMAIL BROADCAST INTEGRATION ---
                         st.markdown("### 📤 Broadcast Executive SitRep")
-                        st.caption("Dispatches the KPIs, AI Briefing, and Risk Matrices directly to leadership.")
+                        st.caption("Dispatches the KPIs, AI Briefing, and HTML Visual Breakdowns directly to leadership.")
                         
                         with st.form("exec_dash_email"):
                             c_em1, c_em2 = st.columns([2, 1])
@@ -875,25 +872,57 @@ elif page == "🗺️ Regional Grid":
                                 if not target_email:
                                     st.error("Please provide a recipient email address.")
                                 else:
-                                    with st.spinner("Compiling metrics and transmitting..."):
+                                    with st.spinner("Compiling HTML visual graphs and transmitting..."):
+                                        
+                                        # Native HTML Bar Chart Builder for Email Clients
+                                        def build_html_bar_chart(df, label_col, count_col, c_map, title):
+                                            total = df[count_col].sum()
+                                            if total == 0: return ""
+                                            html = f"<h3 style='color:#2980b9; margin-bottom: 5px;'>{title}</h3>"
+                                            html += "<table style='width:100%; border-collapse: collapse; font-family: Arial, sans-serif; margin-bottom: 20px;'>"
+                                            for _, row in df.iterrows():
+                                                label, count = row[label_col], row[count_col]
+                                                if count == 0: continue
+                                                pct = int((count / total) * 100)
+                                                color = c_map.get(label, "#6c757d")
+                                                html += f"<tr>"
+                                                html += f"<td style='width:20%; padding: 4px 0; font-size:13px; font-weight:bold; color:#444;'>{label}</td>"
+                                                html += f"<td style='width:70%; padding: 4px 10px;'><div style='background-color:#e9ecef; width:100%; border-radius:3px;'><div style='background-color:{color}; width:{pct}%; height:18px; border-radius:3px;'></div></div></td>"
+                                                html += f"<td style='width:10%; padding: 4px 0; font-size:13px; text-align:right; font-weight:bold; color:#333;'>{count}</td>"
+                                                html += f"</tr>"
+                                            html += "</table>"
+                                            return html
+                                        
+                                        spc_html = build_html_bar_chart(analytics["spc_distribution"], "SPC Risk", "count", color_map_spc, f"SPC Convective Risk (Total Sites: {total_sites})")
+                                        nws_html = build_html_bar_chart(analytics["nws_distribution"], "NWS Alert", "count", color_map_nws, f"NWS Hazard Alerts (Total Sites: {total_sites})")
+
                                         html_body = f"""
-                                        <h2 style='color:#2c3e50;'>Executive Grid Threat Report</h2>
-                                        <div style='background:#f8f9fa; padding:15px; border-left:4px solid #d9534f;'>
-                                            <b>Assets at Risk:</b> {total_at_risk} ({risk_pct}%)<br/>
-                                            <b>Critical (P1) Exposures:</b> {p1_at_risk}<br/>
-                                            <b>Highest Threat Level:</b> {analytics["highest_risk"]}
+                                        <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
+                                            <h2 style='color:#2c3e50;'>Executive Grid Threat Report</h2>
+                                            <div style='background:#f8f9fa; padding:15px; border-left:4px solid #d9534f; margin-bottom: 20px;'>
+                                                <b>Total Assets Monitored:</b> {total_sites}<br/>
+                                                <b>Assets at Risk:</b> {total_at_risk} ({risk_pct}%)<br/>
+                                                <b>Critical (P1) Exposures:</b> {p1_at_risk}<br/>
+                                                <b>Highest Threat Level:</b> {analytics["highest_risk"]}
+                                            </div>
+                                            
+                                            {spc_html}
+                                            {nws_html}
+                                            
+                                            <div style="background-color: #ffffff; padding: 15px; border: 1px solid #dee2e6; border-radius: 5px; margin-top: 20px;">
+                                                <h3 style='color:#2980b9; margin-top: 0;'>AI Meteorological Brief</h3>
+                                                <p style='color: #495057; line-height: 1.5;'>{st.session_state.exec_weather_brief.replace(chr(10), '<br>')}</p>
+                                            </div>
+                                            
+                                            <h3 style='color:#2980b9;'>Analyst Notes</h3>
+                                            <p style='color: #495057; line-height: 1.5;'>{custom_notes.replace(chr(10), '<br>') if custom_notes else 'None provided.'}</p>
                                         </div>
-                                        <h3 style='color:#2980b9;'>AI Meteorological Brief</h3>
-                                        <p>{st.session_state.exec_weather_brief.replace(chr(10), '<br>')}</p>
-                                        <h3 style='color:#2980b9;'>Analyst Notes</h3>
-                                        <p>{custom_notes.replace(chr(10), '<br>') if custom_notes else 'None provided.'}</p>
                                         """
                                         from src.mailer import send_alert_email
                                         success, msg = send_alert_email("Executive Weather & Infrastructure SitRep", html_body, recipient_override=target_email, is_html=True)
                                         if success: st.success(f"Report dispatched to {target_email}")
                                         else: st.error(f"SMTP Error: {msg}")
 
-                        # --- 5. DATA EXPORT & RAW MATRICES ---
                         with st.expander("🧮 View Raw Matrices & Export Data"):
                             st.write("")
                             cx1, cx2, cx3 = st.columns(3)
