@@ -133,6 +133,7 @@ def bulk_save_to_db(db_session, arts_data):
     return added
 
 def fetch_feeds(source="Scheduled"):
+    import gc
     log("🚀 Starting LOW-CPU feed fetch cycle...", source)
     
     with SessionLocal() as main_session:
