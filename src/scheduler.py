@@ -23,7 +23,7 @@ from src.infra_worker import fetch_regional_hazards
 from src.cloud_worker import fetch_cloud_outages
 from src.telemetry_worker import run_telemetry_sync
 from src.train_model import train  
-from src.crime_worker import fetch_live_crimes, fetch_jackson_crimes
+from src.crime_worker import fetch_live_crimes
 init_db()
 
 def log(message, source="SYSTEM"):
