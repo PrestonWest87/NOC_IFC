@@ -10,8 +10,7 @@ from datetime import datetime, timedelta
 # --- PATH FIX: Ensure Python can find the 'src' module ---
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.database import SessionLocal, CrimeIncident
-
+from src.database import SessionLocal, CrimeIncident, JmsCrimeIncident
 GEO_CACHE = {}
 
 def calculate_distance(lat1, lon1, lat2, lon2):
