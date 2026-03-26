@@ -1209,14 +1209,15 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, selected_even
 
     # 1. RADAR OVERLAY
     if show_radar:
-        # --- THE FIX: Removed the brackets [] so data is a pure string ---
+        # Replaced TileLayer with BitmapLayer to natively support PNG rendering in PyDeck
         layers.append(pdk.Layer(
-            "TileLayer", 
-            data="https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png", 
-            opacity=0.6, 
+            "BitmapLayer", 
+            image="https://mesonet.agron.iastate.edu/data/gis/images/4326/USCOMP/n0q_0.png", 
+            bounds=[-126.0, 21.0, -66.0, 50.0], # [Left/West, Bottom/South, Right/East, Top/North]
+            opacity=0.55, 
             pickable=False
         ))
-
+        
     # 2. SPC CONVECTIVE OUTLOOKS
     spc_micro = {"type": "FeatureCollection", "features": []}
     if spc_data:
