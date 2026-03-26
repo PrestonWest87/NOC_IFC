@@ -798,11 +798,11 @@ elif page == "🗺️ Regional Grid":
                         import plotly.express as px
                         import plotly.graph_objects as go
                         
-                        analytics = svc.get_infrastructure_analytics(map_df.copy())
+                        # --- THE FIX: PIPING LIVE GEOMETRY INTO THE ANALYTICS ---
+                        analytics = svc.get_infrastructure_analytics(map_df, master_affected_sites)
                         
-                        # --- 1. EXECUTIVE SCORECARD (KPIs) ---
-                        p1_df = map_df[map_df['Priority'] == 1]
-                        p1_at_risk = len(p1_df[p1_df['Risk'] != 'None'])
+                        # Calculate P1 (Critical) specific metrics directly from live data
+                        p1_at_risk = len(set(site['Monitored Site'] for site in master_affected_sites if site['Priority'] == 1))
                         total_at_risk = analytics.get("at_risk_sites", 0)
                         risk_pct = round((total_at_risk / len(map_df)) * 100, 1) if len(map_df) > 0 else 0
                         
@@ -824,8 +824,7 @@ elif page == "🗺️ Regional Grid":
                             
                         if c_ai_btn.button("🔄 Generate Briefing", type="primary", use_container_width=True, disabled=not ai_enabled):
                             with st.spinner("Synthesizing meteorological telemetry..."):
-                                # --- UPDATED CALL (Removed svc.) ---
-                                st.session_state.exec_weather_brief = generate_executive_weather_brief(analytics, map_df, sys_config)
+                                st.session_state.exec_weather_brief = generate_executive_weather_brief(analytics, p1_at_risk, sys_config)
                                 safe_rerun()
                                 
                         st.info(st.session_state.exec_weather_brief)
@@ -834,33 +833,28 @@ elif page == "🗺️ Regional Grid":
                         
                         # --- 3. EXPOSURE VISUALIZATIONS ---
                         c_viz1, c_viz2, c_viz3 = st.columns(3)
-                        color_map = {"HIGH": "#dc3545", "MDT": "#e67e22", "ENH": "#f39c12", "SLGT": "#f1c40f", "MRGL": "#17a2b8", "TSTM": "#28a745", "None": "#6c757d"}
+                        color_map = {"HIGH": "#dc3545", "MDT": "#e67e22", "ENH": "#f39c12", "SLGT": "#f1c40f", "MRGL": "#17a2b8", "TSTM": "#28a745", "WARNING": "#dc3545", "WATCH": "#f39c12", "ADVISORY": "#f1c40f", "OTHER": "#6c757d", "None": "#6c757d"}
                         
                         with c_viz1:
                             st.markdown("**Risk Distribution**")
-                            risk_counts = map_df[map_df['Risk'] != 'None']['Risk'].value_counts().reset_index()
-                            risk_counts.columns = ['Risk Level', 'Count']
-                            if not risk_counts.empty and risk_counts['Count'].sum() > 0:
-                                fig_donut = px.pie(risk_counts, values='Count', names='Risk Level', hole=0.6, color='Risk Level', color_discrete_map=color_map)
+                            if not analytics["risk_distribution"].empty:
+                                fig_donut = px.pie(analytics["risk_distribution"].reset_index(), values='Count', names='Risk Level', hole=0.6, color='Risk Level', color_discrete_map=color_map)
                                 fig_donut.update_layout(margin=dict(t=10, b=10, l=10, r=10), showlegend=False)
                                 st.plotly_chart(fig_donut, use_container_width=True)
                             else: st.success("All Clear.")
                                 
                         with c_viz2:
                             st.markdown("**Exposure by District**")
-                            at_risk_df = map_df[map_df['Risk'] != 'None']
-                            if not at_risk_df.empty:
-                                dist_counts = at_risk_df.groupby(['District', 'Risk']).size().reset_index(name='Count')
-                                fig_dist = px.bar(dist_counts, x='District', y='Count', color='Risk', color_discrete_map=color_map)
+                            if not analytics["district_distribution"].empty:
+                                fig_dist = px.bar(analytics["district_distribution"].reset_index(), x='District', y='Count', color_discrete_sequence=['#1f77b4'])
                                 fig_dist.update_layout(margin=dict(t=10, b=10, l=10, r=10), xaxis_title="", yaxis_title="")
                                 st.plotly_chart(fig_dist, use_container_width=True)
                             else: st.success("All Clear.")
                                 
                         with c_viz3:
                             st.markdown("**Exposure by Asset Type**")
-                            if not at_risk_df.empty:
-                                type_counts = at_risk_df.groupby(['Type', 'Risk']).size().reset_index(name='Count')
-                                fig_type = px.bar(type_counts, x='Count', y='Type', color='Risk', orientation='h', color_discrete_map=color_map)
+                            if not analytics["type_distribution"].empty:
+                                fig_type = px.bar(analytics["type_distribution"].reset_index(), x='Count', y='Facility Type', orientation='h', color_discrete_sequence=['#2ca02c'])
                                 fig_type.update_layout(margin=dict(t=10, b=10, l=10, r=10), xaxis_title="", yaxis_title="")
                                 st.plotly_chart(fig_type, use_container_width=True)
                             else: st.success("All Clear.")
@@ -882,7 +876,6 @@ elif page == "🗺️ Regional Grid":
                                     st.error("Please provide a recipient email address.")
                                 else:
                                     with st.spinner("Compiling metrics and transmitting..."):
-                                        # Construct simple HTML layout for the email
                                         html_body = f"""
                                         <h2 style='color:#2c3e50;'>Executive Grid Threat Report</h2>
                                         <div style='background:#f8f9fa; padding:15px; border-left:4px solid #d9534f;'>
@@ -895,7 +888,6 @@ elif page == "🗺️ Regional Grid":
                                         <h3 style='color:#2980b9;'>Analyst Notes</h3>
                                         <p>{custom_notes.replace(chr(10), '<br>') if custom_notes else 'None provided.'}</p>
                                         """
-                                        
                                         from src.mailer import send_alert_email
                                         success, msg = send_alert_email("Executive Weather & Infrastructure SitRep", html_body, recipient_override=target_email, is_html=True)
                                         if success: st.success(f"Report dispatched to {target_email}")
@@ -903,12 +895,6 @@ elif page == "🗺️ Regional Grid":
 
                         # --- 5. DATA EXPORT & RAW MATRICES ---
                         with st.expander("🧮 View Raw Matrices & Export Data"):
-                            st.download_button(
-                                label="📥 Export Complete Infrastructure Risk Report (CSV)",
-                                data=map_df.sort_values(by=['Risk', 'Priority']).to_csv(index=False).encode('utf-8'),
-                                file_name=f"Infrastructure_Risk_{datetime.now(LOCAL_TZ).strftime('%Y%m%d_%H%M')}.csv",
-                                mime='text/csv', width="stretch"
-                            )
                             st.write("")
                             cx1, cx2, cx3 = st.columns(3)
                             with cx1:
