@@ -246,18 +246,6 @@ class CrimeIncident(Base):
     lat = Column(Float)
     lon = Column(Float)
 
-class JmsCrimeIncident(Base):
-    __tablename__ = "jms_crime_incidents"
-    id = Column(String, primary_key=True, index=True)
-    category = Column(String)
-    raw_title = Column(String)
-    timestamp = Column(DateTime, index=True)
-    distance_miles = Column(Float)
-    severity = Column(String)
-    lat = Column(Float)
-    lon = Column(Float)
-
-
 # ==========================================
 # INITIALIZATION & SEEDING
 # ==========================================
