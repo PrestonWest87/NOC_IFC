@@ -1175,6 +1175,28 @@ def truncate_db_table(table_query):
         nuke_tables(["MonitoredLocation"])
         get_cached_locations.clear()
 
+def nuke_weather_data():
+    """Wipes all records from Regional Hazards and the GeoJSON cache, and resets location risks."""
+    from src.database import RegionalHazard, GeoJsonCache, MonitoredLocation
+    with SessionLocal() as db:
+        try:
+            # Delete all active NWS alerts and the massive map JSON payloads
+            haz_deleted = db.query(RegionalHazard).delete()
+            geo_deleted = db.query(GeoJsonCache).delete()
+            
+            # Reset all facility SPC risk levels back to "None"
+            db.query(MonitoredLocation).update({MonitoredLocation.current_spc_risk: "None"})
+            
+            db.commit()
+            
+            # Clear the Streamlit RAM cache so the map instantly goes blank
+            get_cached_geojson.clear()
+            
+            return True, (haz_deleted + geo_deleted)
+        except Exception as e:
+            db.rollback()
+            return False, str(e)
+
 
 # ==========================================
 # 10. UI MAP GENERATION ENGINE (PyDeck)
