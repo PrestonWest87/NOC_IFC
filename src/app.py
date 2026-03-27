@@ -1770,12 +1770,25 @@ elif page == "⚙️ Settings & Admin":
                             st.error(f"Failed to purge crime data: {count}")
                         
                 with col3:
+
+                    st.markdown("#### 🌪️ Weather & Fire Telemetry")
+                    st.caption("Instantly drops all active NWS warnings, SPC outlooks, and Fire polygons from the map.")
+                    if st.button("🌪️ PURGE WEATHER & FIRE DATA", type="primary", width="stretch"):
+                        success, count = svc.nuke_weather_data()
+                        if success:
+                            st.success(f"Erased {count} hazard records and cleared map cache."); time.sleep(1); safe_rerun()
+                        else:
+                            st.error(f"Failed: {count}")
+
+                    st.divider()
                     st.write("**Factory Reset**")
                     st.caption("Destroys all data entirely.")
                     if st.button("☢️ FULL RESET", width="stretch"):
                         svc.nuke_tables(["Article", "ExtractedIOC", "FeedSource", "Keyword", "MonitoredLocation"])
                         svc.get_cached_locations.clear()
                         safe_rerun()
+
+                    
 
                 st.divider()
                 st.markdown("### 🎭 Black Ops (Undocumented Features)")
