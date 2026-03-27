@@ -690,13 +690,13 @@ elif page == "🗺️ Regional Grid":
         st.subheader("⚙️ Map Controls")
         with st.container(border=True):
             st.markdown("**Master Layers**")
-            show_radar_overlay = st.toggle("📡 Radar Overlay", value=True)
+            show_radar_overlay = st.toggle("📡 Radar Overlay", value=Frue)
             show_radar_panel = st.toggle("📺 Animated Panel", value=False)
             st.divider()
-            show_spc = st.toggle("⛈️ SPC Convective", value=True)
-            show_warn = st.toggle("🚨 Warnings (AR)", value=True)
-            show_watch = st.toggle("⚠️ Watches (AR)", value=True)
-            show_oos = st.toggle("🌍 Out-of-State", value=True)
+            show_spc = st.toggle("⛈️ SPC Convective", value=False)
+            show_warn = st.toggle("🚨 Warnings (AR)", value=False)
+            show_watch = st.toggle("⚠️ Watches (AR)", value=False)
+            show_oos = st.toggle("🌍 Out-of-State", value=False)
             
             st.divider()
             show_fire_risk = st.toggle("🔥 NWS Fire Weather & Red Flags", value=False)
