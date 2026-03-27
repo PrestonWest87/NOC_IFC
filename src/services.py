@@ -80,6 +80,30 @@ def get_ar_counties_mapping():
         print(f"Error fetching county GeoJSON: {e}")
         return {}
 
+@st.cache_data(ttl=86400, max_entries=1)
+def get_regional_counties_mapping():
+    """Fetches official US County boundaries for the operational region using FIPS codes."""
+    try:
+        url = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json"
+        data = requests.get(url, timeout=10).json()
+        regional_counties = {}
+        # FIPS: AR(05), LA(22), MO(29), MS(28), OK(40), TN(47), TX(48)
+        target_states = ["05", "22", "29", "28", "40", "47", "48"]
+        for f in data.get("features", []):
+            state_fips = f.get("properties", {}).get("STATE")
+            if state_fips in target_states:
+                fips = f.get("id")
+                name = f["properties"].get("NAME", "")
+                regional_counties[fips] = {
+                    "name": name, 
+                    "state_fips": state_fips, 
+                    "geometry": f["geometry"]
+                }
+        return regional_counties
+    except Exception as e:
+        print(f"Error fetching county GeoJSON: {e}")
+        return {}
+
 
 # ==========================================
 # 1. AUTHENTICATION & USER PROFILE
@@ -555,11 +579,11 @@ def process_nws_alerts(data, selected_events, is_oos=False):
         map_diagnostics.append(f"⚠️ {'OOS' if is_oos else 'AR'} data empty or missing 'features'.")
         return warn_geo, watch_geo, zonewide_alerts, map_diagnostics
 
-    ar_counties_geom = get_ar_counties_mapping()
+    regional_counties_geom = get_regional_counties_mapping()
 
     for idx, f_raw in enumerate(data.get("features", [])):
         geom, props = f_raw.get("geometry"), f_raw.get("properties", {})
-        event_type, headline, area_desc = props.get("event", "Unknown"), props.get("headline", ""), props.get("areaDesc", "Unknown Area")
+        event_type, headline = props.get("event", "Unknown"), props.get("headline", "")
 
         if event_type not in selected_events: continue
         prefix = "[OOS]" if is_oos else "[AR]"
@@ -568,24 +592,23 @@ def process_nws_alerts(data, selected_events, is_oos=False):
         if geom: 
             geometries_to_process.append(geom)
         else:
-            if is_oos:
-                zonewide_alerts.append({"Event": f"{prefix} {event_type}", "Affected Area": area_desc, "Details": headline})
-                continue
-
-            # THE BORDER FIX: Split by semicolon ONLY to prevent MS/LA county overlaps. 
-            for chunk in area_desc.split(';'):
-                chunk = chunk.strip().lower()
-                
-                # If a comma exists, it specifies the State. If it is NOT Arkansas, skip it entirely!
-                if "," in chunk and ", ar" not in chunk and "arkansas" not in chunk:
-                    continue
-                
-                c_name = chunk.split(',')[0].replace(" county", "").replace(" parish", "").strip()
-                if c_name in ar_counties_geom: 
-                    geometries_to_process.append(ar_counties_geom[c_name])
+            # THE ENTERPRISE FIX: Strict FIPS Code Matching
+            geocode_dict = props.get("geocode", {})
+            same_codes = geocode_dict.get("SAME", [])
+            
+            for same_code in same_codes:
+                # NWS SAME codes are 6 chars (e.g., 005001). Extract last 5 for standard FIPS.
+                fips = same_code[-5:]
+                if fips in regional_counties_geom:
+                    state_fips = regional_counties_geom[fips]["state_fips"]
+                    
+                    # Strict Border Enforcement: 
+                    # AR feed gets only AR counties. OOS feed gets only non-AR counties.
+                    if (not is_oos and state_fips == "05") or (is_oos and state_fips != "05"):
+                        geometries_to_process.append(regional_counties_geom[fips]["geometry"])
                     
             if not geometries_to_process:
-                zonewide_alerts.append({"Event": f"{prefix} {event_type}", "Affected Area": area_desc, "Details": headline})
+                zonewide_alerts.append({"Event": f"{prefix} {event_type}", "Affected Area": props.get("areaDesc", "Unknown"), "Details": headline})
                 continue
 
         for g in geometries_to_process:
@@ -751,6 +774,8 @@ def get_infrastructure_analytics(map_df, master_affected_sites):
     payload["nws_distribution"] = map_df_copy['Live_NWS'].value_counts().reset_index().rename(columns={'Live_NWS': 'NWS Alert'})
 
     return payload
+
+
 def generate_hazard_sitrep_html(analytics_df):
     p1_count = len(analytics_df[analytics_df['Priority'] == 1]['Monitored Site'].unique())
     rows_html = ""
@@ -1280,8 +1305,8 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, selected_even
     # 4. FIRE WEATHER RISK
     if show_fire_risk:
         ar_fire_geo = {"type": "FeatureCollection", "features": []}
-        ar_counties = get_ar_counties_mapping()
-        fire_events = {}
+        regional_counties = get_regional_counties_mapping()
+        fire_fips_to_process = {}
         
         for geo_ds in [ar_data, oos_data]:
             if geo_ds:
@@ -1292,26 +1317,35 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, selected_even
                         fill_color = [139, 0, 0, 160] if "Red Flag" in event or "Warning" in event else [255, 140, 0, 120]
                         line_color = [255, 0, 0, 255] if "Red Flag" in event or "Warning" in event else [255, 140, 0, 255]
                         
-                        area_desc = f.get('properties', {}).get('areaDesc', '')
-                        counties = [c.strip().lower().replace(" county", "").replace(" parish", "") for c in re.split(r'[;,]', area_desc)]
-                        for c in counties: fire_events[c] = {"severity": severity, "color": fill_color, "line_color": line_color, "event": event}
+                        same_codes = f.get('properties', {}).get('geocode', {}).get('SAME', [])
+                        for same_code in same_codes:
+                            fips = same_code[-5:]
+                            # Only process AR counties for the AR Fire Risk layer to keep the map clean
+                            if fips in regional_counties and regional_counties[fips]["state_fips"] == "05":
+                                fire_fips_to_process[fips] = {
+                                    "severity": severity, "color": fill_color, 
+                                    "line_color": line_color, "event": event,
+                                    "county_name": regional_counties[fips]["name"]
+                                }
 
-        for c_name, geom in ar_counties.items():
-            if c_name in fire_events:
-                info = fire_events[c_name]
-                ar_fire_geo["features"].append({
-                    "type": "Feature", "geometry": geom,
-                    "properties": {"info": f"{c_name.title()} County\nRisk Level: {info['severity']}\nNWS Alert: {info['event']}", "fill_color": info["color"], "line_color": info["line_color"]}
-                })
-                try:
-                    poly_dict = {"event": f"Wildfire Risk: {info['event']}", "shape": shape(geom), "severity": "High"}
-                    master_polygons.append(poly_dict)
-                    toggled_polygons.append(poly_dict)
-                except: pass
+        for fips, info in fire_fips_to_process.items():
+            geom = regional_counties[fips]["geometry"]
+            ar_fire_geo["features"].append({
+                "type": "Feature", "geometry": geom,
+                "properties": {
+                    "info": f"{info['county_name'].title()} County\nRisk Level: {info['severity']}\nNWS Alert: {info['event']}", 
+                    "fill_color": info["color"], "line_color": info["line_color"]
+                }
+            })
+            try:
+                poly_dict = {"event": f"Wildfire Risk: {info['event']}", "shape": shape(geom), "severity": "High"}
+                master_polygons.append(poly_dict)
+                toggled_polygons.append(poly_dict)
+            except: pass
                 
         if ar_fire_geo["features"]: 
             layers.append(pdk.Layer("GeoJsonLayer", data=ar_fire_geo, id=f"fire_risk_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
-
+            
     # 5. ACTIVE WILDFIRES (NIFC)
     if show_active_wildfires:
         nifc_data = get_active_wildfires()
