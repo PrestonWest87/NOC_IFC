@@ -86,7 +86,7 @@ def fetch_regional_hazards():
     fetch_spc_outlooks()
     fetch_nws_alerts_for_region("AR", "nws_ar")
     # Extended to seamlessly grab OOS warnings for adjacent states
-    fetch_nws_alerts_for_region("OK,MS,MO,LA,TX,TN", "nws_oos") 
+    fetch_nws_alerts_for_region("OK,MS,MO", "nws_oos") 
     gc.collect()
 
 if __name__ == "__main__":
