@@ -690,7 +690,7 @@ elif page == "🗺️ Regional Grid":
         st.subheader("⚙️ Map Controls")
         with st.container(border=True):
             st.markdown("**Master Layers**")
-            show_radar_overlay = st.toggle("📡 Radar Overlay", value=Frue)
+            show_radar_overlay = st.toggle("📡 Radar Overlay", value=False)
             show_radar_panel = st.toggle("📺 Animated Panel", value=False)
             st.divider()
             show_spc = st.toggle("⛈️ SPC Convective", value=False)
