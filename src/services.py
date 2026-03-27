@@ -14,7 +14,7 @@ from src.database import (
     SessionLocal, Article, FeedSource, Keyword, SystemConfig, CveItem,
     RegionalHazard, CloudOutage, User, Role, SavedReport, DailyBriefing,
     ExtractedIOC, MonitoredLocation, SolarWindsAlert, TimelineEvent,
-    RegionalOutage, BgpAnomaly
+    RegionalOutage, BgpAnomaly, GeoJsonCache # <--- ADD THIS
 )
 
 LOCAL_TZ = ZoneInfo("America/Chicago")
@@ -51,13 +51,17 @@ def get_cached_locations():
 
 @st.cache_data(ttl=120, max_entries=1)
 def get_cached_geojson():
+    """Reads the pre-fetched JSON geometry directly from the database."""
     spc, ar, oos = None, None, None
-    try: spc = requests.get("https://www.spc.noaa.gov/products/outlook/day1otlk_cat.lyr.geojson", timeout=5).json()
-    except: pass
-    try: ar = requests.get("https://api.weather.gov/alerts/active?area=AR", headers={"User-Agent": "NOC_Fusion_App"}, timeout=5).json()
-    except: pass
-    try: oos = requests.get("https://api.weather.gov/alerts/active?area=OK,MS,MO", headers={"User-Agent": "NOC_Fusion_App"}, timeout=5).json()
-    except: pass
+    with SessionLocal() as db:
+        spc_rec = db.query(GeoJsonCache).filter_by(feed_name="spc").first()
+        ar_rec = db.query(GeoJsonCache).filter_by(feed_name="nws_ar").first()
+        oos_rec = db.query(GeoJsonCache).filter_by(feed_name="nws_oos").first()
+        
+        if spc_rec: spc = spc_rec.data
+        if ar_rec: ar = ar_rec.data
+        if oos_rec: oos = oos_rec.data
+        
     return spc, ar, oos
 
 @st.cache_data(ttl=86400, max_entries=1)
@@ -561,15 +565,25 @@ def process_nws_alerts(data, selected_events, is_oos=False):
         prefix = "[OOS]" if is_oos else "[AR]"
         geometries_to_process = []
 
-        if geom: geometries_to_process.append(geom)
+        if geom: 
+            geometries_to_process.append(geom)
         else:
             if is_oos:
                 zonewide_alerts.append({"Event": f"{prefix} {event_type}", "Affected Area": area_desc, "Details": headline})
                 continue
 
-            found_counties = []
-            for c_name in [c.strip().lower().replace(" county", "").replace(" parish", "").strip() for c in re.split(r'[;,]', area_desc)]:
-                if c_name in ar_counties_geom: geometries_to_process.append(ar_counties_geom[c_name])
+            # THE BORDER FIX: Split by semicolon ONLY to prevent MS/LA county overlaps. 
+            for chunk in area_desc.split(';'):
+                chunk = chunk.strip().lower()
+                
+                # If a comma exists, it specifies the State. If it is NOT Arkansas, skip it entirely!
+                if "," in chunk and ", ar" not in chunk and "arkansas" not in chunk:
+                    continue
+                
+                c_name = chunk.split(',')[0].replace(" county", "").replace(" parish", "").strip()
+                if c_name in ar_counties_geom: 
+                    geometries_to_process.append(ar_counties_geom[c_name])
+                    
             if not geometries_to_process:
                 zonewide_alerts.append({"Event": f"{prefix} {event_type}", "Affected Area": area_desc, "Details": headline})
                 continue
@@ -591,6 +605,7 @@ def process_nws_alerts(data, selected_events, is_oos=False):
                     micro_feature['properties']['line_color'] = [204, 119, 34, 255] if is_oos else [255, 165, 0, 255]
                     watch_geo["features"].append(micro_feature)
             except Exception as e: continue
+            
     return warn_geo, watch_geo, zonewide_alerts, map_diagnostics
 
 def get_weather_alerts_log(ar_data, oos_data, selected_events):
