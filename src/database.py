@@ -246,6 +246,12 @@ class CrimeIncident(Base):
     lat = Column(Float)
     lon = Column(Float)
 
+class GeoJsonCache(Base):
+    __tablename__ = "geojson_cache"
+    feed_name = Column(String, primary_key=True, index=True) # e.g., 'spc', 'nws_ar', 'nws_oos'
+    data = Column(JSON)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
 # ==========================================
 # INITIALIZATION & SEEDING
 # ==========================================
