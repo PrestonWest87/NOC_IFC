@@ -650,26 +650,43 @@ def get_weather_alerts_log(ar_data, oos_data, selected_events):
                 })
     return all_alert_details
 
-def calculate_site_intersections(map_df, active_polygons):
+def calculate_site_intersections(map_df, master_polygons):
     toggled_affected_sites, master_affected_sites = [], []
-    if map_df.empty or not active_polygons: return toggled_affected_sites, master_affected_sites
+    if map_df.empty or not master_polygons: return toggled_affected_sites, master_affected_sites
+
+    # 1. Pre-calculate bounding boxes once to avoid recalculating in the loop
+    for p in master_polygons:
+        p['bounds'] = p['shape'].bounds # Returns (minx, miny, maxx, maxy)
 
     for _, row in map_df.iterrows():
         if pd.notna(row['Lat']) and pd.notna(row['Lon']):
-            site_pt = Point(row['Lon'], row['Lat'])
+            lat, lon = row['Lat'], row['Lon']
+            site_pt = Point(lon, lat)
             act_toggled = []
-            for p in active_polygons:
-                if site_pt.within(p["shape"]):
-                    act_toggled.append(p["event"])
-                    # --- THE FIX: ADDED 'Type' AND 'District' KEYS TO THE DICTIONARY ---
-                    master_affected_sites.append({
-                        "Monitored Site": row['Name'], 
-                        "Type": row['Type'], 
-                        "District": row.get('District', 'Central'),
-                        "Priority": row['Priority'], 
-                        "Hazard": p["event"], 
-                        "Severity": p["severity"]
-                    })
+            
+            for p in master_polygons:
+                minx, miny, maxx, maxy = p['bounds']
+                
+                # 2. LIGHTNING FAST Bounding Box Pre-Check (Pure float math)
+                if minx <= lon <= maxx and miny <= lat <= maxy:
+                    
+                    # 3. Only execute heavy Shapely CPU math if the point is inside the rough square!
+                    if site_pt.within(p["shape"]):
+                        
+                        # Always add to the Master List for Executive Analytics
+                        master_affected_sites.append({
+                            "Monitored Site": row['Name'], 
+                            "Type": row['Type'], 
+                            "District": row.get('District', 'Central'),
+                            "Priority": row['Priority'], 
+                            "Hazard": p["event"], 
+                            "Severity": p["severity"]
+                        })
+                        
+                        # Only add to the Map/Toggled list if the UI switch is turned on
+                        if p.get("is_toggled", False):
+                            act_toggled.append(p["event"])
+                            
             if act_toggled: 
                 toggled_affected_sites.append({
                     "Monitored Site": row['Name'], 
@@ -678,6 +695,7 @@ def calculate_site_intersections(map_df, active_polygons):
                     "Priority": row['Priority'], 
                     "Intersecting Hazards": ", ".join(list(set(act_toggled)))
                 })
+                
     return toggled_affected_sites, master_affected_sites
 
 def get_infrastructure_analytics(map_df, master_affected_sites):
