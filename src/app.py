@@ -1003,7 +1003,9 @@ elif page == "🗺️ Regional Grid":
                         df_alerts = pd.DataFrame(all_alert_details)
                         
                         for col in ['Effective', 'Expires']:
-                            df_alerts[col] = pd.to_datetime(df_alerts[col], errors='coerce').dt.strftime('%Y-%m-%d %H:%M')
+                            # THE FIX: Force UTC parsing to unify mixed timezones, then convert to Local Time
+                            parsed_dates = pd.to_datetime(df_alerts[col], errors='coerce', utc=True)
+                            df_alerts[col] = parsed_dates.dt.tz_convert(LOCAL_TZ).dt.strftime('%Y-%m-%d %H:%M')
                             df_alerts[col] = df_alerts[col].fillna("N/A")
                             
                         st.dataframe(df_alerts[["Event", "Severity", "Affected Area", "Expires", "Headline"]], hide_index=True, width="stretch")
