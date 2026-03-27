@@ -1241,11 +1241,6 @@ def build_aiops_map_layers(alerts, locs):
     return layers, view_state
 
 def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, selected_events, toggles):
-    """
-    The Master Regional Grid Engine.
-    Processes SPC Outlooks, NWS Alerts, Fire Weather, and Active Wildfires,
-    calculates geospatial intersections, and builds the PyDeck map layers.
-    """
     import pydeck as pdk
     import pandas as pd
     import re
@@ -1254,11 +1249,9 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, selected_even
 
     layers = []
     master_polygons = []
-    toggled_polygons = []
     map_diagnostics = []
     layer_id = str(uuid.uuid4())[:6]
 
-    # Unpack UI Toggles
     show_radar = toggles.get("radar", True)
     show_spc = toggles.get("spc", True)
     show_warn = toggles.get("warn", True)
@@ -1269,11 +1262,10 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, selected_even
 
     # 1. RADAR OVERLAY
     if show_radar:
-        # Replaced TileLayer with BitmapLayer to natively support PNG rendering in PyDeck
         layers.append(pdk.Layer(
             "BitmapLayer", 
             image="https://mesonet.agron.iastate.edu/data/gis/images/4326/USCOMP/n0q_0.png", 
-            bounds=[-126.0, 21.0, -66.0, 50.0], # [Left/West, Bottom/South, Right/East, Top/North]
+            bounds=[-126.0, 21.0, -66.0, 50.0],
             opacity=0.55, 
             pickable=False
         ))
@@ -1286,9 +1278,8 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, selected_even
             label = f.get('properties', {}).get('LABEL', '')
             try:
                 poly_shape = shape(f.get("geometry"))
-                poly_dict = {"event": f"SPC: {label}", "shape": poly_shape, "severity": "Watch"}
+                poly_dict = {"event": f"SPC: {label}", "shape": poly_shape, "severity": "Watch", "is_toggled": show_spc}
                 master_polygons.append(poly_dict)
-                if show_spc: toggled_polygons.append(poly_dict)
                 
                 spc_micro["features"].append({
                     "type": "Feature", "geometry": f.get("geometry"),
@@ -1305,15 +1296,12 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, selected_even
 
     for f in ar_warn["features"] + ar_watch["features"] + oos_warn["features"] + oos_watch["features"]:
         p_dict = {"event": f['properties']['info'], "shape": f['properties']['shapely_obj'], "severity": f['properties']['severity']}
-        master_polygons.append(p_dict)
         
         is_oos_feat = "[OOS]" in p_dict["event"]
         is_severe = p_dict["severity"] == "Warning"
-        
-        # Check toggles before adding to the active map polygons
-        if (is_oos_feat and show_oos) or (not is_oos_feat and is_severe and show_warn) or (not is_oos_feat and not is_severe and show_watch):
-            toggled_polygons.append(p_dict)
-        f['properties'].pop('shapely_obj', None) # Clean for JSON serialization
+        p_dict["is_toggled"] = (is_oos_feat and show_oos) or (not is_oos_feat and is_severe and show_warn) or (not is_oos_feat and not is_severe and show_watch)
+        master_polygons.append(p_dict)
+        f['properties'].pop('shapely_obj', None)
 
     if show_warn and ar_warn["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=ar_warn, id=f"ar_warn_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
     if show_watch and ar_watch["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=ar_watch, id=f"ar_watch_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
@@ -1338,32 +1326,19 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, selected_even
                         same_codes = f.get('properties', {}).get('geocode', {}).get('SAME', [])
                         for same_code in same_codes:
                             fips = same_code[-5:]
-                            # Only process AR counties for the AR Fire Risk layer to keep the map clean
                             if fips in regional_counties and regional_counties[fips]["state_fips"] == "05":
-                                fire_fips_to_process[fips] = {
-                                    "severity": severity, "color": fill_color, 
-                                    "line_color": line_color, "event": event,
-                                    "county_name": regional_counties[fips]["name"]
-                                }
+                                fire_fips_to_process[fips] = {"severity": severity, "color": fill_color, "line_color": line_color, "event": event, "county_name": regional_counties[fips]["name"]}
 
         for fips, info in fire_fips_to_process.items():
             geom = regional_counties[fips]["geometry"]
-            ar_fire_geo["features"].append({
-                "type": "Feature", "geometry": geom,
-                "properties": {
-                    "info": f"{info['county_name'].title()} County\nRisk Level: {info['severity']}\nNWS Alert: {info['event']}", 
-                    "fill_color": info["color"], "line_color": info["line_color"]
-                }
-            })
+            ar_fire_geo["features"].append({"type": "Feature", "geometry": geom, "properties": {"info": f"{info['county_name'].title()} County\nRisk Level: {info['severity']}\nNWS Alert: {info['event']}", "fill_color": info["color"], "line_color": info["line_color"]}})
             try:
-                poly_dict = {"event": f"Wildfire Risk: {info['event']}", "shape": shape(geom), "severity": "High"}
+                poly_dict = {"event": f"Wildfire Risk: {info['event']}", "shape": shape(geom), "severity": "High", "is_toggled": show_fire_risk}
                 master_polygons.append(poly_dict)
-                toggled_polygons.append(poly_dict)
             except: pass
                 
-        if ar_fire_geo["features"]: 
-            layers.append(pdk.Layer("GeoJsonLayer", data=ar_fire_geo, id=f"fire_risk_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
-            
+        if ar_fire_geo["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=ar_fire_geo, id=f"fire_risk_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
+
     # 5. ACTIVE WILDFIRES (NIFC)
     if show_active_wildfires:
         nifc_data = get_active_wildfires()
@@ -1378,20 +1353,16 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, selected_even
             for _, row in df_fires.iterrows():
                 try:
                     fire_poly = Point(row['lon'], row['lat']).buffer(0.03)
-                    poly_dict = {"event": f"Active Wildfire: {row['name']}", "shape": fire_poly, "severity": "High"}
+                    poly_dict = {"event": f"Active Wildfire: {row['name']}", "shape": fire_poly, "severity": "High", "is_toggled": show_active_wildfires}
                     master_polygons.append(poly_dict)
-                    toggled_polygons.append(poly_dict)
                 except: pass
 
     # 6. FACILITY SITE LAYER
     if not map_df.empty:
         layers.append(pdk.Layer("ScatterplotLayer", map_df, pickable=True, opacity=0.9, stroked=True, filled=True, radius_scale=6, radius_min_pixels=4, radius_max_pixels=12, line_width_min_pixels=1, get_position="[Lon, Lat]", get_fill_color=[255, 255, 255], get_line_color=[0, 0, 0]))
 
-    # 7. INTERSECTION MATHEMATICS
-    toggled_affected_sites, _ = calculate_site_intersections(map_df, toggled_polygons)
-    
-    # Calculate master list against ALL hazards for the Analytics Dash, regardless of what is currently hidden on the map
-    _, master_affected_sites = calculate_site_intersections(map_df, master_polygons)
+    # 7. INTERSECTION MATHEMATICS (Optimized to Single Pass)
+    toggled_affected_sites, master_affected_sites = calculate_site_intersections(map_df, master_polygons)
 
     view_state = pdk.ViewState(latitude=34.8, longitude=-92.2, zoom=5.5, pitch=0)
 
