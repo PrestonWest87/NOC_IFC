@@ -275,13 +275,20 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     from src.database import SessionLocal, Article
     from datetime import datetime, timedelta
     
-    # Calculate Dynamic Baselines from Database History
+    sys_config = get_cached_config()
     history = get_historical_threat_scores(14)
-    if history:
-        baseline_cyber = max(sum(h.cyber_points for h in history) / len(history), 20.0)
-        baseline_phys = max(sum(h.physical_points for h in history) / len(history), 25.0)
+    
+    # --- CYBER BASELINE LOGIC ---
+    if sys_config and sys_config.get('baseline_override_cyber', 0.0) > 0:
+        baseline_cyber = float(sys_config.baseline_override_cyber)
     else:
-        baseline_cyber, baseline_phys = 20.0, 25.0
+        baseline_cyber = max(sum(h.cyber_points for h in history) / len(history), 20.0) if history else 20.0
+
+    # --- PHYSICAL BASELINE LOGIC ---
+    if sys_config and sys_config.get('baseline_override_phys', 0.0) > 0:
+        baseline_phys = float(sys_config.baseline_override_phys)
+    else:
+        baseline_phys = max(sum(h.physical_points for h in history) / len(history), 25.0) if history else 25.0
 
     with SessionLocal() as db:
         # STRICT 48-HOUR LIMIT FOR EVERYTHING CYBER
