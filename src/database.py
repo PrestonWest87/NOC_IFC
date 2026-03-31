@@ -146,6 +146,15 @@ class DailyBriefing(Base):
     content = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class DailyThreatScore(Base):
+    __tablename__ = "daily_threat_scores"
+    id = Column(Integer, primary_key=True, index=True)
+    record_date = Column(DateTime, unique=True, index=True)
+    cyber_points = Column(Float, default=0.0)
+    physical_points = Column(Float, default=0.0)
+    cyber_baseline = Column(Float, default=0.0)
+    physical_baseline = Column(Float, default=0.0)
+
 
 # ==========================================
 # GRID, WEATHER & AIOps MODELS
