@@ -216,10 +216,11 @@ def get_recent_crimes(max_distance=None, grid_only=False, hours_back=168):
         query = db.query(CrimeIncident).filter(CrimeIncident.timestamp >= cutoff_time)
         
         if grid_only:
-            # FILTER: Strict filter specifically for the Executive Threat Matrix
+            # FILTER: Updated to match the actual grouped categories from the database
             grid_threat_categories = [
-                'Vandalism', 'Trespassing', 'Burglary', 'Weapons', 'Shooting', 
-                'Suspicious Person', 'Theft', 'Arson', 'Robbery', 'Assault'
+                'Perimeter Breach/Vandalism', 
+                'Violent Proximity Threat', 
+                'Asset/Copper Theft Risk'
             ]
             query = query.filter(CrimeIncident.category.in_(grid_threat_categories))
         
