@@ -205,23 +205,23 @@ def save_ai_bluf(art_id, bluf_text):
 # 3. EXECUTIVE DASHBOARD & CRIME INTELLIGENCE
 # ==========================================
 
-def get_recent_crimes(max_distance=None):
-    """Queries the database for active 24-hour perimeter incidents, filtered for grid risk."""
+def get_recent_crimes(max_distance=None, grid_only=False, hours_back=168):
+    """Queries the database for active perimeter incidents, with dynamic filtering for different dashboards."""
     from src.database import SessionLocal, CrimeIncident
     from datetime import datetime, timedelta
     
     with SessionLocal() as db:
-        # STRICT 24-HOUR LOOKBACK
-        twenty_four_hours_ago = datetime.utcnow() - timedelta(hours=24)
+        cutoff_time = datetime.utcnow() - timedelta(hours=hours_back)
         
-        query = db.query(CrimeIncident).filter(CrimeIncident.timestamp >= twenty_four_hours_ago)
+        query = db.query(CrimeIncident).filter(CrimeIncident.timestamp >= cutoff_time)
         
-        # FILTER: Expanded slightly to accommodate standard police/Spotcrime API terminology
-        grid_threat_categories = [
-            'Vandalism', 'Trespassing', 'Burglary', 'Weapons', 'Shooting', 
-            'Suspicious Person', 'Theft', 'Arson', 'Robbery', 'Assault'
-        ]
-        query = query.filter(CrimeIncident.category.in_(grid_threat_categories))
+        if grid_only:
+            # FILTER: Strict filter specifically for the Executive Threat Matrix
+            grid_threat_categories = [
+                'Vandalism', 'Trespassing', 'Burglary', 'Weapons', 'Shooting', 
+                'Suspicious Person', 'Theft', 'Arson', 'Robbery', 'Assault'
+            ]
+            query = query.filter(CrimeIncident.category.in_(grid_threat_categories))
         
         # Apply the radius filter if one is provided
         if max_distance is not None:
@@ -235,7 +235,6 @@ def get_recent_crimes(max_distance=None):
             "distance_miles": c.distance_miles, "severity": c.severity,
             "lat": c.lat, "lon": c.lon
         } for c in crimes]
-
 
 def force_fetch_crime_data():
     """Triggers the crime worker logic manually from the UI."""
