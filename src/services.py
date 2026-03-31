@@ -206,22 +206,24 @@ def save_ai_bluf(art_id, bluf_text):
 # ==========================================
 
 def get_recent_crimes(max_distance=None):
-    """Queries the database for active 168-hour perimeter incidents, filtered for grid risk."""
+    """Queries the database for active 24-hour perimeter incidents, filtered for grid risk."""
     from src.database import SessionLocal, CrimeIncident
     from datetime import datetime, timedelta
     
     with SessionLocal() as db:
-        forty_eight_hours_ago = datetime.utcnow() - timedelta(hours=168)
+        # STRICT 24-HOUR LOOKBACK
+        twenty_four_hours_ago = datetime.utcnow() - timedelta(hours=24)
         
-        query = db.query(CrimeIncident).filter(CrimeIncident.timestamp >= forty_eight_hours_ago)
+        query = db.query(CrimeIncident).filter(CrimeIncident.timestamp >= twenty_four_hours_ago)
         
-        # FILTER: Only pull crimes that represent a physical threat to infrastructure
+        # FILTER: Expanded slightly to accommodate standard police/Spotcrime API terminology
         grid_threat_categories = [
-            'Vandalism', 'Trespassing', 'Burglary', 'Weapons', 
-            'Suspicious Person', 'Theft', 'Arson'
+            'Vandalism', 'Trespassing', 'Burglary', 'Weapons', 'Shooting', 
+            'Suspicious Person', 'Theft', 'Arson', 'Robbery', 'Assault'
         ]
         query = query.filter(CrimeIncident.category.in_(grid_threat_categories))
         
+        # Apply the radius filter if one is provided
         if max_distance is not None:
             query = query.filter(CrimeIncident.distance_miles <= max_distance)
             
