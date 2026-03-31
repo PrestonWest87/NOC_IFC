@@ -427,7 +427,9 @@ if page == "👁️ Global Dashboards":
         ar_warn = svc.get_cached_geojson()[1] or {}
         oos_warn = svc.get_cached_geojson()[2] or {}
         active_nws = len(ar_warn.get("features", [])) + len(oos_warn.get("features", []))
-        crime_data = svc.get_recent_crimes(max_distance=1.0)
+        
+        # STRICT RULE: Executive Dashboard only sees grid-relevant crime from the last 24 hours
+        crime_data = svc.get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
         
         intel = svc.get_executive_grid_intel(active_nws, crime_data)
         risk_color = "#dc3545" if intel['unified_risk'] == "HIGH" else "#ffc107" if intel['unified_risk'] == "MEDIUM" else "#28a745"
@@ -626,13 +628,11 @@ elif page == "📡 Threat Telemetry":
 
         if "Tab: Threat Telemetry -> Perimeter Crime" in st.session_state.allowed_actions:
             with tabs[tab_idx]:
-                # Expand to 3 columns to fit the new filter
                 col1, col2, col3 = st.columns([2, 1, 1])
                 with col1:
                     st.subheader("🚨 Perimeter Crime Telemetry")
-                    st.caption("LRPD incident aggregation geofenced around HQ.")
+                    st.caption("LRPD incident aggregation geofenced around HQ (Last 7 Days - All Categories).")
                 with col2:
-                    # --- NEW: DYNAMIC RADIUS FILTER ---
                     radius_filter = st.selectbox("Geofence Radius", [1, 3, 5, 10], index=0, format_func=lambda x: f"{x} Miles")
                 with col3:
                     st.write("")
@@ -644,8 +644,8 @@ elif page == "📡 Threat Telemetry":
                             else:
                                 st.error("Fetch Failed. Check Logs.")
 
-                # Fetch crimes using the selected radius
-                crime_data = svc.get_recent_crimes(max_distance=radius_filter)
+                # MAP RULE: Shows all crime from the last 168 hours (7 days) based on selected radius
+                crime_data = svc.get_recent_crimes(max_distance=radius_filter, grid_only=False, hours_back=168)
                 
                 if not crime_data:
                     st.success(f"✅ No crime incidents logged within {radius_filter} miles of HQ in the last 7 days.")
