@@ -422,7 +422,7 @@ if page == "👁️ Global Dashboards":
 
     with dash_tabs[1]:
         st.subheader("📊 Executive Grid Threat Matrix")
-        st.caption("Real-time synthesis of Physical, Cyber, and Crime telemetry for Bulk Electric System (BES) infrastructure.")
+        st.caption("Strategic synthesis of Physical and Cyber telemetry measured against a 14-day operational baseline.")
         
         ar_warn = svc.get_cached_geojson()[1] or {}
         oos_warn = svc.get_cached_geojson()[2] or {}
@@ -430,15 +430,37 @@ if page == "👁️ Global Dashboards":
         crime_data = svc.get_recent_crimes(max_distance=1.0)
         
         intel = svc.get_executive_grid_intel(active_nws, crime_data)
-        risk_color = "red" if intel['unified_risk'] == "HIGH" else "orange" if intel['unified_risk'] == "MEDIUM" else "green"
+        risk_color = "#dc3545" if intel['unified_risk'] == "HIGH" else "#ffc107" if intel['unified_risk'] == "MEDIUM" else "#28a745"
         
         st.markdown(f"""
-        <div style='text-align: center; padding: 20px; background-color: #1e1e1e; border-radius: 10px; border: 2px solid {risk_color}; margin-bottom: 30px;'>
+        <div style='text-align: center; padding: 20px; background-color: #1e1e1e; border-radius: 10px; border: 2px solid {risk_color}; margin-bottom: 20px;'>
             <h3 style='margin:0; color: #a0a0a0;'>UNIFIED THREAT POSTURE</h3>
             <h1 style='margin:0; font-size: 3rem; color: {risk_color};'>{intel['unified_risk']}</h1>
             <p style='margin:0; color: #a0a0a0;'>Last Updated: {intel['timestamp']}</p>
         </div>
         """, unsafe_allow_html=True)
+
+        # --- EXECUTIVE TREND GRAPH ---
+        with st.expander("📈 View 14-Day Threat Deviation Trend", expanded=True):
+            history = svc.get_historical_threat_scores(14)
+            if not history:
+                st.info("Gathering baseline telemetry. Graph will populate tomorrow.")
+            else:
+                import pandas as pd
+                dates = [h.record_date for h in history]
+                cyber_pts = [h.cyber_points for h in history]
+                phys_pts = [h.physical_points for h in history]
+                
+                # Overlay current live score to complete the trend
+                if dates and dates[-1].date() == datetime.utcnow().date():
+                    cyber_pts[-1] = intel['current_cyber_pts']
+                    phys_pts[-1] = intel['current_phys_pts']
+                    
+                chart_data = pd.DataFrame({"Date": dates, "Cyber OT/IT Threat": cyber_pts, "Physical/Perimeter Threat": phys_pts}).set_index("Date")
+                st.line_chart(chart_data, color=["#00b4d8", "#ff9f1c"])
+                st.caption(f"**Current Cyber Points:** {intel['current_cyber_pts']} (Baseline: {int(intel['baseline_cyber'])}) | **Current Physical Points:** {intel['current_phys_pts']} (Baseline: {int(intel['baseline_phys'])})")
+
+        st.divider()
 
         col_phys, col_cyber = st.columns(2)
         with col_phys:
@@ -446,7 +468,6 @@ if page == "👁️ Global Dashboards":
             st.info(f"**Risk Level: {intel['physical_score']}**")
             st.write(intel['physical_brief'])
             
-            # --- RESTORED PHYSICAL SOURCES ---
             phys_sources = intel.get('raw_phys_articles', []) or intel.get('raw_phys_sources', [])
             if phys_sources:
                 with st.expander("🔗 View Contributing Physical Intelligence"):
@@ -454,10 +475,10 @@ if page == "👁️ Global Dashboards":
                         st.markdown(f"- [{src.title}]({src.link}) <small>({src.source})</small>", unsafe_allow_html=True)
             
             if intel.get("recent_crimes"):
-                st.markdown("**🚨 Recent Perimeter Incidents:**")
+                st.markdown("**🚨 Grid-Relevant Perimeter Incidents:**")
                 for c in intel["recent_crimes"][:5]:
-                    icon = "🔴" if c['severity'] == "High" else "🟠"
-                    st.caption(f"{icon} **{c['raw_title']}** ({c['distance_miles']} mi away) - *{c['timestamp']}*")
+                    icon = "🔴" if c['severity'] == "Critical" else "🟠" if c['severity'] == "High" else "🟡"
+                    st.caption(f"{icon} **{c['category']}:** {c['raw_title']} ({c['distance_miles']} mi) - *{c['timestamp']}*")
                 if len(intel["recent_crimes"]) > 5:
                     st.caption(f"...and {len(intel['recent_crimes']) - 5} more (See Threat Telemetry).")
             
@@ -466,12 +487,12 @@ if page == "👁️ Global Dashboards":
             st.warning(f"**Risk Level: {intel['cyber_score']}**")
             st.write(intel['cyber_brief'])
             
-            # --- RESTORED CYBER SOURCES ---
             cyber_sources = intel.get('raw_cyber_articles', []) or intel.get('raw_cyber_sources', [])
             if cyber_sources:
                 with st.expander("🔗 View Contributing Cyber Intelligence"):
                     for src in cyber_sources[:15]:
-                        st.markdown(f"- [{src.title}]({src.link}) <small>({src.source})</small>", unsafe_allow_html=True)
+                        tag = "⚠️ APT" if getattr(src, 'is_apt_related', False) else "💸 Ransomware" if getattr(src, 'is_ransomware', False) else ""
+                        st.markdown(f"- **{tag}** [{src.title}]({src.link}) <small>({src.source})</small>", unsafe_allow_html=True)
             
         st.divider()
         st.subheader("📤 Dispatch Intelligence Report")
