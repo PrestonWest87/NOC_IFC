@@ -1572,7 +1572,7 @@ elif page == "⚙️ Settings & Admin":
                 
         if "Tab: Settings -> AI & SMTP" in st.session_state.allowed_actions:
             with set_tabs[set_idx]:
-                st.subheader("Universal LLM & System Integrations")
+                st.subheader("Universal LLM, System Integrations & Scoring")
                 config_dict = sys_config or {}
                     
                 with st.form("llm_config"):
@@ -1596,12 +1596,20 @@ elif page == "⚙️ Settings & Admin":
                     smtp_recip = c_s6.text_input("Default Recipient List", value=config_dict.get('smtp_recipient', ''))
                     smtp_enabled = st.checkbox("Enable SMTP Broadcasts", value=config_dict.get('smtp_enabled', False))
 
+                    st.divider()
+                    st.markdown("### 📊 Threat Matrix Baseline Overrides")
+                    st.caption("Leave at 0 to use the automatic 14-day moving average. Values > 0 will lock the baseline to that specific number.")
+                    c_b1, c_b2 = st.columns(2)
+                    base_cyb = c_b1.number_input("Cyber Baseline Override", value=float(config_dict.get('baseline_override_cyber', 0.0)), step=5.0)
+                    base_phy = c_b2.number_input("Physical Baseline Override", value=float(config_dict.get('baseline_override_phys', 0.0)), step=5.0)
+
                     if st.form_submit_button("Save Global Config", width="stretch"):
                         new_config = {
                             "llm_endpoint": endpoint, "llm_api_key": api_key, "llm_model_name": model_name,
                             "tech_stack": tech_stack_input, "is_active": is_active, "smtp_server": smtp_server, 
                             "smtp_port": smtp_port, "smtp_username": smtp_user, "smtp_password": smtp_pass, 
-                            "smtp_sender": smtp_sender, "smtp_recipient": smtp_recip, "smtp_enabled": smtp_enabled
+                            "smtp_sender": smtp_sender, "smtp_recipient": smtp_recip, "smtp_enabled": smtp_enabled,
+                            "baseline_override_cyber": base_cyb, "baseline_override_phys": base_phy
                         }
                         svc.save_global_config(new_config)
                         st.success("✅ Configuration Saved!"); time.sleep(1); safe_rerun()
