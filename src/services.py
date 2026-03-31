@@ -14,7 +14,7 @@ from src.database import (
     SessionLocal, Article, FeedSource, Keyword, SystemConfig, CveItem,
     RegionalHazard, CloudOutage, User, Role, SavedReport, DailyBriefing,
     ExtractedIOC, MonitoredLocation, SolarWindsAlert, TimelineEvent,
-    RegionalOutage, BgpAnomaly, GeoJsonCache # <--- ADD THIS
+    RegionalOutage, BgpAnomaly, GeoJsonCache, DailyThreatScore
 )
 
 LOCAL_TZ = ZoneInfo("America/Chicago")
@@ -206,17 +206,22 @@ def save_ai_bluf(art_id, bluf_text):
 # ==========================================
 
 def get_recent_crimes(max_distance=None):
-    """Queries the database for active 168-hour perimeter incidents, with optional radius filtering."""
+    """Queries the database for active 168-hour perimeter incidents, filtered for grid risk."""
     from src.database import SessionLocal, CrimeIncident
     from datetime import datetime, timedelta
     
     with SessionLocal() as db:
         forty_eight_hours_ago = datetime.utcnow() - timedelta(hours=168)
         
-        # Base query for the last 7 days
         query = db.query(CrimeIncident).filter(CrimeIncident.timestamp >= forty_eight_hours_ago)
         
-        # Apply the radius filter if one is provided
+        # FILTER: Only pull crimes that represent a physical threat to infrastructure
+        grid_threat_categories = [
+            'Vandalism', 'Trespassing', 'Burglary', 'Weapons', 
+            'Suspicious Person', 'Theft', 'Arson'
+        ]
+        query = query.filter(CrimeIncident.category.in_(grid_threat_categories))
+        
         if max_distance is not None:
             query = query.filter(CrimeIncident.distance_miles <= max_distance)
             
@@ -240,144 +245,170 @@ def force_fetch_crime_data():
         print(f"Manual fetch failed: {e}")
         return False
 
+def get_historical_threat_scores(days=14):
+    """Fetches historical daily scores to calculate the operational baseline."""
+    with SessionLocal() as db:
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        scores = db.query(DailyThreatScore).filter(DailyThreatScore.record_date >= cutoff).order_by(DailyThreatScore.record_date.asc()).all()
+        return to_dotdict_list(scores)
+
+def save_threat_score(c_pts, p_pts, c_base, p_base):
+    """Saves the highest daily score to maintain an accurate deviation baseline."""
+    with SessionLocal() as db:
+        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        record = db.query(DailyThreatScore).filter(DailyThreatScore.record_date == today).first()
+        if record:
+            record.cyber_points = max(record.cyber_points, c_pts)
+            record.physical_points = max(record.physical_points, p_pts)
+            record.cyber_baseline = c_base
+            record.physical_baseline = p_base
+        else:
+            db.add(DailyThreatScore(record_date=today, cyber_points=c_pts, physical_points=p_pts, cyber_baseline=c_base, physical_baseline=p_base))
+        db.commit()
+
+
+
 def get_executive_grid_intel(active_warn_count, recent_crimes):
-    """Synthesizes LIVE OSINT telemetry, Local Perimeter Crime, and DB-native ICS-CERT using a Weighted Point Algorithm."""
+    """Synthesizes LIVE OSINT and telemetry using a Deviation Baseline Algorithm."""
+    from src.database import SessionLocal, Article
+    from datetime import datetime, timedelta
+    
+    # Calculate Dynamic Baselines from Database History
+    history = get_historical_threat_scores(14)
+    if history:
+        baseline_cyber = max(sum(h.cyber_points for h in history) / len(history), 20.0)
+        baseline_phys = max(sum(h.physical_points for h in history) / len(history), 25.0)
+    else:
+        baseline_cyber, baseline_phys = 20.0, 25.0
+
     with SessionLocal() as db:
         t48 = datetime.utcnow() - timedelta(hours=48)
         t14 = datetime.utcnow() - timedelta(days=14)
         
-        # Raw Data Fetch
         raw_cyber_articles = db.query(Article).filter(Article.published_date >= t48, Article.category.in_(['Cyber: Exploits & Vulns', 'Cyber: Malware & Threats', 'ICS/OT & SCADA', 'Cloud & IT Infra']), Article.score >= 50).order_by(Article.score.desc()).all()
         raw_ics_articles = db.query(Article).filter(Article.published_date >= t14).order_by(Article.published_date.desc()).all()
         raw_phys_articles = db.query(Article).filter(Article.published_date >= t48, Article.category.in_(['Physical Security', 'Severe Weather', 'Geopolitics & Policy']), Article.score >= 50).order_by(Article.score.desc()).all()
 
         geopolitical_noise_words = ["troop", "missile", "election", "ballot", "warfare", "kinetic", "embassy"]
+        threat_actors = ["volt typhoon", "sandworm", "dragos", "chernovite", "apt", "lazarus"]
+        ransomware_kws = ["ransomware", "encryption", "extortion", "breach"]
 
-        # --- 1. PROCESS CYBER (Utility-Focused Deduplication) ---
+        # --- 1. PROCESS CYBER ---
         pure_cyber_articles = []
-        utility_keywords = ["grid", "power", "utility", "energy", "bes", "electric", "scada", "ics"]
+        utility_keywords = ["grid", "power", "utility", "energy", "bes", "electric", "scada", "ics", "miso", "spp", "cooperative"]
         seen_cyber_titles = set() 
         
         for art in raw_cyber_articles:
             text_check = f"{art.title} {art.summary}".lower()
+            if any(noise in text_check for noise in geopolitical_noise_words) and not any(k in text_check for k in ["infrastructure", "grid", "scada"]): 
+                continue
             
-            # Strip geopolitics
-            if any(noise in text_check for noise in geopolitical_noise_words): continue
-            
-            # Basic deduplication (prevents RSS spam)
             title_stub = art.title[:50].lower()
             if title_stub in seen_cyber_titles: continue
             seen_cyber_titles.add(title_stub)
             
-            # Tag it if it's utility related for the point multiplier
             art.is_utility_related = any(ukw in text_check for ukw in utility_keywords)
+            art.is_apt_related = any(apt in text_check for apt in threat_actors)
+            art.is_ransomware = any(rw in text_check for rw in ransomware_kws)
             pure_cyber_articles.append(art)
 
-        # --- 2. PROCESS PHYSICAL (Noise Reduction) ---
+        # --- 2. PROCESS PHYSICAL ---
         pure_phys_articles = []
         ar_keywords = ["arkansas", "little rock", "pulaski", "benton", "entergy", "aecc", "cooperative"]
-        threat_keywords = ["terror", "attack", "grid", "substation", "sabotage", "vandalism", "infrastructure", "transformer", "sniper", "shoot", "explosive", "tornado", "hurricane", "flood", "storm", "warning", "wildfire", "fire"]
+        threat_keywords = ["terror", "attack", "grid", "substation", "sabotage", "vandalism", "infrastructure", "transformer", "sniper", "shoot", "explosive"]
         seen_phys_titles = set()
         
         for art in raw_phys_articles:
             text_check = f"{art.title} {art.summary}".lower()
             source_lower = art.source.lower() if art.source else ""
-            
             if "cisa" in source_lower or "cyber" in text_check or "cve-" in text_check or "ics-cert" in source_lower: continue
                 
             title_stub = art.title[:50].lower()
             if title_stub in seen_phys_titles: continue
             
-            is_ar_related = any(kw in text_check for kw in ar_keywords)
-            has_threat = any(kw in text_check for kw in threat_keywords)
-            has_geo_noise = any(kw in text_check for kw in geopolitical_noise_words)
-            
-            if has_geo_noise and not any(k in text_check for k in ["grid", "substation", "infrastructure"]): continue
-            
-            if is_ar_related and has_threat: 
+            if any(kw in text_check for kw in ar_keywords) and any(kw in text_check for kw in threat_keywords): 
                 seen_phys_titles.add(title_stub)
                 pure_phys_articles.append(art)
 
-        # --- 3. PROCESS ICS ---
+        # --- 3. PROCESS ICS & KEV ---
         ics_advisories = []
         critical_vendors = ["SEL", "SCHWEITZER", "SIEMENS", "SCHNEIDER", "GE ", "ABB", "ROCKWELL", "EMERSON", "HONEYWELL", "OMRON"]
         for art in raw_ics_articles:
             source_upper = art.source.upper() if art.source else ""
             if "ICS" in source_upper or "CISA" in source_upper:
                 is_critical = any(v in art.title.upper() for v in critical_vendors)
-                ics_advisories.append({"title": art.title, "link": art.link, "published": art.published_date.strftime("%Y-%m-%d"), "is_critical": is_critical})
+                is_kev = "KEV" in art.title.upper() or "EXPLOITED IN THE WILD" in art.title.upper() 
+                ics_advisories.append({"title": art.title, "link": art.link, "published": art.published_date.strftime("%Y-%m-%d"), "is_critical": is_critical, "is_kev": is_kev})
 
     # ==========================================
-    # ENTERPRISE SCORING ALGORITHM (WEIGHTED POINTS)
+    # DEVIATION SCORING ALGORITHM
     # ==========================================
     
     # --- CYBER SCORING ---
     cyber_points = 0
     critical_ics = [a for a in ics_advisories if a['is_critical']]
-    cyber_points += len(critical_ics) * 15
-    cyber_points += (len(ics_advisories) - len(critical_ics)) * 5
+    kev_ics = [a for a in ics_advisories if a['is_kev']]
     
+    cyber_points += len(critical_ics) * 15
+    cyber_points += len(kev_ics) * 50  # Massive spike for KEV catalog hits
+    cyber_points += (len(ics_advisories) - len(critical_ics) - len(kev_ics)) * 5
+    
+    osint_cyber_pts = 0
     for art in pure_cyber_articles:
-        pts = 10 if art.score >= 80 else 3
-        # 3x Multiplier if the article specifically targets power/utility infrastructure
-        if getattr(art, 'is_utility_related', False): pts *= 3 
-        cyber_points += pts
+        pts = 5
+        if getattr(art, 'is_utility_related', False): pts *= 2 
+        if getattr(art, 'is_ransomware', False): pts += 10 # Supply chain IT risk
+        if getattr(art, 'is_apt_related', False): pts *= 4 # APT Targeting spike
+        osint_cyber_pts += pts
         
-    if cyber_points >= 60: cyber_score = "HIGH"
-    elif cyber_points >= 25: cyber_score = "MEDIUM"
+    cyber_points += min(osint_cyber_pts, 40) # Cap low-level noise
+
+    if cyber_points >= (baseline_cyber * 2.5): cyber_score = "HIGH"
+    elif cyber_points >= (baseline_cyber * 1.5): cyber_score = "MEDIUM"
     else: cyber_score = "LOW"
         
-    cyber_brief = f"Tracking {len(pure_cyber_articles)} deduplicated OSINT threats (48h). "
-    if ics_advisories: cyber_brief += f"CISA ICS-CERT issued {len(ics_advisories)} industrial advisories in 14 days ({len(critical_ics)} affecting critical BES vendors). "
-    else: cyber_brief += "No recent CISA ICS-CERT advisories. "
-    if pure_cyber_articles: cyber_brief += f"Top OSINT concern: '{pure_cyber_articles[0].title}'."
+    cyber_brief = f"Tracking {len(pure_cyber_articles)} tailored OSINT threats. "
+    if kev_ics: cyber_brief += f"🚨 CISA KEV Match: {len(kev_ics)} actively exploited grid vulns. "
+    elif ics_advisories: cyber_brief += f"{len(ics_advisories)} ICS advisories ({len(critical_ics)} critical vendors). "
+    if pure_cyber_articles: cyber_brief += f"Top Concern: '{pure_cyber_articles[0].title}'."
     
     # --- PHYSICAL SCORING ---
     physical_points = 0
     critical_crimes = [c for c in recent_crimes if c.get("severity") == "Critical"]
     high_crimes = [c for c in recent_crimes if c.get("severity") == "High"]
-    med_crimes = [c for c in recent_crimes if c.get("severity") == "Medium"]
     
-    # Crime Math
     physical_points += len(critical_crimes) * 30
-    physical_points += len(high_crimes) * 5
-    physical_points += len(med_crimes) * 1
+    physical_points += len(high_crimes) * 10
+    physical_points += (len(recent_crimes) - len(critical_crimes) - len(high_crimes)) * 2
     
-    # OSINT Math
-    for art in pure_phys_articles:
-        pts = 15 if art.score >= 80 else 5
-        physical_points += pts
-        
-    # Weather Math (Base load, won't spike to high unless > 25 active warnings statewide)
-    physical_points += (active_warn_count * 2) 
+    osint_phys_pts = sum([15 if art.score >= 80 else 5 for art in pure_phys_articles])
+    physical_points += min(osint_phys_pts, 30) # Cap noise
+    physical_points += min((active_warn_count * 1.5), 20) # Cap weather to prevent AR storm season from burying real threats
     
-    if physical_points >= 75: physical_score = "HIGH"
-    elif physical_points >= 30: physical_score = "MEDIUM"
+    if physical_points >= (baseline_phys * 2.0): physical_score = "HIGH"
+    elif physical_points >= (baseline_phys * 1.3): physical_score = "MEDIUM"
     else: physical_score = "LOW"
         
-    physical_brief = f"Tracking {active_warn_count} active NWS hazards. Perimeter logs show {len(recent_crimes)} total incidents ({len(high_crimes)} High Risk). "
-    if len(pure_phys_articles) > 0: physical_brief += f"🚨 OSINT detected {len(pure_phys_articles)} local physical/grid threats. "
-    elif len(high_crimes) >= 5: physical_brief += "⚠️ Elevated perimeter crime activity detected. "
-    else: physical_brief += "Routine physical perimeter activity. "
+    physical_brief = f"Perimeter (1mi): {len(recent_crimes)} grid-relevant incidents ({len(critical_crimes)} Critical). "
+    if len(pure_phys_articles) > 0: physical_brief += f"🚨 OSINT detected {len(pure_phys_articles)} local physical threats. "
+    physical_brief += f"Weather footprint contributing {min(int(active_warn_count * 1.5), 20)} pts to baseline."
 
-    # --- UNIFIED RISK ---
     if "HIGH" in [cyber_score, physical_score]: unified_risk = "HIGH"
     elif cyber_score == "MEDIUM" and physical_score == "MEDIUM": unified_risk = "MEDIUM"
     elif "MEDIUM" in [cyber_score, physical_score]: unified_risk = "MEDIUM"
     else: unified_risk = "LOW"
     
+    # Persist live score to DB for future baseline math
+    save_threat_score(cyber_points, physical_points, baseline_cyber, baseline_phys)
+    
     return {
             "timestamp": datetime.now(LOCAL_TZ).strftime("%H:%M:%S %Z"),
-            "unified_risk": unified_risk,
-            "physical_score": physical_score,
-            "physical_brief": physical_brief,
-            "cyber_score": cyber_score,
-            "cyber_brief": cyber_brief,
-            "recent_crimes": recent_crimes,
-            "raw_cyber_articles": pure_cyber_articles,
-            "raw_phys_articles": pure_phys_articles
+            "unified_risk": unified_risk, "physical_score": physical_score, "physical_brief": physical_brief,
+            "cyber_score": cyber_score, "cyber_brief": cyber_brief,
+            "recent_crimes": recent_crimes, "raw_cyber_articles": pure_cyber_articles, "raw_phys_articles": pure_phys_articles,
+            "current_cyber_pts": cyber_points, "current_phys_pts": physical_points,
+            "baseline_cyber": baseline_cyber, "baseline_phys": baseline_phys
         }
-
 
 def generate_outlook_html_report(intel):
     color_map = {"LOW": "#28a745", "MEDIUM": "#ffc107", "HIGH": "#dc3545"}
