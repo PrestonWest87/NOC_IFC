@@ -280,13 +280,19 @@ def init_db():
         print(f"Schema generation error: {e}")
 
     # --- SILENT MIGRATION FIX ---
-    # Manually adds the district column if it doesn't exist in the live SQLite file yet
+    # Manually adds columns if they don't exist in the live SQLite file yet
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN district VARCHAR DEFAULT 'Central'"))
     except Exception:
-        pass # Column already exists, safe to ignore
-    # ----------------------------
+        pass # Column already exists
+        
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN baseline_override_cyber FLOAT DEFAULT 0.0"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN baseline_override_phys FLOAT DEFAULT 0.0"))
+    except Exception:
+        pass # Columns already exist
     
     # Seed Initial Data
     session = SessionLocal()
