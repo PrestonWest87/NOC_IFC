@@ -429,7 +429,7 @@ if page == "👁️ Global Dashboards":
         active_nws = len(ar_warn.get("features", [])) + len(oos_warn.get("features", []))
         
         # STRICT RULE: Executive Dashboard only sees grid-relevant crime from the last 24 hours
-        crime_data = svc.get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
+        crime_data = svc.get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=48)
         
         intel = svc.get_executive_grid_intel(active_nws, crime_data)
         risk_color = "#dc3545" if intel['unified_risk'] == "HIGH" else "#ffc107" if intel['unified_risk'] == "MEDIUM" else "#28a745"
