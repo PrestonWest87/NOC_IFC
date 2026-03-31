@@ -284,11 +284,12 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
         baseline_cyber, baseline_phys = 20.0, 25.0
 
     with SessionLocal() as db:
+        # STRICT 48-HOUR LIMIT FOR EVERYTHING CYBER
         t48 = datetime.utcnow() - timedelta(hours=48)
-        t14 = datetime.utcnow() - timedelta(days=14)
         
         raw_cyber_articles = db.query(Article).filter(Article.published_date >= t48, Article.category.in_(['Cyber: Exploits & Vulns', 'Cyber: Malware & Threats', 'ICS/OT & SCADA', 'Cloud & IT Infra']), Article.score >= 50).order_by(Article.score.desc()).all()
-        raw_ics_articles = db.query(Article).filter(Article.published_date >= t14).order_by(Article.published_date.desc()).all()
+        # Enforcing t48 on ICS articles as requested (previously 14 days)
+        raw_ics_articles = db.query(Article).filter(Article.published_date >= t48).order_by(Article.published_date.desc()).all()
         raw_phys_articles = db.query(Article).filter(Article.published_date >= t48, Article.category.in_(['Physical Security', 'Severe Weather', 'Geopolitics & Policy']), Article.score >= 50).order_by(Article.score.desc()).all()
 
         geopolitical_noise_words = ["troop", "missile", "election", "ballot", "warfare", "kinetic", "embassy"]
@@ -342,6 +343,75 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
                 is_kev = "KEV" in art.title.upper() or "EXPLOITED IN THE WILD" in art.title.upper() 
                 ics_advisories.append({"title": art.title, "link": art.link, "published": art.published_date.strftime("%Y-%m-%d"), "is_critical": is_critical, "is_kev": is_kev})
 
+    # ==========================================
+    # DEVIATION SCORING ALGORITHM
+    # ==========================================
+    
+    # --- CYBER SCORING ---
+    cyber_points = 0
+    critical_ics = [a for a in ics_advisories if a['is_critical']]
+    kev_ics = [a for a in ics_advisories if a['is_kev']]
+    
+    cyber_points += len(critical_ics) * 15
+    cyber_points += len(kev_ics) * 50  
+    cyber_points += (len(ics_advisories) - len(critical_ics) - len(kev_ics)) * 5
+    
+    osint_cyber_pts = 0
+    for art in pure_cyber_articles:
+        pts = 5
+        if getattr(art, 'is_utility_related', False): pts *= 2 
+        if getattr(art, 'is_ransomware', False): pts += 10 
+        if getattr(art, 'is_apt_related', False): pts *= 4 
+        osint_cyber_pts += pts
+        
+    cyber_points += min(osint_cyber_pts, 40) 
+
+    if cyber_points >= (baseline_cyber * 2.5): cyber_score = "HIGH"
+    elif cyber_points >= (baseline_cyber * 1.5): cyber_score = "MEDIUM"
+    else: cyber_score = "LOW"
+        
+    cyber_brief = f"Tracking {len(pure_cyber_articles)} tailored OSINT threats (48h). "
+    if kev_ics: cyber_brief += f"🚨 CISA KEV Match: {len(kev_ics)} actively exploited grid vulns. "
+    elif ics_advisories: cyber_brief += f"{len(ics_advisories)} ICS advisories ({len(critical_ics)} critical vendors). "
+    if pure_cyber_articles: cyber_brief += f"Top Concern: '{pure_cyber_articles[0].title}'."
+    
+    # --- PHYSICAL SCORING ---
+    physical_points = 0
+    critical_crimes = [c for c in recent_crimes if c.get("severity") == "Critical"]
+    high_crimes = [c for c in recent_crimes if c.get("severity") == "High"]
+    
+    physical_points += len(critical_crimes) * 30
+    physical_points += len(high_crimes) * 10
+    physical_points += (len(recent_crimes) - len(critical_crimes) - len(high_crimes)) * 2
+    
+    osint_phys_pts = sum([15 if art.score >= 80 else 5 for art in pure_phys_articles])
+    physical_points += min(osint_phys_pts, 30) 
+    physical_points += min((active_warn_count * 1.5), 20) 
+    
+    if physical_points >= (baseline_phys * 2.0): physical_score = "HIGH"
+    elif physical_points >= (baseline_phys * 1.3): physical_score = "MEDIUM"
+    else: physical_score = "LOW"
+        
+    # Updated text to reflect the 24h window
+    physical_brief = f"Perimeter (24h): {len(recent_crimes)} grid-relevant incidents ({len(critical_crimes)} Critical). "
+    if len(pure_phys_articles) > 0: physical_brief += f"🚨 OSINT detected {len(pure_phys_articles)} local physical threats. "
+    physical_brief += f"Weather footprint contributing {min(int(active_warn_count * 1.5), 20)} pts to baseline."
+
+    if "HIGH" in [cyber_score, physical_score]: unified_risk = "HIGH"
+    elif cyber_score == "MEDIUM" and physical_score == "MEDIUM": unified_risk = "MEDIUM"
+    elif "MEDIUM" in [cyber_score, physical_score]: unified_risk = "MEDIUM"
+    else: unified_risk = "LOW"
+    
+    save_threat_score(cyber_points, physical_points, baseline_cyber, baseline_phys)
+    
+    return {
+            "timestamp": datetime.now(LOCAL_TZ).strftime("%H:%M:%S %Z"),
+            "unified_risk": unified_risk, "physical_score": physical_score, "physical_brief": physical_brief,
+            "cyber_score": cyber_score, "cyber_brief": cyber_brief,
+            "recent_crimes": recent_crimes, "raw_cyber_articles": pure_cyber_articles, "raw_phys_articles": pure_phys_articles,
+            "current_cyber_pts": cyber_points, "current_phys_pts": physical_points,
+            "baseline_cyber": baseline_cyber, "baseline_phys": baseline_phys
+        }
     # ==========================================
     # DEVIATION SCORING ALGORITHM
     # ==========================================
