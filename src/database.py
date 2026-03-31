@@ -95,6 +95,10 @@ class SystemConfig(Base):
     smtp_sender = Column(String, nullable=True)
     smtp_recipient = Column(String, nullable=True)
     smtp_enabled = Column(Boolean, default=False)
+    
+    # --- NEW: THREAT MATRIX BASELINE OVERRIDES ---
+    baseline_override_cyber = Column(Float, default=0.0) 
+    baseline_override_phys = Column(Float, default=0.0)
 
 
 # ==========================================
