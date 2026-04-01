@@ -40,6 +40,14 @@ def check_cooldown(key, cooldown_seconds=60):
     last_click = st.session_state.get(f"cooldown_{key}", 0)
     return (time.time() - last_click) < cooldown_seconds
 
+@st.cache_resource
+def force_db_migration():
+    from src.database import init_db
+    init_db()
+    st.cache_data.clear() # Wipes the d41d8cd98f00b204e9800998ecf8427e KeyError
+
+force_db_migration()
+
 def apply_cooldown(key):
     st.session_state[f"cooldown_{key}"] = time.time()
 
@@ -121,6 +129,7 @@ can_trigger_ai = "Action: Trigger AI Functions" in st.session_state.allowed_acti
 can_sync = "Action: Manually Sync Data" in st.session_state.allowed_actions
 
 current_user_obj = svc.get_user_by_username(st.session_state.current_user)
+
 sys_config = svc.get_cached_config()
 ai_enabled = sys_config.is_active if sys_config else False
 
