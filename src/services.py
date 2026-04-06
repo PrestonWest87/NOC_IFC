@@ -8,13 +8,12 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from shapely.geometry import Point, shape
 import streamlit as st
-
 # Import your DB setup and models
 from src.database import (
     SessionLocal, Article, FeedSource, Keyword, SystemConfig, CveItem,
     RegionalHazard, CloudOutage, User, Role, SavedReport, DailyBriefing,
     ExtractedIOC, MonitoredLocation, SolarWindsAlert, TimelineEvent,
-    RegionalOutage, BgpAnomaly, GeoJsonCache, DailyThreatScore
+    RegionalOutage, BgpAnomaly, GeoJsonCache, DailyThreatScore, ShiftLogEntry
 )
 
 LOCAL_TZ = ZoneInfo("America/Chicago")
@@ -103,6 +102,33 @@ def get_regional_counties_mapping():
     except Exception as e:
         print(f"Error fetching county GeoJSON: {e}")
         return {}
+      
+def get_shift_logs(role_filter="All", start_date=None, end_date=None):
+    with SessionLocal() as db:
+        query = db.query(ShiftLogEntry)
+        
+        # If the filter is explicitly a role (e.g., 'analyst'), apply it. Otherwise, fetch all.
+        if role_filter and role_filter != "All":
+            query = query.filter(ShiftLogEntry.author_role == role_filter)
+            
+        if start_date:
+            query = query.filter(ShiftLogEntry.created_at >= start_date)
+        if end_date:
+            query = query.filter(ShiftLogEntry.created_at < end_date + timedelta(days=1))
+            
+        logs = query.order_by(ShiftLogEntry.created_at.asc()).all()
+        return to_dotdict_list(logs)
+
+def save_shift_log(analyst, role, shift_period, content):
+    with SessionLocal() as db:
+        db.add(ShiftLogEntry(
+            analyst=analyst, 
+            author_role=role, 
+            shift_period=shift_period, 
+            content=content
+        ))
+        db.commit()
+        return True
 
 
 # ==========================================

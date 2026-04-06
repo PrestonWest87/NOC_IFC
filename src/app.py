@@ -55,9 +55,10 @@ def apply_cooldown(key):
 ALL_POSSIBLE_PAGES = [
     "👁️ Global Dashboards", 
     "📡 Threat Telemetry", 
-    "🗺️ Regional Grid",     # <-- NEW STANDALONE PAGE
+    "🗺️ Regional Grid",     
     "🎯 Threat Hunting & IOCs",
     "⚡ AIOps RCA", 
+    "📝 Shift Logbook",       # <-- NEW PAGE
     "📑 Reporting & Briefings", 
     "⚙️ Settings & Admin"
 ]
@@ -65,6 +66,7 @@ ALL_POSSIBLE_PAGES = [
 ALL_POSSIBLE_ACTIONS = [
     "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score", 
     "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
+    "Action: Submit Shift Log", # <-- NEW ACTION
     "Tab: Dashboards -> Operational", "Tab: Dashboards -> Executive",
     "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV", 
     "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",
@@ -72,10 +74,12 @@ ALL_POSSIBLE_ACTIONS = [
     "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", 
     "Tab: Threat Hunting -> Global IOC Matrix", "Tab: Threat Hunting -> Deep Hunt Builder", 
     "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
+    "Tab: Shift Log -> Active Shift", "Tab: Shift Log -> History", # <-- NEW TABS
     "Tab: Reporting -> Daily Fusion", "Tab: Reporting -> Report Builder", "Tab: Reporting -> Shared Library",
     "Tab: Settings -> Facility Locations", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training", 
     "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
 ]
+
 if "current_user" not in st.session_state:
     st.session_state.current_user = None
     st.session_state.current_role = None
@@ -1341,6 +1345,238 @@ elif page == "⚡ AIOps RCA":
                             if success: st.success(msg)
                             else: st.error(msg)
             ai_idx += 1
+
+# ================= NEW: SHIFT LOGBOOK =================
+elif page == "📝 Shift Logbook":
+    st.title("📝 NOC Running Shift Log & Calendar")
+    st.markdown("Incident-based running log isolated by operational role. Logs are aggregated into an automated shift summary upon handoff.")
+    
+    # --- MODAL POP-OUT DEFINITION ---
+    @st.dialog("Shift Log Details")
+    def open_log_modal(log_entry):
+        st.markdown(f"**Analyst:** {log_entry.analyst} | **Role:** {log_entry.author_role.upper()}")
+        st.markdown(f"**Date:** {format_local_time(log_entry.created_at)}")
+        st.markdown(f"**Shift:** {log_entry.shift_period}")
+        st.divider()
+        st.markdown(log_entry.content)
+    
+    # --- 1. NEW INCIDENT ENTRY FORM ---
+    st.subheader("🟢 Log Active Incident / Update")
+    c_entry, c_aiops = st.columns([2, 1])
+    
+    with c_aiops:
+        st.write("**AIOps Telemetry Integration**")
+        st.caption("Pulls active outages and automatically calculates the duration of the event.")
+        if st.button("🔄 Auto-Draft Active Outages", width="stretch"):
+            alerts, events, grid = svc.get_aiops_dashboard_data()
+            from src.aiops_engine import EnterpriseAIOpsEngine
+            ai_engine = EnterpriseAIOpsEngine(svc.SessionLocal())
+            
+            if not alerts:
+                st.success("No active AIOps infrastructure incidents.")
+            else:
+                incidents = ai_engine.analyze_and_cluster(alerts)
+                lines = []
+                for site, data in incidents.items():
+                    p0 = data['patient_zero']
+                    # Calculate duration from when patient zero fired to right now
+                    duration = datetime.utcnow() - p0.received_at
+                    hours, remainder = divmod(int(duration.total_seconds()), 3600)
+                    mins, _ = divmod(remainder, 60)
+                    dur_str = f"{hours}h {mins}m" if hours > 0 else f"{mins}m"
+                    
+                    lines.append(f"AIOps Auto-Log: {site} offline (Origin: {p0.node_name}). Down for {dur_str}.")
+                
+                if "aiops_draft" not in st.session_state: st.session_state.aiops_draft = ""
+                st.session_state.aiops_draft += "\n".join(lines) + "\n\n"
+                safe_rerun()
+    
+    with c_entry:
+        with st.form("incident_entry_form", clear_on_submit=True):
+            c_sh1, c_sh2 = st.columns(2)
+            shift_period = c_sh1.selectbox("Active Shift", ["Morning (06:00 - 14:30)", "Afternoon/Evening (11:30 - 20:00)"])
+            analyst_name = c_sh2.text_input("Analyst", value=current_user_obj.full_name or st.session_state.current_user)
+            
+            default_text = st.session_state.get("aiops_draft", "")
+            incident_notes = st.text_area("Incident Update / Running Notes", value=default_text, height=120, placeholder="Logged circuit flap on MAIN-1, dispatched ticket #12345...")
+            
+            can_submit = "Action: Submit Shift Log" in st.session_state.allowed_actions
+            if st.form_submit_button("➕ Append to Running Log", type="primary", disabled=not can_submit, width="stretch"):
+                if incident_notes.strip():
+                    svc.save_shift_log(analyst_name, st.session_state.current_role, shift_period, incident_notes.strip())
+                    if "aiops_draft" in st.session_state: del st.session_state.aiops_draft
+                    st.success("Incident appended to shift log!")
+                    time.sleep(0.5); safe_rerun()
+                else:
+                    st.error("Cannot submit empty log.")
+
+    st.divider()
+    
+    # --- 2. END OF SHIFT SUMMARY ---
+    st.subheader("📑 End-of-Shift Summary Generator")
+    st.caption("Compiles all running incidents from your current shift into a consolidated, AI-generated handoff report.")
+    
+    c_sum1, c_sum2 = st.columns([3, 1])
+    sum_shift = c_sum1.selectbox("Select Shift to Summarize (Today)", ["Morning (06:00 - 14:30)", "Afternoon/Evening (11:30 - 20:00)"], key="sum_shift", label_visibility="collapsed")
+    
+    if c_sum2.button("🤖 Generate Shift Handoff", width="stretch", type="primary", disabled=not ai_enabled):
+        with st.spinner("Synthesizing the running log into a master handoff..."):
+            today_start = datetime.now(LOCAL_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+            today_end = today_start + timedelta(days=1)
+            
+            # Convert LOCAL_TZ bounds to UTC for accurate DB querying
+            utc_start = today_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+            utc_end = today_end.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+            
+            shift_logs = [l for l in svc.get_shift_logs(st.session_state.current_role, utc_start, utc_end) if l.shift_period == sum_shift]
+            
+            if not shift_logs:
+                st.warning(f"No incidents logged for the {sum_shift} shift today.")
+            else:
+                log_text = "\n".join([f"[{format_local_time(l.created_at)}] {l.analyst}: {l.content}" for l in shift_logs])
+                sys_prompt = f"You are a NOC Shift Supervisor. Read the following chronologically ordered running log for the '{sum_shift}' shift. Write a concise, professional 2-3 paragraph Shift Handoff Summary combining the key incidents, ongoing outages, and resolutions. Do NOT use pleasantries. Format with markdown."
+                
+                from src.llm import call_llm
+                summary = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": log_text}], sys_config)
+                if summary:
+                    st.session_state[f"summary_{sum_shift}"] = summary
+                    
+    if f"summary_{sum_shift}" in st.session_state:
+        with st.container(border=True):
+            st.markdown(st.session_state[f"summary_{sum_shift}"])
+
+    st.divider()
+
+    # --- 3. LOG EXPLORER & CALENDAR ---
+    st.subheader("📚 Shift Log Explorer")
+    
+    # Initialize Session State Variables
+    if "log_view_mode" not in st.session_state: st.session_state.log_view_mode = "Day View"
+    if "selected_log_date" not in st.session_state: st.session_state.selected_log_date = datetime.now(LOCAL_TZ).date()
+        
+    c_mode1, c_mode2 = st.columns([1, 4])
+    view_selection = c_mode1.radio("Layout", ["Day View", "Week View"], horizontal=True, label_visibility="collapsed")
+    
+    if view_selection != st.session_state.log_view_mode:
+        st.session_state.log_view_mode = view_selection
+        safe_rerun()
+        
+    st.divider()
+    
+    # ================= DAY VIEW =================
+    if st.session_state.log_view_mode == "Day View":
+        c_nav1, c_nav2, c_nav3 = st.columns([1, 2, 1])
+        if c_nav1.button("⬅️ Previous Day", use_container_width=True): 
+            st.session_state.selected_log_date -= timedelta(days=1); safe_rerun()
+            
+        new_date = c_nav2.date_input("Select Date", value=st.session_state.selected_log_date, label_visibility="collapsed")
+        if new_date != st.session_state.selected_log_date:
+            st.session_state.selected_log_date = new_date; safe_rerun()
+            
+        is_today = st.session_state.selected_log_date >= datetime.now(LOCAL_TZ).date()
+        if c_nav3.button("Next Day ➡️", use_container_width=True, disabled=is_today): 
+            st.session_state.selected_log_date += timedelta(days=1); safe_rerun()
+            
+        st.markdown(f"<h4 style='text-align: center;'>Logs for {st.session_state.selected_log_date.strftime('%A, %B %d, %Y')}</h4>", unsafe_allow_html=True)
+        
+        dt_start = datetime.combine(st.session_state.selected_log_date, datetime.min.time()).replace(tzinfo=LOCAL_TZ).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+        dt_end = dt_start + timedelta(days=1)
+        
+        day_logs = svc.get_shift_logs(st.session_state.current_role, dt_start, dt_end)
+        
+        if not day_logs:
+            st.info(f"No shift logs recorded for {st.session_state.selected_log_date.strftime('%m/%d/%Y')}.")
+        else:
+            for l in day_logs:
+                local_time = format_local_time(l.created_at).split(' ')[1]
+                shift_abbr = "Morn" if "Morning" in l.shift_period else "Eve"
+                
+                # POP-OUT MODAL BUTTON
+                preview_text = l.content.replace('\n', ' ')
+                if st.button(f" [{local_time}] {shift_abbr} - {l.analyst} | {preview_text[:75]}...", key=f"btn_day_{l.id}", use_container_width=True):
+                    open_log_modal(l)
+                    
+    # ================= WEEK VIEW =================
+    elif st.session_state.log_view_mode == "Week View":
+        if "week_offset" not in st.session_state: st.session_state.week_offset = 0
+        
+        c_nav1, c_nav2, c_nav3 = st.columns([1, 2, 1])
+        if c_nav1.button("⬅️ Previous Week", use_container_width=True): st.session_state.week_offset -= 1; safe_rerun()
+        
+        today = datetime.now(LOCAL_TZ).date()
+        target_week_start = today - timedelta(days=today.weekday()) + timedelta(weeks=st.session_state.week_offset)
+        target_week_end = target_week_start + timedelta(days=6)
+        
+        c_nav2.markdown(f"<h4 style='text-align: center; margin-top: 0;'>Week of {target_week_start.strftime('%B %d, %Y')}</h4>", unsafe_allow_html=True)
+        
+        if c_nav3.button("Next Week ➡️", use_container_width=True, disabled=(st.session_state.week_offset >= 0)): st.session_state.week_offset += 1; safe_rerun()
+        
+        dt_start = datetime.combine(target_week_start, datetime.min.time()).replace(tzinfo=LOCAL_TZ).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+        dt_end = datetime.combine(target_week_end, datetime.min.time()).replace(tzinfo=LOCAL_TZ).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+        
+        week_logs = svc.get_shift_logs(st.session_state.current_role, dt_start, dt_end)
+        
+        days_of_week = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        cal_cols = st.columns(7)
+        
+        for i, col in enumerate(cal_cols):
+            current_day_date = target_week_start + timedelta(days=i)
+            with col:
+                if st.button(f"{days_of_week[i][:3]}\n{current_day_date.strftime('%m/%d')}", key=f"day_btn_{i}", use_container_width=True):
+                    st.session_state.selected_log_date = current_day_date
+                    st.session_state.log_view_mode = "Day View"
+                    safe_rerun()
+                
+                day_logs = [l for l in week_logs if l.created_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ).date() == current_day_date]
+                
+                if not day_logs:
+                    st.caption("<div style='text-align: center; color: gray;'>No entries</div>", unsafe_allow_html=True)
+                else:
+                    for l in day_logs: 
+                        shift_abbr = "Morn" if "Morning" in l.shift_period else "Eve"
+                        local_time = format_local_time(l.created_at).split(' ')[1]
+                        
+                        # MODAL TRIGGER FOR CALENDAR VIEW
+                        if st.button(f"{local_time} | {shift_abbr}", key=f"btn_wk_{l.id}", help="Click to read full log", use_container_width=True):
+                            open_log_modal(l)
+
+    # ================= ADMIN DATA EXPORT =================
+    if st.session_state.current_role == "admin":
+        st.divider()
+        st.subheader("📥 Admin Log Export Utility")
+        
+        c_exp1, c_exp2, c_exp3 = st.columns([2, 1, 1])
+        available_roles = ["All"] + [r.name for r in svc.get_all_roles()]
+        
+        exp_role = c_exp1.selectbox("Role Filter", available_roles, key="exp_role")
+        exp_start = c_exp2.date_input("Start Date", value=datetime.now(LOCAL_TZ).date() - timedelta(days=7), key="exp_start")
+        exp_end = c_exp3.date_input("End Date", value=datetime.now(LOCAL_TZ).date(), key="exp_end")
+        
+        dt_start_exp = datetime.combine(exp_start, datetime.min.time()).replace(tzinfo=LOCAL_TZ).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+        dt_end_exp = datetime.combine(exp_end, datetime.min.time()).replace(tzinfo=LOCAL_TZ).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+        
+        exp_logs = svc.get_shift_logs(exp_role, dt_start_exp, dt_end_exp)
+        
+        if exp_logs:
+            # Flatten log data into a clean structure for CSV mapping
+            export_data = pd.DataFrame([{
+                "Local_Time": format_local_time(l.created_at),
+                "Analyst": l.analyst, 
+                "Role": l.author_role.upper(),
+                "Shift_Period": l.shift_period, 
+                "Content": l.content
+            } for l in exp_logs])
+            
+            st.download_button(
+                label="⬇️ Download CSV Export", 
+                data=export_data.to_csv(index=False).encode('utf-8'), 
+                file_name=f"NOC_ShiftLogs_{exp_role.upper()}_{exp_start.strftime('%Y%m%d')}.csv", 
+                mime="text/csv", 
+                width="stretch",
+                type="primary"
+            )
+        else:
+            st.info("No logs match the current export criteria.")
 
 # ================= 5. REPORTING & BRIEFINGS =================
 elif page == "📑 Reporting & Briefings":

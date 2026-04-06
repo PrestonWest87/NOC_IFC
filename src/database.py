@@ -99,6 +99,16 @@ class SystemConfig(Base):
     # --- NEW: THREAT MATRIX BASELINE OVERRIDES ---
     baseline_override_cyber = Column(Float, default=0.0) 
     baseline_override_phys = Column(Float, default=0.0)
+    
+class ShiftLogEntry(Base):
+    __tablename__ = "shift_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    analyst = Column(String, index=True)
+    author_role = Column(String, index=True) # <-- NEW: Enforces Role Isolation
+    shift_date = Column(DateTime, default=datetime.utcnow, index=True)
+    shift_period = Column(String) 
+    content = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 # ==========================================
@@ -286,6 +296,12 @@ def init_db():
             conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN district VARCHAR DEFAULT 'Central'"))
     except Exception:
         pass # Column already exists
+      
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE shift_logs ADD COLUMN author_role VARCHAR DEFAULT 'analyst'"))
+    except Exception:
+        pass # Column already exists
         
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
@@ -297,20 +313,23 @@ def init_db():
     # Seed Initial Data
     session = SessionLocal()
     try:
+        # Replace the existing all_pages list inside init_db() with this:
         all_pages = [
             "👁️ Global Dashboards", 
             "📡 Threat Telemetry", 
             "🗺️ Regional Grid",
             "🎯 Threat Hunting & IOCs",
             "⚡ AIOps RCA", 
+            "📝 Shift Logbook", # <-- NEW PAGE
             "📑 Reporting & Briefings", 
             "⚙️ Settings & Admin"
         ]
         
-        # EXACT match to descriptive strings deployed in app.py UI
+# Replace the existing all_actions list inside init_db() with this:
         all_actions = [
             "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score", 
             "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
+            "Action: Submit Shift Log", # <-- NEW ACTION
             "Tab: Dashboards -> Operational", "Tab: Dashboards -> Executive",
             "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV", 
             "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",
@@ -318,6 +337,7 @@ def init_db():
             "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", 
             "Tab: Threat Hunting -> Global IOC Matrix", "Tab: Threat Hunting -> Deep Hunt Builder", 
             "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
+            "Tab: Shift Log -> Active Shift", "Tab: Shift Log -> History", # <-- NEW TABS
             "Tab: Reporting -> Daily Fusion", "Tab: Reporting -> Report Builder", "Tab: Reporting -> Shared Library",
             "Tab: Settings -> Facility Locations", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training", 
             "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
