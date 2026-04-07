@@ -1501,14 +1501,36 @@ elif page == "📝 Shift Logbook":
         if not day_logs:
             st.info(f"No shift logs recorded for {st.session_state.selected_log_date.strftime('%m/%d/%Y')}.")
         else:
+            # --- TABLE HEADER ---
+            ch1, ch2, ch3, ch4, ch5 = st.columns([1.2, 1, 1.5, 6, 1.2])
+            ch1.markdown("**Time**")
+            ch2.markdown("**Shift**")
+            ch3.markdown("**Analyst**")
+            ch4.markdown("**Log Message**")
+            ch5.markdown("**Action**")
+            st.divider()
+
+            # --- TABLE ROWS ---
             for l in day_logs:
                 local_time = format_local_time(l.created_at).split(' ')[1]
-                shift_abbr = "Morn" if "Morning" in l.shift_period else "Eve"
-                
-                # POP-OUT MODAL BUTTON
+                shift_abbr = "Morning" if "Morning" in l.shift_period else "Evening"
                 preview_text = l.content.replace('\n', ' ')
-                if st.button(f" [{local_time}] {shift_abbr} - {l.analyst} | {preview_text[:75]}...", key=f"btn_day_{l.id}", use_container_width=True):
+
+                c1, c2, c3, c4, c5 = st.columns([1.2, 1, 1.5, 6, 1.2])
+                c1.caption(local_time)
+                c2.caption(shift_abbr)
+                c3.caption(l.analyst)
+                
+                # Show up to 250 characters of the log natively in the table to maximize visibility
+                display_msg = preview_text[:250] + "..." if len(preview_text) > 250 else preview_text
+                c4.markdown(f"<span style='font-size: 0.9rem;'>{display_msg}</span>", unsafe_allow_html=True)
+                
+                # Dedicated button to trigger the modal pop-out
+                if c5.button("📄 Expand", key=f"btn_day_{l.id}", use_container_width=True):
                     open_log_modal(l)
+                    
+                # Subtle divider between rows
+                st.markdown("<hr style='margin: 0.3rem 0; opacity: 0.3;'/>", unsafe_allow_html=True)
                     
     # ================= WEEK VIEW =================
     elif st.session_state.log_view_mode == "Week View":
