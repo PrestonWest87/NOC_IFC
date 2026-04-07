@@ -118,8 +118,22 @@ if st.session_state.current_user is None:
                     cookie_controller.set("noc_session_token", token, max_age=30*86400)
                     st.session_state.current_user = user.username
                     st.session_state.current_role = user.role
+                    
+                    # --- NEW LOGIC ADDED HERE ---
+                    if user.role == "admin":
+                        st.session_state.allowed_pages = ALL_POSSIBLE_PAGES
+                        st.session_state.allowed_actions = ALL_POSSIBLE_ACTIONS
+                    else:
+                        roles = svc.get_all_roles()
+                        role_obj = next((r for r in roles if r.name == user.role), None)
+                        if role_obj:
+                            st.session_state.allowed_pages = role_obj.allowed_pages
+                            st.session_state.allowed_actions = role_obj.allowed_actions or []
+                    # ----------------------------
+                    
                     time.sleep(0.5); safe_rerun()
-                else: st.error("❌ Invalid credentials.")
+                else: 
+                    st.error("❌ Invalid credentials.")
     st.stop() 
 
 if st.session_state.current_role == "admin":
