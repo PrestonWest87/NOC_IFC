@@ -66,7 +66,7 @@ ALL_POSSIBLE_PAGES = [
 ALL_POSSIBLE_ACTIONS = [
     "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score", 
     "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
-    "Action: Submit Shift Log", # <-- NEW ACTION
+    "Action: Submit Shift Log", "Action: Dispatch RCA Tickets", "Action: Manage Site Maintenance",
     "Tab: Dashboards -> Operational", "Tab: Dashboards -> Executive",
     "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV", 
     "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",
@@ -1261,32 +1261,63 @@ elif page == "⚡ AIOps RCA":
                                     st.markdown(f"### {p} | Site: {site}")
                                     st.warning(c)
                                     
-                                    if p0:
-                                        st.error(f"**Patient Zero (Suspected Origin Node):** {p0}")
-                                    else:
-                                        st.info("**Patient Zero:** Indeterminate (Simultaneous Failure)")
+                                    if p0: st.error(f"**Patient Zero (Suspected Origin Node):** {p0}")
+                                    else: st.info("**Patient Zero:** Indeterminate (Simultaneous Failure)")
                                         
-                                    with st.expander(f"Draft & Dispatch Ticket for {site}"):
-                                        clean_p = p.replace("??", "").replace("??", "").replace("??", "").replace("??", "").replace("??", "").strip()
-                                        clean_c = c.replace("??", "").replace("???", "").replace("?", "").replace("??", "").replace("??", "").strip()
-                                        clean_p0 = p0 if p0 else "Indeterminate (Simultaneous Failure)"
+                                    # --- CHECK MAINTENANCE STATUS ---
+                                    site_record = next((l for l in locs if l.name == site), None)
+                                    if site_record and getattr(site_record, 'under_maintenance', False):
+                                        etr_str = site_record.maintenance_etr.strftime('%Y-%m-%d') if site_record.maintenance_etr else "Unknown"
+                                        rsn_str = site_record.maintenance_reason or "No reason provided."
+                                        st.warning(f"🚧 **SITE UNDER MAINTENANCE** (ETR: {etr_str})\n\n**Reason:** {rsn_str}")
                                         
-                                        ticket_text = svc.generate_rca_ticket_text(site, data, clean_p, clean_p0, clean_c)
-                                        ticket_body = st.text_area("Ticket Notes / RCA Summary", value=ticket_text, height=350, key=f"t_body_{site}")
-                                        
-                                        fixed_recipients = "remedyforceworkflow@aecc.com, noc@aecc.com"
-                                        st.info(f"Ticket will be automatically dispatched to: **{fixed_recipients}**")
-                                        
-                                        if st.button("Dispatch Ticket", key=f"t_send_{site}", width='stretch'):
-                                            from src.mailer import send_alert_email
-                                            with st.spinner("Dispatching to RemedyForce & NOC..."):
-                                                success, msg = send_alert_email(f"URGENT: {clean_p} Incident at {site}", ticket_body, fixed_recipients, is_html=False)
-                                                if success: st.success("? Ticket Dispatched successfully!")
-                                                else: st.error(f"? SMTP Error: {msg}")
+                                    can_dispatch = "Action: Dispatch RCA Tickets" in st.session_state.allowed_actions
+                                    can_manage_maint = "Action: Manage Site Maintenance" in st.session_state.allowed_actions
+                                    
+                                    # --- NOC TICKET DISPATCH CONTROLS ---
+                                    if can_dispatch:
+                                        with st.expander(f"Draft & Dispatch Ticket for {site}"):
+                                            clean_p = p.replace("??", "").replace("??", "").replace("??", "").replace("??", "").replace("??", "").strip()
+                                            clean_c = c.replace("??", "").replace("???", "").replace("?", "").replace("??", "").replace("??", "").strip()
+                                            clean_p0 = p0 if p0 else "Indeterminate (Simultaneous Failure)"
+                                            
+                                            ticket_text = svc.generate_rca_ticket_text(site, data, clean_p, clean_p0, clean_c)
+                                            ticket_body = st.text_area("Ticket Notes / RCA Summary", value=ticket_text, height=350, key=f"t_body_{site}")
+                                            
+                                            fixed_recipients = "remedyforceworkflow@aecc.com, noc@aecc.com"
+                                            st.info(f"Ticket will be automatically dispatched to: **{fixed_recipients}**")
+                                            
+                                            if st.button("Dispatch Ticket", key=f"t_send_{site}", width='stretch'):
+                                                from src.mailer import send_alert_email
+                                                with st.spinner("Dispatching to RemedyForce & NOC..."):
+                                                    success, msg = send_alert_email(f"URGENT: {clean_p} Incident at {site}", ticket_body, fixed_recipients, is_html=False)
+                                                    if success: st.success("🎫 Ticket Dispatched successfully!")
+                                                    else: st.error(f"❌ SMTP Error: {msg}")
 
-                                    if st.button(f"Acknowledge Incident & Clear Board ({site})", key=f"ack_{site}", width="stretch"): 
-                                        svc.acknowledge_cluster([a.id for a in data['alerts']])
-                                        safe_rerun()
+                                        if st.button(f"Acknowledge Incident & Clear Board ({site})", key=f"ack_{site}", width="stretch"): 
+                                            svc.acknowledge_cluster([a.id for a in data['alerts']])
+                                            safe_rerun()
+                                            
+                                    # --- TOC / NOC MAINTENANCE CONTROLS ---
+                                    if can_manage_maint:
+                                        if site_record:
+                                            with st.expander(f"⚙️ Maintenance Controls: {site}"):
+                                                is_under_maint = getattr(site_record, 'under_maintenance', False)
+                                                m_stat = st.selectbox("Maintenance Status", ["Active Maintenance", "No Maintenance"], index=0 if is_under_maint else 1, key=f"ms_{site}")
+                                                
+                                                # Default ETR to today if none exists
+                                                etr_val = site_record.maintenance_etr.date() if getattr(site_record, 'maintenance_etr', None) else datetime.today().date()
+                                                m_etr = st.date_input("Estimated Time of Restoration (ETR)", value=etr_val, key=f"metr_{site}")
+                                                
+                                                m_rsn = st.text_area("Reason / Explanation", value=site_record.maintenance_reason or "", key=f"mrsn_{site}")
+                                                
+                                                if st.button("Save Maintenance Update", key=f"msave_{site}", type="primary", width="stretch"):
+                                                    svc.set_site_maintenance(site, m_stat == "Active Maintenance", m_etr, m_rsn)
+                                                    st.success("Maintenance details saved!")
+                                                    time.sleep(0.5)
+                                                    safe_rerun()
+                                        else:
+                                            st.info("⚠️ Site not registered in Facilities database; maintenance cannot be tracked.")
             ai_idx += 1
         if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions:
             with ai_tabs[ai_idx]:
