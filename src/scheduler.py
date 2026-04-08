@@ -186,11 +186,12 @@ def run_database_maintenance():
             hours_48_ago = now - timedelta(hours=48)
             days_7_ago   = now - timedelta(days=7)
             days_14_ago  = now - timedelta(days=14)
+            days_60_ago  = now - timedelta(days=60)
             
             # --- CLEANUP LOGIC ---
             session.query(Article).filter(Article.score <= 0.0).delete()
             session.query(Article).filter(Article.published_date < days_14_ago, Article.is_pinned == False).delete()
-            session.query(SolarWindsAlert).filter(SolarWindsAlert.received_at < days_7_ago).delete()
+            session.query(SolarWindsAlert).filter(SolarWindsAlert.received_at < days_60_ago).delete()
             session.query(RegionalHazard).filter(RegionalHazard.updated_at < hours_48_ago).delete()
             session.query(RegionalOutage).filter(RegionalOutage.detected_at < hours_12_ago).delete()
             session.query(BgpAnomaly).filter(BgpAnomaly.detected_at < hours_12_ago).delete()
