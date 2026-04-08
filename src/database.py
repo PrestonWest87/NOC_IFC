@@ -253,10 +253,13 @@ class MonitoredLocation(Base):
     lat = Column(Float)
     lon = Column(Float)
     loc_type = Column(String, default="General", index=True)
-    district = Column(String, default="Central", index=True) # <-- NEW DISTRICT COLUMN
+    district = Column(String, default="Central", index=True)
     priority = Column(Integer, default=3, index=True)
     current_spc_risk = Column(String, default="None")
     last_updated = Column(DateTime, default=datetime.utcnow)
+    under_maintenance = Column(Boolean, default=False)
+    maintenance_etr = Column(DateTime, nullable=True)
+    maintenance_reason = Column(Text, nullable=True)
 
 class CrimeIncident(Base):
     __tablename__ = "crime_incidents"
