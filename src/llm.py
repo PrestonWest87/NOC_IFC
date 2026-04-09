@@ -283,13 +283,21 @@ def generate_rolling_summary(session):
 
 def generate_dynamic_scoring_report(session, intel):
     """Generates an expansive intelligence brief without calculating or justifying scores."""
+    from src.database import CloudOutage, CveItem
+    from datetime import datetime, timedelta
+    
     config = get_llm_config(session)
     if not config: return None
     
+    t48 = datetime.utcnow() - timedelta(hours=48)
     arts = intel.get('raw_cyber_articles', []) + intel.get('raw_phys_articles', [])
     crimes = intel.get('recent_crimes', [])
     
-    if not arts and not crimes:
+    # Grab the active clouds and recent CVEs so the LLM can write about them
+    active_clouds = session.query(CloudOutage).filter_by(is_resolved=False).all()
+    recent_cves = session.query(CveItem).filter(CveItem.date_added >= t48).limit(15).all()
+    
+    if not arts and not crimes and not active_clouds:
         return "No active intelligence to brief at this time."
 
     # ==========================================
@@ -303,31 +311,34 @@ def generate_dynamic_scoring_report(session, intel):
             lambda a: f"Source: {a.source or 'OSINT'} | Category: {a.category} | Title: {a.title} | {truncate_text(a.summary, 300)}", 
             map_p, reduce_p, config, chunk_size=8
         )
-    else: cyber_digest = "No active intelligence to report."
+    else: cyber_digest = "No active OSINT intelligence to report."
 
     # ==========================================
-    # PHYSICAL & CRIME CONTEXT
+    # INFRASTRUCTURE CONTEXT (Crimes, Clouds, CVEs)
     # ==========================================
     crimes_context = "\n".join([f"- FBI Class: {c.get('fbi_category', 'Unknown')} | {c['raw_title']} ({c['distance_miles']} mi from HQ)" for c in crimes[:15]]) if crimes else "No active perimeter crime incidents."
+    clouds_context = "\n".join([f"- {c.provider} ({c.service}): {c.title}" for c in active_clouds]) if active_clouds else "No active Cloud Service Outages."
+    cve_context = "\n".join([f"- CVE: {c.cve_id} ({c.vendor}): {c.vulnerability_name}" for c in recent_cves]) if recent_cves else "No major CVEs in 48h."
 
-    compiled_intel = f"--- COMPREHENSIVE INTELLIGENCE DIGEST (48H) ---\n{cyber_digest}\n\n--- ACTIVE PERIMETER INCIDENTS (24H - HQ ONLY) ---\n{crimes_context}"
+    compiled_intel = f"--- CYBER INTELLIGENCE DIGEST (48H) ---\n{cyber_digest}\n\n--- CISA VULNERABILITIES (48H) ---\n{cve_context}\n\n--- ACTIVE TIER-1 CLOUD OUTAGES ---\n{clouds_context}\n\n--- ACTIVE PERIMETER INCIDENTS (24H - HQ ONLY) ---\n{crimes_context}"
 
     # ==========================================
     # TIER 2: THE MASTER FUSION BRIEFER
     # ==========================================
-    master_sys_prompt = """You are a Senior Threat Intelligence Briefer for a NOC Executive Dashboard.
+    master_sys_prompt = f"""You are a Senior Threat Intelligence Briefer for a NOC Executive Dashboard.
     Write an expansive, highly detailed 'Executive Intelligence Brief' based on the provided digest.
     
     CRITICAL DIRECTIVES: 
     1. Do NOT calculate any scores.
     2. Do NOT reference the CIS formula.
     3. Do NOT attempt to justify mathematical ratings. 
+    4. The current system threat level is **{intel.get('unified_risk', 'UNKNOWN')}**. Ensure the tone matches this severity.
     Your ONLY job is to write a cohesive, real-world narrative of what is happening across the cyber and physical domains.
     
     Structure your response in Markdown with these EXACT headers:
     
     ## 🛡️ Cyber Intelligence Brief
-    [Write long, expansive paragraphs detailing the specific cyber threats, their reporting SOURCES, identified threat actors, and potential impacts on utility infrastructure. Group similar threats together to tell a flowing story.]
+    [Write long, expansive paragraphs detailing the specific cyber threats, their reporting SOURCES, identified threat actors, CISA vulnerabilities, and Cloud Outages. Group similar threats together to tell a flowing story of the digital landscape.]
     
     ## ⚡ Physical & Perimeter Security Brief
     [Write long, expansive paragraphs breaking down the perimeter incidents (explicitly using the FBI UCR definitions provided) and severe weather hazards. Explain their specific proximity risk to the Headquarters facility and personnel.]
