@@ -309,7 +309,7 @@ st.sidebar.divider()
 refresh_count = 0
 current_refresh_sec = 0
 
-if page in ["⚡ AIOps RCA", "👁️ Global Dashboards"]:
+if page in ["👁️ Global Dashboards"]:
     refresh_rate = st.sidebar.selectbox("🔄 Live Refresh", ["Off", "10 Seconds", "1 Minute", "5 Minutes"], index=0)
     rmap = {"Off": 0, "10 Seconds": 10, "1 Minute": 60, "5 Minutes": 300}
     current_refresh_sec = rmap[refresh_rate]
