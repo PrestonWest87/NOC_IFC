@@ -448,8 +448,52 @@ if page == "👁️ Global Dashboards":
                         else: st.error(f"⚠️ **MATCH DETECTED:**\n{res}")
 
     with dash_tabs[1]:
+        # --- NEW: POP-UP LEGEND DIALOG ---
+        @st.dialog("ℹ️ CIS Threat Level Legend")
+        def show_cis_legend():
+            st.markdown("""
+            ### Official MS-ISAC / CIS Alert Levels
+            
+            **Formula:** `Severity = (Criticality + Lethality) – (System + Network Countermeasures)`
+            
+            * 🟢 **GREEN (LOW | -8 to -5):** Low risk. Normal probing, low-risk viruses. Continue routine monitoring and patching.
+            * 🔵 **BLUE (GUARDED | -4 to -2):** General risk of increased hacking/malicious activity. No known severe exploits or significant impacts yet.
+            * 🟡 **YELLOW (ELEVATED | -1 to +2):** Significant risk. Known vulnerabilities being exploited with moderate damage, or high potential for disruption.
+            * 🟠 **ORANGE (HIGH | +3 to +5):** High risk targeting core infrastructure. Multiple service outages, critical vulnerabilities actively exploited with significant impact.
+            * 🔴 **RED (SEVERE | +6 to +8):** Severe risk. Widespread outages, destructive compromises to SCADA/critical systems. Potential for actual loss of life or economic security.
+            """)
+            if st.button("Close", use_container_width=True):
+                st.rerun()
+
         st.subheader("📊 Executive Grid Threat Matrix")
-        st.caption("Strategic synthesis of Physical and Cyber telemetry measured against a 14-day operational baseline.")
+        
+        # Legend Trigger Button
+        col_title, col_leg = st.columns([3, 1])
+        col_title.caption("Strategic synthesis of Physical and Cyber telemetry measured against a 14-day operational baseline.")
+        if col_leg.button("ℹ️ View CIS Threat Legend", use_container_width=True):
+            show_cis_legend()
+            
+        ar_warn = svc.get_cached_geojson()[1] or {}
+        oos_warn = svc.get_cached_geojson()[2] or {}
+        active_nws = len(ar_warn.get("features", [])) + len(oos_warn.get("features", []))
+        
+        crime_data = svc.get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
+        intel = svc.get_executive_grid_intel(active_nws, crime_data)
+        
+        # New 5-Tier Color Mapping
+        color_map = {"GREEN": "#28a745", "BLUE": "#007bff", "YELLOW": "#ffc107", "ORANGE": "#fd7e14", "RED": "#dc3545"}
+        name_map = {"GREEN": "GREEN (LOW)", "BLUE": "BLUE (GUARDED)", "YELLOW": "YELLOW (ELEVATED)", "ORANGE": "ORANGE (HIGH)", "RED": "RED (SEVERE)"}
+        
+        risk_color = color_map.get(intel['unified_risk'].upper(), "#28a745")
+        display_risk = name_map.get(intel['unified_risk'].upper(), "UNKNOWN")
+        
+        st.markdown(f"""
+        <div style='text-align: center; padding: 20px; background-color: #1e1e1e; border-radius: 10px; border: 2px solid {risk_color}; margin-bottom: 20px;'>
+            <h3 style='margin:0; color: #a0a0a0;'>UNIFIED THREAT POSTURE (CIS STANDARD)</h3>
+            <h1 style='margin:0; font-size: 3rem; color: {risk_color};'>{display_risk}</h1>
+            <p style='margin:0; color: #a0a0a0;'>Last Updated: {intel['timestamp']}</p>
+        </div>
+        """, unsafe_allow_html=True)
         
         ar_warn = svc.get_cached_geojson()[1] or {}
         oos_warn = svc.get_cached_geojson()[2] or {}
@@ -516,7 +560,7 @@ if page == "👁️ Global Dashboards":
             st.info(f"**Risk Level: {intel['physical_score']}**")
             st.write(intel['physical_brief'])
             
-            phys_sources = intel.get('raw_phys_articles', []) or intel.get('raw_phys_sources', [])
+            phys_sources = intel.get('raw_phys_articles', [])
             if phys_sources:
                 with st.expander("🔗 View Contributing Physical Intelligence"):
                     for src in phys_sources[:15]:
@@ -525,8 +569,7 @@ if page == "👁️ Global Dashboards":
             if intel.get("recent_crimes"):
                 st.markdown("**🚨 Grid-Relevant Perimeter Incidents:**")
                 for c in intel["recent_crimes"][:5]:
-                    icon = "🔴" if c['severity'] == "Critical" else "🟠" if c['severity'] == "High" else "🟡"
-                    st.caption(f"{icon} **{c['category']}:** {c['raw_title']} ({c['distance_miles']} mi) - *{c['timestamp']}*")
+                    st.caption(f"🛡️ **{c.get('fbi_category', 'Incident')}:** {c['raw_title']} ({c['distance_miles']} mi) - *{c['timestamp']}*")
                 if len(intel["recent_crimes"]) > 5:
                     st.caption(f"...and {len(intel['recent_crimes']) - 5} more (See Threat Telemetry).")
             
@@ -535,7 +578,17 @@ if page == "👁️ Global Dashboards":
             st.warning(f"**Risk Level: {intel['cyber_score']}**")
             st.write(intel['cyber_brief'])
             
-            cyber_sources = intel.get('raw_cyber_articles', []) or intel.get('raw_cyber_sources', [])
+            # --- NEW: MATH & FORMULA EVIDENCE EXPANDER ---
+            with st.expander("🧮 View CIS Scoring Formula & Factors"):
+                st.markdown("**Formula:** `Severity = (Criticality + Lethality) - (System + Network Countermeasures)`")
+                st.markdown(f"**Current Aggregate Score:** `{intel['cis_cyber_score']}` *(Average of Top 5)*")
+                st.divider()
+                for item in intel.get('top_cyber_evidence', []):
+                    st.markdown(f"**{item['type']}**: {item['title']}")
+                    st.caption(f"Score: **{item['score']}** | Crit(C):{item['c']} Leth(L):{item['l']} Sys(S):{item['s']} Net(N):{item['n']}")
+                    st.markdown("---")
+            
+            cyber_sources = intel.get('raw_cyber_articles', [])
             if cyber_sources:
                 with st.expander("🔗 View Contributing Cyber Intelligence"):
                     for src in cyber_sources[:15]:
