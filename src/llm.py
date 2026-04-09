@@ -280,6 +280,37 @@ def generate_rolling_summary(session):
 
     response = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": context}], config, temperature=0.2)
     return response.strip() if response else "Generation failed."
+
+def generate_dynamic_scoring_report(session):
+    """Generates a dynamic fusion overview with an explicit focus on scoring rationale."""
+    from src.database import Article, RegionalHazard
+    
+    config = get_llm_config(session)
+    if not config: return None
+    
+    # Gather top scored items across domains
+    arts = session.query(Article).filter(Article.score >= 50).order_by(Article.score.desc()).limit(15).all()
+    hazards = session.query(RegionalHazard).limit(10).all()
+    
+    context = "--- HIGH-SCORE CYBER INTELLIGENCE ---\n"
+    context += "\n".join([f"- Score {a.score}/100 | {a.category} | {a.title} | {a.summary[:250]}" for a in arts]) if arts else "None."
+    context += "\n\n--- ACTIVE PHYSICAL HAZARDS ---\n"
+    context += "\n".join([f"- Severity: {h.severity} | {h.title} in {h.location}" for h in hazards]) if hazards else "None."
+
+    sys_prompt = """You are a Senior Threat Intelligence Assessor for a NOC Dashboard.
+    Write an executive 'Dynamic Fusion & Scoring Overview' based on the provided live telemetry.
+    
+    CRITICAL REQUIREMENT:
+    You must explicitly explain the REASONING behind the threat scoring. Why did certain cyber intelligence items score highly? What factors (e.g., potential impact, zero-day status, threat actor capability) pushed them to the top? How do the physical hazards compound these risks?
+    
+    Structure the response in Markdown with two clear headers:
+    ##  Threat Landscape Overview
+    ##  Intelligence Scoring Rationale
+    
+    Be direct, analytical, and do NOT hallucinate data."""
+    
+    response = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": context}], config, temperature=0.2)
+    return response.strip() if response else "Report generation failed."
   
 def generate_daily_fusion_report(session):
     """Multi-Tier Synthesis: Chunks data, summarizes domains, then uses a Master Editor for a seamless report."""
