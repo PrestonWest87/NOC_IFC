@@ -109,6 +109,7 @@ class ShiftLogEntry(Base):
     shift_period = Column(String) 
     content = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
+    is_deleted = Column(Boolean, default=False, index=True)
 
 
 # ==========================================
@@ -318,6 +319,12 @@ def init_db():
             conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN under_maintenance BOOLEAN DEFAULT 0"))
             conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN maintenance_etr DATETIME"))
             conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN maintenance_reason TEXT"))
+    except Exception: 
+        pass
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE shift_logs ADD COLUMN is_deleted BOOLEAN DEFAULT 0"))
     except Exception: 
         pass
     
