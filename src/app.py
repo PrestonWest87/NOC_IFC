@@ -1472,12 +1472,7 @@ elif page == "⚡ AIOps RCA":
                             else: st.error(msg)
             ai_idx += 1
 
-# ================= NEW: SHIFT LOGBOOK =================
-elif page == "📝 Shift Logbook":
-    st.title("📝 NOC Running Shift Log & Calendar")
-    st.markdown("Incident-based running log isolated by operational role. Logs are aggregated into an automated shift summary upon handoff.")
-    
-    # --- MODAL POP-OUT DEFINITION ---
+# --- MODAL POP-OUT DEFINITION ---
     @st.dialog("Shift Log Details")
     def open_log_modal(log_entry):
         is_del = getattr(log_entry, 'is_deleted', False)
@@ -1490,19 +1485,22 @@ elif page == "📝 Shift Logbook":
         st.divider()
         st.markdown(log_entry.content)
         
-        # Soft Delete / Restore Controls for Admins
-        if st.session_state.current_role == "admin":
-            st.divider()
-            if not is_del:
-                if st.button("🗑️ Soft Delete Log", type="primary", use_container_width=True):
-                    with svc.SessionLocal() as session:
-                        from src.database import ShiftLogEntry
-                        db_log = session.query(ShiftLogEntry).get(log_entry.id)
-                        if db_log:
-                            db_log.is_deleted = True
-                            session.commit()
-                    st.rerun()
-            else:
+        # Soft Delete / Restore Controls
+        st.divider()
+        
+        if not is_del:
+            # ANY user (Analyst or Admin) can soft-delete an active log
+            if st.button("🗑️ Soft Delete Log", type="primary", use_container_width=True):
+                with svc.SessionLocal() as session:
+                    from src.database import ShiftLogEntry
+                    db_log = session.query(ShiftLogEntry).get(log_entry.id)
+                    if db_log:
+                        db_log.is_deleted = True
+                        session.commit()
+                st.rerun()
+        else:
+            # ONLY Admins can restore a log that has been deleted
+            if st.session_state.current_role == "admin":
                 if st.button("♻️ Restore Log", use_container_width=True):
                     with svc.SessionLocal() as session:
                         from src.database import ShiftLogEntry
