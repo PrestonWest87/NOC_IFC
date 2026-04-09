@@ -1348,8 +1348,7 @@ elif page == "⚡ AIOps RCA":
                 c_l, c_s = st.columns([3, 1])
                 with c_s:
                     st.subheader("⏱️ Event Log")
-                    if st.button("🧹 Clear", width="stretch"): svc.clear_timeline_events(); safe_rerun()
-                    if st.button("🗑️ Nuke", width="stretch"): svc.nuke_active_alerts(); safe_rerun()
+                    st.divider()
                     for e in events:
                         local_time = e.timestamp.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ)
                         time_str = local_time.strftime('%I:%M %p')
