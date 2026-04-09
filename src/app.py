@@ -459,12 +459,31 @@ if page == "👁️ Global Dashboards":
         crime_data = svc.get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
         
         intel = svc.get_executive_grid_intel(active_nws, crime_data)
-        risk_color = "#dc3545" if intel['unified_risk'] == "HIGH" else "#ffc107" if intel['unified_risk'] == "MEDIUM" else "#28a745"
+        
+        # New 5-Tier Color Mapping
+        color_map = {
+            "GREEN": "#28a745", 
+            "BLUE": "#007bff", 
+            "YELLOW": "#ffc107", 
+            "ORANGE": "#fd7e14", 
+            "RED": "#dc3545"
+        }
+        
+        name_map = {
+            "GREEN": "GREEN (LOW)",
+            "BLUE": "BLUE (GUARDED)",
+            "YELLOW": "YELLOW (ELEVATED)",
+            "ORANGE": "ORANGE (HIGH)",
+            "RED": "RED (SEVERE)"
+        }
+        
+        risk_color = color_map.get(intel['unified_risk'].upper(), "#28a745")
+        display_risk = name_map.get(intel['unified_risk'].upper(), "UNKNOWN")
         
         st.markdown(f"""
         <div style='text-align: center; padding: 20px; background-color: #1e1e1e; border-radius: 10px; border: 2px solid {risk_color}; margin-bottom: 20px;'>
-            <h3 style='margin:0; color: #a0a0a0;'>UNIFIED THREAT POSTURE</h3>
-            <h1 style='margin:0; font-size: 3rem; color: {risk_color};'>{intel['unified_risk']}</h1>
+            <h3 style='margin:0; color: #a0a0a0;'>UNIFIED THREAT POSTURE (CIS STANDARD)</h3>
+            <h1 style='margin:0; font-size: 3rem; color: {risk_color};'>{display_risk}</h1>
             <p style='margin:0; color: #a0a0a0;'>Last Updated: {intel['timestamp']}</p>
         </div>
         """, unsafe_allow_html=True)
