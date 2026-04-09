@@ -282,17 +282,15 @@ def generate_rolling_summary(session):
     return response.strip() if response else "Generation failed."
 
 def generate_dynamic_scoring_report(session, intel):
-    """Generates a dynamic fusion overview explicitly anchored to the CIS Alert Level and FBI Crime Taxonomy."""
+    """Generates an expansive intelligence brief without calculating or justifying scores."""
     config = get_llm_config(session)
     if not config: return None
     
     arts = intel.get('raw_cyber_articles', []) + intel.get('raw_phys_articles', [])
     crimes = intel.get('recent_crimes', [])
-    target_risk = intel.get('unified_risk', 'UNKNOWN')
-    target_cis_score = intel.get('cis_cyber_score', 0)
     
     if not arts and not crimes:
-        return "No active threats to score at this time."
+        return "No active intelligence to brief at this time."
 
     # ==========================================
     # TIER 1: CYBER INTELLIGENCE MAP-REDUCE
@@ -308,47 +306,40 @@ def generate_dynamic_scoring_report(session, intel):
     else: cyber_digest = "No active intelligence to report."
 
     # ==========================================
-    # PHYSICAL & CRIME CONTEXT (FBI ALIGNED)
+    # PHYSICAL & CRIME CONTEXT
     # ==========================================
-    # Injecting the newly calculated fbi_category directly into the LLM's vision
     crimes_context = "\n".join([f"- FBI Class: {c.get('fbi_category', 'Unknown')} | {c['raw_title']} ({c['distance_miles']} mi from HQ)" for c in crimes[:15]]) if crimes else "No active perimeter crime incidents."
 
     compiled_intel = f"--- COMPREHENSIVE INTELLIGENCE DIGEST (48H) ---\n{cyber_digest}\n\n--- ACTIVE PERIMETER INCIDENTS (24H - HQ ONLY) ---\n{crimes_context}"
 
     # ==========================================
-    # TIER 2: THE MASTER FUSION EDITOR
+    # TIER 2: THE MASTER FUSION BRIEFER
     # ==========================================
-    master_sys_prompt = f"""You are a Senior Threat Intelligence Assessor for a NOC Executive Dashboard.
-    Write an expansive, highly detailed 'Dynamic Fusion & Scoring Overview' based on the provided intelligence digest.
+    master_sys_prompt = """You are a Senior Threat Intelligence Briefer for a NOC Executive Dashboard.
+    Write an expansive, highly detailed 'Executive Intelligence Brief' based on the provided digest.
     
-    CRITICAL DIRECTIVE: The system has mathematically calculated the OVERALL CIS ALERT LEVEL as **{target_risk}**. The cyber-specific CIS severity score is **{target_cis_score}**.
-    You MUST justify and align your narrative to this EXACT score. 
-    
-    THE CIS FORMULA: Severity = (Criticality + Lethality) - (System Countermeasures + Network Countermeasures)
-    * Lethality (1-5): 5=Exploit exists/root. 4=User access. 3=No exploit/root possible. 2=No exploit/user. 1=No access.
-    * Criticality (1-5): 5=Core routers/ICS. 4=Web/DB. 3=App servers. 2=Business desktops. 1=Home users.
-    * Sys Countermeasures (1-5): Assume 3 (Current OS/Patched) unless a zero-day is present.
-    * Net Countermeasures (1-5): Assume 4 (Restrictive FW) unless perimeter bypass is implied.
+    CRITICAL DIRECTIVES: 
+    1. Do NOT calculate any scores.
+    2. Do NOT reference the CIS formula.
+    3. Do NOT attempt to justify mathematical ratings. 
+    Your ONLY job is to write a cohesive, real-world narrative of what is happening across the cyber and physical domains.
     
     Structure your response in Markdown with these EXACT headers:
     
-    ##  Threat Landscape Overview
-    [Write long, expansive, and deeply analytical paragraphs. Balance the narrative EQUALLY between Cyber Intelligence and Physical Hazards. 
-    For Physical/Perimeter: Explicitly break down the perimeter incidents using the official FBI UCR definitions provided in the data (Crimes Against Persons, Crimes Against Property, Crimes Against Society) and explain their specific proximity risk to the Headquarters facility and personnel.
-    End this section by declaring: "**OVERALL CIS ALERT LEVEL: {target_risk}**"]
+    ## 🛡️ Cyber Intelligence Brief
+    [Write long, expansive paragraphs detailing the specific cyber threats, their reporting SOURCES, identified threat actors, and potential impacts on utility infrastructure. Group similar threats together to tell a flowing story.]
     
-    ##  Unified Scoring & Risk Rationale
-    [Explicitly show the math from the CIS formula that justifies a Cyber CIS Score of {target_cis_score}. Explain WHY the highest threats drove your estimated 1-5 scales to arrive at exactly {target_cis_score}.
-    Then, in a highly detailed paragraph, explain how the FBI-categorized perimeter crimes over the last 24 hours compound these operational risks to justify the final {target_risk} posture.]
+    ## ⚡ Physical & Perimeter Security Brief
+    [Write long, expansive paragraphs breaking down the perimeter incidents (explicitly using the FBI UCR definitions provided) and severe weather hazards. Explain their specific proximity risk to the Headquarters facility and personnel.]
     
-    Be expansive, professional, highly readable, and perfectly aligned with the {target_risk} rating."""
+    Be expansive, professional, highly readable, and authoritative."""
 
     response = call_llm([
         {"role": "system", "content": master_sys_prompt}, 
         {"role": "user", "content": compiled_intel}
     ], config, temperature=0.3)
     
-    return response.strip() if response else "Report generation failed."
+    return response.strip() if response else "Brief generation failed."
   
 def generate_daily_fusion_report(session):
     """Multi-Tier Synthesis: Chunks data, summarizes domains, then uses a Master Editor for a seamless report."""
