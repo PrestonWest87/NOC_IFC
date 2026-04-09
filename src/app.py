@@ -1472,6 +1472,11 @@ elif page == "⚡ AIOps RCA":
                             else: st.error(msg)
             ai_idx += 1
 
+# ================= NEW: SHIFT LOGBOOK =================
+elif page == "📝 Shift Logbook":
+    st.title("📝 NOC Running Shift Log & Calendar")
+    st.markdown("Incident-based running log isolated by operational role. Logs are aggregated into an automated shift summary upon handoff.")
+
 # --- MODAL POP-OUT DEFINITION ---
     @st.dialog("Shift Log Details")
     def open_log_modal(log_entry):
