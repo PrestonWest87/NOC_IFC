@@ -128,6 +128,52 @@ def analyze_cascading_impacts(articles, session):
         map_p, reduce_p, config, chunk_size=8
     )
 
+def generate_aggregated_shift_summary(session, logs, timeframe_label, target_role="All"):
+    """Generates a role-bound weekly or monthly summary using Map-Reduce to handle large log volumes."""
+    config = get_llm_config(session)
+    if not config: return None
+    
+    if not logs:
+        return f"No logs available to generate a {timeframe_label} summary."
+        
+    # ==========================================
+    # TIER 1: MAP-REDUCE THE SHIFT LOGS
+    # ==========================================
+    map_p = f"You are analyzing logs for the '{target_role.upper()}' department. Extract the most critical incidents, outages, resolutions, and ongoing operational issues from these shift log entries. Ignore routine noise. Output concise bullet points."
+    reduce_p = "Combine these batch extractions into a single, comprehensive incident digest, preserving all unique critical events and timelines."
+    
+    log_digest = _map_reduce_summarize(
+        logs,
+        lambda l: f"[{l.created_at.strftime('%Y-%m-%d %H:%M')}] {l.analyst}: {l.content}",
+        map_p, reduce_p, config, chunk_size=20
+    )
+    
+    # ==========================================
+    # TIER 2: THE MASTER EDITOR
+    # ==========================================
+    master_sys_prompt = f"""You are a NOC Operations Manager for the {target_role.upper()} department.
+    Write an Executive '{timeframe_label}' Shift Summary specifically detailing the operations of the {target_role.upper()} team based on the provided log digest.
+    
+    Structure the response in Markdown with these EXACT headers:
+    
+    ## 📅 {timeframe_label} Operational Overview: {target_role.upper()}
+    [Write a 2-3 paragraph executive narrative of the team's operational tempo, major incidents, and overall stability during this period.]
+    
+    ## 🚨 Critical Incidents & Resolutions
+    [Provide bullet points of the most impactful outages or incidents handled by this team and explicitly detail how they were resolved.]
+    
+    ## 🔄 Ongoing / Unresolved Issues
+    [List any issues that appear to span across multiple shifts or remain active based on the logs. If none, state 'No major ongoing issues explicitly tracked.']
+    
+    Be professional, highly readable, and authoritative. Do NOT hallucinate incidents not present in the digest."""
+    
+    response = call_llm([
+        {"role": "system", "content": master_sys_prompt},
+        {"role": "user", "content": f"--- LOG DIGEST ---\n{log_digest}"}
+    ], config, temperature=0.25)
+    
+    return response.strip() if response else "Summary generation failed."
+
 def generate_briefing(articles, session):
     """Multi-Tier Synthesis to compress a large feed into a tight 2-paragraph brief."""
     config = get_llm_config(session)
