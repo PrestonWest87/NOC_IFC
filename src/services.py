@@ -448,12 +448,24 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     for c in recent_crimes:
         title_cat = (str(c.get('raw_title', '')) + " " + str(c.get('category', ''))).lower()
         
-        if any(x in title_cat for x in ['assault', 'shoot', 'homicide', 'murder', 'violent', 'robbery', 'kidnap', 'battery', 'weapon', 'gun', 'person']):
+        # 1. Crimes Against Persons (Violent/Direct Threat)
+        # Removed the overly broad 'person' keyword.
+        if any(x in title_cat for x in ['assault', 'shoot', 'homicide', 'murder', 'violent', 'robbery', 'kidnap', 'battery', 'weapon', 'gun', 'stab']):
             c['fbi_category'] = "Crimes Against Persons"
             crimes_persons.append(c)
+            
+        # 2. Crimes Against Society (Suspicious, Disturbances, Narcotics)
+        # Checked BEFORE property so "Suspicious Person" doesn't get caught by the "Breach" category keyword.
+        elif any(x in title_cat for x in ['suspicious', 'disturbance', 'narcotic', 'drug', 'loiter', 'trespass']):
+            c['fbi_category'] = "Crimes Against Society"
+            crimes_society.append(c)
+            
+        # 3. Crimes Against Property (Vandalism, Theft, Break-ins)
         elif any(x in title_cat for x in ['vandalism', 'theft', 'burglary', 'arson', 'property', 'copper', 'breach', 'damage', 'stolen']):
             c['fbi_category'] = "Crimes Against Property"
             crimes_property.append(c)
+            
+        # Fallback for anything else
         else:
             c['fbi_category'] = "Crimes Against Society"
             crimes_society.append(c)
