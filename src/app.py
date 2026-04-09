@@ -535,20 +535,65 @@ if page == "👁️ Global Dashboards":
                 with st.spinner("Generating AI Analysis and Transmitting..."):
                     from src.llm import generate_dynamic_scoring_report
                     from src.mailer import send_alert_email
+                    import re
                     
                     # Generate the LLM report if it hasn't been triggered in the UI yet
                     rep = st.session_state.get("scored_overview")
                     if not rep:
                         rep = generate_dynamic_scoring_report(svc.SessionLocal())
                         st.session_state.scored_overview = rep
+                        
+                    # --- NATIVE MARKDOWN TO HTML CONVERTER ---
+                    # Ensures email clients render the headers, bolding, and bullet points perfectly
+                    def md_to_html(md):
+                        md = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', md) # Convert Bold
+                        lines = md.split('\n')
+                        html_lines = []
+                        in_ul = False
+                        
+                        for line in lines:
+                            stripped = line.strip()
+                            if not stripped:
+                                if in_ul: html_lines.append("</ul>"); in_ul = False
+                                html_lines.append("<br>")
+                                continue
+                                
+                            # Headers
+                            if stripped.startswith('### '):
+                                if in_ul: html_lines.append("</ul>"); in_ul = False
+                                html_lines.append(f"<h4 style='color:#34495e; margin-top:15px; margin-bottom:5px;'>{stripped[4:]}</h4>")
+                            elif stripped.startswith('## '):
+                                if in_ul: html_lines.append("</ul>"); in_ul = False
+                                html_lines.append(f"<h3 style='color:#2c3e50; border-bottom:1px solid #ecf0f1; padding-bottom:5px; margin-top:20px;'>{stripped[3:]}</h3>")
+                            elif stripped.startswith('# '):
+                                if in_ul: html_lines.append("</ul>"); in_ul = False
+                                html_lines.append(f"<h2 style='color:#2980b9; margin-top:20px;'>{stripped[2:]}</h2>")
+                            # Unordered Lists
+                            elif stripped.startswith('- ') or stripped.startswith('* '):
+                                if not in_ul: html_lines.append("<ul style='margin-top:5px; padding-left:20px;'>"); in_ul = True
+                                html_lines.append(f"<li style='margin-bottom:8px;'>{stripped[2:]}</li>")
+                            # Ordered Lists
+                            elif re.match(r'^\d+\.\s', stripped):
+                                if not in_ul: html_lines.append("<ul style='margin-top:5px; padding-left:20px; list-style-type:decimal;'>"); in_ul = True
+                                content = re.sub(r'^\d+\.\s', '', stripped)
+                                html_lines.append(f"<li style='margin-bottom:8px;'>{content}</li>")
+                            # Standard Paragraphs
+                            else:
+                                if in_ul: html_lines.append("</ul>"); in_ul = False
+                                html_lines.append(f"<p style='margin-top:0; margin-bottom:10px; line-height:1.6;'>{stripped}</p>")
+                                
+                        if in_ul: html_lines.append("</ul>")
+                        return "".join(html_lines)
                     
-                    # Format the markdown output into an email-friendly HTML body
+                    formatted_content = md_to_html(rep)
+                    
+                    # Format the final HTML body with inline CSS for Outlook/Gmail support
                     html_body = f"""
-                    <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
-                        <h2 style='color:#2c3e50;'>Executive Threat Matrix & Scoring Overview</h2>
-                        <div style="background-color: #f8f9fa; padding: 15px; border-left: 4px solid #2980b9; line-height: 1.6;">
-                            {rep.replace(chr(10), '<br>')}
+                    <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; color: #333;">
+                        <div style="background-color: #f8f9fa; padding: 25px; border-radius: 8px; border-left: 5px solid #2980b9;">
+                            {formatted_content}
                         </div>
+                        <p style="text-align: center; color: #7f8c8d; font-size: 12px; margin-top: 20px;">Generated dynamically by NOC Intelligence Fusion Center</p>
                     </div>
                     """
                     
