@@ -530,31 +530,50 @@ if page == "👁️ Global Dashboards":
         target_email = col_email.text_input("Recipient Email Address", value=default_email, label_visibility="collapsed")
         
         can_dispatch = "Action: Dispatch Exec Report" in st.session_state.allowed_actions
-        if col_btn.button("📧 Send Outlook HTML Report", width='stretch', type="primary", disabled=not can_dispatch):
+        if col_btn.button("📧 Send AI Scoring Report", width='stretch', type="primary", disabled=not can_dispatch):
             if target_email:
-                with st.spinner("Compiling and transmitting..."):
-                    success, msg = svc.send_executive_report(target_email, intel, sys_config)
+                with st.spinner("Generating AI Analysis and Transmitting..."):
+                    from src.llm import generate_dynamic_scoring_report
+                    from src.mailer import send_alert_email
+                    
+                    # Generate the LLM report if it hasn't been triggered in the UI yet
+                    rep = st.session_state.get("scored_overview")
+                    if not rep:
+                        rep = generate_dynamic_scoring_report(svc.SessionLocal())
+                        st.session_state.scored_overview = rep
+                    
+                    # Format the markdown output into an email-friendly HTML body
+                    html_body = f"""
+                    <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
+                        <h2 style='color:#2c3e50;'>Executive Threat Matrix & Scoring Overview</h2>
+                        <div style="background-color: #f8f9fa; padding: 15px; border-left: 4px solid #2980b9; line-height: 1.6;">
+                            {rep.replace(chr(10), '<br>')}
+                        </div>
+                    </div>
+                    """
+                    
+                    success, msg = send_alert_email("Executive Threat Matrix & Scoring Overview", html_body, recipient_override=target_email, is_html=True)
                     if success: st.success(f"Report dispatched to {target_email}")
-                    else: st.error(msg)
+                    else: st.error(f"SMTP Error: {msg}")
             else:
                 st.warning("Please enter a recipient email address.")
 
         st.divider()
-            st.subheader("📊 Dynamic Scoring Overview")
-            st.caption("On-demand synthesis of all live telemetry detailing the reasoning behind threat scores.")
-            
-            c_score_btn, c_score_space = st.columns([1, 3])
-            is_scoring_cooling = check_cooldown("ai_scoring_report", 60)
-            if c_score_btn.button("⏳ Generating..." if is_scoring_cooling else "🔄 Generate Scoring Rationale", disabled=not can_trigger_ai or is_scoring_cooling, width="stretch", type="primary"):
-                apply_cooldown("ai_scoring_report")
-                with st.spinner("Analyzing threat weights and compiling scoring rationale..."):
-                    from src.llm import generate_dynamic_scoring_report
-                    rep = generate_dynamic_scoring_report(svc.SessionLocal())
-                    st.session_state.scored_overview = rep
-            
-            if "scored_overview" in st.session_state:
-                with st.container(border=True):
-                    st.markdown(st.session_state.scored_overview)
+        st.subheader("📊 Dynamic Scoring Overview")
+        st.caption("On-demand synthesis of all live telemetry detailing the reasoning behind threat scores.")
+        
+        c_score_btn, c_score_space = st.columns([1, 3])
+        is_scoring_cooling = check_cooldown("ai_scoring_report", 60)
+        if c_score_btn.button("⏳ Generating..." if is_scoring_cooling else "🔄 Generate Scoring Rationale", disabled=not can_trigger_ai or is_scoring_cooling, width="stretch", type="primary"):
+            apply_cooldown("ai_scoring_report")
+            with st.spinner("Analyzing threat weights and compiling scoring rationale..."):
+                from src.llm import generate_dynamic_scoring_report
+                rep = generate_dynamic_scoring_report(svc.SessionLocal())
+                st.session_state.scored_overview = rep
+        
+        if "scored_overview" in st.session_state:
+            with st.container(border=True):
+                st.markdown(st.session_state.scored_overview)
 # ================= 2. THREAT TELEMETRY =================
 elif page == "📡 Threat Telemetry":
     st.title("📡 Unified Threat Telemetry")
@@ -1416,11 +1435,37 @@ elif page == "📝 Shift Logbook":
     # --- MODAL POP-OUT DEFINITION ---
     @st.dialog("Shift Log Details")
     def open_log_modal(log_entry):
+        is_del = getattr(log_entry, 'is_deleted', False)
+        if is_del: 
+            st.error("⚠️ THIS LOG HAS BEEN SOFT-DELETED AND OMITTED FROM SUMMARIES.")
+            
         st.markdown(f"**Analyst:** {log_entry.analyst} | **Role:** {log_entry.author_role.upper()}")
         st.markdown(f"**Date:** {format_local_time(log_entry.created_at)}")
         st.markdown(f"**Shift:** {log_entry.shift_period}")
         st.divider()
         st.markdown(log_entry.content)
+        
+        # Soft Delete / Restore Controls for Admins
+        if st.session_state.current_role == "admin":
+            st.divider()
+            if not is_del:
+                if st.button("🗑️ Soft Delete Log", type="primary", use_container_width=True):
+                    with svc.SessionLocal() as session:
+                        from src.database import ShiftLogEntry
+                        db_log = session.query(ShiftLogEntry).get(log_entry.id)
+                        if db_log:
+                            db_log.is_deleted = True
+                            session.commit()
+                    st.rerun()
+            else:
+                if st.button("♻️ Restore Log", use_container_width=True):
+                    with svc.SessionLocal() as session:
+                        from src.database import ShiftLogEntry
+                        db_log = session.query(ShiftLogEntry).get(log_entry.id)
+                        if db_log:
+                            db_log.is_deleted = False
+                            session.commit()
+                    st.rerun()
     
     # --- 1. NEW INCIDENT ENTRY FORM ---
     st.subheader("🟢 Log Active Incident / Update")
@@ -1441,7 +1486,6 @@ elif page == "📝 Shift Logbook":
                 lines = []
                 for site, data in incidents.items():
                     p0 = data['patient_zero']
-                    # Calculate duration from when patient zero fired to right now
                     duration = datetime.utcnow() - p0.received_at
                     hours, remainder = divmod(int(duration.total_seconds()), 3600)
                     mins, _ = divmod(remainder, 60)
@@ -1486,14 +1530,14 @@ elif page == "📝 Shift Logbook":
             today_start = datetime.now(LOCAL_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
             today_end = today_start + timedelta(days=1)
             
-            # Convert LOCAL_TZ bounds to UTC for accurate DB querying
             utc_start = today_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
             utc_end = today_end.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
             
-            shift_logs = [l for l in svc.get_shift_logs(st.session_state.current_role, utc_start, utc_end) if l.shift_period == sum_shift]
+            # --- FILTER OUT DELETED LOGS ---
+            shift_logs = [l for l in svc.get_shift_logs(st.session_state.current_role, utc_start, utc_end) if l.shift_period == sum_shift and not getattr(l, 'is_deleted', False)]
             
             if not shift_logs:
-                st.warning(f"No incidents logged for the {sum_shift} shift today.")
+                st.warning(f"No active incidents logged for the {sum_shift} shift today.")
             else:
                 log_text = "\n".join([f"[{format_local_time(l.created_at)}] {l.analyst}: {l.content}" for l in shift_logs])
                 sys_prompt = f"You are a NOC Shift Supervisor. Read the following chronologically ordered running log for the '{sum_shift}' shift. Write a concise, professional 2-3 paragraph Shift Handoff Summary combining the key incidents, ongoing outages, and resolutions. Do NOT use pleasantries. Format with markdown."
@@ -1512,7 +1556,6 @@ elif page == "📝 Shift Logbook":
     # --- 3. LOG EXPLORER & CALENDAR ---
     st.subheader("📚 Shift Log Explorer")
     
-    # Initialize Session State Variables
     if "log_view_mode" not in st.session_state: st.session_state.log_view_mode = "Day View"
     if "selected_log_date" not in st.session_state: st.session_state.selected_log_date = datetime.now(LOCAL_TZ).date()
         
@@ -1544,12 +1587,13 @@ elif page == "📝 Shift Logbook":
         dt_start = datetime.combine(st.session_state.selected_log_date, datetime.min.time()).replace(tzinfo=LOCAL_TZ).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
         dt_end = dt_start + timedelta(days=1)
         
-        day_logs = svc.get_shift_logs(st.session_state.current_role, dt_start, dt_end)
+        raw_day_logs = svc.get_shift_logs(st.session_state.current_role, dt_start, dt_end)
+        # --- FILTER DELETED LOGS (Admins can still see them) ---
+        day_logs = [l for l in raw_day_logs if not getattr(l, 'is_deleted', False) or st.session_state.current_role == "admin"]
         
         if not day_logs:
-            st.info(f"No shift logs recorded for {st.session_state.selected_log_date.strftime('%m/%d/%Y')}.")
+            st.info(f"No active shift logs recorded for {st.session_state.selected_log_date.strftime('%m/%d/%Y')}.")
         else:
-            # --- TABLE HEADER ---
             ch1, ch2, ch3, ch4, ch5 = st.columns([1.2, 1, 1.5, 6, 1.2])
             ch1.markdown("**Time**")
             ch2.markdown("**Shift**")
@@ -1558,8 +1602,8 @@ elif page == "📝 Shift Logbook":
             ch5.markdown("**Action**")
             st.divider()
 
-            # --- TABLE ROWS ---
             for l in day_logs:
+                is_del = getattr(l, 'is_deleted', False)
                 local_time = format_local_time(l.created_at).split(' ')[1]
                 shift_abbr = "Morning" if "Morning" in l.shift_period else "Evening"
                 preview_text = l.content.replace('\n', ' ')
@@ -1569,15 +1613,17 @@ elif page == "📝 Shift Logbook":
                 c2.caption(shift_abbr)
                 c3.caption(l.analyst)
                 
-                # Show up to 250 characters of the log natively in the table to maximize visibility
                 display_msg = preview_text[:250] + "..." if len(preview_text) > 250 else preview_text
+                
+                # --- STRIKETHROUGH FOR DELETED LOGS (Admins only) ---
+                if is_del:
+                    display_msg = f"<span style='color: #dc3545;'><s>{display_msg}</s> (DELETED)</span>"
+                    
                 c4.markdown(f"<span style='font-size: 0.9rem;'>{display_msg}</span>", unsafe_allow_html=True)
                 
-                # Dedicated button to trigger the modal pop-out
                 if c5.button("📄 Expand", key=f"btn_day_{l.id}", use_container_width=True):
                     open_log_modal(l)
                     
-                # Subtle divider between rows
                 st.markdown("<hr style='margin: 0.3rem 0; opacity: 0.3;'/>", unsafe_allow_html=True)
                     
     # ================= WEEK VIEW =================
@@ -1611,7 +1657,8 @@ elif page == "📝 Shift Logbook":
                     st.session_state.log_view_mode = "Day View"
                     safe_rerun()
                 
-                day_logs = [l for l in week_logs if l.created_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ).date() == current_day_date]
+                # --- FILTER DELETED LOGS ON WEEK VIEW ---
+                day_logs = [l for l in week_logs if l.created_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ).date() == current_day_date and (not getattr(l, 'is_deleted', False) or st.session_state.current_role == "admin")]
                 
                 if not day_logs:
                     st.caption("<div style='text-align: center; color: gray;'>No entries</div>", unsafe_allow_html=True)
@@ -1620,7 +1667,6 @@ elif page == "📝 Shift Logbook":
                         shift_abbr = "Morn" if "Morning" in l.shift_period else "Eve"
                         local_time = format_local_time(l.created_at).split(' ')[1]
                         
-                        # MODAL TRIGGER FOR CALENDAR VIEW
                         if st.button(f"{local_time} | {shift_abbr}", key=f"btn_wk_{l.id}", help="Click to read full log", use_container_width=True):
                             open_log_modal(l)
 
@@ -1639,10 +1685,10 @@ elif page == "📝 Shift Logbook":
         dt_start_exp = datetime.combine(exp_start, datetime.min.time()).replace(tzinfo=LOCAL_TZ).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
         dt_end_exp = datetime.combine(exp_end, datetime.min.time()).replace(tzinfo=LOCAL_TZ).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
         
-        exp_logs = svc.get_shift_logs(exp_role, dt_start_exp, dt_end_exp)
+        # --- EXCLUDE DELETED LOGS FROM CSV EXPORT ---
+        exp_logs = [l for l in svc.get_shift_logs(exp_role, dt_start_exp, dt_end_exp) if not getattr(l, 'is_deleted', False)]
         
         if exp_logs:
-            # Flatten log data into a clean structure for CSV mapping
             export_data = pd.DataFrame([{
                 "Local_Time": format_local_time(l.created_at),
                 "Analyst": l.analyst, 
@@ -1661,7 +1707,6 @@ elif page == "📝 Shift Logbook":
             )
         else:
             st.info("No logs match the current export criteria.")
-
 # ================= 5. REPORTING & BRIEFINGS =================
 elif page == "📑 Reporting & Briefings":
     st.title("📑 Intelligence Reporting & Briefings")
