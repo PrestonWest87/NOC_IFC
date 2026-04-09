@@ -283,7 +283,7 @@ def generate_rolling_summary(session):
 
 def generate_dynamic_scoring_report(session, intel):
     """Generates an expansive intelligence brief without calculating or justifying scores."""
-    from src.database import CloudOutage, CveItem
+    from src.database import CveItem
     from datetime import datetime, timedelta
     
     config = get_llm_config(session)
@@ -293,11 +293,10 @@ def generate_dynamic_scoring_report(session, intel):
     arts = intel.get('raw_cyber_articles', []) + intel.get('raw_phys_articles', [])
     crimes = intel.get('recent_crimes', [])
     
-    # Grab the active clouds and recent CVEs so the LLM can write about them
-    active_clouds = session.query(CloudOutage).filter_by(is_resolved=False).all()
+    # Grab the recent CVEs so the LLM can write about them
     recent_cves = session.query(CveItem).filter(CveItem.date_added >= t48).limit(15).all()
     
-    if not arts and not crimes and not active_clouds:
+    if not arts and not crimes and not recent_cves:
         return "No active intelligence to brief at this time."
 
     # ==========================================
@@ -314,13 +313,12 @@ def generate_dynamic_scoring_report(session, intel):
     else: cyber_digest = "No active OSINT intelligence to report."
 
     # ==========================================
-    # INFRASTRUCTURE CONTEXT (Crimes, Clouds, CVEs)
+    # INFRASTRUCTURE CONTEXT (Crimes, CVEs)
     # ==========================================
     crimes_context = "\n".join([f"- FBI Class: {c.get('fbi_category', 'Unknown')} | {c['raw_title']} ({c['distance_miles']} mi from HQ)" for c in crimes[:15]]) if crimes else "No active perimeter crime incidents."
-    clouds_context = "\n".join([f"- {c.provider} ({c.service}): {c.title}" for c in active_clouds]) if active_clouds else "No active Cloud Service Outages."
     cve_context = "\n".join([f"- CVE: {c.cve_id} ({c.vendor}): {c.vulnerability_name}" for c in recent_cves]) if recent_cves else "No major CVEs in 48h."
 
-    compiled_intel = f"--- CYBER INTELLIGENCE DIGEST (48H) ---\n{cyber_digest}\n\n--- CISA VULNERABILITIES (48H) ---\n{cve_context}\n\n--- ACTIVE TIER-1 CLOUD OUTAGES ---\n{clouds_context}\n\n--- ACTIVE PERIMETER INCIDENTS (24H - HQ ONLY) ---\n{crimes_context}"
+    compiled_intel = f"--- CYBER INTELLIGENCE DIGEST (48H) ---\n{cyber_digest}\n\n--- CISA VULNERABILITIES (48H) ---\n{cve_context}\n\n--- ACTIVE PERIMETER INCIDENTS (24H - HQ ONLY) ---\n{crimes_context}"
 
     # ==========================================
     # TIER 2: THE MASTER FUSION BRIEFER
@@ -338,7 +336,7 @@ def generate_dynamic_scoring_report(session, intel):
     Structure your response in Markdown with these EXACT headers:
     
     ## 🛡️ Cyber Intelligence Brief
-    [Write long, expansive paragraphs detailing the specific cyber threats, their reporting SOURCES, identified threat actors, CISA vulnerabilities, and Cloud Outages. Group similar threats together to tell a flowing story of the digital landscape.]
+    [Write long, expansive paragraphs detailing the specific cyber threats, their reporting SOURCES, identified threat actors, and CISA vulnerabilities. Group similar threats together to tell a flowing story of the digital landscape.]
     
     ## ⚡ Physical & Perimeter Security Brief
     [Write long, expansive paragraphs breaking down the perimeter incidents (explicitly using the FBI UCR definitions provided) and severe weather hazards. Explain their specific proximity risk to the Headquarters facility and personnel.]
