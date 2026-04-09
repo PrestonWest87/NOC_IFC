@@ -1643,7 +1643,7 @@ elif page == "📝 Shift Logbook":
     if c_sum2.button("🤖 Generate Shift Handoff", width="stretch", type="primary", disabled=not ai_enabled):
         with st.spinner("Synthesizing the running log into a master handoff..."):
             today_start = datetime.now(LOCAL_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
-            today_end = today_start + timedelta(days=1)
+            today_end = today_start 
             
             utc_start = today_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
             utc_end = today_end.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
@@ -1700,9 +1700,13 @@ elif page == "📝 Shift Logbook":
         st.markdown(f"<h4 style='text-align: center;'>Logs for {st.session_state.selected_log_date.strftime('%A, %B %d, %Y')}</h4>", unsafe_allow_html=True)
         
         dt_start = datetime.combine(st.session_state.selected_log_date, datetime.min.time()).replace(tzinfo=LOCAL_TZ).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
-        dt_end = dt_start + timedelta(days=1)
+        
+        # FIX: Set dt_end exactly to dt_start. 
+        # The backend (services.py) will automatically pad this by exactly 24 hours.
+        dt_end = dt_start 
         
         raw_day_logs = svc.get_shift_logs(st.session_state.current_role, dt_start, dt_end)
+        
         # --- FILTER DELETED LOGS (Admins can still see them) ---
         day_logs = [l for l in raw_day_logs if not getattr(l, 'is_deleted', False) or st.session_state.current_role == "admin"]
         
