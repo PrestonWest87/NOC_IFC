@@ -308,7 +308,7 @@ def save_threat_score(c_pts, p_pts, c_base, p_base):
 
 
 def get_executive_grid_intel(active_warn_count, recent_crimes):
-    """Synthesizes LIVE OSINT and telemetry using the CIS Alert Level Framework."""
+    """Synthesizes LIVE OSINT and telemetry using the CIS Alert Level Framework and FBI UCR Taxonomy."""
     from src.database import SessionLocal, Article
     from datetime import datetime, timedelta
     
@@ -377,43 +377,54 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
                 ics_advisories.append({"title": art.title, "link": art.link, "published": art.published_date.strftime("%Y-%m-%d"), "is_critical": is_critical, "is_kev": is_kev})
 
     # ==========================================
-    # CIS-ALIGNED SCORING ALGORITHM
+    # CIS-ALIGNED & FBI UCR SCORING ALGORITHM
     # ==========================================
     
-    # --- CYBER SCORING ---
-    cyber_points = 0 # Retained for baseline graphing
-    critical_ics = [a for a in ics_advisories if a['is_critical']]
-    kev_ics = [a for a in ics_advisories if a['is_kev']]
-    
-    cyber_points += len(critical_ics) * 15
-    cyber_points += len(kev_ics) * 50  
-    cyber_points += (len(ics_advisories) - len(critical_ics) - len(kev_ics)) * 5
-    
+    # --- CYBER SCORING (COMPREHENSIVE ITEM-BY-ITEM EVALUATION) ---
+    cyber_points = 0 # Baseline deviation tracker
+    all_cis_scores = []
+
+    # Evaluate EVERY ICS/KEV Advisory
+    for adv in ics_advisories:
+        c, l, s, n = 3, 2, 3, 4
+        if adv['is_kev']: 
+            c, l, s = 5, 5, 1
+            cyber_points += 50
+        elif adv['is_critical']: 
+            c, l = 5, 4
+            cyber_points += 15
+        else:
+            cyber_points += 5
+        all_cis_scores.append((c + l) - (s + n))
+
+    # Evaluate EVERY Cyber Intelligence Article
     osint_cyber_pts = 0
     for art in pure_cyber_articles:
+        c, l, s, n = 3, 2, 3, 4
         pts = 5
-        if getattr(art, 'is_utility_related', False): pts *= 2 
-        if getattr(art, 'is_ransomware', False): pts += 10 
-        if getattr(art, 'is_apt_related', False): pts *= 4 
-        osint_cyber_pts += pts
-    cyber_points += min(osint_cyber_pts, 40) 
-
-    # >> CIS FORMULA INJECTION <<
-    lethality = 2    # Default: No known exploit, user access
-    criticality = 3  # Default: Less critical systems
-    sys_counter = 3  # Default: Current OS, patched, AV
-    net_counter = 4  # Default: Restrictive firewall
-    
-    if kev_ics:
-        lethality, criticality, sys_counter = 5, 5, 1 # Active KEV bypasses defenses
-    elif critical_ics:
-        lethality, criticality = 4, 5
-    elif any(getattr(a, 'is_ransomware', False) for a in pure_cyber_articles):
-        lethality, criticality, sys_counter = 5, 4, 2
-    elif any(getattr(a, 'is_apt_related', False) for a in pure_cyber_articles):
-        lethality, criticality = 4, 5
         
-    cis_cyber_score = (criticality + lethality) - (sys_counter + net_counter)
+        if getattr(art, 'is_ransomware', False): 
+            c, l, s = 4, 5, 2
+            pts += 10
+        elif getattr(art, 'is_apt_related', False): 
+            c, l = 5, 4
+            pts *= 4
+        elif getattr(art, 'is_utility_related', False): 
+            c = 4
+            pts *= 2
+            
+        osint_cyber_pts += pts
+        all_cis_scores.append((c + l) - (s + n))
+        
+    cyber_points += min(osint_cyber_pts, 40)
+
+    # Calculate Average of the Top 5 threats to prevent dilution
+    if all_cis_scores:
+        all_cis_scores.sort(reverse=True)
+        top_scores = all_cis_scores[:5]
+        cis_cyber_score = round(sum(top_scores) / len(top_scores))
+    else:
+        cis_cyber_score = -5 # Default Green
 
     # CIS Scale Mapping
     if cis_cyber_score >= 6: cyber_score = "RED"
@@ -422,12 +433,12 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     elif cis_cyber_score >= -4: cyber_score = "BLUE"
     else: cyber_score = "GREEN"
         
-    cyber_brief = f"**CIS Severity Score: {cis_cyber_score}** | Tracking {len(pure_cyber_articles)} OSINT threats (48h). "
-    if kev_ics: cyber_brief += f"🚨 CISA KEV Match: {len(kev_ics)} actively exploited grid vulns. "
-    elif ics_advisories: cyber_brief += f"{len(ics_advisories)} ICS advisories ({len(critical_ics)} critical vendors). "
+    cyber_brief = f"**CIS Aggregate Score: {cis_cyber_score}** | Tracking {len(pure_cyber_articles)} OSINT threats (48h). "
+    if kev_ics := [a for a in ics_advisories if a['is_kev']]: cyber_brief += f"🚨 CISA KEV Match: {len(kev_ics)} actively exploited grid vulns. "
+    elif ics_advisories: cyber_brief += f"{len(ics_advisories)} ICS advisories. "
     if pure_cyber_articles: cyber_brief += f"Top Concern: '{pure_cyber_articles[0].title}'."
     
-    # --- PHYSICAL SCORING (FBI UCR TAXONOMY) ---
+    # --- PHYSICAL SCORING (HIGH-CRIME URBAN ADJUSTMENT) ---
     physical_points = 0
     crimes_persons = []
     crimes_property = []
@@ -437,33 +448,30 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     for c in recent_crimes:
         title_cat = (str(c.get('raw_title', '')) + " " + str(c.get('category', ''))).lower()
         
-        # 1. Crimes Against Persons (Highest Risk to HQ Staff)
         if any(x in title_cat for x in ['assault', 'shoot', 'homicide', 'murder', 'violent', 'robbery', 'kidnap', 'battery', 'weapon', 'gun', 'person']):
             c['fbi_category'] = "Crimes Against Persons"
             crimes_persons.append(c)
-        # 2. Crimes Against Property (High Risk to HQ Assets/Grid)
         elif any(x in title_cat for x in ['vandalism', 'theft', 'burglary', 'arson', 'property', 'copper', 'breach', 'damage', 'stolen']):
             c['fbi_category'] = "Crimes Against Property"
             crimes_property.append(c)
-        # 3. Crimes Against Society (Moderate Risk / Environmental Degradation)
         else:
             c['fbi_category'] = "Crimes Against Society"
             crimes_society.append(c)
             
-    # Apply weighted risk scoring targeting Headquarters vulnerabilities
-    physical_points += len(crimes_persons) * 25
-    physical_points += len(crimes_property) * 15
-    physical_points += len(crimes_society) * 5
+    # Heavily dampened multipliers for urban baseline
+    physical_points += len(crimes_persons) * 10
+    physical_points += len(crimes_property) * 5
+    physical_points += len(crimes_society) * 1
     
-    osint_phys_pts = min(sum([15 if art.score >= 80 else 5 for art in pure_phys_articles]), 30)
+    osint_phys_pts = min(sum([10 if art.score >= 80 else 2 for art in pure_phys_articles]), 20)
     physical_points += osint_phys_pts 
-    physical_points += min((active_warn_count * 1.5), 20) 
+    physical_points += min((active_warn_count * 1.5), 15) 
     
-    # Map physical deviation to 5-tier CIS/Threat terminology
-    if physical_points >= (baseline_phys * 3.0) or len(crimes_persons) >= 2 or len(crimes_property) >= 3: physical_score = "RED"
-    elif physical_points >= (baseline_phys * 2.0) or len(crimes_persons) >= 1 or len(crimes_property) >= 2: physical_score = "ORANGE"
-    elif physical_points >= (baseline_phys * 1.3): physical_score = "YELLOW"
-    elif physical_points >= (baseline_phys * 1.0): physical_score = "BLUE"
+    # Relaxed Thresholds: Requires sustained/multiple severe events to trigger high alerts
+    if physical_points >= (baseline_phys * 4.0) or len(crimes_persons) >= 5 or len(crimes_property) >= 10: physical_score = "RED"
+    elif physical_points >= (baseline_phys * 3.0) or len(crimes_persons) >= 3 or len(crimes_property) >= 6: physical_score = "ORANGE"
+    elif physical_points >= (baseline_phys * 1.8): physical_score = "YELLOW"
+    elif physical_points >= (baseline_phys * 1.2): physical_score = "BLUE"
     else: physical_score = "GREEN"
         
     physical_brief = f"**HQ Perimeter (24h):** {len(recent_crimes)} total incidents. "
