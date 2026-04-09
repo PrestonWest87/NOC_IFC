@@ -541,7 +541,31 @@ if page == "👁️ Global Dashboards":
                     for src in cyber_sources[:15]:
                         tag = "⚠️ APT" if getattr(src, 'is_apt_related', False) else "💸 Ransomware" if getattr(src, 'is_ransomware', False) else ""
                         st.markdown(f"- **{tag}** [{src.title}]({src.link}) <small>({src.source})</small>", unsafe_allow_html=True)
+        st.divider()
+        st.subheader("📊 Dynamic Scoring Overview")
+        st.caption("AI-generated synthesis of all live telemetry detailing the exact reasoning behind the current threat score.")
+        
+        c_score_btn, c_score_space = st.columns([1, 3])
+        is_scoring_cooling = check_cooldown("ai_scoring_report", 60)
+        
+        # Generator Button explicitly tied to the current intel object
+        if c_score_btn.button("⏳ Generating..." if is_scoring_cooling else "🔄 Generate Scoring Rationale", disabled=not can_trigger_ai or is_scoring_cooling, width="stretch", type="primary"):
+            apply_cooldown("ai_scoring_report")
+            with st.spinner("Analyzing threat weights and compiling expansive scoring rationale..."):
+                from src.llm import generate_dynamic_scoring_report
+                rep = generate_dynamic_scoring_report(svc.SessionLocal(), intel)
+                st.session_state.scored_overview = rep
+                st.session_state.scored_overview_risk = intel['unified_risk']
+        
+        # Render the report persistently if it exists in session state
+        if "scored_overview" in st.session_state:
+            # Check if the matrix has shifted (e.g. Yellow -> Orange) since the text was generated
+            if st.session_state.get("scored_overview_risk") != intel['unified_risk']:
+                st.warning(f"⚠️ The Executive Threat Matrix posture has shifted to **{intel['unified_risk']}** since this rationale was generated. Please regenerate the report to reflect the latest telemetry.")
             
+            with st.container(border=True):
+                st.markdown(st.session_state.scored_overview)
+                
         st.divider()
         st.subheader("📤 Dispatch Intelligence Report")
         col_email, col_btn = st.columns([3, 1])
@@ -558,14 +582,14 @@ if page == "👁️ Global Dashboards":
                     
                     # Generate the LLM report if it hasn't been triggered in the UI yet
                     rep = st.session_state.get("scored_overview")
-                    if not rep:
-                        rep = generate_dynamic_scoring_report(svc.SessionLocal())
+                    if not rep or st.session_state.get("scored_overview_risk") != intel['unified_risk']:
+                        rep = generate_dynamic_scoring_report(svc.SessionLocal(), intel)
                         st.session_state.scored_overview = rep
+                        st.session_state.scored_overview_risk = intel['unified_risk']
                         
                     # --- NATIVE MARKDOWN TO HTML CONVERTER ---
-                    # Ensures email clients render the headers, bolding, and bullet points perfectly
                     def md_to_html(md):
-                        md = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', md) # Convert Bold
+                        md = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', md) 
                         lines = md.split('\n')
                         html_lines = []
                         in_ul = False
@@ -577,7 +601,6 @@ if page == "👁️ Global Dashboards":
                                 html_lines.append("<br>")
                                 continue
                                 
-                            # Headers
                             if stripped.startswith('### '):
                                 if in_ul: html_lines.append("</ul>"); in_ul = False
                                 html_lines.append(f"<h4 style='color:#34495e; margin-top:15px; margin-bottom:5px;'>{stripped[4:]}</h4>")
@@ -587,16 +610,13 @@ if page == "👁️ Global Dashboards":
                             elif stripped.startswith('# '):
                                 if in_ul: html_lines.append("</ul>"); in_ul = False
                                 html_lines.append(f"<h2 style='color:#2980b9; margin-top:20px;'>{stripped[2:]}</h2>")
-                            # Unordered Lists
                             elif stripped.startswith('- ') or stripped.startswith('* '):
                                 if not in_ul: html_lines.append("<ul style='margin-top:5px; padding-left:20px;'>"); in_ul = True
                                 html_lines.append(f"<li style='margin-bottom:8px;'>{stripped[2:]}</li>")
-                            # Ordered Lists
                             elif re.match(r'^\d+\.\s', stripped):
                                 if not in_ul: html_lines.append("<ul style='margin-top:5px; padding-left:20px; list-style-type:decimal;'>"); in_ul = True
                                 content = re.sub(r'^\d+\.\s', '', stripped)
                                 html_lines.append(f"<li style='margin-bottom:8px;'>{content}</li>")
-                            # Standard Paragraphs
                             else:
                                 if in_ul: html_lines.append("</ul>"); in_ul = False
                                 html_lines.append(f"<p style='margin-top:0; margin-bottom:10px; line-height:1.6;'>{stripped}</p>")
@@ -606,7 +626,6 @@ if page == "👁️ Global Dashboards":
                     
                     formatted_content = md_to_html(rep)
                     
-                    # Format the final HTML body with inline CSS for Outlook/Gmail support
                     html_body = f"""
                     <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; color: #333;">
                         <div style="background-color: #f8f9fa; padding: 25px; border-radius: 8px; border-left: 5px solid #2980b9;">
@@ -616,28 +635,13 @@ if page == "👁️ Global Dashboards":
                     </div>
                     """
                     
-                    success, msg = send_alert_email("Executive Threat Matrix & Scoring Overview", html_body, recipient_override=target_email, is_html=True)
+                    success, msg = send_alert_email(f"Executive Threat Posture: {intel['unified_risk']}", html_body, recipient_override=target_email, is_html=True)
                     if success: st.success(f"Report dispatched to {target_email}")
                     else: st.error(f"SMTP Error: {msg}")
             else:
                 st.warning("Please enter a recipient email address.")
 
-        st.divider()
-        st.subheader("📊 Dynamic Scoring Overview")
-        st.caption("On-demand synthesis of all live telemetry detailing the reasoning behind threat scores.")
         
-        c_score_btn, c_score_space = st.columns([1, 3])
-        is_scoring_cooling = check_cooldown("ai_scoring_report", 60)
-        if c_score_btn.button("⏳ Generating..." if is_scoring_cooling else "🔄 Generate Scoring Rationale", disabled=not can_trigger_ai or is_scoring_cooling, width="stretch", type="primary"):
-            apply_cooldown("ai_scoring_report")
-            with st.spinner("Analyzing threat weights and compiling scoring rationale..."):
-                from src.llm import generate_dynamic_scoring_report
-                rep = generate_dynamic_scoring_report(svc.SessionLocal())
-                st.session_state.scored_overview = rep
-        
-        if "scored_overview" in st.session_state:
-            with st.container(border=True):
-                st.markdown(st.session_state.scored_overview)
 # ================= 2. THREAT TELEMETRY =================
 elif page == "📡 Threat Telemetry":
     st.title("📡 Unified Threat Telemetry")
