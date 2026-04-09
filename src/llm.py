@@ -282,14 +282,12 @@ def generate_rolling_summary(session):
     return response.strip() if response else "Generation failed."
 
 def generate_dynamic_scoring_report(session, intel):
-    """Generates a dynamic fusion overview explicitly anchored to the pre-calculated CIS Alert Level."""
+    """Generates a dynamic fusion overview explicitly anchored to the CIS Alert Level and FBI Crime Taxonomy."""
     config = get_llm_config(session)
     if not config: return None
     
-    # Inherit the exact data and timescale natively calculated by the Executive Matrix
     arts = intel.get('raw_cyber_articles', []) + intel.get('raw_phys_articles', [])
     crimes = intel.get('recent_crimes', [])
-    
     target_risk = intel.get('unified_risk', 'UNKNOWN')
     target_cis_score = intel.get('cis_cyber_score', 0)
     
@@ -302,52 +300,49 @@ def generate_dynamic_scoring_report(session, intel):
     if arts:
         map_p = "You are a CTI Analyst. Extract the core threats, vulnerabilities, threat actors, and their reporting SOURCES from these intelligence items. Output concise bullet points."
         reduce_p = "Combine these batch extractions into a single, comprehensive intelligence digest. Ensure ALL unique threats, vulnerabilities, and their reporting SOURCES are preserved."
-        
         cyber_digest = _map_reduce_summarize(
-            arts[:25], # Cap at 25 to prevent context overflow while maintaining broad sourcing
+            arts[:25], 
             lambda a: f"Source: {a.source or 'OSINT'} | Category: {a.category} | Title: {a.title} | {truncate_text(a.summary, 300)}", 
             map_p, reduce_p, config, chunk_size=8
         )
-    else:
-        cyber_digest = "No active intelligence to report."
+    else: cyber_digest = "No active intelligence to report."
 
     # ==========================================
-    # PHYSICAL & CRIME CONTEXT
+    # PHYSICAL & CRIME CONTEXT (FBI ALIGNED)
     # ==========================================
-    crimes_context = "\n".join([f"- Severity: {c['severity']} | Category: {c['category']} | {c['raw_title']} ({c['distance_miles']} mi from grid)" for c in crimes[:15]]) if crimes else "No active perimeter crime incidents."
+    # Injecting the newly calculated fbi_category directly into the LLM's vision
+    crimes_context = "\n".join([f"- FBI Class: {c.get('fbi_category', 'Unknown')} | {c['raw_title']} ({c['distance_miles']} mi from HQ)" for c in crimes[:15]]) if crimes else "No active perimeter crime incidents."
 
-    compiled_intel = f"--- COMPREHENSIVE INTELLIGENCE DIGEST (48H) ---\n{cyber_digest}\n\n--- ACTIVE PERIMETER CRIME & SECURITY INCIDENTS (24H) ---\n{crimes_context}"
+    compiled_intel = f"--- COMPREHENSIVE INTELLIGENCE DIGEST (48H) ---\n{cyber_digest}\n\n--- ACTIVE PERIMETER INCIDENTS (24H - HQ ONLY) ---\n{crimes_context}"
 
     # ==========================================
-    # TIER 2: THE MASTER CIS EDITOR
+    # TIER 2: THE MASTER FUSION EDITOR
     # ==========================================
     master_sys_prompt = f"""You are a Senior Threat Intelligence Assessor for a NOC Executive Dashboard.
     Write an expansive, highly detailed 'Dynamic Fusion & Scoring Overview' based on the provided intelligence digest.
     
     CRITICAL DIRECTIVE: The system has mathematically calculated the OVERALL CIS ALERT LEVEL as **{target_risk}**. The cyber-specific CIS severity score is **{target_cis_score}**.
-    You MUST justify and align your narrative to this EXACT score. Do NOT declare a different Alert Level (e.g., if the system says YELLOW, you must conclude YELLOW).
+    You MUST justify and align your narrative to this EXACT score. 
     
     THE CIS FORMULA: Severity = (Criticality + Lethality) - (System Countermeasures + Network Countermeasures)
     * Lethality (1-5): 5=Exploit exists/root. 4=User access. 3=No exploit/root possible. 2=No exploit/user. 1=No access.
     * Criticality (1-5): 5=Core routers/ICS. 4=Web/DB. 3=App servers. 2=Business desktops. 1=Home users.
     * Sys Countermeasures (1-5): Assume 3 (Current OS/Patched) unless a zero-day is present.
     * Net Countermeasures (1-5): Assume 4 (Restrictive FW) unless perimeter bypass is implied.
-    * CIS ALERT LEVELS: GREEN (-8 to -5), BLUE (-4 to -2), YELLOW (-1 to +2), ORANGE (+3 to +5), RED (+6 to +8).
     
     Structure your response in Markdown with these EXACT headers:
     
-    ## 🌍 Threat Landscape Overview (CIS Standard)
-    [Write long, expansive, and deeply analytical paragraphs. Do not use short, choppy sentences. Thoroughly elaborate on the complex interplay of the specific cyber threats, their SOURCES, and the physical/perimeter hazards. 
-    Balance the narrative EQUALLY between Cyber Intelligence and Physical/Perimeter Hazards. 
+    ##  Threat Landscape Overview
+    [Write long, expansive, and deeply analytical paragraphs. Balance the narrative EQUALLY between Cyber Intelligence and Physical Hazards. 
+    For Physical/Perimeter: Explicitly break down the perimeter incidents using the official FBI UCR definitions provided in the data (Crimes Against Persons, Crimes Against Property, Crimes Against Society) and explain their specific proximity risk to the Headquarters facility and personnel.
     End this section by declaring: "**OVERALL CIS ALERT LEVEL: {target_risk}**"]
     
-    ## 🧮 CIS Scoring & Risk Rationale
+    ##  Unified Scoring & Risk Rationale
     [Explicitly show the math from the CIS formula that justifies a Cyber CIS Score of {target_cis_score}. Explain WHY the highest threats drove your estimated 1-5 scales to arrive at exactly {target_cis_score}.
-    Then, in a detailed paragraph, explain how the perimeter security incidents (crimes) over the last 24 hours compound these operational risks to justify the final {target_risk} posture.]
+    Then, in a highly detailed paragraph, explain how the FBI-categorized perimeter crimes over the last 24 hours compound these operational risks to justify the final {target_risk} posture.]
     
     Be expansive, professional, highly readable, and perfectly aligned with the {target_risk} rating."""
 
-    # Temp slightly elevated to allow for expansive narrative generation
     response = call_llm([
         {"role": "system", "content": master_sys_prompt}, 
         {"role": "user", "content": compiled_intel}
