@@ -1666,6 +1666,65 @@ elif page == "📝 Shift Logbook":
         with st.container(border=True):
             st.markdown(st.session_state[f"summary_{sum_shift}"])
 
+
+    st.divider()
+    st.subheader(" Aggregated Executive Summaries")
+    st.caption("Compiles historical shift logs into comprehensive Weekly or Monthly executive overviews using Map-Reduce AI.")
+    
+    c_agg1, c_agg2, c_agg3 = st.columns([2, 2, 1.5])
+    agg_period = c_agg1.selectbox("Select Reporting Period", ["Current Week", "Previous Week", "Current Month", "Previous Month"], label_visibility="collapsed")
+    
+    # --- NEW: ROLE BINDING LOGIC ---
+    if st.session_state.current_role == "admin":
+        available_roles = ["All"] + [r.name for r in svc.get_all_roles()]
+        agg_target_role = c_agg2.selectbox("Target Role", available_roles, key="agg_target_role", label_visibility="collapsed")
+    else:
+        agg_target_role = st.session_state.current_role
+        c_agg2.text_input("Target Role", value=agg_target_role.upper(), disabled=True, label_visibility="collapsed")
+    
+    is_agg_cooling = check_cooldown("ai_agg_summary", 60)
+    if c_agg3.button("⏳ Generating..." if is_agg_cooling else "🤖 Generate Summary", width="stretch", type="primary", disabled=not ai_enabled or is_agg_cooling):
+        apply_cooldown("ai_agg_summary")
+        with st.spinner(f"Reading historical logs and synthesizing {agg_period} summary for {agg_target_role.upper()}..."):
+            today = datetime.now(LOCAL_TZ).date()
+            
+            if agg_period == "Current Week":
+                start_dt = today - timedelta(days=today.weekday())
+                end_dt = start_dt + timedelta(days=6)
+            elif agg_period == "Previous Week":
+                start_dt = today - timedelta(days=today.weekday()) - timedelta(weeks=1)
+                end_dt = start_dt + timedelta(days=6)
+            elif agg_period == "Current Month":
+                start_dt = today.replace(day=1)
+                next_month = start_dt.replace(day=28) + timedelta(days=4)
+                end_dt = next_month - timedelta(days=next_month.day)
+            elif agg_period == "Previous Month":
+                last_day_prev_month = today.replace(day=1) - timedelta(days=1)
+                start_dt = last_day_prev_month.replace(day=1)
+                end_dt = last_day_prev_month
+            
+            utc_start = datetime.combine(start_dt, datetime.min.time()).replace(tzinfo=LOCAL_TZ).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+            utc_end = datetime.combine(end_dt, datetime.min.time()).replace(tzinfo=LOCAL_TZ).astimezone(ZoneInfo("UTC")).replace(tzinfo=None) + timedelta(days=1)
+            
+            # Fetch strictly bound by the target role
+            raw_logs = svc.get_shift_logs(agg_target_role, utc_start, utc_end)
+            valid_logs = [l for l in raw_logs if not getattr(l, 'is_deleted', False)]
+            
+            if not valid_logs:
+                st.warning(f"No valid {agg_target_role.upper()} logs found for {agg_period} ({start_dt.strftime('%m/%d')} - {end_dt.strftime('%m/%d')}).")
+            else:
+                from src.llm import generate_aggregated_shift_summary
+                summary = generate_aggregated_shift_summary(svc.SessionLocal(), valid_logs, agg_period, agg_target_role)
+                # Store dynamically using the role name so multiple roles can be generated/viewed independently
+                st.session_state[f"agg_summary_{agg_period.replace(' ', '_')}_{agg_target_role}"] = summary
+                
+    # Display the summary if it exists in session state
+    state_key = f"agg_summary_{agg_period.replace(' ', '_')}_{agg_target_role}"
+    if state_key in st.session_state:
+        with st.container(border=True):
+            st.markdown(st.session_state[state_key])
+
+    
     st.divider()
 
     # --- 3. LOG EXPLORER & CALENDAR ---
