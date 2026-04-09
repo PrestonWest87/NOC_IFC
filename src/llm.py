@@ -282,7 +282,7 @@ def generate_rolling_summary(session):
     return response.strip() if response else "Generation failed."
 
 def generate_dynamic_scoring_report(session):
-    """Generates a dynamic fusion overview with an explicit focus on scoring rationale."""
+    """Generates a dynamic fusion overview explicitly using the MS-ISAC / CIS Alert Level framework."""
     from src.database import Article, RegionalHazard
     
     config = get_llm_config(session)
@@ -293,23 +293,41 @@ def generate_dynamic_scoring_report(session):
     hazards = session.query(RegionalHazard).limit(10).all()
     
     context = "--- HIGH-SCORE CYBER INTELLIGENCE ---\n"
-    context += "\n".join([f"- Score {a.score}/100 | {a.category} | {a.title} | {a.summary[:250]}" for a in arts]) if arts else "None."
+    context += "\n".join([f"- Internal Score {a.score}/100 | {a.category} | {a.title} | {a.summary[:250]}" for a in arts]) if arts else "None."
     context += "\n\n--- ACTIVE PHYSICAL HAZARDS ---\n"
     context += "\n".join([f"- Severity: {h.severity} | {h.title} in {h.location}" for h in hazards]) if hazards else "None."
 
-    sys_prompt = """You are a Senior Threat Intelligence Assessor for a NOC Dashboard.
-    Write an executive 'Dynamic Fusion & Scoring Overview' based on the provided live telemetry.
+    sys_prompt = """You are a Senior Threat Intelligence Assessor for a NOC Executive Dashboard.
+    Write a 'Dynamic Fusion & Scoring Overview' based on the provided live telemetry.
     
     CRITICAL REQUIREMENT:
-    You must explicitly explain the REASONING behind the threat scoring. Why did certain cyber intelligence items score highly? What factors (e.g., potential impact, zero-day status, threat actor capability) pushed them to the top? How do the physical hazards compound these risks?
+    You must evaluate the current threat landscape using the official MS-ISAC / CIS Alert Level framework to establish a source of truth, and contrast it with the platform's internal score.
     
-    Structure the response in Markdown with two clear headers:
-    ##  Threat Landscape Overview
-    ##  Intelligence Scoring Rationale
+    THE CIS FORMULA: Severity = (Criticality + Lethality) - (System Countermeasures + Network Countermeasures)
+    
+    VARIABLES (Evaluate the telemetry against these):
+    * Lethality (1-5): 5=Exploit exists, root access/DoS. 4=User access. 3=No exploit, root access possible. 2=No exploit, user access. 1=No access.
+    * Criticality (1-5): 5=Core routers/firewalls/SCADA. 4=Web/DB servers. 3=App servers. 2=Business desktops. 1=Home users.
+    * Sys Countermeasures (1-5): Assume a baseline of 3 (Current OS, mostly patched, AV active) unless telemetry indicates a zero-day rendering defenses useless.
+    * Net Countermeasures (1-5): Assume a baseline of 4 (Restrictive firewall, VPNs protected) unless telemetry implies perimeter bypass.
+    
+    CIS ALERT LEVELS:
+    * GREEN (Low): -8 to -5
+    * BLUE (Guarded): -4 to -2
+    * YELLOW (Elevated): -1 to +2
+    * ORANGE (High): +3 to +5
+    * RED (Severe): +6 to +8
+    
+    Structure your response in Markdown with these EXACT headers:
+    ## 🌍 Threat Landscape Overview (CIS Standard)
+    [Declare the calculated CIS Alert Level Color and Severity Score. Contrast this official baseline against the raw, internal platform threat scores provided in the telemetry. Do they align or differ? Why?]
+    
+    ## 🧮 CIS Scoring Rationale & Formula Breakdown
+    [Show the exact math from the formula. Explain WHY the top threats drove your estimated 1-5 scales for Lethality and Criticality. Explicitly detail how any active physical hazards compound these specific vulnerabilities.]
     
     Be direct, analytical, and do NOT hallucinate data."""
     
-    response = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": context}], config, temperature=0.2)
+    response = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": context}], config, temperature=0.1)
     return response.strip() if response else "Report generation failed."
   
 def generate_daily_fusion_report(session):
