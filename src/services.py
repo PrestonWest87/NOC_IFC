@@ -309,31 +309,20 @@ def save_threat_score(c_pts, p_pts, c_base, p_base):
 
 
 def get_executive_grid_intel(active_warn_count, recent_crimes):
-    """Synthesizes LIVE OSINT and telemetry using a Deviation Baseline Algorithm."""
+    """Synthesizes LIVE OSINT and telemetry using the CIS Alert Level Framework."""
     from src.database import SessionLocal, Article
     from datetime import datetime, timedelta
     
     sys_config = get_cached_config()
     history = get_historical_threat_scores(14)
     
-    # --- CYBER BASELINE LOGIC ---
-    if sys_config and sys_config.get('baseline_override_cyber', 0.0) > 0:
-        baseline_cyber = float(sys_config.baseline_override_cyber)
-    else:
-        baseline_cyber = max(sum(h.cyber_points for h in history) / len(history), 20.0) if history else 20.0
-
-    # --- PHYSICAL BASELINE LOGIC ---
-    if sys_config and sys_config.get('baseline_override_phys', 0.0) > 0:
-        baseline_phys = float(sys_config.baseline_override_phys)
-    else:
-        baseline_phys = max(sum(h.physical_points for h in history) / len(history), 25.0) if history else 25.0
+    baseline_cyber = float(sys_config.baseline_override_cyber) if sys_config and sys_config.get('baseline_override_cyber', 0.0) > 0 else max(sum(h.cyber_points for h in history) / len(history), 20.0) if history else 20.0
+    baseline_phys = float(sys_config.baseline_override_phys) if sys_config and sys_config.get('baseline_override_phys', 0.0) > 0 else max(sum(h.physical_points for h in history) / len(history), 25.0) if history else 25.0
 
     with SessionLocal() as db:
-        # STRICT 48-HOUR LIMIT FOR EVERYTHING CYBER
         t48 = datetime.utcnow() - timedelta(hours=48)
         
         raw_cyber_articles = db.query(Article).filter(Article.published_date >= t48, Article.category.in_(['Cyber: Exploits & Vulns', 'Cyber: Malware & Threats', 'ICS/OT & SCADA', 'Cloud & IT Infra']), Article.score >= 50).order_by(Article.score.desc()).all()
-        # Enforcing t48 on ICS articles as requested (previously 14 days)
         raw_ics_articles = db.query(Article).filter(Article.published_date >= t48).order_by(Article.published_date.desc()).all()
         raw_phys_articles = db.query(Article).filter(Article.published_date >= t48, Article.category.in_(['Physical Security', 'Severe Weather', 'Geopolitics & Policy']), Article.score >= 50).order_by(Article.score.desc()).all()
 
@@ -389,11 +378,11 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
                 ics_advisories.append({"title": art.title, "link": art.link, "published": art.published_date.strftime("%Y-%m-%d"), "is_critical": is_critical, "is_kev": is_kev})
 
     # ==========================================
-    # DEVIATION SCORING ALGORITHM
+    # CIS-ALIGNED SCORING ALGORITHM
     # ==========================================
     
     # --- CYBER SCORING ---
-    cyber_points = 0
+    cyber_points = 0 # Retained for baseline graphing
     critical_ics = [a for a in ics_advisories if a['is_critical']]
     kev_ics = [a for a in ics_advisories if a['is_kev']]
     
@@ -408,14 +397,33 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
         if getattr(art, 'is_ransomware', False): pts += 10 
         if getattr(art, 'is_apt_related', False): pts *= 4 
         osint_cyber_pts += pts
-        
     cyber_points += min(osint_cyber_pts, 40) 
 
-    if cyber_points >= (baseline_cyber * 2.5): cyber_score = "HIGH"
-    elif cyber_points >= (baseline_cyber * 1.5): cyber_score = "MEDIUM"
-    else: cyber_score = "LOW"
+    # >> CIS FORMULA INJECTION <<
+    lethality = 2    # Default: No known exploit, user access
+    criticality = 3  # Default: Less critical systems
+    sys_counter = 3  # Default: Current OS, patched, AV
+    net_counter = 4  # Default: Restrictive firewall
+    
+    if kev_ics:
+        lethality, criticality, sys_counter = 5, 5, 1 # Active KEV bypasses defenses
+    elif critical_ics:
+        lethality, criticality = 4, 5
+    elif any(getattr(a, 'is_ransomware', False) for a in pure_cyber_articles):
+        lethality, criticality, sys_counter = 5, 4, 2
+    elif any(getattr(a, 'is_apt_related', False) for a in pure_cyber_articles):
+        lethality, criticality = 4, 5
         
-    cyber_brief = f"Tracking {len(pure_cyber_articles)} tailored OSINT threats (48h). "
+    cis_cyber_score = (criticality + lethality) - (sys_counter + net_counter)
+
+    # CIS Scale Mapping
+    if cis_cyber_score >= 6: cyber_score = "RED"
+    elif cis_cyber_score >= 3: cyber_score = "ORANGE"
+    elif cis_cyber_score >= -1: cyber_score = "YELLOW"
+    elif cis_cyber_score >= -4: cyber_score = "BLUE"
+    else: cyber_score = "GREEN"
+        
+    cyber_brief = f"**CIS Severity Score: {cis_cyber_score}** | Tracking {len(pure_cyber_articles)} OSINT threats (48h). "
     if kev_ics: cyber_brief += f"🚨 CISA KEV Match: {len(kev_ics)} actively exploited grid vulns. "
     elif ics_advisories: cyber_brief += f"{len(ics_advisories)} ICS advisories ({len(critical_ics)} critical vendors). "
     if pure_cyber_articles: cyber_brief += f"Top Concern: '{pure_cyber_articles[0].title}'."
@@ -425,111 +433,53 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     critical_crimes = [c for c in recent_crimes if c.get("severity") == "Critical"]
     high_crimes = [c for c in recent_crimes if c.get("severity") == "High"]
     
-    physical_points += len(critical_crimes) * 30
-    physical_points += len(high_crimes) * 10
-    physical_points += (len(recent_crimes) - len(critical_crimes) - len(high_crimes)) * 2
-    
-    osint_phys_pts = sum([15 if art.score >= 80 else 5 for art in pure_phys_articles])
-    physical_points += min(osint_phys_pts, 30) 
+    physical_points += len(critical_crimes) * 30 + len(high_crimes) * 10 + (len(recent_crimes) - len(critical_crimes) - len(high_crimes)) * 2
+    physical_points += min(sum([15 if art.score >= 80 else 5 for art in pure_phys_articles]), 30) 
     physical_points += min((active_warn_count * 1.5), 20) 
     
-    if physical_points >= (baseline_phys * 2.0): physical_score = "HIGH"
-    elif physical_points >= (baseline_phys * 1.3): physical_score = "MEDIUM"
-    else: physical_score = "LOW"
+    # Map physical baseline deviation to the 5-tier CIS terminology
+    if physical_points >= (baseline_phys * 3.0) or len(critical_crimes) >= 2: physical_score = "RED"
+    elif physical_points >= (baseline_phys * 2.0) or len(critical_crimes) >= 1: physical_score = "ORANGE"
+    elif physical_points >= (baseline_phys * 1.3): physical_score = "YELLOW"
+    elif physical_points >= (baseline_phys * 1.0): physical_score = "BLUE"
+    else: physical_score = "GREEN"
         
-    # Updated text to reflect the 24h window
     physical_brief = f"Perimeter (24h): {len(recent_crimes)} grid-relevant incidents ({len(critical_crimes)} Critical). "
     if len(pure_phys_articles) > 0: physical_brief += f"🚨 OSINT detected {len(pure_phys_articles)} local physical threats. "
     physical_brief += f"Weather footprint contributing {min(int(active_warn_count * 1.5), 20)} pts to baseline."
 
-    if "HIGH" in [cyber_score, physical_score]: unified_risk = "HIGH"
-    elif cyber_score == "MEDIUM" and physical_score == "MEDIUM": unified_risk = "MEDIUM"
-    elif "MEDIUM" in [cyber_score, physical_score]: unified_risk = "MEDIUM"
-    else: unified_risk = "LOW"
+    # --- UNIFIED TIERING ---
+    tier_weights = {"RED": 5, "ORANGE": 4, "YELLOW": 3, "BLUE": 2, "GREEN": 1}
+    reverse_tiers = {5: "RED", 4: "ORANGE", 3: "YELLOW", 2: "BLUE", 1: "GREEN"}
+    unified_risk = reverse_tiers[max(tier_weights[cyber_score], tier_weights[physical_score])]
     
     save_threat_score(cyber_points, physical_points, baseline_cyber, baseline_phys)
     
     return {
             "timestamp": datetime.now(LOCAL_TZ).strftime("%H:%M:%S %Z"),
             "unified_risk": unified_risk, "physical_score": physical_score, "physical_brief": physical_brief,
-            "cyber_score": cyber_score, "cyber_brief": cyber_brief,
-            "recent_crimes": recent_crimes, "raw_cyber_articles": pure_cyber_articles, "raw_phys_articles": pure_phys_articles,
-            "current_cyber_pts": cyber_points, "current_phys_pts": physical_points,
-            "baseline_cyber": baseline_cyber, "baseline_phys": baseline_phys
-        }
-    # ==========================================
-    # DEVIATION SCORING ALGORITHM
-    # ==========================================
-    
-    # --- CYBER SCORING ---
-    cyber_points = 0
-    critical_ics = [a for a in ics_advisories if a['is_critical']]
-    kev_ics = [a for a in ics_advisories if a['is_kev']]
-    
-    cyber_points += len(critical_ics) * 15
-    cyber_points += len(kev_ics) * 50  # Massive spike for KEV catalog hits
-    cyber_points += (len(ics_advisories) - len(critical_ics) - len(kev_ics)) * 5
-    
-    osint_cyber_pts = 0
-    for art in pure_cyber_articles:
-        pts = 5
-        if getattr(art, 'is_utility_related', False): pts *= 2 
-        if getattr(art, 'is_ransomware', False): pts += 10 # Supply chain IT risk
-        if getattr(art, 'is_apt_related', False): pts *= 4 # APT Targeting spike
-        osint_cyber_pts += pts
-        
-    cyber_points += min(osint_cyber_pts, 40) # Cap low-level noise
-
-    if cyber_points >= (baseline_cyber * 2.5): cyber_score = "HIGH"
-    elif cyber_points >= (baseline_cyber * 1.5): cyber_score = "MEDIUM"
-    else: cyber_score = "LOW"
-        
-    cyber_brief = f"Tracking {len(pure_cyber_articles)} tailored OSINT threats. "
-    if kev_ics: cyber_brief += f"🚨 CISA KEV Match: {len(kev_ics)} actively exploited grid vulns. "
-    elif ics_advisories: cyber_brief += f"{len(ics_advisories)} ICS advisories ({len(critical_ics)} critical vendors). "
-    if pure_cyber_articles: cyber_brief += f"Top Concern: '{pure_cyber_articles[0].title}'."
-    
-    # --- PHYSICAL SCORING ---
-    physical_points = 0
-    critical_crimes = [c for c in recent_crimes if c.get("severity") == "Critical"]
-    high_crimes = [c for c in recent_crimes if c.get("severity") == "High"]
-    
-    physical_points += len(critical_crimes) * 30
-    physical_points += len(high_crimes) * 10
-    physical_points += (len(recent_crimes) - len(critical_crimes) - len(high_crimes)) * 2
-    
-    osint_phys_pts = sum([15 if art.score >= 80 else 5 for art in pure_phys_articles])
-    physical_points += min(osint_phys_pts, 30) # Cap noise
-    physical_points += min((active_warn_count * 1.5), 20) # Cap weather to prevent AR storm season from burying real threats
-    
-    if physical_points >= (baseline_phys * 2.0): physical_score = "HIGH"
-    elif physical_points >= (baseline_phys * 1.3): physical_score = "MEDIUM"
-    else: physical_score = "LOW"
-        
-    physical_brief = f"Perimeter (1mi): {len(recent_crimes)} grid-relevant incidents ({len(critical_crimes)} Critical). "
-    if len(pure_phys_articles) > 0: physical_brief += f"🚨 OSINT detected {len(pure_phys_articles)} local physical threats. "
-    physical_brief += f"Weather footprint contributing {min(int(active_warn_count * 1.5), 20)} pts to baseline."
-
-    if "HIGH" in [cyber_score, physical_score]: unified_risk = "HIGH"
-    elif cyber_score == "MEDIUM" and physical_score == "MEDIUM": unified_risk = "MEDIUM"
-    elif "MEDIUM" in [cyber_score, physical_score]: unified_risk = "MEDIUM"
-    else: unified_risk = "LOW"
-    
-    # Persist live score to DB for future baseline math
-    save_threat_score(cyber_points, physical_points, baseline_cyber, baseline_phys)
-    
-    return {
-            "timestamp": datetime.now(LOCAL_TZ).strftime("%H:%M:%S %Z"),
-            "unified_risk": unified_risk, "physical_score": physical_score, "physical_brief": physical_brief,
-            "cyber_score": cyber_score, "cyber_brief": cyber_brief,
+            "cyber_score": cyber_score, "cyber_brief": cyber_brief, "cis_cyber_score": cis_cyber_score,
             "recent_crimes": recent_crimes, "raw_cyber_articles": pure_cyber_articles, "raw_phys_articles": pure_phys_articles,
             "current_cyber_pts": cyber_points, "current_phys_pts": physical_points,
             "baseline_cyber": baseline_cyber, "baseline_phys": baseline_phys
         }
 
 def generate_outlook_html_report(intel):
-    color_map = {"LOW": "#28a745", "MEDIUM": "#ffc107", "HIGH": "#dc3545"}
-    badge_color = color_map.get(intel["unified_risk"].upper(), "#000000")
+    """Generates the static fallback report if the LLM generation fails or is bypassed."""
+    color_map = {
+        "GREEN": "#28a745", 
+        "BLUE": "#007bff", 
+        "YELLOW": "#ffc107", 
+        "ORANGE": "#fd7e14", 
+        "RED": "#dc3545"
+    }
+    badge_color = color_map.get(intel["unified_risk"].upper(), "#28a745")
+    
+    name_map = {
+        "GREEN": "GREEN (LOW)", "BLUE": "BLUE (GUARDED)", 
+        "YELLOW": "YELLOW (ELEVATED)", "ORANGE": "ORANGE (HIGH)", "RED": "RED (SEVERE)"
+    }
+    display_risk = name_map.get(intel["unified_risk"].upper(), "UNKNOWN")
     
     html = f"""
     <html>
@@ -545,26 +495,20 @@ def generate_outlook_html_report(intel):
                 <td style="padding: 30px 20px; text-align: center;">
                     <h3 style="margin: 0; color: #333333; text-transform: uppercase;">Unified Threat Posture</h3>
                     <div style="margin-top: 15px; padding: 10px 20px; background-color: {badge_color}; color: #ffffff; display: inline-block; font-size: 24px; font-weight: bold; border-radius: 4px;">
-                        {intel['unified_risk']} RISK
+                        {display_risk}
                     </div>
                 </td>
             </tr>
             <tr>
                 <td style="padding: 20px;">
                     <h4 style="color: #0056b3; border-bottom: 2px solid #eeeeee; padding-bottom: 5px;">⚡ Physical & Crime Intelligence</h4>
-                    <p style="color: #444444; line-height: 1.6; font-size: 14px;"><strong>Status: {intel['physical_score']}</strong><br/>{intel['physical_brief']}</p>
+                    <p style="color: #444444; line-height: 1.6; font-size: 14px;"><strong>Status: {name_map.get(intel['physical_score'], 'UNKNOWN')}</strong><br/>{intel['physical_brief']}</p>
                 </td>
             </tr>
             <tr>
                 <td style="padding: 20px; padding-top: 0;">
                     <h4 style="color: #0056b3; border-bottom: 2px solid #eeeeee; padding-bottom: 5px;">🛡️ Cyber & SCADA Intelligence</h4>
-                    <p style="color: #444444; line-height: 1.6; font-size: 14px;"><strong>Status: {intel['cyber_score']}</strong><br/>{intel['cyber_brief']}</p>
-                </td>
-            </tr>
-            <tr>
-                <td style="padding: 20px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; font-size: 11px; color: #666666; text-align: center;">
-                    <strong>Sources:</strong> CISA ICS-CERT, NIFC, NWS, SpotCrime API.<br/>
-                    <em>CONFIDENTIAL: For Executive Leadership Only.</em>
+                    <p style="color: #444444; line-height: 1.6; font-size: 14px;"><strong>Status: {name_map.get(intel['cyber_score'], 'UNKNOWN')}</strong><br/>{intel['cyber_brief']}</p>
                 </td>
             </tr>
         </table>
