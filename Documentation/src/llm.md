@@ -1,10 +1,10 @@
-# Enterprise Architecture & Algorithmic Specification: `src/llm.py`
+# Enterprise Architecture & Functional Specification: `src/llm.py`
 
 ## 1. Executive Overview
 
 The `src/llm.py` module acts as the Cognitive Processing Hub of the Intelligence Fusion Center (IFC). In its latest architectural iteration, this module has been heavily refactored to optimize for Local Edge Compute and GPU Memory constraints, such as running open-weights models via LM Studio, Ollama, or vLLM.
 
-To prevent massive context-window overflows, CUDA Out-Of-Memory crashes, and severe UI latency, the engine implements aggressive text truncation, dynamic chunk resizing, universal Map-Reduce pipelines, and extended timeout tolerances for local inference speeds.
+To prevent massive context-window overflows, CUDA Out-Of-Memory crashes, and severe UI latency, the engine implements aggressive text truncation, dynamic chunk resizing, universal Map-Reduce pipelines, and extended timeout tolerances for local inference speeds. It also introduces role-bound shift log summarization and dynamic scoring reports for the Executive Dashboard.
 
 ---
 
@@ -28,14 +28,20 @@ A newly abstracted, universal Map-Reduce pipeline designed to safely process lar
 
 ---
 
-## 3. High-Velocity Tactical Intelligence
+## 3. High-Velocity Tactical Intelligence & Executive Briefs
 
 ### 3.1 Unified BLUF Generation: `generate_bluf(article, session)`
 The generation of the "Bottom Line Up Front" (BLUF) prioritizes self-attention and contextual accuracy using a single unified prompt.
-
 * **Architecture:** Uses a single context-aware call to preserve self-attention, rather than splitting prompts concurrently.
-* **Context Preservation:** Passes a generously truncated 1500-character article summary to the LLM.
 * **Strict Output Structuring:** Forces the LLM to output exactly four concise bullet points: Core Event, Impact Radius, Technical Details, and Actionable Posture. It executes with a strict temperature of 0.1 to avoid conversational filler.
+
+### 3.2 Dynamic Scoring Report: `generate_dynamic_scoring_report(session, intel)`
+Generates an expansive, boardroom-ready intelligence brief summarizing 48-hour Cyber/CVE data and 24-hour perimeter crimes without the risk of AI hallucination.
+* **Algorithmic Guardrails:** Explicitly commands the LLM *not* to calculate scores, reference the CIS formula, or attempt mathematical justifications.
+* **Narrative Synthesis:** Weaves the extracted telemetry into a cohesive narrative mapped directly to the system's current `unified_risk` posture (e.g., BLUE, YELLOW, RED).
+
+### 3.3 Weather & Hazard Analytics: `generate_executive_weather_brief(analytics, p1_count, sys_config)`
+* **Functionality:** Synthesizes a meteorological intelligence report specifically highlighting active Regional Hazards. Focuses on the operational districts most impacted and any critical (Priority 1) infrastructure exposures.
 
 ---
 
@@ -45,7 +51,8 @@ All strategic reporting functions have had their chunk sizes and ingestion limit
 
 * **`cross_reference_cves`:** Chunks Known Exploited Vulnerabilities (KEVs) into batches of 8. It executes a strict scan (temperature 0.0) against the internal tech stack during the Map phase, and then reduces any matches into a Master Alert.
 * **`build_custom_intel_report`:** Utilizes a chunk limit of 3 and sets text truncation to 600 characters. This ensures exhaustive extraction of technical details, IOCs, and targeted systems during the Map phase without losing intelligence.
-* **`analyze_cascading_impacts` & `generate_briefing`:** Utilizes the universal `_map_reduce_summarize` pipeline with chunk sizes of 8 and 10, respectively, securely fitting within standard context windows. `analyze_cascading_impacts` aggressively truncates input summaries to 200 characters.
+* **`generate_aggregated_shift_summary`:** A two-tier Map-Reduce pipeline that digests high volumes of `ShiftLogEntry` records. It is explicitly scoped to a `target_role` (e.g., "admin", "analyst") and extracts critical incidents and unresolved issues into a polished Markdown handoff document for the specified weekly or monthly timeframe.
+* **`analyze_cascading_impacts` & `generate_briefing`:** Utilizes the universal `_map_reduce_summarize` pipeline with chunk sizes of 8 and 10, respectively, securely fitting within standard context windows.
 
 ---
 
@@ -53,7 +60,7 @@ All strategic reporting functions have had their chunk sizes and ingestion limit
 
 ### 5.1 Shift Context: `generate_rolling_summary(session)`
 * **Temporal Scoping:** Generates a cohesive executive narrative scoped strictly to the last 6 hours.
-* **Native String Compression:** Because the 6-hour volume is relatively small, this function bypasses the Map-Reduce pipeline. It natively gathers up to 10 top-scoring cyber articles, 10 hazards, and 10 cloud outages, appending them into a single context string. This is passed to a Master Editor prompt (temperature 0.2) to weave a fast-paced 2-paragraph executive summary.
+* **Native String Compression:** Because the 6-hour volume is relatively small, this function bypasses the Map-Reduce pipeline. It natively gathers up to 10 top-scoring cyber articles, 10 hazards, and 10 cloud outages, appending them into a single context string. This is passed to a Master Editor prompt (temperature 0.2) to weave a fast-paced 2-paragraph executive summary ending in a definitive Grid Status assessment.
 
 ### 5.2 Master SitRep: `generate_daily_fusion_report(session)`
 * **Architecture:** Refactored to route entirely through the `_map_reduce_summarize` pipeline across four distinct infrastructure domains.
