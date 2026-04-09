@@ -1632,38 +1632,90 @@ elif page == "📝 Shift Logbook":
 
     st.divider()
     
-    # --- 2. END OF SHIFT SUMMARY ---
-    st.subheader("📑 End-of-Shift Summary Generator")
-    st.caption("Compiles all running incidents from your current shift into a consolidated, AI-generated handoff report.")
-    
-    c_sum1, c_sum2 = st.columns([3, 1])
-    sum_shift = c_sum1.selectbox("Select Shift to Summarize (Today)", ["Morning (06:00 - 14:30)", "Afternoon/Evening (11:30 - 20:00)"], key="sum_shift", label_visibility="collapsed")
-    
-    if c_sum2.button("🤖 Generate Shift Handoff", width="stretch", type="primary", disabled=not ai_enabled):
-        with st.spinner("Synthesizing the running log into a master handoff..."):
-            today_start = datetime.now(LOCAL_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
-            today_end = today_start 
-            
-            utc_start = today_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
-            utc_end = today_end.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
-            
-            # --- FILTER OUT DELETED LOGS ---
-            shift_logs = [l for l in svc.get_shift_logs(st.session_state.current_role, utc_start, utc_end) if l.shift_period == sum_shift and not getattr(l, 'is_deleted', False)]
-            
-            if not shift_logs:
-                st.warning(f"No active incidents logged for the {sum_shift} shift today.")
-            else:
-                log_text = "\n".join([f"[{format_local_time(l.created_at)}] {l.analyst}: {l.content}" for l in shift_logs])
-                sys_prompt = f"You are a NOC Shift Supervisor. Read the following chronologically ordered running log for the '{sum_shift}' shift. Write a concise, professional 2-3 paragraph Shift Handoff Summary combining the key incidents, ongoing outages, and resolutions. Do NOT use pleasantries. Format with markdown."
+    # --- 1.5 PERSISTENT DAILY SUMMARIES ---
+    st.subheader("📅 Daily Persistent Summaries")
+    st.caption("Auto-generated executive handoffs for the Morning Shift and the entire Day.")
+
+    today_date_str = datetime.now(LOCAL_TZ).strftime('%Y-%m-%d')
+
+    with st.expander("🌅 End of Morning Report", expanded=False):
+        if st.button("🤖 Generate Morning Report", key="gen_eom", type="primary", disabled=not ai_enabled):
+            with st.spinner("Synthesizing morning shift logs..."):
+                today_start = datetime.now(LOCAL_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+                utc_start = today_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+                utc_end = utc_start # Backend automatically adds 24 hours to this search window
                 
-                from src.llm import call_llm
-                summary = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": log_text}], sys_config)
-                if summary:
-                    st.session_state[f"summary_{sum_shift}"] = summary
+                morn_logs = [l for l in svc.get_shift_logs(st.session_state.current_role, utc_start, utc_end) if "Morning" in l.shift_period and not getattr(l, 'is_deleted', False)]
+                
+                if not morn_logs:
+                    st.warning("No active morning logs found for today.")
+                else:
+                    log_text = "\n".join([f"[{format_local_time(l.created_at)}] {l.analyst}: {l.content}" for l in morn_logs])
+                    sys_prompt = "You are a NOC Shift Supervisor. Read the following chronologically ordered running log for the Morning shift. Write a concise, professional End of Morning Shift Handoff Summary combining the key incidents, ongoing outages, and resolutions. Do NOT use pleasantries. Format with markdown."
+                    from src.llm import call_llm
+                    summary = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": log_text}], sys_config)
+                    if summary:
+                        st.session_state[f"eom_{today_date_str}_{st.session_state.current_role}"] = summary
+
+        if f"eom_{today_date_str}_{st.session_state.current_role}" in st.session_state:
+            st.markdown(st.session_state[f"eom_{today_date_str}_{st.session_state.current_role}"])
+
+    with st.expander("🌃 End of Day Report", expanded=False):
+        if st.button("🤖 Generate End of Day Report", key="gen_eod", type="primary", disabled=not ai_enabled):
+            with st.spinner("Synthesizing all logs for the day..."):
+                today_start = datetime.now(LOCAL_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+                utc_start = today_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+                utc_end = utc_start 
+                
+                day_logs = [l for l in svc.get_shift_logs(st.session_state.current_role, utc_start, utc_end) if not getattr(l, 'is_deleted', False)]
+                
+                if not day_logs:
+                    st.warning("No active logs found for today.")
+                else:
+                    log_text = "\n".join([f"[{format_local_time(l.created_at)}] {l.shift_period} | {l.analyst}: {l.content}" for l in day_logs])
+                    sys_prompt = "You are a NOC Shift Supervisor. Read the following chronologically ordered running log for the entire day. Write a comprehensive, professional End of Day Shift Handoff Summary combining the key incidents, ongoing outages, and resolutions. Do NOT use pleasantries. Format with markdown."
+                    from src.llm import call_llm
+                    summary = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": log_text}], sys_config)
+                    if summary:
+                        st.session_state[f"eod_{today_date_str}_{st.session_state.current_role}"] = summary
+
+        if f"eod_{today_date_str}_{st.session_state.current_role}" in st.session_state:
+            st.markdown(st.session_state[f"eod_{today_date_str}_{st.session_state.current_role}"])
+
+    st.divider()
+
+    # --- 2. END OF SHIFT SUMMARY ---
+    with st.expander("📑 Custom Shift Summary Generator", expanded=False):
+        st.caption("Compiles all running incidents from a specific shift into a consolidated, AI-generated handoff report.")
+        
+        c_sum1, c_sum2 = st.columns([3, 1])
+        sum_shift = c_sum1.selectbox("Select Shift to Summarize (Today)", ["Morning (06:00 - 14:30)", "Afternoon/Evening (11:30 - 20:00)"], key="sum_shift", label_visibility="collapsed")
+        
+        if c_sum2.button("🤖 Generate Custom Handoff", width="stretch", type="primary", disabled=not ai_enabled):
+            with st.spinner("Synthesizing the running log into a master handoff..."):
+                today_start = datetime.now(LOCAL_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+                today_end = today_start 
+                
+                utc_start = today_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+                utc_end = today_end.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+                
+                # --- FILTER OUT DELETED LOGS ---
+                shift_logs = [l for l in svc.get_shift_logs(st.session_state.current_role, utc_start, utc_end) if l.shift_period == sum_shift and not getattr(l, 'is_deleted', False)]
+                
+                if not shift_logs:
+                    st.warning(f"No active incidents logged for the {sum_shift} shift today.")
+                else:
+                    log_text = "\n".join([f"[{format_local_time(l.created_at)}] {l.analyst}: {l.content}" for l in shift_logs])
+                    sys_prompt = f"You are a NOC Shift Supervisor. Read the following chronologically ordered running log for the '{sum_shift}' shift. Write a concise, professional 2-3 paragraph Shift Handoff Summary combining the key incidents, ongoing outages, and resolutions. Do NOT use pleasantries. Format with markdown."
                     
-    if f"summary_{sum_shift}" in st.session_state:
-        with st.container(border=True):
-            st.markdown(st.session_state[f"summary_{sum_shift}"])
+                    from src.llm import call_llm
+                    summary = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": log_text}], sys_config)
+                    if summary:
+                        st.session_state[f"summary_{sum_shift}"] = summary
+                        
+        if f"summary_{sum_shift}" in st.session_state:
+            with st.container(border=True):
+                st.markdown(st.session_state[f"summary_{sum_shift}"])
 
 
     st.divider()
