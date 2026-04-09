@@ -541,15 +541,13 @@ if page == "👁️ Global Dashboards":
             st.warning(f"**Risk Level: {intel['cyber_score']}**")
             st.write(intel['cyber_brief'])
             
-            # --- NEW: MATH & FORMULA EVIDENCE EXPANDER ---
-            with st.expander("🧮 View CIS Scoring Formula & Factors"):
+            # --- UPDATED: MACROSCOPIC EVIDENCE LOG ---
+            with st.expander("🧮 View CIS Macroscopic Variables"):
                 st.markdown("**Formula:** `Severity = (Criticality + Lethality) - (System + Network Countermeasures)`")
-                st.markdown(f"**Current Aggregate Score:** `{intel['cis_cyber_score']}` *(Average of Top 5)*")
+                st.markdown(f"**Current Aggregate Score:** `{intel['cis_cyber_score']}`")
                 st.divider()
-                for item in intel.get('top_cyber_evidence', []):
-                    st.markdown(f"**{item['type']}**: {item['title']}")
-                    st.caption(f"Score: **{item['score']}** | Crit(C):{item['c']} Leth(L):{item['l']} Sys(S):{item['s']} Net(N):{item['n']}")
-                    st.markdown("---")
+                for log in intel.get('evidence_log', []):
+                    st.markdown(log)
             
             cyber_sources = intel.get('raw_cyber_articles', [])
             if cyber_sources:
