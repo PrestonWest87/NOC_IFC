@@ -281,23 +281,19 @@ def generate_rolling_summary(session):
     response = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": context}], config, temperature=0.2)
     return response.strip() if response else "Generation failed."
 
-def generate_dynamic_scoring_report(session):
-    """Generates a dynamic fusion overview explicitly using the MS-ISAC / CIS Alert Level framework via Map-Reduce."""
-    from src.database import Article, RegionalHazard, CrimeIncident
-    from datetime import datetime, timedelta
-    
+def generate_dynamic_scoring_report(session, intel):
+    """Generates a dynamic fusion overview explicitly anchored to the pre-calculated CIS Alert Level."""
     config = get_llm_config(session)
     if not config: return None
     
-    # Gather top scored items across domains
-    arts = session.query(Article).filter(Article.score >= 40).order_by(Article.score.desc()).limit(25).all()
-    hazards = session.query(RegionalHazard).limit(15).all()
+    # Inherit the exact data and timescale natively calculated by the Executive Matrix
+    arts = intel.get('raw_cyber_articles', []) + intel.get('raw_phys_articles', [])
+    crimes = intel.get('recent_crimes', [])
     
-    # Pull recent perimeter crimes (last 48 hours)
-    t48 = datetime.utcnow() - timedelta(hours=48)
-    crimes = session.query(CrimeIncident).filter(CrimeIncident.timestamp >= t48).order_by(CrimeIncident.severity.desc(), CrimeIncident.timestamp.desc()).limit(15).all()
+    target_risk = intel.get('unified_risk', 'UNKNOWN')
+    target_cis_score = intel.get('cis_cyber_score', 0)
     
-    if not arts and not hazards and not crimes:
+    if not arts and not crimes:
         return "No active threats to score at this time."
 
     # ==========================================
@@ -308,57 +304,54 @@ def generate_dynamic_scoring_report(session):
         reduce_p = "Combine these batch extractions into a single, comprehensive intelligence digest. Ensure ALL unique threats, vulnerabilities, and their reporting SOURCES are preserved."
         
         cyber_digest = _map_reduce_summarize(
-            arts, 
-            lambda a: f"Source: {a.source or 'OSINT'} | Title: {a.title} | {truncate_text(a.summary, 300)}", 
-            map_p, 
-            reduce_p, 
-            config, 
-            chunk_size=8
+            arts[:25], # Cap at 25 to prevent context overflow while maintaining broad sourcing
+            lambda a: f"Source: {a.source or 'OSINT'} | Category: {a.category} | Title: {a.title} | {truncate_text(a.summary, 300)}", 
+            map_p, reduce_p, config, chunk_size=8
         )
     else:
-        cyber_digest = "No active cyber intelligence to report."
+        cyber_digest = "No active intelligence to report."
 
     # ==========================================
     # PHYSICAL & CRIME CONTEXT
     # ==========================================
-    hazards_context = "\n".join([f"- Severity: {h.severity} | {h.title} in {h.location}" for h in hazards]) if hazards else "No active regional weather hazards."
-    crimes_context = "\n".join([f"- Severity: {c.severity} | Category: {c.category} | {c.raw_title} ({c.distance_miles} mi from grid)" for c in crimes]) if crimes else "No active perimeter crime incidents."
+    crimes_context = "\n".join([f"- Severity: {c['severity']} | Category: {c['category']} | {c['raw_title']} ({c['distance_miles']} mi from grid)" for c in crimes[:15]]) if crimes else "No active perimeter crime incidents."
+
+    compiled_intel = f"--- COMPREHENSIVE INTELLIGENCE DIGEST (48H) ---\n{cyber_digest}\n\n--- ACTIVE PERIMETER CRIME & SECURITY INCIDENTS (24H) ---\n{crimes_context}"
 
     # ==========================================
     # TIER 2: THE MASTER CIS EDITOR
     # ==========================================
-    compiled_intel = f"--- COMPREHENSIVE CYBER INTELLIGENCE DIGEST ---\n{cyber_digest}\n\n--- ACTIVE REGIONAL HAZARDS (WEATHER/DISASTERS) ---\n{hazards_context}\n\n--- ACTIVE PERIMETER CRIME & SECURITY INCIDENTS ---\n{crimes_context}"
-
-    master_sys_prompt = """You are a Senior Threat Intelligence Assessor for a NOC Executive Dashboard.
-    Write a 'Dynamic Fusion & Scoring Overview' based on the provided intelligence digest.
+    master_sys_prompt = f"""You are a Senior Threat Intelligence Assessor for a NOC Executive Dashboard.
+    Write an expansive, highly detailed 'Dynamic Fusion & Scoring Overview' based on the provided intelligence digest.
+    
+    CRITICAL DIRECTIVE: The system has mathematically calculated the OVERALL CIS ALERT LEVEL as **{target_risk}**. The cyber-specific CIS severity score is **{target_cis_score}**.
+    You MUST justify and align your narrative to this EXACT score. Do NOT declare a different Alert Level (e.g., if the system says YELLOW, you must conclude YELLOW).
     
     THE CIS FORMULA: Severity = (Criticality + Lethality) - (System Countermeasures + Network Countermeasures)
     * Lethality (1-5): 5=Exploit exists/root. 4=User access. 3=No exploit/root possible. 2=No exploit/user. 1=No access.
     * Criticality (1-5): 5=Core routers/ICS. 4=Web/DB. 3=App servers. 2=Business desktops. 1=Home users.
     * Sys Countermeasures (1-5): Assume 3 (Current OS/Patched) unless a zero-day is present.
     * Net Countermeasures (1-5): Assume 4 (Restrictive FW) unless perimeter bypass is implied.
-    
-    CIS ALERT LEVELS: GREEN (-8 to -5), BLUE (-4 to -2), YELLOW (-1 to +2), ORANGE (+3 to +5), RED (+6 to +8).
+    * CIS ALERT LEVELS: GREEN (-8 to -5), BLUE (-4 to -2), YELLOW (-1 to +2), ORANGE (+3 to +5), RED (+6 to +8).
     
     Structure your response in Markdown with these EXACT headers:
     
     ## 🌍 Threat Landscape Overview (CIS Standard)
-    [Write a highly READABLE, flowing executive narrative summarizing the current threat landscape. Do NOT put raw math or rigid formulas in this section. 
-    CRITICAL REQUIREMENT: You MUST balance the narrative EQUALLY between Cyber Intelligence and Physical/Perimeter Hazards (Weather & Crime). Do NOT let the Cyber threats overshadow the real-world physical and perimeter security incidents.
-    Group the threats by theme (e.g., Cyber/Ransomware, Severe Weather, Physical Security/Crime). 
-    You MUST weave in references to multiple specific threats and actively mention the reporting SOURCES for cyber (e.g., 'According to CISA...'), and explicitly detail the physical perimeter threats and weather impacts. 
-    End this section by declaring the final calculated CIS Alert Level (e.g., "**OVERALL CIS ALERT LEVEL: ORANGE**").]
+    [Write long, expansive, and deeply analytical paragraphs. Do not use short, choppy sentences. Thoroughly elaborate on the complex interplay of the specific cyber threats, their SOURCES, and the physical/perimeter hazards. 
+    Balance the narrative EQUALLY between Cyber Intelligence and Physical/Perimeter Hazards. 
+    End this section by declaring: "**OVERALL CIS ALERT LEVEL: {target_risk}**"]
     
     ## 🧮 CIS Scoring & Risk Rationale
-    [First, provide the explicit math from the CIS formula for the top Cyber Threats. Explain WHY the highest threats drove your estimated 1-5 scales.
-    Then, explicitly detail how the active physical hazards (weather) and perimeter security incidents (crimes) compound these operational risks, driving the final unified posture.]
+    [Explicitly show the math from the CIS formula that justifies a Cyber CIS Score of {target_cis_score}. Explain WHY the highest threats drove your estimated 1-5 scales to arrive at exactly {target_cis_score}.
+    Then, in a detailed paragraph, explain how the perimeter security incidents (crimes) over the last 24 hours compound these operational risks to justify the final {target_risk} posture.]
     
-    Be direct, highly readable, and do NOT hallucinate data not present in the digest."""
+    Be expansive, professional, highly readable, and perfectly aligned with the {target_risk} rating."""
 
+    # Temp slightly elevated to allow for expansive narrative generation
     response = call_llm([
         {"role": "system", "content": master_sys_prompt}, 
         {"role": "user", "content": compiled_intel}
-    ], config, temperature=0.25)
+    ], config, temperature=0.3)
     
     return response.strip() if response else "Report generation failed."
   
