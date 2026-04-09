@@ -640,11 +640,41 @@ if page == "👁️ Global Dashboards":
                     
                     formatted_content = md_to_html(rep)
                     
+                    # Map colors for the email header
+                    email_color_map = {
+                        "GREEN": "#28a745", "BLUE": "#007bff", "YELLOW": "#ffc107", 
+                        "ORANGE": "#fd7e14", "RED": "#dc3545"
+                    }
+                    uni_color = email_color_map.get(intel['unified_risk'].upper(), "#333333")
+                    cyb_color = email_color_map.get(intel['cyber_score'].upper(), "#333333")
+                    phy_color = email_color_map.get(intel['physical_score'].upper(), "#333333")
+                    
+                    # Format the final HTML body with a dynamic scoring banner
                     html_body = f"""
                     <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; color: #333;">
+                        
+                        <table width="100%" cellpadding="15" cellspacing="0" style="margin-bottom: 25px; text-align: center; background: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px;">
+                            <tr>
+                                <th colspan="2" style="background-color: {uni_color}; color: #ffffff; border-radius: 8px 8px 0 0; padding: 15px; font-size: 22px; font-weight: bold; letter-spacing: 1px;">
+                                    UNIFIED THREAT POSTURE: {intel['unified_risk']}
+                                </th>
+                            </tr>
+                            <tr>
+                                <td width="50%" style="border-right: 1px solid #e0e0e0;">
+                                    <span style="font-size: 11px; color: #7f8c8d; text-transform: uppercase; font-weight: bold;">Cyber & SCADA Risk</span><br>
+                                    <strong style="font-size: 20px; color: {cyb_color};">{intel['cyber_score']}</strong>
+                                </td>
+                                <td width="50%">
+                                    <span style="font-size: 11px; color: #7f8c8d; text-transform: uppercase; font-weight: bold;">Physical & Perimeter Risk</span><br>
+                                    <strong style="font-size: 20px; color: {phy_color};">{intel['physical_score']}</strong>
+                                </td>
+                            </tr>
+                        </table>
+
                         <div style="background-color: #f8f9fa; padding: 25px; border-radius: 8px; border-left: 5px solid #2980b9;">
                             {formatted_content}
                         </div>
+                        
                         <p style="text-align: center; color: #7f8c8d; font-size: 12px; margin-top: 20px;">Generated dynamically by NOC Intelligence Fusion Center</p>
                     </div>
                     """
