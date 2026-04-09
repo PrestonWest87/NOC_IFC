@@ -538,6 +538,23 @@ if page == "👁️ Global Dashboards":
                     else: st.error(msg)
             else:
                 st.warning("Please enter a recipient email address.")
+
+        st.divider()
+            st.subheader("📊 Dynamic Scoring Overview")
+            st.caption("On-demand synthesis of all live telemetry detailing the reasoning behind threat scores.")
+            
+            c_score_btn, c_score_space = st.columns([1, 3])
+            is_scoring_cooling = check_cooldown("ai_scoring_report", 60)
+            if c_score_btn.button("⏳ Generating..." if is_scoring_cooling else "🔄 Generate Scoring Rationale", disabled=not can_trigger_ai or is_scoring_cooling, width="stretch", type="primary"):
+                apply_cooldown("ai_scoring_report")
+                with st.spinner("Analyzing threat weights and compiling scoring rationale..."):
+                    from src.llm import generate_dynamic_scoring_report
+                    rep = generate_dynamic_scoring_report(svc.SessionLocal())
+                    st.session_state.scored_overview = rep
+            
+            if "scored_overview" in st.session_state:
+                with st.container(border=True):
+                    st.markdown(st.session_state.scored_overview)
 # ================= 2. THREAT TELEMETRY =================
 elif page == "📡 Threat Telemetry":
     st.title("📡 Unified Threat Telemetry")
