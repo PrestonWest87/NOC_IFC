@@ -250,24 +250,23 @@ def get_recent_crimes(max_distance=None, grid_only=False, hours_back=168):
     
     with SessionLocal() as db:
         cutoff_time = datetime.utcnow() - timedelta(hours=hours_back)
-        
         query = db.query(CrimeIncident).filter(CrimeIncident.timestamp >= cutoff_time)
         
         if grid_only:
-            # FILTER: Updated to match the actual grouped categories from the database
+            # EXPANDED: Included Society crimes (Trespassing/Disturbances) to support FBI UCR taxonomy
             grid_threat_categories = [
                 'Perimeter Breach/Vandalism', 
                 'Violent Proximity Threat', 
-                'Asset/Copper Theft Risk'
+                'Asset/Copper Theft Risk',
+                'Trespassing/Suspicious Activity',
+                'Public Disturbance/Narcotics'
             ]
             query = query.filter(CrimeIncident.category.in_(grid_threat_categories))
         
-        # Apply the radius filter if one is provided
         if max_distance is not None:
             query = query.filter(CrimeIncident.distance_miles <= max_distance)
             
         crimes = query.order_by(CrimeIncident.timestamp.desc()).all()
-        
         return [{
             "id": c.id, "category": c.category, "raw_title": c.raw_title,
             "timestamp": c.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
@@ -428,25 +427,49 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     elif ics_advisories: cyber_brief += f"{len(ics_advisories)} ICS advisories ({len(critical_ics)} critical vendors). "
     if pure_cyber_articles: cyber_brief += f"Top Concern: '{pure_cyber_articles[0].title}'."
     
-    # --- PHYSICAL SCORING ---
+    # --- PHYSICAL SCORING (FBI UCR TAXONOMY) ---
     physical_points = 0
-    critical_crimes = [c for c in recent_crimes if c.get("severity") == "Critical"]
-    high_crimes = [c for c in recent_crimes if c.get("severity") == "High"]
+    crimes_persons = []
+    crimes_property = []
+    crimes_society = []
     
-    physical_points += len(critical_crimes) * 30 + len(high_crimes) * 10 + (len(recent_crimes) - len(critical_crimes) - len(high_crimes)) * 2
-    physical_points += min(sum([15 if art.score >= 80 else 5 for art in pure_phys_articles]), 30) 
+    # Categorize telemetry strictly by FBI definitions
+    for c in recent_crimes:
+        title_cat = (str(c.get('raw_title', '')) + " " + str(c.get('category', ''))).lower()
+        
+        # 1. Crimes Against Persons (Highest Risk to HQ Staff)
+        if any(x in title_cat for x in ['assault', 'shoot', 'homicide', 'murder', 'violent', 'robbery', 'kidnap', 'battery', 'weapon', 'gun', 'person']):
+            c['fbi_category'] = "Crimes Against Persons"
+            crimes_persons.append(c)
+        # 2. Crimes Against Property (High Risk to HQ Assets/Grid)
+        elif any(x in title_cat for x in ['vandalism', 'theft', 'burglary', 'arson', 'property', 'copper', 'breach', 'damage', 'stolen']):
+            c['fbi_category'] = "Crimes Against Property"
+            crimes_property.append(c)
+        # 3. Crimes Against Society (Moderate Risk / Environmental Degradation)
+        else:
+            c['fbi_category'] = "Crimes Against Society"
+            crimes_society.append(c)
+            
+    # Apply weighted risk scoring targeting Headquarters vulnerabilities
+    physical_points += len(crimes_persons) * 25
+    physical_points += len(crimes_property) * 15
+    physical_points += len(crimes_society) * 5
+    
+    osint_phys_pts = min(sum([15 if art.score >= 80 else 5 for art in pure_phys_articles]), 30)
+    physical_points += osint_phys_pts 
     physical_points += min((active_warn_count * 1.5), 20) 
     
-    # Map physical baseline deviation to the 5-tier CIS terminology
-    if physical_points >= (baseline_phys * 3.0) or len(critical_crimes) >= 2: physical_score = "RED"
-    elif physical_points >= (baseline_phys * 2.0) or len(critical_crimes) >= 1: physical_score = "ORANGE"
+    # Map physical deviation to 5-tier CIS/Threat terminology
+    if physical_points >= (baseline_phys * 3.0) or len(crimes_persons) >= 2 or len(crimes_property) >= 3: physical_score = "RED"
+    elif physical_points >= (baseline_phys * 2.0) or len(crimes_persons) >= 1 or len(crimes_property) >= 2: physical_score = "ORANGE"
     elif physical_points >= (baseline_phys * 1.3): physical_score = "YELLOW"
     elif physical_points >= (baseline_phys * 1.0): physical_score = "BLUE"
     else: physical_score = "GREEN"
         
-    physical_brief = f"Perimeter (24h): {len(recent_crimes)} grid-relevant incidents ({len(critical_crimes)} Critical). "
-    if len(pure_phys_articles) > 0: physical_brief += f"🚨 OSINT detected {len(pure_phys_articles)} local physical threats. "
-    physical_brief += f"Weather footprint contributing {min(int(active_warn_count * 1.5), 20)} pts to baseline."
+    physical_brief = f"**HQ Perimeter (24h):** {len(recent_crimes)} total incidents. "
+    physical_brief += f"({len(crimes_persons)} Persons, {len(crimes_property)} Property, {len(crimes_society)} Society). "
+    if len(pure_phys_articles) > 0: physical_brief += f"🚨 OSINT: {len(pure_phys_articles)} local physical threats. "
+    physical_brief += f"Weather footprint: {min(int(active_warn_count * 1.5), 20)} pts."
 
     # --- UNIFIED TIERING ---
     tier_weights = {"RED": 5, "ORANGE": 4, "YELLOW": 3, "BLUE": 2, "GREEN": 1}
