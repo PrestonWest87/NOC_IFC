@@ -1634,9 +1634,11 @@ elif page == "📝 Shift Logbook":
     
     # --- 1.5 PERSISTENT DAILY SUMMARIES ---
     st.subheader("📅 Daily Persistent Summaries")
-    st.caption("Auto-generated executive handoffs for the Morning Shift and the entire Day.")
+    st.caption("Auto-generated executive handoffs for the Morning Shift and the entire Day. These persist until overwritten.")
 
-    today_date_str = datetime.now(LOCAL_TZ).strftime('%Y-%m-%d')
+    # Unique, role-bound keys that do NOT expire at midnight
+    eom_key = f"latest_eom_{st.session_state.current_role}"
+    eod_key = f"latest_eod_{st.session_state.current_role}"
 
     with st.expander("🌅 End of Morning Report", expanded=False):
         if st.button("🤖 Generate Morning Report", key="gen_eom", type="primary", disabled=not ai_enabled):
@@ -1652,13 +1654,20 @@ elif page == "📝 Shift Logbook":
                 else:
                     log_text = "\n".join([f"[{format_local_time(l.created_at)}] {l.analyst}: {l.content}" for l in morn_logs])
                     sys_prompt = "You are a NOC Shift Supervisor. Read the following chronologically ordered running log for the Morning shift. Write a concise, professional End of Morning Shift Handoff Summary combining the key incidents, ongoing outages, and resolutions. Do NOT use pleasantries. Format with markdown."
+                    
                     from src.llm import call_llm
                     summary = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": log_text}], sys_config)
                     if summary:
-                        st.session_state[f"eom_{today_date_str}_{st.session_state.current_role}"] = summary
+                        # Store both the content AND the exact time it was generated
+                        st.session_state[eom_key] = {
+                            "timestamp": datetime.now(LOCAL_TZ).strftime('%B %d, %Y at %I:%M %p %Z'),
+                            "content": summary
+                        }
 
-        if f"eom_{today_date_str}_{st.session_state.current_role}" in st.session_state:
-            st.markdown(st.session_state[f"eom_{today_date_str}_{st.session_state.current_role}"])
+        # Render the persistent report if it exists in memory
+        if eom_key in st.session_state:
+            st.caption(f"🕒 **Last Generated:** {st.session_state[eom_key]['timestamp']}")
+            st.markdown(st.session_state[eom_key]['content'])
 
     with st.expander("🌃 End of Day Report", expanded=False):
         if st.button("🤖 Generate End of Day Report", key="gen_eod", type="primary", disabled=not ai_enabled):
@@ -1674,13 +1683,20 @@ elif page == "📝 Shift Logbook":
                 else:
                     log_text = "\n".join([f"[{format_local_time(l.created_at)}] {l.shift_period} | {l.analyst}: {l.content}" for l in day_logs])
                     sys_prompt = "You are a NOC Shift Supervisor. Read the following chronologically ordered running log for the entire day. Write a comprehensive, professional End of Day Shift Handoff Summary combining the key incidents, ongoing outages, and resolutions. Do NOT use pleasantries. Format with markdown."
+                    
                     from src.llm import call_llm
                     summary = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": log_text}], sys_config)
                     if summary:
-                        st.session_state[f"eod_{today_date_str}_{st.session_state.current_role}"] = summary
+                        # Store both the content AND the exact time it was generated
+                        st.session_state[eod_key] = {
+                            "timestamp": datetime.now(LOCAL_TZ).strftime('%B %d, %Y at %I:%M %p %Z'),
+                            "content": summary
+                        }
 
-        if f"eod_{today_date_str}_{st.session_state.current_role}" in st.session_state:
-            st.markdown(st.session_state[f"eod_{today_date_str}_{st.session_state.current_role}"])
+        # Render the persistent report if it exists in memory
+        if eod_key in st.session_state:
+            st.caption(f"🕒 **Last Generated:** {st.session_state[eod_key]['timestamp']}")
+            st.markdown(st.session_state[eod_key]['content'])
 
     st.divider()
 
