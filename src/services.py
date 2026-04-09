@@ -309,7 +309,7 @@ def save_threat_score(c_pts, p_pts, c_base, p_base):
 
 def get_executive_grid_intel(active_warn_count, recent_crimes):
     """Synthesizes LIVE OSINT and telemetry using the CIS Alert Level Framework and FBI UCR Taxonomy."""
-    from src.database import SessionLocal, Article
+    from src.database import SessionLocal, Article, CloudOutage, CveItem
     from datetime import datetime, timedelta
     
     sys_config = get_cached_config()
@@ -321,9 +321,13 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     with SessionLocal() as db:
         t48 = datetime.utcnow() - timedelta(hours=48)
         
+        # PULLING ALL CYBER TELEMETRY (Articles, ICS, Cloud Outages, and CVEs)
         raw_cyber_articles = db.query(Article).filter(Article.published_date >= t48, Article.category.in_(['Cyber: Exploits & Vulns', 'Cyber: Malware & Threats', 'ICS/OT & SCADA', 'Cloud & IT Infra']), Article.score >= 50).order_by(Article.score.desc()).all()
         raw_ics_articles = db.query(Article).filter(Article.published_date >= t48).order_by(Article.published_date.desc()).all()
         raw_phys_articles = db.query(Article).filter(Article.published_date >= t48, Article.category.in_(['Physical Security', 'Severe Weather', 'Geopolitics & Policy']), Article.score >= 50).order_by(Article.score.desc()).all()
+        
+        active_clouds = db.query(CloudOutage).filter_by(is_resolved=False).all()
+        recent_cves = db.query(CveItem).filter(CveItem.date_added >= t48).all()
 
         geopolitical_noise_words = ["troop", "missile", "election", "ballot", "warfare", "kinetic", "embassy"]
         threat_actors = ["volt typhoon", "sandworm", "dragos", "chernovite", "apt", "lazarus"]
@@ -380,102 +384,89 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     # CIS-ALIGNED & FBI UCR SCORING ALGORITHM
     # ==========================================
     
-    # --- CYBER SCORING (COMPREHENSIVE ITEM-BY-ITEM EVALUATION) ---
-    cyber_points = 0 
-    all_cis_scores = []
+    # --- CYBER SCORING (MACROSCOPIC ENVIRONMENTAL ASSESSMENT) ---
+    cyber_points = 0 # Retained for baseline graphing
+    c, l, s, n = 2, 2, 3, 4 # Baseline Posture: Routine monitoring
+    evidence_log = ["**Base Posture:** Routine monitoring. No active exploits targeting the perimeter. (C:2, L:2, S:3, N:4)"]
 
-    # Evaluate EVERY ICS/KEV Advisory
-    for adv in ics_advisories:
-        c, l, s, n = 3, 2, 3, 4
-        if adv['is_kev']: 
-            c, l, s = 5, 5, 1
-            cyber_points += 50
-        elif adv['is_critical']: 
-            c, l = 5, 4
-            cyber_points += 15
-        else:
-            cyber_points += 5
-            
-        score = (c + l) - (s + n)
-        all_cis_scores.append({"title": adv['title'], "type": "ICS/KEV", "c": c, "l": l, "s": s, "n": n, "score": score})
+    # 1. Evaluate Exploits (KEVs and CVEs)
+    kev_count = len([a for a in ics_advisories if a['is_kev']])
+    if kev_count > 0:
+        l = 5; s = 1
+        cyber_points += 50
+        evidence_log.append(f" **Lethality ↑(5), SysDef ↓(1):** {kev_count} Active KEVs (Known Exploited Vulnerabilities) detected bypassing patches.")
+    elif len(recent_cves) > 10:
+        l = max(l, 3); s = min(s, 2)
+        cyber_points += 15
+        evidence_log.append(f" **Lethality ↑(3), SysDef ↓(2):** Elevated vulnerability volume ({len(recent_cves)} recent CVEs) increasing exploit probability.")
 
-    # Evaluate EVERY Cyber Intelligence Article
-    osint_cyber_pts = 0
-    for art in pure_cyber_articles:
-        # LOWERED DEFAULT: Prevents low-level OSINT from causing false positives
-        c, l, s, n = 2, 2, 3, 4 
-        pts = 5
-        
-        if getattr(art, 'is_ransomware', False): 
-            c, l, s = 5, 5, 2
-            pts += 10
-        elif getattr(art, 'is_apt_related', False): 
-            c, l, s = 5, 4, 3
-            pts *= 4
-        elif getattr(art, 'is_utility_related', False): 
-            c, l = 5, 3
-            pts *= 2
-            
-        osint_cyber_pts += pts
-        score = (c + l) - (s + n)
-        all_cis_scores.append({"title": art.title, "type": "OSINT", "c": c, "l": l, "s": s, "n": n, "score": score})
-        
-    cyber_points += min(osint_cyber_pts, 40)
+    # 2. Evaluate ICS / SCADA targeting
+    critical_ics = [a for a in ics_advisories if a['is_critical']]
+    if critical_ics:
+        c = 5
+        cyber_points += 20
+        evidence_log.append(f" **Criticality ↑(5):** {len(critical_ics)} ICS advisories explicitly targeting core OT/SCADA vendors (e.g., SEL, Siemens).")
+    elif ics_advisories:
+        c = max(c, 4)
+        cyber_points += 10
+        evidence_log.append(f" **Criticality ↑(4):** {len(ics_advisories)} general ICS advisories detected.")
 
-    # Calculate Average of the Top 5 highest threats
-    all_cis_scores.sort(key=lambda x: x['score'], reverse=True)
-    top_cyber_evidence = all_cis_scores[:5]
-    
-    if top_cyber_evidence:
-        cis_cyber_score = round(sum(x['score'] for x in top_cyber_evidence) / len(top_cyber_evidence))
-    else:
-        cis_cyber_score = -5 # Default Green
+    # 3. Evaluate General Threat Actor OSINT
+    apt_count = sum(1 for a in pure_cyber_articles if getattr(a, 'is_apt_related', False))
+    ran_count = sum(1 for a in pure_cyber_articles if getattr(a, 'is_ransomware', False))
+    util_count = sum(1 for a in pure_cyber_articles if getattr(a, 'is_utility_related', False))
 
-    # CIS Scale Mapping
+    if apt_count > 0 or ran_count > 0:
+        l = max(l, 4)
+        c = max(c, 4)
+        cyber_points += (apt_count * 15) + (ran_count * 10)
+        evidence_log.append(f" **Lethality ↑(4), Criticality ↑(4):** Active tracking of {apt_count} APT and {ran_count} Ransomware campaigns in industry OSINT.")
+
+    if util_count > 0:
+        c = 5
+        cyber_points += (util_count * 10)
+        evidence_log.append(f" **Criticality ↑(5):** {util_count} threats explicitly mention targeting Utility/Grid infrastructure.")
+
+    # 4. Evaluate Live IT/Cloud Infrastructure
+    if active_clouds:
+        c = max(c, 4)
+        n = min(n, 3)
+        cyber_points += (len(active_clouds) * 15)
+        evidence_log.append(f" **Criticality ↑(4), NetDef ↓(3):** {len(active_clouds)} Active Tier-1 Cloud disruptions potentially degrading perimeter defenses or VPNs.")
+
+    # Final Calculation
+    cis_cyber_score = (c + l) - (s + n)
+
     if cis_cyber_score >= 6: cyber_score = "RED"
     elif cis_cyber_score >= 3: cyber_score = "ORANGE"
     elif cis_cyber_score >= -1: cyber_score = "YELLOW"
     elif cis_cyber_score >= -4: cyber_score = "BLUE"
     else: cyber_score = "GREEN"
         
-    cyber_brief = f"**CIS Aggregate Score: {cis_cyber_score}** | Tracking {len(pure_cyber_articles)} OSINT threats (48h). "
-    if kev_ics := [a for a in ics_advisories if a['is_kev']]: cyber_brief += f"🚨 CISA KEV Match: {len(kev_ics)} actively exploited grid vulns. "
-    elif ics_advisories: cyber_brief += f"{len(ics_advisories)} ICS advisories. "
-    if pure_cyber_articles: cyber_brief += f"Top Concern: '{pure_cyber_articles[0].title}'."
+    cyber_brief = f"**CIS Aggregate Score: {cis_cyber_score}** | Synthesizing {len(pure_cyber_articles)} OSINT threats, {len(ics_advisories)} ICS alerts, {len(recent_cves)} CVEs, and {len(active_clouds)} Cloud Outages."
     
     # --- PHYSICAL SCORING (HIGH-CRIME URBAN ADJUSTMENT) ---
+    # ... (Keep the FBI physical scoring block exactly as you have it) ...
     physical_points = 0
     crimes_persons = []
     crimes_property = []
     crimes_society = []
     
-    # Categorize telemetry strictly by FBI definitions
-    for c in recent_crimes:
-        title_cat = (str(c.get('raw_title', '')) + " " + str(c.get('category', ''))).lower()
-        
-        # 1. Crimes Against Persons (Violent/Direct Threat)
-        # Removed the overly broad 'person' keyword.
+    for c_item in recent_crimes:
+        title_cat = (str(c_item.get('raw_title', '')) + " " + str(c_item.get('category', ''))).lower()
         if any(x in title_cat for x in ['assault', 'shoot', 'homicide', 'murder', 'violent', 'robbery', 'kidnap', 'battery', 'weapon', 'gun', 'stab']):
-            c['fbi_category'] = "Crimes Against Persons"
-            crimes_persons.append(c)
-            
-        # 2. Crimes Against Society (Suspicious, Disturbances, Narcotics)
-        # Checked BEFORE property so "Suspicious Person" doesn't get caught by the "Breach" category keyword.
+            c_item['fbi_category'] = "Crimes Against Persons"
+            crimes_persons.append(c_item)
         elif any(x in title_cat for x in ['suspicious', 'disturbance', 'narcotic', 'drug', 'loiter', 'trespass']):
-            c['fbi_category'] = "Crimes Against Society"
-            crimes_society.append(c)
-            
-        # 3. Crimes Against Property (Vandalism, Theft, Break-ins)
+            c_item['fbi_category'] = "Crimes Against Society"
+            crimes_society.append(c_item)
         elif any(x in title_cat for x in ['vandalism', 'theft', 'burglary', 'arson', 'property', 'copper', 'breach', 'damage', 'stolen']):
-            c['fbi_category'] = "Crimes Against Property"
-            crimes_property.append(c)
-            
-        # Fallback for anything else
+            c_item['fbi_category'] = "Crimes Against Property"
+            crimes_property.append(c_item)
         else:
-            c['fbi_category'] = "Crimes Against Society"
-            crimes_society.append(c)
+            c_item['fbi_category'] = "Crimes Against Society"
+            crimes_society.append(c_item)
             
-    # Heavily dampened multipliers for urban baseline
     physical_points += len(crimes_persons) * 10
     physical_points += len(crimes_property) * 5
     physical_points += len(crimes_society) * 1
@@ -484,7 +475,6 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     physical_points += osint_phys_pts 
     physical_points += min((active_warn_count * 1.5), 15) 
     
-    # Relaxed Thresholds: Requires sustained/multiple severe events to trigger high alerts
     if physical_points >= (baseline_phys * 4.0) or len(crimes_persons) >= 5 or len(crimes_property) >= 10: physical_score = "RED"
     elif physical_points >= (baseline_phys * 3.0) or len(crimes_persons) >= 3 or len(crimes_property) >= 6: physical_score = "ORANGE"
     elif physical_points >= (baseline_phys * 1.8): physical_score = "YELLOW"
@@ -508,6 +498,7 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
             "unified_risk": unified_risk, "physical_score": physical_score, "physical_brief": physical_brief,
             "cyber_score": cyber_score, "cyber_brief": cyber_brief, "cis_cyber_score": cis_cyber_score,
             "recent_crimes": recent_crimes, "raw_cyber_articles": pure_cyber_articles, "raw_phys_articles": pure_phys_articles,
+            "evidence_log": evidence_log,  # <--- NEW: Passed to UI for rendering
             "current_cyber_pts": cyber_points, "current_phys_pts": physical_points,
             "baseline_cyber": baseline_cyber, "baseline_phys": baseline_phys
         }
