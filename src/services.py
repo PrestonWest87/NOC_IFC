@@ -381,7 +381,7 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     # ==========================================
     
     # --- CYBER SCORING (COMPREHENSIVE ITEM-BY-ITEM EVALUATION) ---
-    cyber_points = 0 # Baseline deviation tracker
+    cyber_points = 0 
     all_cis_scores = []
 
     # Evaluate EVERY ICS/KEV Advisory
@@ -395,34 +395,39 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
             cyber_points += 15
         else:
             cyber_points += 5
-        all_cis_scores.append((c + l) - (s + n))
+            
+        score = (c + l) - (s + n)
+        all_cis_scores.append({"title": adv['title'], "type": "ICS/KEV", "c": c, "l": l, "s": s, "n": n, "score": score})
 
     # Evaluate EVERY Cyber Intelligence Article
     osint_cyber_pts = 0
     for art in pure_cyber_articles:
-        c, l, s, n = 3, 2, 3, 4
+        # LOWERED DEFAULT: Prevents low-level OSINT from causing false positives
+        c, l, s, n = 2, 2, 3, 4 
         pts = 5
         
         if getattr(art, 'is_ransomware', False): 
-            c, l, s = 4, 5, 2
+            c, l, s = 5, 5, 2
             pts += 10
         elif getattr(art, 'is_apt_related', False): 
-            c, l = 5, 4
+            c, l, s = 5, 4, 3
             pts *= 4
         elif getattr(art, 'is_utility_related', False): 
-            c = 4
+            c, l = 5, 3
             pts *= 2
             
         osint_cyber_pts += pts
-        all_cis_scores.append((c + l) - (s + n))
+        score = (c + l) - (s + n)
+        all_cis_scores.append({"title": art.title, "type": "OSINT", "c": c, "l": l, "s": s, "n": n, "score": score})
         
     cyber_points += min(osint_cyber_pts, 40)
 
-    # Calculate Average of the Top 5 threats to prevent dilution
-    if all_cis_scores:
-        all_cis_scores.sort(reverse=True)
-        top_scores = all_cis_scores[:5]
-        cis_cyber_score = round(sum(top_scores) / len(top_scores))
+    # Calculate Average of the Top 5 highest threats
+    all_cis_scores.sort(key=lambda x: x['score'], reverse=True)
+    top_cyber_evidence = all_cis_scores[:5]
+    
+    if top_cyber_evidence:
+        cis_cyber_score = round(sum(x['score'] for x in top_cyber_evidence) / len(top_cyber_evidence))
     else:
         cis_cyber_score = -5 # Default Green
 
