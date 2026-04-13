@@ -498,8 +498,8 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
 def calculate_internal_cis_score(db_session):
     """
     Calculates an Internal CIS Threat Score based PURELY on OSINT correlations.
-    Uses an Inverted Index and Fast-Fail String matching to process millions of potential 
-    correlations in milliseconds without pinning the CPU.
+    Uses an Inverted Index, Fast-Fail String matching, and Smart OS Concatenation 
+    to prevent acronym collisions (e.g., Cisco IOS vs Apple iOS).
     """
     from src.database import HardwareAsset, SoftwareAsset, Article, CveItem
     from datetime import datetime, timedelta
@@ -512,8 +512,12 @@ def calculate_internal_cis_score(db_session):
     recent_articles = db_session.query(Article).filter(Article.published_date >= thirty_days_ago).all()
     recent_cves = db_session.query(CveItem).order_by(CveItem.date_added.desc()).limit(300).all()
 
-    # Generic terms that generate too much natural language noise
-    IGNORE_LIST = {"apps", "app store", "books", "calculator", "chess", "clock", "connect", "console", "dash", "cron", "bash", "atom", "acl", "bc", "cpp", "ant"}
+    # Added heavily overloaded standalone OS acronyms to the noise filter
+    IGNORE_LIST = {
+        "apps", "app store", "books", "calculator", "chess", "clock", "connect", 
+        "console", "dash", "cron", "bash", "atom", "acl", "bc", "cpp", "ant",
+        "ios", "mac", "windows", "linux", "android", "server", "system"
+    }
 
     # ==========================================
     # PHASE 1: PRE-COMPILE & DEDUPLICATE TERMS
@@ -521,17 +525,18 @@ def calculate_internal_cis_score(db_session):
     unique_terms = {}
 
     def register_term(term):
-        term = term.strip().lower()
+        if not term: return None
+        term = str(term).strip().lower()
+        # Drop terms that are too short or overly generic
         if len(term) > 2 and term not in IGNORE_LIST:
             if term not in unique_terms:
-                # Pre-compile the regex exactly ONCE per unique term
                 unique_terms[term] = {
                     'regex': re.compile(rf'\b{re.escape(term)}\b'),
                     'matches': []
                 }
-        return term if (len(term) > 2 and term not in IGNORE_LIST) else None
+            return term
+        return None
 
-    # We store the cleaned terms on the objects temporarily so we don't recalculate them later
     sw_search_maps = []
     for sw in sw_assets:
         clean_term = register_term(sw.name)
@@ -539,19 +544,38 @@ def calculate_internal_cis_score(db_session):
 
     hw_search_maps = []
     for hw in hw_assets:
-        terms = [
-            register_term(hw.asset_name) if hw.asset_name else None,
-            register_term(hw.operating_system) if hw.operating_system else None,
-            register_term(hw.os_product) if hw.os_product else None
-        ]
-        # Remove Nones and duplicates for this specific hardware
-        hw_search_maps.append({'obj': hw, 'terms': list(set([t for t in terms if t]))})
+        terms = []
+        if hw.asset_name: terms.append(hw.asset_name)
+        
+        # --- SMART OS STRING GENERATION ---
+        # Dynamically builds contextual strings (Vendor + OS + Version)
+        vendor = (hw.os_vendor or "").strip()
+        os_name = (hw.operating_system or hw.os_product or "").strip()
+        version = (hw.os_version or "").strip()
+        
+        if os_name:
+            # 1. Vendor + OS (e.g., "Cisco IOS")
+            if vendor and vendor.lower() not in os_name.lower():
+                terms.append(f"{vendor} {os_name}")
+            
+            # 2. OS + Version (e.g., "IOS 15.2")
+            if version and version.lower() not in os_name.lower():
+                terms.append(f"{os_name} {version}")
+                
+            # 3. Vendor + OS + Version (e.g., "Cisco IOS 15.2")
+            if vendor and version:
+                terms.append(f"{vendor} {os_name} {version}")
+                
+            # 4. Raw OS (e.g., "IOS" - will be dropped by IGNORE_LIST, but "Ubuntu 22.04" will pass)
+            terms.append(os_name)
+            
+        clean_terms = [register_term(t) for t in terms if t]
+        hw_search_maps.append({'obj': hw, 'terms': list(set(clean_terms))})
 
 
     # ==========================================
-    # PHASE 2: BATCH OSINT SCAN (The Speed Fix)
+    # PHASE 2: BATCH OSINT SCAN
     # ==========================================
-    # Pre-process strings once to avoid calling .lower() millions of times
     prepped_articles = []
     for art in recent_articles:
         text_blob = f"{art.title} {art.summary or ''}".lower()
@@ -562,22 +586,16 @@ def calculate_internal_cis_score(db_session):
         text_blob = f"{cve.product} {cve.description}".lower()
         prepped_cves.append({'obj': cve, 'text': text_blob, 'id': cve.cve_id})
 
-    # Scan the unique terms against the prepped data
     for term, data in unique_terms.items():
         compiled_regex = data['regex']
         
-        # Scan Articles
         for art_data in prepped_articles:
-            # FAST-FAIL: Native string `in` is 100x faster than regex. 
-            # Only run the regex if the quick substring check passes.
             if term in art_data['text'] and compiled_regex.search(art_data['text']):
                 data['matches'].append({"title": art_data['obj'].title, "is_critical": art_data['is_critical']})
 
-        # Scan CVEs
         for cve_data in prepped_cves:
             if term in cve_data['text'] and compiled_regex.search(cve_data['text']):
                 data['matches'].append({"title": f"CISA KEV: {cve_data['id']}", "is_critical": True})
-
 
     # ==========================================
     # PHASE 3: RECONSTRUCT POSTURE MATRICES
@@ -588,7 +606,6 @@ def calculate_internal_cis_score(db_session):
     global_osint_titles = set()
     global_critical_titles = set()
 
-    # Reconstruct Software
     for sw_map in sw_search_maps:
         term = sw_map['term']
         if term and unique_terms[term]['matches']:
@@ -605,7 +622,6 @@ def calculate_internal_cis_score(db_session):
                 "Top Threat Reference": list(unique_intel.keys())[0]
             })
 
-    # Reconstruct Hardware
     for hw_map in hw_search_maps:
         hw = hw_map['obj']
         unique_intel = {}
