@@ -496,77 +496,143 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
 
 def calculate_internal_cis_score(db_session):
     """
-    Calculates an Internal CIS Threat Score on a -8 to +8 scale.
-    CIS Mapping: Green (-8 to -5), Blue (-4 to -2), Yellow (-1 to 2), Orange (3 to 5), Red (6 to 8)
+    Calculates an Internal CIS Threat Score on a -8 to +8 scale based PURELY on OSINT correlations.
     Formula: Severity = (Criticality + Lethality) - Countermeasures
     """
-    from src.database import HardwareAsset, SoftwareAsset
-    
+    from src.database import HardwareAsset, SoftwareAsset, Article, CveItem
+    from datetime import datetime, timedelta
+
     hw_assets = db_session.query(HardwareAsset).all()
     sw_assets = db_session.query(SoftwareAsset).all()
     
-    if not hw_assets:
-        return {
-            "score": -8, 
-            "risk_level": "GREEN", 
-            "total_assets": len(sw_assets),
-            "total_critical_vulns": 0,
-            "total_exploits": 0
-        }
+    # Pull recent OSINT (Last 30 days of articles + Top 300 active KEVs)
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    recent_articles = db_session.query(Article).filter(Article.published_date >= thirty_days_ago).all()
+    recent_cves = db_session.query(CveItem).order_by(CveItem.date_added.desc()).limit(300).all()
 
-    # 1. Aggregate Telemetry
-    total_critical_vulns = sum(a.critical_vulnerabilities or 0 for a in hw_assets)
-    total_severe_vulns = sum(a.severe_vulnerabilities or 0 for a in hw_assets)
-    total_exploits = sum(a.exploit_count or 0 for a in hw_assets)
-    total_malware = sum(a.malware_count or 0 for a in hw_assets)
+    annotated_hw = []
+    annotated_sw = []
+    total_osint_hits = 0
+    critical_osint_hits = 0
+
+    # --- 1. PROCESS SOFTWARE ASSETS ---
+    for sw in sw_assets:
+        sw_name = sw.name.lower()
+        matched_intel = []
+        
+        # Check against Threat Articles
+        for art in recent_articles:
+            if sw_name in art.title.lower() or (art.summary and sw_name in art.summary.lower()):
+                matched_intel.append({"title": art.title})
+                total_osint_hits += 1
+                if art.score >= 80: critical_osint_hits += 1
+
+        # Check against CISA KEVs
+        for cve in recent_cves:
+            if sw_name in str(cve.product).lower() or sw_name in str(cve.description).lower():
+                matched_intel.append({"title": f"CISA KEV: {cve.cve_id}"})
+                total_osint_hits += 1
+                critical_osint_hits += 1
+
+        # Deduplicate matches
+        unique_intel = {m['title']: m for m in matched_intel}.values()
+
+        if unique_intel:
+            annotated_sw.append({
+                "Software Name": sw.name,
+                "OSINT Risk Score": min(len(unique_intel) * 25, 100), # Cap at 100
+                "Active OSINT Matches": len(unique_intel),
+                "Top Threat Reference": list(unique_intel)[0]['title']
+            })
+
+    # --- 2. PROCESS HARDWARE ASSETS ---
+    for hw in hw_assets:
+        matched_intel = []
+        
+        # Build search terms from available hardware data
+        search_terms = []
+        if hw.asset_name: search_terms.append(hw.asset_name.lower())
+        if hw.operating_system: search_terms.append(hw.operating_system.lower())
+        if hw.os_product: search_terms.append(hw.os_product.lower())
+        
+        # Filter out overly short acronyms to prevent false positives in text scanning
+        search_terms = [t for t in search_terms if len(t) > 3]
+
+        for term in search_terms:
+            # Check against Threat Articles
+            for art in recent_articles:
+                if term in art.title.lower() or (art.summary and term in art.summary.lower()):
+                    matched_intel.append({"title": art.title})
+                    total_osint_hits += 1
+                    if art.score >= 80: critical_osint_hits += 1
+            
+            # Check against CISA KEVs
+            for cve in recent_cves:
+                if term in str(cve.product).lower() or term in str(cve.description).lower():
+                    matched_intel.append({"title": f"CISA KEV: {cve.cve_id}"})
+                    total_osint_hits += 1
+                    critical_osint_hits += 1
+
+        unique_intel = {m['title']: m for m in matched_intel}.values()
+        
+        display_name = hw.asset_name if hw.asset_name else f"Device ({hw.ip_address})"
+        os_display = f"{hw.operating_system or 'Unknown'} {hw.os_version or ''}".strip()
+
+        annotated_hw.append({
+            "Identifier": display_name,
+            "IP Address": hw.ip_address,
+            "OS": os_display,
+            "OSINT Risk Score": min(len(unique_intel) * 25, 100),
+            "OSINT Threat Matches": len(unique_intel),
+            "Rapid7 Critical Vulns": hw.critical_vulnerabilities or 0, # Kept purely for UI reference, not scoring
+            "Top Threat Reference": list(unique_intel)[0]['title'] if unique_intel else "Clear"
+        })
+
+    # --- 3. CALCULATE CIS POSTURE (Based entirely on OSINT hits) ---
     
-    high_risk_assets = sum(1 for a in hw_assets if (a.risk_score or 0) > 80)
-    
-    # 2. Calculate Lethality (The presence of active threats/vulns)
+    # Lethality: Severity of the intel actively targeting the stack
     lethality = 0
-    if total_critical_vulns > 50: lethality += 3
-    elif total_critical_vulns > 10: lethality += 2
-    elif total_critical_vulns > 0: lethality += 1
-        
-    if total_exploits > 10: lethality += 4
-    elif total_exploits > 0: lethality += 2
-        
-    if total_malware > 0: lethality += 5 # High penalty for active malware
-        
-    # 3. Calculate Criticality (The density of severe assets exposed)
-    criticality = 0
-    percent_high_risk = (high_risk_assets / len(hw_assets)) * 100 if hw_assets else 0
-    
-    if percent_high_risk > 20: criticality += 4
-    elif percent_high_risk > 10: criticality += 2
-    elif percent_high_risk > 5: criticality += 1
+    if critical_osint_hits > 20: lethality += 5
+    elif critical_osint_hits > 5: lethality += 3
+    elif critical_osint_hits > 0: lethality += 2
+    elif total_osint_hits > 10: lethality += 1
 
-    # 4. Apply Countermeasures Baseline
-    # Since we are assuming standard NOC operational monitoring is in place, 
-    # we apply a base mitigation score. 
+    # Criticality: Density of exposure across the asset footprint
+    total_assets = len(hw_assets) + len(sw_assets)
+    assets_at_risk = len([a for a in annotated_hw if a["OSINT Threat Matches"] > 0]) + len(annotated_sw)
+    percent_at_risk = (assets_at_risk / total_assets) * 100 if total_assets > 0 else 0
+
+    criticality = 0
+    if percent_at_risk > 30: criticality += 4
+    elif percent_at_risk > 15: criticality += 2
+    elif percent_at_risk > 5: criticality += 1
+
+    # Apply Countermeasures Baseline
     countermeasures = 4 
     
-    # 5. Final Calculation
     raw_score = (criticality + lethality) - countermeasures
-    
-    # Clamp to CIS limits (-8 to +8)
-    final_score = max(-8, min(8, raw_score))
-    
-    # 6. Map to CIS Color Posture
+    final_score = max(-8, min(8, raw_score)) # Clamp to CIS limits
+
+    # Map to CIS Color Posture
     if final_score >= 6: risk_level = "RED"
     elif final_score >= 3: risk_level = "ORANGE"
     elif final_score >= -1: risk_level = "YELLOW"
     elif final_score >= -4: risk_level = "BLUE"
     else: risk_level = "GREEN"
-        
+
+    # Sort lists before returning
+    annotated_hw = sorted(annotated_hw, key=lambda x: x["OSINT Risk Score"], reverse=True)
+    annotated_sw = sorted(annotated_sw, key=lambda x: x["OSINT Risk Score"], reverse=True)
+
     return {
         "score": final_score,
         "risk_level": risk_level,
-        "total_assets": len(hw_assets) + len(sw_assets),
-        "total_critical_vulns": total_critical_vulns,
-        "total_exploits": total_exploits,
-        "raw_lethality": lethality,
-        "raw_criticality": criticality
+        "total_assets": total_assets,
+        "total_sw_loaded": len(sw_assets),
+        "total_osint_hits": total_osint_hits,
+        "critical_osint_hits": critical_osint_hits,
+        "hw_data": annotated_hw,
+        "sw_data": annotated_sw
     }
 
 def generate_outlook_html_report(intel):
