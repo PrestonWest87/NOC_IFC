@@ -494,22 +494,6 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
             "baseline_cyber": baseline_cyber, "baseline_phys": baseline_phys
         }
 
-That massive CPU spike and slow processing time are classic symptoms of Regex Loop Thrashing.
-
-In the previous version, the engine was running a nested loop that compiled and executed a complex regex search for every single asset term against every single article and CVE. If you have 1,000 assets and 2,000 articles, Python was compiling and running millions of regex checks sequentially, pinning the CPU.
-
-To fix this, we will use an Inverted Index Pattern with a Bloom Filter approach:
-
-    Deduplicate: We will extract all unique search terms across your entire environment.
-
-    Pre-compile: We compile the regex for each term exactly once.
-
-    Pre-process: We convert all OSINT articles and CVEs into lowercase memory blocks exactly once.
-
-    Fast-Fail: We use Python's blazing-fast native string matching (if term in text) to instantly filter out 99% of articles. Only if the fast-match succeeds do we trigger the expensive regex verification.
-
-Replace your calculate_internal_cis_score function in src/services.py with this highly optimized version. It will drop your execution time from minutes down to a fraction of a second.
-Python
 
 def calculate_internal_cis_score(db_session):
     """
