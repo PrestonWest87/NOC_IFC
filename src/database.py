@@ -155,6 +155,22 @@ class HardwareAsset(Base):
     
     last_updated = Column(DateTime, default=datetime.utcnow)
 
+class InternalRiskSnapshot(Base):
+    __tablename__ = "internal_risk_snapshots"
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    score = Column(Float)
+    risk_level = Column(String)
+    
+    # Core Metrics
+    total_assets = Column(Integer)
+    total_osint_hits = Column(Integer)
+    critical_osint_hits = Column(Integer)
+    
+    # JSON strings to cache the heavy dataframes
+    hw_data_json = Column(Text)
+    sw_data_json = Column(Text)
+
 
 # ==========================================
 # INTELLIGENCE & THREAT MODELS
