@@ -687,15 +687,10 @@ if page == "👁️ Global Dashboards":
 
     with dash_tabs[2]:
             st.subheader("🏢 Internal Asset Risk Dashboard")
-            st.caption("Active correlation of internal software and hardware inventories against OSINT telemetry and CIS standards.")
+            st.caption("Active correlation of internal software and hardware inventories against 30-day OSINT telemetry and CISA alerts.")
             
             with svc.SessionLocal() as dbtmp:
-                from src.database import SoftwareAsset, HardwareAsset, CveItem
-                sw_assets = dbtmp.query(SoftwareAsset).all()
-                hw_assets = dbtmp.query(HardwareAsset).all()
-                cves = dbtmp.query(CveItem).order_by(CveItem.date_added.desc()).limit(300).all()
-                
-                # Call the new CIS calculation service
+                # Call the heavy-lifting service directly
                 cis_data = svc.calculate_internal_cis_score(dbtmp)
                 
             # Display the CIS Score
@@ -706,42 +701,38 @@ if page == "👁️ Global Dashboards":
             <div style='text-align: center; padding: 20px; background-color: #1e1e1e; border-radius: 10px; border: 2px solid {score_color}; margin-bottom: 20px;'>
                 <h3 style='margin:0; color: #a0a0a0;'>INTERNAL ASSET POSTURE (CIS STANDARD)</h3>
                 <h1 style='margin:0; font-size: 3rem; color: {score_color};'>{cis_data['risk_level']} ({cis_data['score']})</h1>
-                <p style='margin:0; color: #a0a0a0;'>Analyzed {cis_data['total_assets']} total assets.</p>
+                <p style='margin:0; color: #a0a0a0;'>Analyzed {cis_data['total_assets']} total assets against OSINT feeds.</p>
             </div>
             """, unsafe_allow_html=True)
             
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Tracked Hardware", len(hw_assets))
-            c2.metric("Tracked Software", len(sw_assets))
-            c3.metric("Critical Hardware Vulns", cis_data['total_critical_vulns'], delta_color="inverse")
-            c4.metric("Active Exploits Detected", cis_data['total_exploits'], delta_color="inverse")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total Asset Footprint", cis_data['total_assets'])
+            c2.metric("Total OSINT Correlations", cis_data['total_osint_hits'])
+            c3.metric("Critical OSINT Hits", cis_data['critical_osint_hits'], delta_color="inverse")
             st.divider()
     
-            with st.expander("🗄️ View Hardware Asset Inventory & Telemetry", expanded=True):
-                if hw_assets:
-                    hw_list = []
-                    for h in hw_assets:
-                        display_name = h.asset_name if h.asset_name else f"Unknown Device ({h.ip_address})"
-                        os_display = f"{h.operating_system or 'Unknown'} {h.os_version or ''}".strip()
-                        hw_list.append({
-                            "Identifier": display_name,
-                            "IP Address": h.ip_address,
-                            "OS": os_display,
-                            "Risk Score": h.risk_score or 0.0,
-                            "Critical Vulns": h.critical_vulnerabilities or 0,
-                            "Exploit Count": h.exploit_count or 0,
-                            "Malware Count": h.malware_count or 0
-                        })
-                    
-                    df_hw = pd.DataFrame(hw_list).sort_values(by="Risk Score", ascending=False)
-                    st.dataframe(
-                        df_hw,
-                        width="stretch",
-                        hide_index=True
-                    )
+            # --- HARDWARE TABLE ---
+            st.markdown("### 🖥️ Hardware Assets")
+            with st.expander("🗄️ View Hardware Inventory & OSINT Correlations", expanded=True):
+                if cis_data['hw_data']:
+                    df_hw = pd.DataFrame(cis_data['hw_data'])
+                    st.dataframe(df_hw, width="stretch", hide_index=True)
                 else:
                     st.info("No hardware assets loaded. Go to Settings -> Internal Assets to import your inventory.")
 
+            st.divider()
+
+            # --- SOFTWARE TABLE ---
+            st.markdown("### 💾 Software Assets")
+            with st.expander("🗄️ View At-Risk Software", expanded=True):
+                if cis_data['sw_data']:
+                    df_sw = pd.DataFrame(cis_data['sw_data'])
+                    st.warning(f"⚠️ Detected {len(df_sw)} software assets actively exposed to recent OSINT intelligence.")
+                    st.dataframe(df_sw, width="stretch", hide_index=True)
+                elif cis_data['total_sw_loaded'] > 0:
+                    st.success("✅ All tracked software assets are currently clear of recent OSINT correlations.")
+                else:
+                    st.info("No software assets loaded. Go to Settings -> Internal Assets to import your inventory.")
         
 # ================= 2. THREAT TELEMETRY =================
 elif page == "📡 Threat Telemetry":
