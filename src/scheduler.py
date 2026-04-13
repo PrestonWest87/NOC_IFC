@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from src.services import generate_and_save_internal_risk_snapshot
 
 # Expanded imports
 from src.database import (
@@ -263,6 +264,7 @@ if __name__ == "__main__":
     schedule.every(15).minutes.do(run_threaded, fetch_feeds)
     schedule.every(30).minutes.do(run_threaded, fetch_live_crimes)
     schedule.every(6).hours.do(run_threaded, fetch_cisa_kev)
+    schedule.every(6).hours.do(generate_and_save_internal_risk_snapshot)
     
     # High-Priority / High-Churn Telemetry
     schedule.every(5).minutes.do(run_threaded, fetch_regional_hazards)
@@ -274,7 +276,7 @@ if __name__ == "__main__":
     # 3. Asynchronous Boot Sequence (Does not block the container from finishing startup)
     boot_jobs = [
         fetch_cisa_kev, fetch_regional_hazards, fetch_cloud_outages, 
-        run_telemetry_sync, fetch_live_crimes, fetch_feeds
+        run_telemetry_sync, fetch_live_crimes, fetch_feeds, generate_and_save_internal_risk_snapshot
     ]
     for job in boot_jobs:
         run_threaded(job)
