@@ -712,11 +712,17 @@ if page == "👁️ Global Dashboards":
             st.divider()
     
             # --- HARDWARE TABLE ---
-            st.markdown("### 🖥️ Hardware Assets")
+           st.markdown("### 🖥️ Hardware Assets")
             with st.expander("🗄️ View Hardware Inventory & OSINT Correlations", expanded=True):
-                if cis_data['hw_data']:
-                    df_hw = pd.DataFrame(cis_data['hw_data'])
+                # Isolate only hardware with > 0 matches
+                at_risk_hw = [h for h in cis_data['hw_data'] if h['OSINT Threat Matches'] > 0]
+                
+                if at_risk_hw:
+                    df_hw = pd.DataFrame(at_risk_hw)
+                    st.warning(f"⚠️ Detected {len(at_risk_hw)} hardware assets actively exposed to recent OSINT intelligence.")
                     st.dataframe(df_hw, width="stretch", hide_index=True)
+                elif cis_data['total_hw_loaded'] > 0:
+                    st.success("✅ All tracked hardware assets are currently clear of recent OSINT correlations.")
                 else:
                     st.info("No hardware assets loaded. Go to Settings -> Internal Assets to import your inventory.")
 
