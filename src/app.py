@@ -709,18 +709,7 @@ if page == "👁️ Global Dashboards":
                 # Parse the cached JSON payloads
                 hw_data = json.loads(latest.hw_data_json)
                 sw_data = json.loads(latest.sw_data_json)
-                
-                # --- TIME SERIES GRAPH ---
-                st.markdown("### 📈 Historical Threat Trend")
-                
-                # Prep data for native Streamlit line chart
-                df_chart = pd.DataFrame([{"Time": s.timestamp, "CIS Risk Score": s.score} for s in snapshots])
-                df_chart.set_index("Time", inplace=True)
-                df_chart.sort_index(inplace=True) # Ensure chronological order left-to-right
-                
-                st.line_chart(df_chart, use_container_width=True, color="#dc3545")
-                st.divider()
-                
+
                 # --- DASHBOARD METRICS ---
                 risk_color_map = {"GREEN": "#28a745", "BLUE": "#007bff", "YELLOW": "#ffc107", "ORANGE": "#fd7e14", "RED": "#dc3545"}
                 score_color = risk_color_map.get(latest.risk_level, "#6c757d")
@@ -737,6 +726,17 @@ if page == "👁️ Global Dashboards":
                 c1.metric("Total Asset Footprint", latest.total_assets)
                 c2.metric("Total OSINT Correlations", latest.total_osint_hits)
                 c3.metric("Critical OSINT Hits", latest.critical_osint_hits, delta_color="inverse")
+                st.divider()
+                
+                # --- TIME SERIES GRAPH ---
+                st.markdown("### 📈 Historical Threat Trend")
+                
+                # Prep data for native Streamlit line chart
+                df_chart = pd.DataFrame([{"Time": s.timestamp, "CIS Risk Score": s.score} for s in snapshots])
+                df_chart.set_index("Time", inplace=True)
+                df_chart.sort_index(inplace=True) # Ensure chronological order left-to-right
+                
+                st.line_chart(df_chart, use_container_width=True, color="#dc3545")
                 st.divider()
         
                 # --- HARDWARE TABLE ---
