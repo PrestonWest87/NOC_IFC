@@ -674,6 +674,30 @@ def calculate_internal_cis_score(db_session):
         "hw_data": annotated_hw,
         "sw_data": annotated_sw
     }
+
+def generate_and_save_internal_risk_snapshot():
+    """Runs the optimized CIS calculation and saves the snapshot to the DB for the dashboard."""
+    from src.database import SessionLocal, InternalRiskSnapshot
+    import json
+    
+    with SessionLocal() as db_session:
+        # 1. Run the heavy calculation
+        cis_data = calculate_internal_cis_score(db_session)
+        
+        # 2. Package it into a database snapshot
+        snapshot = InternalRiskSnapshot(
+            score=cis_data['score'],
+            risk_level=cis_data['risk_level'],
+            total_assets=cis_data['total_assets'],
+            total_osint_hits=cis_data['total_osint_hits'],
+            critical_osint_hits=cis_data['critical_osint_hits'],
+            hw_data_json=json.dumps(cis_data['hw_data']),
+            sw_data_json=json.dumps(cis_data['sw_data'])
+        )
+        
+        # 3. Save to database
+        db_session.add(snapshot)
+        db_session.commit()
     
 def generate_outlook_html_report(intel):
     """Generates the static fallback report if the LLM generation fails or is bypassed."""
