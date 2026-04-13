@@ -67,7 +67,7 @@ ALL_POSSIBLE_ACTIONS = [
     "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score", 
     "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
     "Action: Submit Shift Log", "Action: Dispatch RCA Tickets", "Action: Manage Site Maintenance",
-    "Tab: Dashboards -> Operational", "Tab: Dashboards -> Executive",
+    "Tab: Dashboards -> Operational", "Tab: Dashboards -> Global Risk", "Tab: Dashboards -> Internal Risk",
     "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV", 
     "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",
     "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash", 
@@ -76,7 +76,7 @@ ALL_POSSIBLE_ACTIONS = [
     "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
     "Tab: Shift Log -> Active Shift", "Tab: Shift Log -> History", # <-- NEW TABS
     "Tab: Reporting -> Daily Fusion", "Tab: Reporting -> Report Builder", "Tab: Reporting -> Shared Library",
-    "Tab: Settings -> Facility Locations", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training", 
+    "Tab: Settings -> Facility Locations", "Tab: Settings -> Internal Assets", "Tab: Settings -> RSS Sources", 
     "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
 ]
 
@@ -360,7 +360,7 @@ def render_article_feed(feed_articles, key_prefix=""):
 # ================= 1. GLOBAL DASHBOARDS =================
 if page == "👁️ Global Dashboards":
     st.title("👁️ Global NOC Dashboards")
-    dash_tabs = st.tabs(["🌐 Operational Dashboard", "📊 Executive Matrix"])
+    dash_tabs = st.tabs(["🌐 Operational Dashboard", "📊 Global Risk", "🏢 Internal Risk"])
     
     with dash_tabs[0]:
         metrics = svc.get_dashboard_metrics()
@@ -684,6 +684,59 @@ if page == "👁️ Global Dashboards":
                     else: st.error(f"SMTP Error: {msg}")
             else:
                 st.warning("Please enter a recipient email address.")
+
+    with dash_tabs[2]:
+            st.subheader("🏢 Internal Asset Risk Dashboard")
+            st.caption("Active correlation of internal software and hardware inventories against OSINT telemetry and CIS standards.")
+            
+            with svc.SessionLocal() as dbtmp:
+                from src.database import SoftwareAsset, HardwareAsset, CveItem
+                sw_assets = dbtmp.query(SoftwareAsset).all()
+                hw_assets = dbtmp.query(HardwareAsset).all()
+                cves = dbtmp.query(CveItem).order_by(CveItem.date_added.desc()).limit(300).all()
+                
+                # Call the new CIS calculation service
+                cis_data = svc.calculate_internal_cis_score(dbtmp)
+                
+            # Display the CIS Score
+            risk_color_map = {"GREEN": "#28a745", "BLUE": "#007bff", "YELLOW": "#ffc107", "ORANGE": "#fd7e14", "RED": "#dc3545"}
+            score_color = risk_color_map.get(cis_data["risk_level"], "#6c757d")
+            
+            st.markdown(f"""
+            <div style='text-align: center; padding: 20px; background-color: #1e1e1e; border-radius: 10px; border: 2px solid {score_color}; margin-bottom: 20px;'>
+                <h3 style='margin:0; color: #a0a0a0;'>INTERNAL ASSET POSTURE (CIS STANDARD)</h3>
+                <h1 style='margin:0; font-size: 3rem; color: {score_color};'>{cis_data['risk_level']} ({cis_data['score']})</h1>
+                <p style='margin:0; color: #a0a0a0;'>Analyzed {cis_data['total_assets']} total assets.</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Tracked Hardware", len(hw_assets))
+            c2.metric("Tracked Software", len(sw_assets))
+            c3.metric("Critical Hardware Vulns", cis_data['total_critical_vulns'], delta_color="inverse")
+            c4.metric("Active Exploits Detected", cis_data['total_exploits'], delta_color="inverse")
+            st.divider()
+    
+            with st.expander("🗄️ View Hardware Asset Inventory & Telemetry", expanded=True):
+                if hw_assets:
+                    hw_list = []
+                    for h in hw_assets:
+                        display_name = h.asset_name if h.asset_name else f"Unknown Device ({h.ip_address})"
+                        os_display = f"{h.operating_system or 'Unknown'} {h.os_version or ''}".strip()
+                        hw_list.append({
+                            "Identifier": display_name,
+                            "IP Address": h.ip_address,
+                            "OS": os_display,
+                            "Risk Score": h.risk_score or 0.0,
+                            "Critical Vulns": h.critical_vulnerabilities or 0,
+                            "Exploit Count": h.exploit_count or 0,
+                            "Malware Count": h.malware_count or 0
+                        })
+                    
+                    df_hw = pd.DataFrame(hw_list).sort_values(by="Risk Score", ascending=False)
+                    st.dataframe(df_hw.style.background_gradient(subset=['Risk Score', 'Critical Vulns', 'Exploit Count'], cmap="Reds"), width="stretch", hide_index=True)
+                else:
+                    st.info("No hardware assets loaded. Go to Settings -> Internal Assets to import your inventory.")
 
         
 # ================= 2. THREAT TELEMETRY =================
@@ -2054,6 +2107,7 @@ elif page == "⚙️ Settings & Admin":
     set_tab_names = []
     
     if "Tab: Settings -> Facility Locations" in st.session_state.allowed_actions: set_tab_names.append("📍 Facilities")
+    if "Tab: Settings -> Internal Assets" in st.session_state.allowed_actions: set_tab_names.append("🏢 Internal Assets")
     if "Tab: Settings -> RSS Sources" in st.session_state.allowed_actions: set_tab_names.append("📡 RSS Sources")
     if "Tab: Settings -> ML Training" in st.session_state.allowed_actions: set_tab_names.append("🧠 ML Training")
     if "Tab: Settings -> AI & SMTP" in st.session_state.allowed_actions: set_tab_names.append("🤖 AI & SMTP")
@@ -2100,6 +2154,71 @@ elif page == "⚙️ Settings & Admin":
                         if st.button("💾 Save Manual Adjustments", width="stretch"):
                             svc.update_locations(edited_df)
                             st.success("Changes saved!"); time.sleep(1); safe_rerun()
+            set_idx += 1
+
+        if "Tab: Settings -> Internal Assets" in st.session_state.allowed_actions:
+            with set_tabs[set_idx]:
+                st.subheader("🏢 Internal Asset CSV Ingestion")
+                col_sw, col_hw = st.columns(2)
+                
+                with col_sw:
+                    st.markdown("**Software Assets**")
+                    sw_csv = st.file_uploader("Upload Software CSV (Must contain 'name' column)", type=["csv"], key="sw_upload")
+                    if sw_csv and st.button("📥 Sync Software Inventory", width="stretch"):
+                        import pandas as pd
+                        try:
+                            df = pd.read_csv(sw_csv)
+                            if 'name' not in df.columns.str.lower(): st.error("CSV must contain a 'name' column.")
+                            else:
+                                df.columns = df.columns.str.lower()
+                                with svc.SessionLocal() as session:
+                                    from src.database import SoftwareAsset
+                                    session.query(SoftwareAsset).delete() 
+                                    for _, row in df.iterrows(): session.add(SoftwareAsset(name=str(row['name'])))
+                                    session.commit()
+                                st.success(f"Imported {len(df)} software assets!"); time.sleep(1); safe_rerun()
+                        except Exception as e: st.error(f"Error parsing CSV: {e}")
+
+                with col_hw:
+                    st.markdown("**Hardware Assets**")
+                    hw_csv = st.file_uploader("Upload Hardware CSV", type=["csv"], key="hw_upload")
+                    if hw_csv and st.button("📥 Sync Hardware Inventory", width="stretch"):
+                        import pandas as pd
+                        import numpy as np
+                        try:
+                            df = pd.read_csv(hw_csv)
+                            df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
+                            col_mapping = {
+                                'operating_system_architecture': 'os_architecture',
+                                'operating_system_family': 'os_family',
+                                'operating_system_product': 'os_product',
+                                'operating_system_vendor': 'os_vendor',
+                                'operating_system_version': 'os_version'
+                            }
+                            df.rename(columns=col_mapping, inplace=True)
+                            
+                            if 'ip_address' not in df.columns:
+                                st.error("CSV must contain an 'IP Address' column.")
+                            else:
+                                numeric_cols = ['instances', 'critical_instances', 'severe_instances', 'moderate_instances', 'vulnerabilities', 'critical_vulnerabilities', 'severe_vulnerabilities', 'moderate_vulnerabilities', 'exploit_count', 'malware_count', 'raw_risk_score', 'risk_score']
+                                for col in numeric_cols:
+                                    if col in df.columns: df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                                        
+                                df.replace(r'^\s*$', np.nan, regex=True, inplace=True)
+                                df.replace({np.nan: None}, inplace=True)
+                                
+                                from src.database import HardwareAsset
+                                valid_columns = {c.name for c in HardwareAsset.__table__.columns}
+                                
+                                with svc.SessionLocal() as session:
+                                    session.query(HardwareAsset).delete()
+                                    for _, row in df.iterrows():
+                                        row_dict = {k: v for k, v in row.to_dict().items() if k in valid_columns}
+                                        if row_dict.get('ip_address'):
+                                            session.add(HardwareAsset(**row_dict))
+                                    session.commit()
+                                st.success(f"Imported {len(df)} hardware assets!"); time.sleep(1); safe_rerun()
+                        except Exception as e: st.error(f"Error parsing CSV: {e}")
             set_idx += 1
         
         if "Tab: Settings -> RSS Sources" in st.session_state.allowed_actions:
