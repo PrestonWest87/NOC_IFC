@@ -111,6 +111,50 @@ class ShiftLogEntry(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     is_deleted = Column(Boolean, default=False, index=True)
 
+class SoftwareAsset(Base):
+    __tablename__ = "software_assets"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True)
+    last_updated = Column(DateTime, default=datetime.utcnow)
+
+class HardwareAsset(Base):
+    __tablename__ = "hardware_assets"
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Primary Identifier
+    ip_address = Column(String, nullable=False, index=True)
+    
+    # Asset Identifiers
+    asset_name = Column(String, nullable=True, index=True)
+    host_type = Column(String, nullable=True)
+    ip_addresses = Column(Text, nullable=True)
+    
+    # Operating System Data
+    operating_system = Column(String, nullable=True)
+    os_architecture = Column(String, nullable=True)
+    os_family = Column(String, nullable=True)
+    os_product = Column(String, nullable=True)
+    os_vendor = Column(String, nullable=True)
+    os_version = Column(String, nullable=True)
+    
+    # Risk & Vulnerability Metrics
+    instances = Column(Integer, nullable=True, default=0)
+    critical_instances = Column(Integer, nullable=True, default=0)
+    severe_instances = Column(Integer, nullable=True, default=0)
+    moderate_instances = Column(Integer, nullable=True, default=0)
+    
+    vulnerabilities = Column(Integer, nullable=True, default=0)
+    critical_vulnerabilities = Column(Integer, nullable=True, default=0)
+    severe_vulnerabilities = Column(Integer, nullable=True, default=0)
+    moderate_vulnerabilities = Column(Integer, nullable=True, default=0)
+    
+    exploit_count = Column(Integer, nullable=True, default=0)
+    malware_count = Column(Integer, nullable=True, default=0)
+    raw_risk_score = Column(Float, nullable=True, default=0.0)
+    risk_score = Column(Float, nullable=True, default=0.0)
+    
+    last_updated = Column(DateTime, default=datetime.utcnow)
+
 
 # ==========================================
 # INTELLIGENCE & THREAT MODELS
@@ -342,7 +386,7 @@ def init_db():
             "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score", 
             "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
             "Action: Submit Shift Log", "Action: Dispatch RCA Tickets", "Action: Manage Site Maintenance", 
-            "Tab: Dashboards -> Operational", "Tab: Dashboards -> Executive",
+            "Tab: Dashboards -> Operational", "Tab: Dashboards -> Global Risk", "Tab: Dashboards -> Internal Risk",
             "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV", 
             "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",
             "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash", 
