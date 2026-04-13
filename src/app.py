@@ -734,7 +734,11 @@ if page == "👁️ Global Dashboards":
                         })
                     
                     df_hw = pd.DataFrame(hw_list).sort_values(by="Risk Score", ascending=False)
-                    st.dataframe(df_hw.style.background_gradient(subset=['Risk Score', 'Critical Vulns', 'Exploit Count'], cmap="Reds"), width="stretch", hide_index=True)
+                    st.dataframe(
+                        df_hw,
+                        width="stretch",
+                        hide_index=True
+                    )
                 else:
                     st.info("No hardware assets loaded. Go to Settings -> Internal Assets to import your inventory.")
 
