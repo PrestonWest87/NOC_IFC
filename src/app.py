@@ -712,7 +712,7 @@ if page == "👁️ Global Dashboards":
             st.divider()
     
             # --- HARDWARE TABLE ---
-           st.markdown("### 🖥️ Hardware Assets")
+            st.markdown("### 🖥️ Hardware Assets")
             with st.expander("🗄️ View Hardware Inventory & OSINT Correlations", expanded=True):
                 # Isolate only hardware with > 0 matches
                 at_risk_hw = [h for h in cis_data['hw_data'] if h['OSINT Threat Matches'] > 0]
