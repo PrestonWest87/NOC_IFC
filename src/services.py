@@ -494,6 +494,81 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
             "baseline_cyber": baseline_cyber, "baseline_phys": baseline_phys
         }
 
+def calculate_internal_cis_score(db_session):
+    """
+    Calculates an Internal CIS Threat Score on a -8 to +8 scale.
+    CIS Mapping: Green (-8 to -5), Blue (-4 to -2), Yellow (-1 to 2), Orange (3 to 5), Red (6 to 8)
+    Formula: Severity = (Criticality + Lethality) - Countermeasures
+    """
+    from src.database import HardwareAsset, SoftwareAsset
+    
+    hw_assets = db_session.query(HardwareAsset).all()
+    sw_assets = db_session.query(SoftwareAsset).all()
+    
+    if not hw_assets:
+        return {
+            "score": -8, 
+            "risk_level": "GREEN", 
+            "total_assets": len(sw_assets),
+            "total_critical_vulns": 0,
+            "total_exploits": 0
+        }
+
+    # 1. Aggregate Telemetry
+    total_critical_vulns = sum(a.critical_vulnerabilities or 0 for a in hw_assets)
+    total_severe_vulns = sum(a.severe_vulnerabilities or 0 for a in hw_assets)
+    total_exploits = sum(a.exploit_count or 0 for a in hw_assets)
+    total_malware = sum(a.malware_count or 0 for a in hw_assets)
+    
+    high_risk_assets = sum(1 for a in hw_assets if (a.risk_score or 0) > 80)
+    
+    # 2. Calculate Lethality (The presence of active threats/vulns)
+    lethality = 0
+    if total_critical_vulns > 50: lethality += 3
+    elif total_critical_vulns > 10: lethality += 2
+    elif total_critical_vulns > 0: lethality += 1
+        
+    if total_exploits > 10: lethality += 4
+    elif total_exploits > 0: lethality += 2
+        
+    if total_malware > 0: lethality += 5 # High penalty for active malware
+        
+    # 3. Calculate Criticality (The density of severe assets exposed)
+    criticality = 0
+    percent_high_risk = (high_risk_assets / len(hw_assets)) * 100 if hw_assets else 0
+    
+    if percent_high_risk > 20: criticality += 4
+    elif percent_high_risk > 10: criticality += 2
+    elif percent_high_risk > 5: criticality += 1
+
+    # 4. Apply Countermeasures Baseline
+    # Since we are assuming standard NOC operational monitoring is in place, 
+    # we apply a base mitigation score. 
+    countermeasures = 4 
+    
+    # 5. Final Calculation
+    raw_score = (criticality + lethality) - countermeasures
+    
+    # Clamp to CIS limits (-8 to +8)
+    final_score = max(-8, min(8, raw_score))
+    
+    # 6. Map to CIS Color Posture
+    if final_score >= 6: risk_level = "RED"
+    elif final_score >= 3: risk_level = "ORANGE"
+    elif final_score >= -1: risk_level = "YELLOW"
+    elif final_score >= -4: risk_level = "BLUE"
+    else: risk_level = "GREEN"
+        
+    return {
+        "score": final_score,
+        "risk_level": risk_level,
+        "total_assets": len(hw_assets) + len(sw_assets),
+        "total_critical_vulns": total_critical_vulns,
+        "total_exploits": total_exploits,
+        "raw_lethality": lethality,
+        "raw_criticality": criticality
+    }
+
 def generate_outlook_html_report(intel):
     """Generates the static fallback report if the LLM generation fails or is bypassed."""
     color_map = {
