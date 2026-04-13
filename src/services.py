@@ -496,16 +496,16 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
 
 def calculate_internal_cis_score(db_session):
     """
-    Calculates an Internal CIS Threat Score on a -8 to +8 scale based PURELY on OSINT correlations.
-    Formula: Severity = (Criticality + Lethality) - Countermeasures
+    Calculates an Internal CIS Threat Score based PURELY on OSINT correlations.
+    Uses Strict Word Boundary filtering to eliminate substring false positives.
     """
     from src.database import HardwareAsset, SoftwareAsset, Article, CveItem
     from datetime import datetime, timedelta
+    import re
 
     hw_assets = db_session.query(HardwareAsset).all()
     sw_assets = db_session.query(SoftwareAsset).all()
     
-    # Pull recent OSINT (Last 30 days of articles + Top 300 active KEVs)
     thirty_days_ago = datetime.utcnow() - timedelta(days=30)
     recent_articles = db_session.query(Article).filter(Article.published_date >= thirty_days_ago).all()
     recent_cves = db_session.query(CveItem).order_by(CveItem.date_added.desc()).limit(300).all()
@@ -515,32 +515,45 @@ def calculate_internal_cis_score(db_session):
     total_osint_hits = 0
     critical_osint_hits = 0
 
+    # Helper function for exact word boundary matching (prevents 'ant' matching 'variant')
+    def is_exact_match(term, text):
+        if not text or not term: return False
+        return bool(re.search(rf'\b{re.escape(term)}\b', text, re.IGNORECASE))
+
+    # Generic terms that generate too much natural language noise
+    IGNORE_LIST = {"apps", "app store", "books", "calculator", "chess", "clock", "connect", "console", "dash", "cron", "bash", "atom", "acl", "bc", "cpp", "ant"}
+
     # --- 1. PROCESS SOFTWARE ASSETS ---
     for sw in sw_assets:
-        sw_name = sw.name.lower()
+        sw_name = sw.name.strip()
+        sw_lower = sw_name.lower()
+        
+        # Skip noise words and 1/2-letter acronyms to prevent garbage correlations
+        if len(sw_name) <= 2 or sw_lower in IGNORE_LIST:
+            continue
+            
         matched_intel = []
         
-        # Check against Threat Articles
+        # Check against Threat Articles using word boundaries
         for art in recent_articles:
-            if sw_name in art.title.lower() or (art.summary and sw_name in art.summary.lower()):
+            if is_exact_match(sw_name, art.title) or is_exact_match(sw_name, art.summary):
                 matched_intel.append({"title": art.title})
                 total_osint_hits += 1
                 if art.score >= 80: critical_osint_hits += 1
 
-        # Check against CISA KEVs
+        # Check against CISA KEVs using word boundaries
         for cve in recent_cves:
-            if sw_name in str(cve.product).lower() or sw_name in str(cve.description).lower():
+            if is_exact_match(sw_name, str(cve.product)) or is_exact_match(sw_name, str(cve.description)):
                 matched_intel.append({"title": f"CISA KEV: {cve.cve_id}"})
                 total_osint_hits += 1
                 critical_osint_hits += 1
 
-        # Deduplicate matches
         unique_intel = {m['title']: m for m in matched_intel}.values()
 
         if unique_intel:
             annotated_sw.append({
                 "Software Name": sw.name,
-                "OSINT Risk Score": min(len(unique_intel) * 25, 100), # Cap at 100
+                "OSINT Risk Score": min(len(unique_intel) * 25, 100),
                 "Active OSINT Matches": len(unique_intel),
                 "Top Threat Reference": list(unique_intel)[0]['title']
             })
@@ -549,26 +562,23 @@ def calculate_internal_cis_score(db_session):
     for hw in hw_assets:
         matched_intel = []
         
-        # Build search terms from available hardware data
         search_terms = []
-        if hw.asset_name: search_terms.append(hw.asset_name.lower())
-        if hw.operating_system: search_terms.append(hw.operating_system.lower())
-        if hw.os_product: search_terms.append(hw.os_product.lower())
+        if hw.asset_name: search_terms.append(hw.asset_name.strip())
+        if hw.operating_system: search_terms.append(hw.operating_system.strip())
+        if hw.os_product: search_terms.append(hw.os_product.strip())
         
-        # Filter out overly short acronyms to prevent false positives in text scanning
-        search_terms = [t for t in search_terms if len(t) > 3]
+        # Apply the same length and generic noise filters to hardware terms
+        search_terms = [t for t in search_terms if len(t) > 2 and t.lower() not in IGNORE_LIST]
 
         for term in search_terms:
-            # Check against Threat Articles
             for art in recent_articles:
-                if term in art.title.lower() or (art.summary and term in art.summary.lower()):
+                if is_exact_match(term, art.title) or is_exact_match(term, art.summary):
                     matched_intel.append({"title": art.title})
                     total_osint_hits += 1
                     if art.score >= 80: critical_osint_hits += 1
             
-            # Check against CISA KEVs
             for cve in recent_cves:
-                if term in str(cve.product).lower() or term in str(cve.description).lower():
+                if is_exact_match(term, str(cve.product)) or is_exact_match(term, str(cve.description)):
                     matched_intel.append({"title": f"CISA KEV: {cve.cve_id}"})
                     total_osint_hits += 1
                     critical_osint_hits += 1
@@ -584,20 +594,16 @@ def calculate_internal_cis_score(db_session):
             "OS": os_display,
             "OSINT Risk Score": min(len(unique_intel) * 25, 100),
             "OSINT Threat Matches": len(unique_intel),
-            "Rapid7 Critical Vulns": hw.critical_vulnerabilities or 0, # Kept purely for UI reference, not scoring
             "Top Threat Reference": list(unique_intel)[0]['title'] if unique_intel else "Clear"
         })
 
-    # --- 3. CALCULATE CIS POSTURE (Based entirely on OSINT hits) ---
-    
-    # Lethality: Severity of the intel actively targeting the stack
+    # --- 3. CALCULATE CIS POSTURE ---
     lethality = 0
     if critical_osint_hits > 20: lethality += 5
     elif critical_osint_hits > 5: lethality += 3
     elif critical_osint_hits > 0: lethality += 2
     elif total_osint_hits > 10: lethality += 1
 
-    # Criticality: Density of exposure across the asset footprint
     total_assets = len(hw_assets) + len(sw_assets)
     assets_at_risk = len([a for a in annotated_hw if a["OSINT Threat Matches"] > 0]) + len(annotated_sw)
     percent_at_risk = (assets_at_risk / total_assets) * 100 if total_assets > 0 else 0
@@ -607,20 +613,17 @@ def calculate_internal_cis_score(db_session):
     elif percent_at_risk > 15: criticality += 2
     elif percent_at_risk > 5: criticality += 1
 
-    # Apply Countermeasures Baseline
     countermeasures = 4 
     
     raw_score = (criticality + lethality) - countermeasures
-    final_score = max(-8, min(8, raw_score)) # Clamp to CIS limits
+    final_score = max(-8, min(8, raw_score))
 
-    # Map to CIS Color Posture
     if final_score >= 6: risk_level = "RED"
     elif final_score >= 3: risk_level = "ORANGE"
     elif final_score >= -1: risk_level = "YELLOW"
     elif final_score >= -4: risk_level = "BLUE"
     else: risk_level = "GREEN"
 
-    # Sort lists before returning
     annotated_hw = sorted(annotated_hw, key=lambda x: x["OSINT Risk Score"], reverse=True)
     annotated_sw = sorted(annotated_sw, key=lambda x: x["OSINT Risk Score"], reverse=True)
 
@@ -628,13 +631,13 @@ def calculate_internal_cis_score(db_session):
         "score": final_score,
         "risk_level": risk_level,
         "total_assets": total_assets,
+        "total_hw_loaded": len(hw_assets),
         "total_sw_loaded": len(sw_assets),
         "total_osint_hits": total_osint_hits,
         "critical_osint_hits": critical_osint_hits,
         "hw_data": annotated_hw,
         "sw_data": annotated_sw
     }
-
 def generate_outlook_html_report(intel):
     """Generates the static fallback report if the LLM generation fails or is bypassed."""
     color_map = {
