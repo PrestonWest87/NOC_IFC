@@ -687,58 +687,83 @@ if page == "👁️ Global Dashboards":
 
     with dash_tabs[2]:
             st.subheader("🏢 Internal Asset Risk Dashboard")
-            st.caption("Active correlation of internal software and hardware inventories against 30-day OSINT telemetry and CISA alerts.")
+            st.caption("Active correlation of internal assets against OSINT telemetry (Auto-updates every 6 hours).")
             
             with svc.SessionLocal() as dbtmp:
-                # Call the heavy-lifting service directly
-                cis_data = svc.calculate_internal_cis_score(dbtmp)
+                from src.database import InternalRiskSnapshot
+                # Fetch up to 28 historical snapshots (7 days of 6-hour intervals)
+                snapshots = dbtmp.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).limit(28).all()
                 
-            # Display the CIS Score
-            risk_color_map = {"GREEN": "#28a745", "BLUE": "#007bff", "YELLOW": "#ffc107", "ORANGE": "#fd7e14", "RED": "#dc3545"}
-            score_color = risk_color_map.get(cis_data["risk_level"], "#6c757d")
-            
-            st.markdown(f"""
-            <div style='text-align: center; padding: 20px; background-color: #1e1e1e; border-radius: 10px; border: 2px solid {score_color}; margin-bottom: 20px;'>
-                <h3 style='margin:0; color: #a0a0a0;'>INTERNAL ASSET POSTURE (CIS STANDARD)</h3>
-                <h1 style='margin:0; font-size: 3rem; color: {score_color};'>{cis_data['risk_level']} ({cis_data['score']})</h1>
-                <p style='margin:0; color: #a0a0a0;'>Analyzed {cis_data['total_assets']} total assets against OSINT feeds.</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Total Asset Footprint", cis_data['total_assets'])
-            c2.metric("Total OSINT Correlations", cis_data['total_osint_hits'])
-            c3.metric("Critical OSINT Hits", cis_data['critical_osint_hits'], delta_color="inverse")
-            st.divider()
+            if not snapshots:
+                st.info("🔄 Internal Risk matrices are currently calculating. Please check back in a few minutes.")
+                # Give admins a button to force the first calculation without waiting
+                if st.button("Trigger Manual Calculation"):
+                    svc.generate_and_save_internal_risk_snapshot()
+                    st.success("Generated! Refreshing...")
+                    time.sleep(1)
+                    safe_rerun()
+            else:
+                import json
+                latest = snapshots[0]
+                
+                # Parse the cached JSON payloads
+                hw_data = json.loads(latest.hw_data_json)
+                sw_data = json.loads(latest.sw_data_json)
+                
+                # --- TIME SERIES GRAPH ---
+                st.markdown("### 📈 Historical Threat Trend")
+                
+                # Prep data for native Streamlit line chart
+                df_chart = pd.DataFrame([{"Time": s.timestamp, "CIS Risk Score": s.score} for s in snapshots])
+                df_chart.set_index("Time", inplace=True)
+                df_chart.sort_index(inplace=True) # Ensure chronological order left-to-right
+                
+                st.line_chart(df_chart, use_container_width=True, color="#dc3545")
+                st.divider()
+                
+                # --- DASHBOARD METRICS ---
+                risk_color_map = {"GREEN": "#28a745", "BLUE": "#007bff", "YELLOW": "#ffc107", "ORANGE": "#fd7e14", "RED": "#dc3545"}
+                score_color = risk_color_map.get(latest.risk_level, "#6c757d")
+                
+                st.markdown(f"""
+                <div style='text-align: center; padding: 20px; background-color: #1e1e1e; border-radius: 10px; border: 2px solid {score_color}; margin-bottom: 20px;'>
+                    <h3 style='margin:0; color: #a0a0a0;'>INTERNAL ASSET POSTURE (CIS STANDARD)</h3>
+                    <h1 style='margin:0; font-size: 3rem; color: {score_color};'>{latest.risk_level} ({latest.score})</h1>
+                    <p style='margin:0; color: #a0a0a0;'>Analyzed {latest.total_assets} total assets against OSINT feeds.</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Total Asset Footprint", latest.total_assets)
+                c2.metric("Total OSINT Correlations", latest.total_osint_hits)
+                c3.metric("Critical OSINT Hits", latest.critical_osint_hits, delta_color="inverse")
+                st.divider()
+        
+                # --- HARDWARE TABLE ---
+                st.markdown("### 🖥️ Hardware Assets")
+                with st.expander("🗄️ View Hardware Inventory & OSINT Correlations", expanded=True):
+                    at_risk_hw = [h for h in hw_data if h['OSINT Threat Matches'] > 0]
+                    
+                    if at_risk_hw:
+                        df_hw = pd.DataFrame(at_risk_hw)
+                        st.warning(f"⚠️ Detected {len(at_risk_hw)} hardware assets actively exposed to recent OSINT intelligence.")
+                        st.dataframe(df_hw, width="stretch", hide_index=True)
+                    elif len(hw_data) > 0:
+                        st.success("✅ All tracked hardware assets are currently clear of recent OSINT correlations.")
+                    else:
+                        st.info("No hardware assets loaded. Go to Settings -> Internal Assets to import your inventory.")
     
-            # --- HARDWARE TABLE ---
-            st.markdown("### 🖥️ Hardware Assets")
-            with st.expander("🗄️ View Hardware Inventory & OSINT Correlations", expanded=True):
-                # Isolate only hardware with > 0 matches
-                at_risk_hw = [h for h in cis_data['hw_data'] if h['OSINT Threat Matches'] > 0]
-                
-                if at_risk_hw:
-                    df_hw = pd.DataFrame(at_risk_hw)
-                    st.warning(f"⚠️ Detected {len(at_risk_hw)} hardware assets actively exposed to recent OSINT intelligence.")
-                    st.dataframe(df_hw, width="stretch", hide_index=True)
-                elif cis_data['total_hw_loaded'] > 0:
-                    st.success("✅ All tracked hardware assets are currently clear of recent OSINT correlations.")
-                else:
-                    st.info("No hardware assets loaded. Go to Settings -> Internal Assets to import your inventory.")
-
-            st.divider()
-
-            # --- SOFTWARE TABLE ---
-            st.markdown("### 💾 Software Assets")
-            with st.expander("🗄️ View At-Risk Software", expanded=True):
-                if cis_data['sw_data']:
-                    df_sw = pd.DataFrame(cis_data['sw_data'])
-                    st.warning(f"⚠️ Detected {len(df_sw)} software assets actively exposed to recent OSINT intelligence.")
-                    st.dataframe(df_sw, width="stretch", hide_index=True)
-                elif cis_data['total_sw_loaded'] > 0:
-                    st.success("✅ All tracked software assets are currently clear of recent OSINT correlations.")
-                else:
-                    st.info("No software assets loaded. Go to Settings -> Internal Assets to import your inventory.")
+                st.divider()
+    
+                # --- SOFTWARE TABLE ---
+                st.markdown("### 💾 Software Assets")
+                with st.expander("🗄️ View At-Risk Software", expanded=True):
+                    if sw_data:
+                        df_sw = pd.DataFrame(sw_data)
+                        st.warning(f"⚠️ Detected {len(df_sw)} software assets actively exposed to recent OSINT intelligence.")
+                        st.dataframe(df_sw, width="stretch", hide_index=True)
+                    else:
+                        st.success("✅ All tracked software assets are currently clear of recent OSINT correlations.")
         
 # ================= 2. THREAT TELEMETRY =================
 elif page == "📡 Threat Telemetry":
