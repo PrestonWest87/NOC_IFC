@@ -98,7 +98,7 @@ def fetch_live_crimes():
                     severity = "Low"
                     if any(k in desc for k in ["ARSON", "EXPLOSIVE", "TERROR", "SABOTAGE", "SHOOTING"]): category, severity = "Critical Infrastructure Threat", "Critical"
                     elif any(k in desc for k in ["THEFT", "BURGLARY", "ROBBERY", "BREAKING"]): category, severity = "Asset/Copper Theft Risk", "High"
-                    elif any(k in desc for k in ["ASSAULT", "BATTERY", "HOMICIDE", "WEAPON"]): category, severity = "Violent Proximity Threat", "High"
+                    elif any(k in desc for k in ["ASSAULT", "BATTERY", "HOMICIDE", "WEAPON", "SHOTS"]): category, severity = "Violent Proximity Threat", "High"
                     elif any(k in desc for k in ["VANDALISM", "TRESPASS", "PROWLER", "DISTURBANCE", "SUSPICIOUS"]): category, severity = "Perimeter Breach/Vandalism", "Medium"
                     else: category, severity = "General Police Activity", "Low"
                     
