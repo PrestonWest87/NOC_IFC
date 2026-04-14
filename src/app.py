@@ -921,7 +921,7 @@ elif page == "📡 Threat Telemetry":
                 
                 if not crime_data:
                     st.success(f"✅ No crime incidents logged within {radius_filter} miles of HQ in the last 7 days.")
-               else:
+                else:
                         df_crimes = df_crimes.dropna(subset=['lat', 'lon'])
                         layers, view_state = svc.build_crime_map_layers(df_crimes)
                         
