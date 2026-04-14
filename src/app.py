@@ -1497,6 +1497,44 @@ elif page == "⚡ AIOps RCA":
                             bgp = dbtmp.query(BgpAnomaly).filter_by(is_resolved=False).all()
                             raw_alerts = dbtmp.query(SolarWindsAlert).filter(SolarWindsAlert.is_correlated == False, SolarWindsAlert.status != 'Resolved').all()
                             
+                        # 1. Cluster the alerts as usual
+                        incidents = ai_engine.analyze_and_cluster(raw_alerts)
+                        
+                        # --- NEW: 2. Detect Massive Provider/Fleet Outages ---
+                        fleet_events = ai_engine.identify_fleet_outages(incidents, threshold=5)
+                        
+                        # --- NEW: 3. Render the Global Warning Banner ---
+                        if fleet_events:
+                            for event in fleet_events:
+                                st.markdown(f"""
+                                <div style='background-color: #4a0000; border: 2px solid #ff4b4b; border-radius: 8px; padding: 15px; margin-bottom: 20px; text-align: center;'>
+                                    <h2 style='color: #ff4b4b; margin: 0;'>🚨 GLOBAL FLEET EVENT DETECTED</h2>
+                                    <p style='color: white; font-size: 1.1rem; margin: 5px 0 0 0;'>
+                                        Massive <b>{event['provider']}</b> Carrier Outage affecting <b>{len(event['affected_sites'])}</b> tracked sites. 
+                                        Individual downstream RCAs have been automatically overridden.
+                                    </p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
+                        # 4. Process individual site cards
+                        for site, data in incidents.items():
+                            # --- NEW: 5. Pass fleet_events into the RCA calculator ---
+                            c, cf, p, e, b, p0, cs = ai_engine.calculate_root_cause(
+                                site_name=site, 
+                                data=data, 
+                                active_weather=wea, 
+                                active_cloud=cld, 
+                                active_bgp=bgp, 
+                                fleet_events=fleet_events
+                            )
+                            
+                            with st.container(border=True):
+                                    st.markdown(f"### {p} | Site: {site}")
+                                    st.warning(c)
+                                    
+                                    if p0: st.error(f"**Patient Zero (Suspected Origin Node):** {p0}")
+                                    else: st.info("**Patient Zero:** Indeterminate (Simultaneous Failure)")
+                                    
                         incidents = ai_engine.analyze_and_cluster(raw_alerts)
                         for site, data in incidents.items():
                             c, cf, p, e, b, p0, cs = ai_engine.calculate_root_cause(site, data, wea, cld, bgp)
