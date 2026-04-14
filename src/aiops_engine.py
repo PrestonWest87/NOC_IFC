@@ -15,7 +15,6 @@ class EnterpriseAIOpsEngine:
     }
 
     # ENTERPRISE DOMINANCE TIERS (Lower Number = Higher Authority)
-    # Tier 1 failure implies all downstream Tiers are isolated.
     TIER_RANKING = {
         "POWER_ENV": 1,
         "TRANSPORT_CORE": 2,
@@ -36,49 +35,55 @@ class EnterpriseAIOpsEngine:
         return "UNKNOWN_DOMAIN"
 
     def _determine_patient_zero(self, alerts):
-        """
-        TOPOLOGICAL DOMINANCE ALGORITHM:
-        Prioritizes Root Cause based on infrastructure tier rather than timestamp.
-        """
         if not alerts: return None, []
 
         scored_alerts = []
+        valid_times = [a.received_at for a in alerts if a.received_at]
+        earliest_time = min(valid_times) if valid_times else datetime.utcnow()
+
         for alert in alerts:
             p = alert.raw_payload if isinstance(alert.raw_payload, dict) else {}
             cp = p.get('Custom_Properties_Universal') or {}
-            node_type = cp.get('Node_Type') or alert.device_type or 'Unknown'
+            nd = p.get('Node_Details') or {}
+            pm = p.get('Performance_Metrics') or {}
+
+            node_type = nd.get('MachineType') or cp.get('Node_Type') or alert.device_type or 'Unknown'
             domain = self._get_domain(node_type)
-            
-            # Base Tier Score (Tier 1 = 10000, Tier 5 = 2000)
+
+            # NEW: Structural Dominance Tiering
             tier = self.TIER_RANKING.get(domain, 6)
-            tier_score = (7 - tier) * 2000 
+            topo_score = (7 - tier) * 2000 
 
-            # Severity Multiplier
+            # Severity Score
             status = str(alert.status).lower()
-            sev_score = 1000 if 'down' in status or 'offline' in status else 500
+            event_cat = str(alert.event_category).lower()
+            loss = float(str(pm.get('PercentLoss', 0)).replace('%', '')) if pm else 0
 
-            # Time is only a tie-breaker (max 100 pts)
-            # This ensures a Router alerting 2 minutes late still beats a Meter alerting now.
-            final_score = tier_score + sev_score
+            sev_score = 0
+            if 'down' in status or loss == 100 or 'offline' in event_cat: sev_score = 1000
+            elif 'critical' in status or loss > 50: sev_score = 500
+            elif 'warning' in status: sev_score = 100
+
+            # PRESERVED: Time offset as a micro-tiebreaker within the SAME tier
+            time_offset = (alert.received_at - earliest_time).total_seconds() if alert.received_at else 0
+            time_penalty = min(time_offset, 200)
+
+            final_score = topo_score + sev_score - time_penalty
 
             scored_alerts.append({
                 "alert": alert, "score": final_score, 
-                "domain": domain, "node_type": node_type, "tier": tier
+                "domain": domain, "node_type": node_type, "severity": sev_score
             })
 
         scored_alerts.sort(key=lambda x: x['score'], reverse=True)
         return scored_alerts[0]['alert'], scored_alerts
 
     def identify_fleet_outages(self, incidents, threshold=5):
-        """
-        Detects "VSAT Storms" or Carrier outages across multiple sites.
-        """
+        """NEW: Detects Carrier outages across multiple sites."""
         provider_map = {}
         for site, data in incidents.items():
             comms = data['site_metadata'].get('primary_coms', 'Unknown')
             if comms not in provider_map: provider_map[comms] = []
-            
-            # Only count sites where the Transport Tier is the failure
             if any(sa['domain'] == "TRANSPORT_CORE" for sa in data['dependency_chain']):
                 provider_map[comms].append(site)
 
@@ -86,50 +91,124 @@ class EnterpriseAIOpsEngine:
         for provider, sites in provider_map.items():
             if len(sites) >= threshold and provider != "Unknown":
                 fleet_events.append({
-                    "provider": provider,
-                    "affected_sites": sites,
-                    "event_type": "Regional Provider Outage",
-                    "severity": "CRITICAL"
+                    "provider": provider, "affected_sites": sites,
+                    "event_type": "Regional Provider Outage", "severity": "CRITICAL"
                 })
         return fleet_events
 
-    def calculate_root_cause(self, site_name, data, active_weather=[], active_cloud=[], active_bgp=[], fleet_events=[]):
+    def calculate_root_cause(self, site_name, data, active_weather, active_cloud, active_bgp, fleet_events=[]):
+        # PRESERVED: Your original metadata and metric extractions
         meta = data['site_metadata']
-        p0 = data['patient_zero']
-        p0_sa = next((sa for sa in data['dependency_chain'] if sa['alert'] == p0), None)
-        p0_domain = p0_sa['domain'] if p0_sa else "UNKNOWN"
+        domains = data['domains_affected']
+        avg_loss = sum(data['avg_loss']) / len(data['avg_loss']) if data['avg_loss'] else 0
+        avg_cpu = sum(data['avg_cpu']) / len(data['avg_cpu']) if data['avg_cpu'] else 0
         
-        evidence_log = []
         score = 0
+        evidence_log = []
+        blast_radius = self._analyze_subnets(data['ips'])
+        p0 = data['patient_zero']
+        p0_domain = next((sa['domain'] for sa in data['dependency_chain'] if sa['alert'] == p0), "UNKNOWN")
         
-        # 1. Check for Fleet-Wide Event
+        # PRESERVED: Cascade logging
+        if len(domains) > 1:
+            score += 20
+            downstream_count = len(data['alerts']) - 1
+            evidence_log.append(f"Dependency Cascade: Primary failure in [{p0_domain}] triggered cascading isolation of {downstream_count} downstream devices.")
+            
+        cause = "Under Investigation"
+        
+        # --- NEW 1. FLEET / VSAT CORRELATION ---
+        fleet_hit = False
         for event in fleet_events:
             if site_name in event['affected_sites']:
-                evidence_log.append(f"FLEET CORRELATION: Site is part of a massive {event['provider']} outage affecting {len(event['affected_sites'])} sites.")
-                return f"Regional {event['provider']} Outage", 100, "P1 - CRITICAL", evidence_log, "Multi-Site Cascade", p0.node_name, "N/A"
+                cause = f"Regional Carrier Outage ({event['provider']})"
+                score += 100
+                evidence_log.append(f"Fleet Correlation: Site is caught in a massive {event['provider']} outage affecting {len(event['affected_sites'])} total sites.")
+                fleet_hit = True
+                break
 
-        # 2. Topological Determinations
-        if p0_domain == "POWER_ENV":
-            cause = "Complete Site Power Failure"
-            score = 95
-            evidence_log.append(f"Structural Cause: {p0.node_name} (Tier 1 Power) failed, isolating all downstream equipment.")
-        
-        elif p0_domain == "TRANSPORT_CORE":
-            cause = f"Site Isolation - {meta.get('primary_coms', 'Unknown')} Circuit Down"
-            score = 90
-            evidence_log.append(f"Structural Cause: {p0.node_name} (Tier 2 Core) failed. Communication path severed.")
+        # --- PRESERVED 2. CLOUD / UPSTREAM CORRELATION ---
+        cloud_hit = False
+        if active_cloud and not fleet_hit:
+            for alert in data['alerts']:
+                payload_str = str(alert.raw_payload).lower() if alert.raw_payload else ""
+                for c in active_cloud:
+                    if c.provider.lower() in alert.node_name.lower() or c.provider.lower() in payload_str:
+                        cause = f"Upstream Cloud Dependency Failure ({c.provider})"
+                        score += 85
+                        evidence_log.append(f"Cloud Correlation: Node relies on {c.provider}, which is currently experiencing a known outage.")
+                        cloud_hit = True
+                        break
+                if cloud_hit: break
 
-        elif p0_domain == "SCADA_OT":
-            cause = "Localized SCADA/Field Equipment Failure"
-            score = 40
-            evidence_log.append("Structural Cause: Field device alarming while Core Transport remains stable.")
+        # --- PRESERVED 3. BGP / ROUTING CORRELATION ---
+        bgp_hit = False
+        if active_bgp and not cloud_hit and not fleet_hit:
+            if "TRANSPORT_CORE" in domains or "Service Provider" in str(domains):
+                for b in active_bgp:
+                    if b.asn in str(meta['primary_coms']) or b.asn in str(meta['secondary_coms']):
+                        cause = f"Carrier Routing Anomaly (BGP Event on {b.asn})"
+                        score += 75
+                        evidence_log.append(f"BGP Correlation: Transport provider {b.asn} is actively experiencing a global routing anomaly.")
+                        bgp_hit = True
+                        break
 
-        else:
-            cause = f"Degradation originating at {p0.node_name}"
-            score = 50
+        # --- NEW & IMPROVED 4. HARDWARE / TOPOLOGICAL HEURISTICS ---
+        if not cloud_hit and not bgp_hit and not fleet_hit:
+            if p0_domain == "POWER_ENV":
+                cause = "Catastrophic Facilities/Power Failure causing complete site isolation."
+                score += 60
+                evidence_log.append(f"Structural Cause: Foundational Power/Environmental node ({p0.node_name}) failed.")
+            elif p0_domain == "TRANSPORT_CORE":
+                # Uses the telemetry data we preserved!
+                if avg_loss >= 80 or 'down' in str(p0.status).lower():
+                    cause = f"Site Isolation. Hard down on {meta.get('primary_coms', 'Unknown')} transport tier."
+                    score += 50
+                    evidence_log.append(f"Structural Cause: Core transport equipment ({p0.node_name}) severed communication path.")
+                else:
+                    cause = f"Severe Transport Congestion ({avg_loss}% Packet Loss)."
+            elif p0_domain == "SCADA_OT":
+                cause = "Isolated OT/SCADA Telemetry Failure."
+                score += 30
+                evidence_log.append(f"Structural Cause: Field equipment ({p0.node_name}) alarming while Core IT network remains structurally stable.")
+            else:
+                cause = f"Generalized Infrastructure Degradation originating at {p0.node_name}."
+
+        # --- PRESERVED 5. GEOSPATIAL WEATHER / GRID CORRELATION ---
+        from src.database import MonitoredLocation, SessionLocal
+        with SessionLocal() as db:
+            site_record = db.query(MonitoredLocation).filter(MonitoredLocation.name == site_name).first()
+            if site_record and site_record.lat and site_record.lon:
+                for h in active_weather:
+                    if not getattr(h, 'lat', None) or not getattr(h, 'lon', None):
+                        if meta['district'].lower() in str(h.location).lower() or site_name.lower() in str(h.location).lower():
+                            score += 40
+                            evidence_log.append(f"Regional Correlation: Site intersects active {h.hazard_type} warning zone.")
+                            if p0_domain in ["POWER_ENV", "TRANSPORT_CORE"]: cause = f"Severe Weather ({h.hazard_type}) induced failure of Utility/Carrier."
+                            break
+                    else:
+                        R = 3958.8 
+                        lat1, lon1, lat2, lon2 = map(math.radians, [site_record.lat, site_record.lon, h.lat, h.lon])
+                        dlat, dlon = lat2 - lat1, lon2 - lon1
+                        a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+                        distance_miles = R * (2 * math.asin(math.sqrt(a)))
+                        hazard_radius = getattr(h, 'radius_km', 24.1) * 0.621371 
+                        
+                        if distance_miles <= hazard_radius:
+                            score += 55
+                            evidence_log.append(f"Geospatial Correlation: Site is exactly {round(distance_miles, 1)} miles from active {h.hazard_type} epicenter.")
+                            if p0_domain in ["POWER_ENV", "TRANSPORT_CORE"]: cause = f"Direct Kinetic Impact: Severe Weather ({h.hazard_type}) caused physical infrastructure failure."
+                            break
+
+        if data['max_alert_level'] == 1:
+            score += 50
+            evidence_log.append("Policy Override: Native Alert Level 1 detected.")
 
         priority = "P1 - CRITICAL" if score >= 80 else "P2 - HIGH" if score >= 50 else "P3 - MODERATE"
-        return cause, score, priority, evidence_log, "Internal Topology", p0.node_name, "Simultaneous"
+        cascade_sec = int((data['latest_alert'].received_at - p0.received_at).total_seconds())
+        cascade_str = f"{cascade_sec}s" if cascade_sec > 0 else "Simultaneous"
+        
+        return cause, min(score, 100), priority, evidence_log, blast_radius, p0.node_name, cascade_str
 
     def analyze_and_cluster(self, active_alerts):
         incidents = {}
