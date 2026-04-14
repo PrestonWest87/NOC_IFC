@@ -97,23 +97,36 @@ class EnterpriseAIOpsEngine:
         return fleet_events
 
     def calculate_root_cause(self, site_name, data, active_weather, active_cloud, active_bgp, fleet_events=[]):
-        # PRESERVED: Your original metadata and metric extractions
-        meta = data['site_metadata']
-        domains = data['domains_affected']
-        avg_loss = sum(data['avg_loss']) / len(data['avg_loss']) if data['avg_loss'] else 0
-        avg_cpu = sum(data['avg_cpu']) / len(data['avg_cpu']) if data['avg_cpu'] else 0
+        meta = data.get('site_metadata', {})
+        domains = data.get('domains_affected', set())
+        
+        # --- SAFE METRIC EXTRACTION TO PREVENT KEYERRORS ---
+        avg_loss_list = data.get('avg_loss', [])
+        avg_cpu_list = data.get('avg_cpu', [])
+        
+        avg_loss = sum(avg_loss_list) / len(avg_loss_list) if avg_loss_list else 0
+        avg_cpu = sum(avg_cpu_list) / len(avg_cpu_list) if avg_cpu_list else 0
         
         score = 0
         evidence_log = []
-        blast_radius = self._analyze_subnets(data['ips'])
-        p0 = data['patient_zero']
-        p0_domain = next((sa['domain'] for sa in data['dependency_chain'] if sa['alert'] == p0), "UNKNOWN")
+        
+        # Safely call _analyze_subnets if it exists in your class
+        if hasattr(self, '_analyze_subnets'):
+            blast_radius = self._analyze_subnets(data.get('ips', []))
+        else:
+            blast_radius = "Unknown"
+            
+        p0 = data.get('patient_zero')
+        if not p0:
+            return "Indeterminate Failure", score, "P3 - MODERATE", evidence_log, blast_radius, "Unknown", "N/A"
+            
+        p0_domain = next((sa['domain'] for sa in data.get('dependency_chain', []) if sa['alert'] == p0), "UNKNOWN")
         
         # PRESERVED: Cascade logging
         if len(domains) > 1:
             score += 20
-            downstream_count = len(data['alerts']) - 1
-            evidence_log.append(f"Dependency Cascade: Primary failure in [{p0_domain}] triggered cascading isolation of {downstream_count} downstream devices.")
+            downstream_count = len(data.get('alerts', [])) - 1
+            evidence_log.append(f"Dependency Cascade: Primary failure in [{p0_domain}] triggered isolation of {downstream_count} downstream devices.")
             
         cause = "Under Investigation"
         
@@ -130,7 +143,7 @@ class EnterpriseAIOpsEngine:
         # --- PRESERVED 2. CLOUD / UPSTREAM CORRELATION ---
         cloud_hit = False
         if active_cloud and not fleet_hit:
-            for alert in data['alerts']:
+            for alert in data.get('alerts', []):
                 payload_str = str(alert.raw_payload).lower() if alert.raw_payload else ""
                 for c in active_cloud:
                     if c.provider.lower() in alert.node_name.lower() or c.provider.lower() in payload_str:
@@ -146,7 +159,7 @@ class EnterpriseAIOpsEngine:
         if active_bgp and not cloud_hit and not fleet_hit:
             if "TRANSPORT_CORE" in domains or "Service Provider" in str(domains):
                 for b in active_bgp:
-                    if b.asn in str(meta['primary_coms']) or b.asn in str(meta['secondary_coms']):
+                    if b.asn in str(meta.get('primary_coms', '')) or b.asn in str(meta.get('secondary_coms', '')):
                         cause = f"Carrier Routing Anomaly (BGP Event on {b.asn})"
                         score += 75
                         evidence_log.append(f"BGP Correlation: Transport provider {b.asn} is actively experiencing a global routing anomaly.")
@@ -160,7 +173,6 @@ class EnterpriseAIOpsEngine:
                 score += 60
                 evidence_log.append(f"Structural Cause: Foundational Power/Environmental node ({p0.node_name}) failed.")
             elif p0_domain == "TRANSPORT_CORE":
-                # Uses the telemetry data we preserved!
                 if avg_loss >= 80 or 'down' in str(p0.status).lower():
                     cause = f"Site Isolation. Hard down on {meta.get('primary_coms', 'Unknown')} transport tier."
                     score += 50
@@ -181,7 +193,7 @@ class EnterpriseAIOpsEngine:
             if site_record and site_record.lat and site_record.lon:
                 for h in active_weather:
                     if not getattr(h, 'lat', None) or not getattr(h, 'lon', None):
-                        if meta['district'].lower() in str(h.location).lower() or site_name.lower() in str(h.location).lower():
+                        if meta.get('district', '').lower() in str(h.location).lower() or site_name.lower() in str(h.location).lower():
                             score += 40
                             evidence_log.append(f"Regional Correlation: Site intersects active {h.hazard_type} warning zone.")
                             if p0_domain in ["POWER_ENV", "TRANSPORT_CORE"]: cause = f"Severe Weather ({h.hazard_type}) induced failure of Utility/Carrier."
@@ -200,12 +212,19 @@ class EnterpriseAIOpsEngine:
                             if p0_domain in ["POWER_ENV", "TRANSPORT_CORE"]: cause = f"Direct Kinetic Impact: Severe Weather ({h.hazard_type}) caused physical infrastructure failure."
                             break
 
-        if data['max_alert_level'] == 1:
+        if data.get('max_alert_level', 3) == 1:
             score += 50
             evidence_log.append("Policy Override: Native Alert Level 1 detected.")
 
         priority = "P1 - CRITICAL" if score >= 80 else "P2 - HIGH" if score >= 50 else "P3 - MODERATE"
-        cascade_sec = int((data['latest_alert'].received_at - p0.received_at).total_seconds())
+        
+        # Safely calculate cascade seconds using latest_alert
+        latest = data.get('latest_alert')
+        if latest and getattr(latest, 'received_at', None) and getattr(p0, 'received_at', None):
+            cascade_sec = int((latest.received_at - p0.received_at).total_seconds())
+        else:
+            cascade_sec = 0
+            
         cascade_str = f"{cascade_sec}s" if cascade_sec > 0 else "Simultaneous"
         
         return cause, min(score, 100), priority, evidence_log, blast_radius, p0.node_name, cascade_str
@@ -215,17 +234,50 @@ class EnterpriseAIOpsEngine:
         for alert in active_alerts:
             p = alert.raw_payload if isinstance(alert.raw_payload, dict) else {}
             cp = p.get('Custom_Properties_Universal') or {}
+            pm = p.get('Performance_Metrics') or {}
             site_name = cp.get('Site') or alert.mapped_location or 'Unknown'
             
             if site_name not in incidents:
                 incidents[site_name] = {
-                    'alerts': [], 'site_metadata': {
+                    'alerts': [], 
+                    'site_metadata': {
                         'primary_coms': cp.get('Primary_Comms') or 'Unknown',
+                        'secondary_coms': cp.get('Secondary_Comms') or 'Unknown',
                         'district': cp.get('District') or 'Unknown'
                     },
-                    'domains_affected': set(), 'dependency_chain': []
+                    'domains_affected': set(), 
+                    'dependency_chain': [],
+                    # NEW: Explicitly initialize arrays to prevent KeyErrors
+                    'avg_loss': [],
+                    'avg_cpu': [],
+                    'ips': [],
+                    'max_alert_level': 3,
+                    'latest_alert': alert # Start with first alert found
                 }
+            
             incidents[site_name]['alerts'].append(alert)
+            
+            # Keep track of the most recent alert for the cascade timer
+            if getattr(alert, 'received_at', None) and getattr(incidents[site_name]['latest_alert'], 'received_at', None):
+                if alert.received_at > incidents[site_name]['latest_alert'].received_at:
+                    incidents[site_name]['latest_alert'] = alert
+            
+            # Extract CPU and Packet Loss safely
+            try: incidents[site_name]['avg_loss'].append(float(str(pm.get('PercentLoss', 0)).replace('%', '')))
+            except (ValueError, TypeError): pass
+            
+            try: incidents[site_name]['avg_cpu'].append(float(str(pm.get('CPULoad', 0)).replace('%', '')))
+            except (ValueError, TypeError): pass
+            
+            # Extract IP safely
+            if alert.ip_address and alert.ip_address != "Unknown":
+                incidents[site_name]['ips'].append(alert.ip_address)
+                
+            # Extract Alert Level safely
+            al = cp.get('Alert_Level') or p.get('severity')
+            if al:
+                try: incidents[site_name]['max_alert_level'] = min(incidents[site_name]['max_alert_level'], int(al))
+                except (ValueError, TypeError): pass
 
         for site, cluster in incidents.items():
             pz_alert, scored_chain = self._determine_patient_zero(cluster['alerts'])
