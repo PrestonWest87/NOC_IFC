@@ -921,12 +921,7 @@ elif page == "📡 Threat Telemetry":
                 
                 if not crime_data:
                     st.success(f"✅ No crime incidents logged within {radius_filter} miles of HQ in the last 7 days.")
-                else:
-                    df_crimes = pd.DataFrame(crime_data)
-                    
-                    if "lat" not in df_crimes.columns or "lon" not in df_crimes.columns:
-                        st.error("🚨 Coordinate data missing from cache! Please run `python src/crime_worker.py` in your terminal to fetch fresh geometry.")
-                    else:
+               else:
                         df_crimes = df_crimes.dropna(subset=['lat', 'lon'])
                         layers, view_state = svc.build_crime_map_layers(df_crimes)
                         
@@ -934,16 +929,53 @@ elif page == "📡 Threat Telemetry":
                         map_zoom = 15.5 if radius_filter == 1 else 13.5 if radius_filter == 3 else 12.0
                         view_state.zoom = map_zoom
                         
-                        st.pydeck_chart(pdk.Deck(
-                            layers=layers, 
-                            initial_view_state=view_state, 
-                            tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Dist: {distance_miles} miles"}
-                        ), width='stretch')
+                        # 1. Create a placeholder container for the map so we can draw it AFTER getting table selection
+                        map_container = st.container()
                         
                         st.divider()
                         st.subheader(f"Raw Incident Logs ({radius_filter} Mile Radius)")
                         display_crimes = df_crimes[["timestamp", "distance_miles", "category", "severity", "raw_title"]]
-                        st.dataframe(display_crimes, width='stretch', hide_index=True)
+                        
+                        # 2. Add selection parameters to the dataframe
+                        event = st.dataframe(
+                            display_crimes, 
+                            width='stretch', 
+                            hide_index=True,
+                            on_select="rerun",
+                            selection_mode="single-row"
+                        )
+                        
+                        # 3. Check if a row was clicked, then dynamically alter the map state
+                        if event.selection.rows:
+                            selected_idx = event.selection.rows[0]
+                            selected_crime = df_crimes.iloc[selected_idx]
+                            
+                            # Re-center and zoom the map onto the crime
+                            view_state.latitude = selected_crime['lat']
+                            view_state.longitude = selected_crime['lon']
+                            view_state.zoom = 17 
+                            
+                            # Add a high-visibility pulse ring on the selected target
+                            highlight_layer = pdk.Layer(
+                                "ScatterplotLayer",
+                                data=[{"lat": selected_crime['lat'], "lon": selected_crime['lon']}],
+                                get_position='[lon, lat]',
+                                get_fill_color='[255, 0, 0, 200]',
+                                get_line_color='[255, 255, 255, 255]',
+                                stroked=True,
+                                line_width_min_pixels=3,
+                                get_radius=40,
+                                pickable=False
+                            )
+                            layers.append(highlight_layer)
+                        
+                        # 4. Render the map inside the container we created at the top
+                        with map_container:
+                            st.pydeck_chart(pdk.Deck(
+                                layers=layers, 
+                                initial_view_state=view_state, 
+                                tooltip={"html": "<b>{raw_title}</b><br/>{timestamp}<br/>Dist: {distance_miles} miles"}
+                            ), width='stretch')
             tab_idx += 1
 
 # ================= NEW 3: REGIONAL GRID =================
