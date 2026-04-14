@@ -498,8 +498,8 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
 def calculate_internal_cis_score(db_session):
     """
     Calculates an Internal CIS Threat Score based PURELY on OSINT correlations.
-    Uses an Inverted Index, Fast-Fail String matching, and Smart OS Concatenation 
-    to prevent acronym collisions (e.g., Cisco IOS vs Apple iOS).
+    Uses an Inverted Index, Smart OS Concatenation, and a Cyber-Context Enforcer 
+    to eliminate natural language false positives from general news feeds.
     """
     from src.database import HardwareAsset, SoftwareAsset, Article, CveItem
     from datetime import datetime, timedelta
@@ -512,11 +512,21 @@ def calculate_internal_cis_score(db_session):
     recent_articles = db_session.query(Article).filter(Article.published_date >= thirty_days_ago).all()
     recent_cves = db_session.query(CveItem).order_by(CveItem.date_added.desc()).limit(300).all()
 
-    # Added heavily overloaded standalone OS acronyms to the noise filter
+    # Massive expansion of the noise filter to handle OS inventory garbage
     IGNORE_LIST = {
+        # Core generics
         "apps", "app store", "books", "calculator", "chess", "clock", "connect", 
         "console", "dash", "cron", "bash", "atom", "acl", "bc", "cpp", "ant",
-        "ios", "mac", "windows", "linux", "android", "server", "system"
+        "ios", "mac", "windows", "linux", "android", "server", "system",
+        # Apple/Windows OS Bloatware & UI Components
+        "calendar", "contacts", "facetime", "installer", "keynote", "launchpad",
+        "messenger", "paint", "podcasts", "reminders", "script editor", "screenshot",
+        "siri", "slides", "software update", "system settings", "xbox", "weather",
+        "maps", "notes", "voice memos", "utilities", "terminal", "preferences",
+        "information center", "customer support",
+        # Common English words posing as software in standard inventories
+        "wish", "batteries", "cobwebs", "darcula", "encompass", "kate", 
+        "protector", "rider", "docs", "cheese", "bolt", "eject", "grim", "parted", "ppp"
     }
 
     # ==========================================
@@ -527,7 +537,6 @@ def calculate_internal_cis_score(db_session):
     def register_term(term):
         if not term: return None
         term = str(term).strip().lower()
-        # Drop terms that are too short or overly generic
         if len(term) > 2 and term not in IGNORE_LIST:
             if term not in unique_terms:
                 unique_terms[term] = {
@@ -547,26 +556,14 @@ def calculate_internal_cis_score(db_session):
         terms = []
         if hw.asset_name: terms.append(hw.asset_name)
         
-        # --- SMART OS STRING GENERATION ---
-        # Dynamically builds contextual strings (Vendor + OS + Version)
         vendor = (hw.os_vendor or "").strip()
         os_name = (hw.operating_system or hw.os_product or "").strip()
         version = (hw.os_version or "").strip()
         
         if os_name:
-            # 1. Vendor + OS (e.g., "Cisco IOS")
-            if vendor and vendor.lower() not in os_name.lower():
-                terms.append(f"{vendor} {os_name}")
-            
-            # 2. OS + Version (e.g., "IOS 15.2")
-            if version and version.lower() not in os_name.lower():
-                terms.append(f"{os_name} {version}")
-                
-            # 3. Vendor + OS + Version (e.g., "Cisco IOS 15.2")
-            if vendor and version:
-                terms.append(f"{vendor} {os_name} {version}")
-                
-            # 4. Raw OS (e.g., "IOS" - will be dropped by IGNORE_LIST, but "Ubuntu 22.04" will pass)
+            if vendor and vendor.lower() not in os_name.lower(): terms.append(f"{vendor} {os_name}")
+            if version and version.lower() not in os_name.lower(): terms.append(f"{os_name} {version}")
+            if vendor and version: terms.append(f"{vendor} {os_name} {version}")
             terms.append(os_name)
             
         clean_terms = [register_term(t) for t in terms if t]
@@ -574,15 +571,22 @@ def calculate_internal_cis_score(db_session):
 
 
     # ==========================================
-    # PHASE 2: BATCH OSINT SCAN
+    # PHASE 2: BATCH OSINT SCAN (Context Enforcer)
     # ==========================================
+    CYBER_KEYWORDS = {"vulnerability", "breach", "hacked", "cyber", "malware", "ransomware", "phishing", "cve", "patch", "exploit", "zero-day", "0-day", "flaw", "leak", "actor"}
+    
     prepped_articles = []
     for art in recent_articles:
-        text_blob = f"{art.title} {art.summary or ''}".lower()
-        prepped_articles.append({'obj': art, 'text': text_blob, 'is_critical': art.score >= 80})
+        # Base filter: Drop low-threat articles immediately
+        if art.score >= 40:
+            text_blob = f"{art.title} {art.summary or ''}".lower()
+            # Cyber-Context Enforcer: Ensures geopolitical/general news doesn't trigger app alarms
+            if any(kw in text_blob for kw in CYBER_KEYWORDS):
+                prepped_articles.append({'obj': art, 'text': text_blob, 'is_critical': art.score >= 80})
 
     prepped_cves = []
     for cve in recent_cves:
+        # CVEs are inherently cyber-related, no keyword filtering required
         text_blob = f"{cve.product} {cve.description}".lower()
         prepped_cves.append({'obj': cve, 'text': text_blob, 'id': cve.cve_id})
 
@@ -690,7 +694,6 @@ def calculate_internal_cis_score(db_session):
         "hw_data": annotated_hw,
         "sw_data": annotated_sw
     }
-
 def generate_and_save_internal_risk_snapshot():
     """Runs the optimized CIS calculation and saves the snapshot to the DB for the dashboard."""
     from src.database import SessionLocal, InternalRiskSnapshot
