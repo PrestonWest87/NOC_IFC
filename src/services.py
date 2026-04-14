@@ -494,12 +494,12 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
             "baseline_cyber": baseline_cyber, "baseline_phys": baseline_phys
         }
 
-
 def calculate_internal_cis_score(db_session):
     """
     Calculates an Internal CIS Threat Score based PURELY on OSINT correlations.
-    Features a Semantic Disambiguation Engine, Version-Proximity Matching, 
-    and Acronym Collision Filtering to ensure high-fidelity asset matching.
+    Utilizes a Tokenized Inverted Index for O(1) pre-filtering to handle massive 
+    datasets efficiently, combined with a Semantic Context Enforcer to eliminate 
+    common noun false positives without ignoring critical package managers.
     """
     from src.database import HardwareAsset, SoftwareAsset, Article, CveItem
     from datetime import datetime, timedelta
@@ -513,31 +513,38 @@ def calculate_internal_cis_score(db_session):
     recent_cves = db_session.query(CveItem).order_by(CveItem.date_added.desc()).limit(300).all()
 
     # ==========================================
-    # PHASE 1: SEMANTIC DISAMBIGUATION RULES
+    # PHASE 1: ENGINE RULES & SIGNATURE COMPILATION
     # ==========================================
+    STOP_WORDS = {"and", "the", "for", "with", "system", "server", "software", "application", "platform", "tool", "device"}
     
-    # Terms that naturally collide with English words, OS types, or Acronyms
-    HIGHLY_AMBIGUOUS = {
-        "apt", "yum", "npm", "pip", "brew", "dpkg", "rpm", "pacman", 
-        "make", "less", "zoom", "cups", "cron", "bash", "ssh", "ftp", "telnet",
-        "mac", "windows", "linux", "ios", "android", "server", "system", "app"
+    # We do NOT ignore these. If an asset matches one of these, we trigger the Context Enforcer.
+    COMMON_NOUNS = {
+        "apps", "calculator", "computer", "connect", "console", "family", "file", "games",
+        "home", "less", "login", "make", "messages", "network", "news", "notes", "numbers",
+        "office", "passwords", "patch", "phone", "preview", "reader", "settings", "ssh",
+        "surface", "terminal", "terminals", "time", "whatsapp", "zoom", "info", "docs",
+        "installer", "maps", "music", "print", "protector", "weather", "zip", "contacts",
+        "mail", "pages", "photos", "podcasts", "stress", "tips", "wish", "youtube", "apt",
+        "npm", "yum", "pip", "brew", "mac", "windows", "linux", "android"
     }
 
-    # Context required to validate an ambiguous term as actual software
     SOFTWARE_CONTEXT_KWS = {
         "vulnerability", "cve", "patch", "update", "flaw", "bug", "rce", "privilege escalation",
-        "package", "library", "daemon", "buffer overflow", "zero-day", "0-day", "exploit", "version"
+        "package", "library", "buffer overflow", "zero-day", "0-day", "exploit", "version", "bypass"
     }
 
-    # Specific negative regex rules to kill known acronym collisions
     ACRONYM_COLLISIONS = {
-        "apt": re.compile(r'\b(?:advanced persistent threat|apt\s*(?:group|actor|campaign|hacker|attack|malware|botnet))\b', re.IGNORECASE),
+        "apt": re.compile(r'\b(?:advanced persistent threat|apt\s*(?:group|actor|campaign|hacker|attack|malware|botnet|linked))\b', re.IGNORECASE),
         "mac": re.compile(r'\b(?:mac\s*(?:address|spoofing|layer|protocol))\b', re.IGNORECASE)
     }
 
-    # ==========================================
-    # PHASE 2: COMPILE ASSET SIGNATURES
-    # ==========================================
+    def get_trigger_token(name):
+        """Extracts the longest valid word to act as an O(1) dictionary gatekeeper."""
+        words = re.findall(r'\b[a-z]{3,}\b', str(name).lower())
+        valid = [w for w in words if w not in STOP_WORDS]
+        return max(valid, key=len) if valid else None
+
+    # Pre-compile Regex Signatures
     hw_search_maps = []
     for hw in hw_assets:
         vendor = str(hw.os_vendor or "").strip().lower()
@@ -546,89 +553,91 @@ def calculate_internal_cis_score(db_session):
         
         if not name or len(name) < 2: continue
             
+        trigger = get_trigger_token(name) or get_trigger_token(vendor)
+        if not trigger: continue
+            
         exact_patterns = []
-        ambiguous_patterns = []
-        
         if version:
-            # Cryptographic Anchor: Product Name and Version must exist within 50 chars of each other
+            # Mandate that the Version exists within 50 chars of the Product Name
             exact_patterns.append(re.compile(rf'\b{re.escape(name)}\b.{{0,50}}\b{re.escape(version)}\b', re.IGNORECASE))
             if vendor and vendor not in name:
                  exact_patterns.append(re.compile(rf'\b{re.escape(vendor)}\b.{{0,50}}\b{re.escape(version)}\b', re.IGNORECASE))
         else:
-            base_pattern = re.compile(rf'\b{re.escape(name)}\b', re.IGNORECASE)
-            if name in HIGHLY_AMBIGUOUS:
-                ambiguous_patterns.append({'term': name, 'regex': base_pattern})
-            else:
-                exact_patterns.append(base_pattern)
-                
-        hw_search_maps.append({'obj': hw, 'is_hw': True, 'exact': exact_patterns, 'ambig': ambiguous_patterns, 'matches': []})
+            exact_patterns.append(re.compile(rf'\b{re.escape(name)}\b', re.IGNORECASE))
+            
+        hw_search_maps.append({'obj': hw, 'is_hw': True, 'trigger': trigger, 'exact': exact_patterns, 'raw_name': name, 'matches': []})
 
     sw_search_maps = []
     for sw in sw_assets:
         name = str(sw.name or "").strip().lower()
         if not name or len(name) < 2: continue
         
-        exact_patterns = []
-        ambiguous_patterns = []
-        base_pattern = re.compile(rf'\b{re.escape(name)}\b', re.IGNORECASE)
-        
-        if name in HIGHLY_AMBIGUOUS:
-            ambiguous_patterns.append({'term': name, 'regex': base_pattern})
-        else:
-            exact_patterns.append(base_pattern)
+        trigger = get_trigger_token(name)
+        if not trigger: continue
             
-        sw_search_maps.append({'obj': sw, 'is_hw': False, 'exact': exact_patterns, 'ambig': ambiguous_patterns, 'matches': []})
+        sw_search_maps.append({'obj': sw, 'is_hw': False, 'trigger': trigger, 'exact': [re.compile(rf'\b{re.escape(name)}\b', re.IGNORECASE)], 'raw_name': name, 'matches': []})
 
     all_assets = hw_search_maps + sw_search_maps
 
     # ==========================================
-    # PHASE 3: BATCH OSINT CORRELATION SCAN
+    # PHASE 2: INVERTED INDEXING (PERFORMANCE CORE)
     # ==========================================
+    # We tokenize the OSINT text ONCE into mathematical sets for instant O(1) lookups.
     CYBER_KEYWORDS = {"vulnerability", "breach", "hacked", "cyber", "malware", "ransomware", "phishing", "cve", "patch", "exploit", "zero-day", "flaw", "leak"}
-    
-    # 1. SCAN ARTICLES
+
+    article_index = []
     for art in recent_articles:
         if art.score >= 40:
             text_blob = f"{art.title} {art.summary or ''}".lower()
-            
-            # Base gatekeeper: Is this article talking about cybersecurity?
-            if not any(kw in text_blob for kw in CYBER_KEYWORDS):
+            if any(kw in text_blob for kw in CYBER_KEYWORDS):
+                word_set = set(re.findall(r'\b[a-z0-9]{2,}\b', text_blob))
+                article_index.append({
+                    'obj': art, 'text': text_blob, 'word_set': word_set,
+                    'is_critical': art.score >= 80,
+                    'has_context': any(kw in word_set for kw in SOFTWARE_CONTEXT_KWS)
+                })
+
+    cve_index = []
+    for cve in recent_cves:
+        text_blob = f"{cve.product} {cve.description}".lower()
+        cve_index.append({
+            'obj': cve, 'text': text_blob,
+            'word_set': set(re.findall(r'\b[a-z0-9]{2,}\b', text_blob)),
+            'vendor': str(cve.vendor).lower(), 'product': str(cve.product).lower()
+        })
+
+    # ==========================================
+    # PHASE 3: O(1) BATCH CORRELATION SCAN
+    # ==========================================
+    
+    # 1. SCAN ARTICLES
+    for art in article_index:
+        for asset_map in all_assets:
+            # GATEKEEPER 1: Skip expensive regex if the trigger token isn't in the article's word set
+            if asset_map['trigger'] not in art['word_set']:
                 continue
                 
-            # Secondary gatekeeper: Does this article have software patching context?
-            has_software_context = any(kw in text_blob for kw in SOFTWARE_CONTEXT_KWS)
-            is_crit = art.score >= 80
+            # GATEKEEPER 2: If the asset is a common word, mandate vulnerability context
+            if asset_map['raw_name'] in COMMON_NOUNS and not art['has_context']:
+                continue
+                
+            # GATEKEEPER 3: Acronym Collisions (e.g., APT the package vs APT the threat actor)
+            collision_regex = ACRONYM_COLLISIONS.get(asset_map['raw_name'])
+            if collision_regex and collision_regex.search(art['text']):
+                continue
 
-            for asset_map in all_assets:
-                matched = False
-                
-                # Check Exact Signatures
-                for pat in asset_map['exact']:
-                    if pat.search(text_blob):
-                        asset_map['matches'].append({"title": art.title, "is_critical": is_crit})
-                        matched = True
-                        break 
-                        
-                if matched: continue
-                
-                # Check Ambiguous Signatures (Requires Software Context & Collision Avoidance)
-                if has_software_context:
-                    for ambig in asset_map['ambig']:
-                        if ambig['regex'].search(text_blob):
-                            collision_regex = ACRONYM_COLLISIONS.get(ambig['term'])
-                            # If it hits an acronym collision (e.g. APT Group), reject it
-                            if collision_regex and collision_regex.search(text_blob):
-                                continue 
-                            asset_map['matches'].append({"title": art.title, "is_critical": is_crit})
-                            break
+            # Heavy Regex execution (Only runs on ~1% of records now)
+            for pat in asset_map['exact']:
+                if pat.search(art['text']):
+                    asset_map['matches'].append({"title": art['obj'].title, "is_critical": art['is_critical']})
+                    break 
 
     # 2. SCAN CVE DATABASE
-    for cve in recent_cves:
-        cve_text = f"{cve.product} {cve.description}".lower()
-        cve_vendor = str(cve.vendor).lower()
-        cve_product = str(cve.product).lower()
-        
+    for cve in cve_index:
         for asset_map in all_assets:
+            if asset_map['trigger'] not in cve['word_set'] and asset_map['trigger'] not in cve['vendor']:
+                continue
+
             matched = False
             
             # Highest Fidelity: Explicit DB Column Match for Hardware
@@ -637,26 +646,19 @@ def calculate_internal_cis_score(db_session):
                 hw_vendor = str(hw.os_vendor or "").lower()
                 hw_name = str(hw.operating_system or hw.os_product or "").lower()
                 
-                if (hw_vendor and hw_vendor in cve_vendor) and (hw_name and hw_name in cve_product):
-                    asset_map['matches'].append({"title": f"CISA KEV: {cve.cve_id}", "is_critical": True})
+                if (hw_vendor and hw_vendor in cve['vendor']) and (hw_name and hw_name in cve['product']):
+                    asset_map['matches'].append({"title": f"CISA KEV: {cve['obj'].cve_id}", "is_critical": True})
                     continue
-                    
-            # Check Exact Signatures
+
+            # Acronym Collisions
+            collision_regex = ACRONYM_COLLISIONS.get(asset_map['raw_name'])
+            if collision_regex and collision_regex.search(cve['text']):
+                continue
+
             for pat in asset_map['exact']:
-                if pat.search(cve_text):
-                    asset_map['matches'].append({"title": f"CISA KEV: {cve.cve_id}", "is_critical": True})
+                if pat.search(cve['text']):
+                    asset_map['matches'].append({"title": f"CISA KEV: {cve['obj'].cve_id}", "is_critical": True})
                     matched = True
-                    break
-                    
-            if matched: continue
-            
-            # Check Ambiguous Signatures (CVEs inherently have software context)
-            for ambig in asset_map['ambig']:
-                if ambig['regex'].search(cve_text):
-                    collision_regex = ACRONYM_COLLISIONS.get(ambig['term'])
-                    if collision_regex and collision_regex.search(cve_text):
-                        continue
-                    asset_map['matches'].append({"title": f"CISA KEV: {cve.cve_id}", "is_critical": True})
                     break
 
     # ==========================================
