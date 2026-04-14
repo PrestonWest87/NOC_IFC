@@ -686,8 +686,22 @@ if page == "👁️ Global Dashboards":
                 st.warning("Please enter a recipient email address.")
 
     with dash_tabs[2]:
-            st.subheader("🏢 Internal Asset Risk Dashboard")
-            st.caption("Active correlation of internal assets against OSINT telemetry (Auto-updates every 6 hours).")
+            col_title, col_admin_btn = st.columns([4, 1])
+            
+            with col_title:
+                st.subheader("🏢 Internal Asset Risk Dashboard")
+                st.caption("Active correlation of internal assets against OSINT telemetry (Auto-updates every 6 hours).")
+                
+            with col_admin_btn:
+                # Restrict visibility to administrators only
+                if st.session_state.current_role == "admin":
+                    is_snap_cooling = check_cooldown("force_internal_snap", 30)
+                    if st.button("⏳ Processing..." if is_snap_cooling else "🔄 Force Generate", type="primary", use_container_width=True, disabled=is_snap_cooling):
+                        apply_cooldown("force_internal_snap")
+                        with st.spinner("Calculating matrices..."):
+                            svc.generate_and_save_internal_risk_snapshot()
+                            time.sleep(0.5)
+                            safe_rerun()
             
             with svc.SessionLocal() as dbtmp:
                 from src.database import InternalRiskSnapshot
