@@ -109,7 +109,7 @@ class EnterpriseAIOpsEngine:
         from src.database import SolarWindsAlert
         
         # 1. Fetch 7 days of historical alerts to build a baseline
-        cutoff = datetime.utcnow() - timedelta(days=7)
+        cutoff = datetime.utcnow() - timedelta(days=60)
         alerts = self.session.query(SolarWindsAlert).filter(SolarWindsAlert.received_at >= cutoff).all()
         
         if not alerts:
@@ -137,7 +137,7 @@ class EnterpriseAIOpsEngine:
             
         # 3. Calculate "f": Top Offending Nodes (Flapping/Failing Equipment)
         node_counts = df['node_name'].value_counts().reset_index()
-        node_counts.columns = ['Node Name', 'Total Incidents (7 Days)']
+        node_counts.columns = ['Node Name', 'Total Incidents (60 Days)']
         
         node_meta = df[['node_name', 'device_type', 'site']].drop_duplicates(subset=['node_name'])
         f = pd.merge(node_counts, node_meta, left_on='Node Name', right_on='node_name').drop(columns=['node_name'])
@@ -146,20 +146,20 @@ class EnterpriseAIOpsEngine:
         
         # 4. Calculate "v": Infrastructure Hotspots (Sites with the most issues)
         site_counts = df[df['site'] != 'Unknown']['site'].value_counts().reset_index()
-        site_counts.columns = ['Site', 'Total Incidents (7 Days)']
+        site_counts.columns = ['Site', 'Total Incidents (60 Days)']
         v = site_counts.head(10)
         
         # 5. Calculate "r": AI Predictive Maintenance Forecast
         r = []
         if not f.empty:
             top_node = f.iloc[0]['Node Name']
-            top_node_count = f.iloc[0]['Total Incidents (7 Days)']
+            top_node_count = f.iloc[0]['Total Incidents (60 Days)']
             if top_node_count > 5:
                 r.append(f"🔴 **CRITICAL FLAP DETECTED:** Node `{top_node}` is exhibiting severe chronic instability with {top_node_count} logged incidents this week. Recommend immediate hardware diagnostic or circuit test.")
         
         if not v.empty:
             top_site = v.iloc[0]['Site']
-            top_site_count = v.iloc[0]['Total Incidents (7 Days)']
+            top_site_count = v.iloc[0]['Total Incidents (60 Days)']
             if top_site_count > 15:
                 r.append(f"🟠 **REGIONAL DEGRADATION:** The `{top_site}` facility is a current infrastructure hotspot. Recommend dispatching field tech to review local power conditioning and physical transport handoffs.")
                 
