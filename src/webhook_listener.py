@@ -30,40 +30,36 @@ def classify_device(text_corpus: str, node_type_hint: str = None) -> str:
             return device_class
     return "Network Node"
 
+# Replace the smart_extract function in src/webhook_listener.py
 def smart_extract(payload: dict):
     nd = payload.get("Node_Details") or {}
-    pm = payload.get("Performance_Metrics") or {}
     cp = payload.get("Custom_Properties_Universal") or {}
 
     extracted = {
-        "node_name": nd.get("NodeName") or nd.get("SysName") or payload.get("entity_caption") or "Unknown",
+        "node_name": nd.get("NodeName") or payload.get("entity_caption") or "Unknown",
         "ip_address": nd.get("IP_Address") or "Unknown",
         "severity": payload.get("severity") or cp.get("Alert_Level") or "Unknown",
-        "event_type": payload.get("check") or payload.get("class") or payload.get("description") or "Unknown",
         "status": nd.get("StatusDescription") or payload.get("description") or "Unknown",
         "is_resolution": False,
-        "device_type": nd.get("MachineType") or cp.get("Node_Type") or payload.get("entity_type") or "Unknown",
-        "event_category": "General Degradation",
-        "site_group": cp.get("Site") or cp.get("City") or "Unknown"
+        "device_type": cp.get("Node_Type") or nd.get("MachineType") or "Unknown",
+        "site_group": cp.get("Site") or "Unknown",
+        "primary_comms": cp.get("Primary_Comms") or "Unknown"
     }
 
-    res_indicators = ['resolved', 'up', 'ok', 'clear', 'operational', 'recovered']
-    status_lower = str(extracted["status"]).lower() + " " + str(payload.get("description", "")).lower()
+    # Enhanced Resolution Detection
+    res_indicators = ['resolved', 'up', 'ok', 'clear', 'operational']
+    status_lower = str(extracted["status"]).lower()
     if any(word in status_lower for word in res_indicators):
         extracted["is_resolution"] = True
         extracted["status"] = "Resolved"
 
-    if extracted["ip_address"] == "Unknown":
-        corpus = json.dumps(payload).lower()
-        ip_match = re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', corpus)
-        if ip_match: extracted["ip_address"] = ip_match.group(0)
-
+    # Map device type into Tier Ontology if unknown
     extracted["device_type"] = classify_device(
-        f"{extracted['node_name']} {extracted['event_type']} {extracted['device_type']}", 
+        f"{extracted['node_name']} {extracted['device_type']}", 
         node_type_hint=extracted["device_type"]
     )
     return extracted
-
+    
 def process_payload_background(raw_payload: dict):
     with SessionLocal() as db:
         try:
