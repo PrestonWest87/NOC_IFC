@@ -497,9 +497,8 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
 def calculate_internal_cis_score(db_session):
     """
     Calculates an Internal CIS Threat Score based PURELY on OSINT correlations.
-    Utilizes a Tokenized Inverted Index for O(1) pre-filtering to handle massive 
-    datasets efficiently, combined with a Semantic Context Enforcer to eliminate 
-    common noun false positives without ignoring critical package managers.
+    Utilizes a Tokenized Inverted Index for O(1) pre-filtering, a Semantic Context 
+    Enforcer for IT-specific acronyms, and a strict Kill-Switch for native OS bloatware.
     """
     from src.database import HardwareAsset, SoftwareAsset, Article, CveItem
     from datetime import datetime, timedelta
@@ -517,15 +516,26 @@ def calculate_internal_cis_score(db_session):
     # ==========================================
     STOP_WORDS = {"and", "the", "for", "with", "system", "server", "software", "application", "platform", "tool", "device"}
     
-    # We do NOT ignore these. If an asset matches one of these, we trigger the Context Enforcer.
+    # KILL-SWITCH: Native Mac/Windows UI bloatware and generic nouns. 
+    # Assets matching these are completely dropped from the scan.
+    IGNORE_LIST = {
+        "apps", "app store", "books", "calculator", "calendar", "canvas", "chess", "clock", 
+        "computer", "connect", "console", "contacts", "customer support", "dashboard", 
+        "docs", "facetime", "family", "file", "games", "home", "installer", "keynote", 
+        "launchpad", "login", "mail", "maps", "messages", "music", "network", "news", 
+        "notes", "numbers", "pages", "paint", "passwords", "phone", "photos", "podcasts", 
+        "preferences", "preview", "print", "protector", "reader", "reminders", "screenshot", 
+        "script editor", "settings", "siri", "slides", "software update", "stress", 
+        "system settings", "terminal", "terminals", "time", "tips", "utilities", 
+        "voice memos", "weather", "wish", "xbox"
+    }
+
+    # CONTEXT ENFORCER: Legitimate IT concepts/commands that share names with English words.
+    # We DO NOT ignore these, but they require vulnerability context to trigger an alert.
     COMMON_NOUNS = {
-        "apps", "calculator", "computer", "connect", "console", "family", "file", "games",
-        "home", "less", "login", "make", "messages", "network", "news", "notes", "numbers",
-        "office", "passwords", "patch", "phone", "preview", "reader", "settings", "ssh",
-        "surface", "terminal", "terminals", "time", "whatsapp", "zoom", "info", "docs",
-        "installer", "maps", "music", "print", "protector", "weather", "zip", "contacts",
-        "mail", "pages", "photos", "podcasts", "stress", "tips", "wish", "youtube", "apt",
-        "npm", "yum", "pip", "brew", "mac", "windows", "linux", "android"
+        "apt", "npm", "yum", "pip", "brew", "mac", "windows", "linux", "android", 
+        "zoom", "cups", "ssh", "ftp", "telnet", "sudo", "mount", "ufw", "make", 
+        "tracker", "patch", "bash", "cron", "less", "office", "info"
     }
 
     SOFTWARE_CONTEXT_KWS = {
@@ -551,7 +561,7 @@ def calculate_internal_cis_score(db_session):
         name = str(hw.operating_system or hw.os_product or "").strip().lower()
         version = str(hw.os_version or "").strip().lower()
         
-        if not name or len(name) < 2: continue
+        if not name or len(name) < 2 or name in IGNORE_LIST: continue
             
         trigger = get_trigger_token(name) or get_trigger_token(vendor)
         if not trigger: continue
@@ -570,7 +580,9 @@ def calculate_internal_cis_score(db_session):
     sw_search_maps = []
     for sw in sw_assets:
         name = str(sw.name or "").strip().lower()
-        if not name or len(name) < 2: continue
+        
+        # Kill-Switch: Drop bloatware immediately
+        if not name or len(name) < 2 or name in IGNORE_LIST: continue
         
         trigger = get_trigger_token(name)
         if not trigger: continue
@@ -582,7 +594,6 @@ def calculate_internal_cis_score(db_session):
     # ==========================================
     # PHASE 2: INVERTED INDEXING (PERFORMANCE CORE)
     # ==========================================
-    # We tokenize the OSINT text ONCE into mathematical sets for instant O(1) lookups.
     CYBER_KEYWORDS = {"vulnerability", "breach", "hacked", "cyber", "malware", "ransomware", "phishing", "cve", "patch", "exploit", "zero-day", "flaw", "leak"}
 
     article_index = []
@@ -613,20 +624,13 @@ def calculate_internal_cis_score(db_session):
     # 1. SCAN ARTICLES
     for art in article_index:
         for asset_map in all_assets:
-            # GATEKEEPER 1: Skip expensive regex if the trigger token isn't in the article's word set
-            if asset_map['trigger'] not in art['word_set']:
-                continue
+            if asset_map['trigger'] not in art['word_set']: continue
                 
-            # GATEKEEPER 2: If the asset is a common word, mandate vulnerability context
-            if asset_map['raw_name'] in COMMON_NOUNS and not art['has_context']:
-                continue
+            if asset_map['raw_name'] in COMMON_NOUNS and not art['has_context']: continue
                 
-            # GATEKEEPER 3: Acronym Collisions (e.g., APT the package vs APT the threat actor)
             collision_regex = ACRONYM_COLLISIONS.get(asset_map['raw_name'])
-            if collision_regex and collision_regex.search(art['text']):
-                continue
+            if collision_regex and collision_regex.search(art['text']): continue
 
-            # Heavy Regex execution (Only runs on ~1% of records now)
             for pat in asset_map['exact']:
                 if pat.search(art['text']):
                     asset_map['matches'].append({"title": art['obj'].title, "is_critical": art['is_critical']})
@@ -640,7 +644,6 @@ def calculate_internal_cis_score(db_session):
 
             matched = False
             
-            # Highest Fidelity: Explicit DB Column Match for Hardware
             if asset_map['is_hw']:
                 hw = asset_map['obj']
                 hw_vendor = str(hw.os_vendor or "").lower()
@@ -650,10 +653,8 @@ def calculate_internal_cis_score(db_session):
                     asset_map['matches'].append({"title": f"CISA KEV: {cve['obj'].cve_id}", "is_critical": True})
                     continue
 
-            # Acronym Collisions
             collision_regex = ACRONYM_COLLISIONS.get(asset_map['raw_name'])
-            if collision_regex and collision_regex.search(cve['text']):
-                continue
+            if collision_regex and collision_regex.search(cve['text']): continue
 
             for pat in asset_map['exact']:
                 if pat.search(cve['text']):
