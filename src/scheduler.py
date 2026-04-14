@@ -264,7 +264,7 @@ if __name__ == "__main__":
     schedule.every(15).minutes.do(run_threaded, fetch_feeds)
     schedule.every(30).minutes.do(run_threaded, fetch_live_crimes)
     schedule.every(6).hours.do(run_threaded, fetch_cisa_kev)
-    schedule.every(6).hours.do(generate_and_save_internal_risk_snapshot)
+    schedule.every(6).hours.do(run_threaded, generate_and_save_internal_risk_snapshot)
     
     # High-Priority / High-Churn Telemetry
     schedule.every(5).minutes.do(run_threaded, fetch_regional_hazards)
