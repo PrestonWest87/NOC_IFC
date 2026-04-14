@@ -724,14 +724,18 @@ if page == "👁️ Global Dashboards":
                 hw_data = json.loads(latest.hw_data_json)
                 sw_data = json.loads(latest.sw_data_json)
 
-                # --- DASHBOARD METRICS ---
-                risk_color_map = {"GREEN": "#28a745", "BLUE": "#007bff", "YELLOW": "#ffc107", "ORANGE": "#fd7e14", "RED": "#dc3545"}
-                score_color = risk_color_map.get(latest.risk_level, "#6c757d")
+               # --- DASHBOARD METRICS ---
+                color_map = {"GREEN": "#28a745", "BLUE": "#007bff", "YELLOW": "#ffc107", "ORANGE": "#fd7e14", "RED": "#dc3545"}
+                name_map = {"GREEN": "GREEN (LOW)", "BLUE": "BLUE (GUARDED)", "YELLOW": "YELLOW (ELEVATED)", "ORANGE": "ORANGE (HIGH)", "RED": "RED (SEVERE)"}
+                
+                safe_risk_level = str(latest.risk_level).upper()
+                score_color = color_map.get(safe_risk_level, "#6c757d")
+                display_risk = name_map.get(safe_risk_level, "UNKNOWN")
                 
                 st.markdown(f"""
                 <div style='text-align: center; padding: 20px; background-color: #1e1e1e; border-radius: 10px; border: 2px solid {score_color}; margin-bottom: 20px;'>
                     <h3 style='margin:0; color: #a0a0a0;'>INTERNAL ASSET POSTURE (CIS STANDARD)</h3>
-                    <h1 style='margin:0; font-size: 3rem; color: {score_color};'>{latest.risk_level} ({latest.score})</h1>
+                    <h1 style='margin:0; font-size: 3rem; color: {score_color};'>{display_risk} [{latest.score}]</h1>
                     <p style='margin:0; color: #a0a0a0;'>Analyzed {latest.total_assets} total assets against OSINT feeds.</p>
                 </div>
                 """, unsafe_allow_html=True)
