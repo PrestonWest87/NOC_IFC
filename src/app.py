@@ -1775,6 +1775,7 @@ elif page == "📝 Shift Logbook":
         # Render the persistent report if it exists in memory
         if eod_key in st.session_state:
             st.caption(f"🕒 **Last Generated:** {st.session_state[eod_key]['timestamp']}")
+            st.markdown(st.session_state[eod_key]['content'])
 
     
     st.divider()
