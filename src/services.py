@@ -498,8 +498,8 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
 def calculate_internal_cis_score(db_session):
     """
     Calculates an Internal CIS Threat Score based PURELY on OSINT correlations.
-    Uses an Inverted Index, Smart OS Concatenation, and a Cyber-Context Enforcer 
-    to eliminate natural language false positives from general news feeds.
+    Features a Semantic Disambiguation Engine, Version-Proximity Matching, 
+    and Acronym Collision Filtering to ensure high-fidelity asset matching.
     """
     from src.database import HardwareAsset, SoftwareAsset, Article, CveItem
     from datetime import datetime, timedelta
@@ -512,97 +512,155 @@ def calculate_internal_cis_score(db_session):
     recent_articles = db_session.query(Article).filter(Article.published_date >= thirty_days_ago).all()
     recent_cves = db_session.query(CveItem).order_by(CveItem.date_added.desc()).limit(300).all()
 
-    # Massive expansion of the noise filter to handle OS inventory garbage
-    IGNORE_LIST = {
-        # Core generics
-        "apps", "app store", "books", "calculator", "chess", "clock", "connect", 
-        "console", "dash", "cron", "bash", "atom", "acl", "bc", "cpp", "ant",
-        "ios", "mac", "windows", "linux", "android", "server", "system",
-        # Apple/Windows OS Bloatware & UI Components
-        "calendar", "contacts", "facetime", "installer", "keynote", "launchpad",
-        "messenger", "paint", "podcasts", "reminders", "script editor", "screenshot",
-        "siri", "slides", "software update", "system settings", "xbox", "weather",
-        "maps", "notes", "voice memos", "utilities", "terminal", "preferences",
-        "information center", "customer support",
-        # Common English words posing as software in standard inventories
-        "wish", "batteries", "cobwebs", "darcula", "encompass", "kate", 
-        "protector", "rider", "docs", "cheese", "bolt", "eject", "grim", "parted", "ppp"
+    # ==========================================
+    # PHASE 1: SEMANTIC DISAMBIGUATION RULES
+    # ==========================================
+    
+    # Terms that naturally collide with English words, OS types, or Acronyms
+    HIGHLY_AMBIGUOUS = {
+        "apt", "yum", "npm", "pip", "brew", "dpkg", "rpm", "pacman", 
+        "make", "less", "zoom", "cups", "cron", "bash", "ssh", "ftp", "telnet",
+        "mac", "windows", "linux", "ios", "android", "server", "system", "app"
+    }
+
+    # Context required to validate an ambiguous term as actual software
+    SOFTWARE_CONTEXT_KWS = {
+        "vulnerability", "cve", "patch", "update", "flaw", "bug", "rce", "privilege escalation",
+        "package", "library", "daemon", "buffer overflow", "zero-day", "0-day", "exploit", "version"
+    }
+
+    # Specific negative regex rules to kill known acronym collisions
+    ACRONYM_COLLISIONS = {
+        "apt": re.compile(r'\b(?:advanced persistent threat|apt\s*(?:group|actor|campaign|hacker|attack|malware|botnet))\b', re.IGNORECASE),
+        "mac": re.compile(r'\b(?:mac\s*(?:address|spoofing|layer|protocol))\b', re.IGNORECASE)
     }
 
     # ==========================================
-    # PHASE 1: PRE-COMPILE & DEDUPLICATE TERMS
+    # PHASE 2: COMPILE ASSET SIGNATURES
     # ==========================================
-    unique_terms = {}
-
-    def register_term(term):
-        if not term: return None
-        term = str(term).strip().lower()
-        if len(term) > 2 and term not in IGNORE_LIST:
-            if term not in unique_terms:
-                unique_terms[term] = {
-                    'regex': re.compile(rf'\b{re.escape(term)}\b'),
-                    'matches': []
-                }
-            return term
-        return None
+    hw_search_maps = []
+    for hw in hw_assets:
+        vendor = str(hw.os_vendor or "").strip().lower()
+        name = str(hw.operating_system or hw.os_product or "").strip().lower()
+        version = str(hw.os_version or "").strip().lower()
+        
+        if not name or len(name) < 2: continue
+            
+        exact_patterns = []
+        ambiguous_patterns = []
+        
+        if version:
+            # Cryptographic Anchor: Product Name and Version must exist within 50 chars of each other
+            exact_patterns.append(re.compile(rf'\b{re.escape(name)}\b.{{0,50}}\b{re.escape(version)}\b', re.IGNORECASE))
+            if vendor and vendor not in name:
+                 exact_patterns.append(re.compile(rf'\b{re.escape(vendor)}\b.{{0,50}}\b{re.escape(version)}\b', re.IGNORECASE))
+        else:
+            base_pattern = re.compile(rf'\b{re.escape(name)}\b', re.IGNORECASE)
+            if name in HIGHLY_AMBIGUOUS:
+                ambiguous_patterns.append({'term': name, 'regex': base_pattern})
+            else:
+                exact_patterns.append(base_pattern)
+                
+        hw_search_maps.append({'obj': hw, 'is_hw': True, 'exact': exact_patterns, 'ambig': ambiguous_patterns, 'matches': []})
 
     sw_search_maps = []
     for sw in sw_assets:
-        clean_term = register_term(sw.name)
-        sw_search_maps.append({'obj': sw, 'term': clean_term})
-
-    hw_search_maps = []
-    for hw in hw_assets:
-        terms = []
-        if hw.asset_name: terms.append(hw.asset_name)
+        name = str(sw.name or "").strip().lower()
+        if not name or len(name) < 2: continue
         
-        vendor = (hw.os_vendor or "").strip()
-        os_name = (hw.operating_system or hw.os_product or "").strip()
-        version = (hw.os_version or "").strip()
+        exact_patterns = []
+        ambiguous_patterns = []
+        base_pattern = re.compile(rf'\b{re.escape(name)}\b', re.IGNORECASE)
         
-        if os_name:
-            if vendor and vendor.lower() not in os_name.lower(): terms.append(f"{vendor} {os_name}")
-            if version and version.lower() not in os_name.lower(): terms.append(f"{os_name} {version}")
-            if vendor and version: terms.append(f"{vendor} {os_name} {version}")
-            terms.append(os_name)
+        if name in HIGHLY_AMBIGUOUS:
+            ambiguous_patterns.append({'term': name, 'regex': base_pattern})
+        else:
+            exact_patterns.append(base_pattern)
             
-        clean_terms = [register_term(t) for t in terms if t]
-        hw_search_maps.append({'obj': hw, 'terms': list(set(clean_terms))})
+        sw_search_maps.append({'obj': sw, 'is_hw': False, 'exact': exact_patterns, 'ambig': ambiguous_patterns, 'matches': []})
 
+    all_assets = hw_search_maps + sw_search_maps
 
     # ==========================================
-    # PHASE 2: BATCH OSINT SCAN (Context Enforcer)
+    # PHASE 3: BATCH OSINT CORRELATION SCAN
     # ==========================================
-    CYBER_KEYWORDS = {"vulnerability", "breach", "hacked", "cyber", "malware", "ransomware", "phishing", "cve", "patch", "exploit", "zero-day", "0-day", "flaw", "leak", "actor"}
+    CYBER_KEYWORDS = {"vulnerability", "breach", "hacked", "cyber", "malware", "ransomware", "phishing", "cve", "patch", "exploit", "zero-day", "flaw", "leak"}
     
-    prepped_articles = []
+    # 1. SCAN ARTICLES
     for art in recent_articles:
-        # Base filter: Drop low-threat articles immediately
         if art.score >= 40:
             text_blob = f"{art.title} {art.summary or ''}".lower()
-            # Cyber-Context Enforcer: Ensures geopolitical/general news doesn't trigger app alarms
-            if any(kw in text_blob for kw in CYBER_KEYWORDS):
-                prepped_articles.append({'obj': art, 'text': text_blob, 'is_critical': art.score >= 80})
+            
+            # Base gatekeeper: Is this article talking about cybersecurity?
+            if not any(kw in text_blob for kw in CYBER_KEYWORDS):
+                continue
+                
+            # Secondary gatekeeper: Does this article have software patching context?
+            has_software_context = any(kw in text_blob for kw in SOFTWARE_CONTEXT_KWS)
+            is_crit = art.score >= 80
 
-    prepped_cves = []
+            for asset_map in all_assets:
+                matched = False
+                
+                # Check Exact Signatures
+                for pat in asset_map['exact']:
+                    if pat.search(text_blob):
+                        asset_map['matches'].append({"title": art.title, "is_critical": is_crit})
+                        matched = True
+                        break 
+                        
+                if matched: continue
+                
+                # Check Ambiguous Signatures (Requires Software Context & Collision Avoidance)
+                if has_software_context:
+                    for ambig in asset_map['ambig']:
+                        if ambig['regex'].search(text_blob):
+                            collision_regex = ACRONYM_COLLISIONS.get(ambig['term'])
+                            # If it hits an acronym collision (e.g. APT Group), reject it
+                            if collision_regex and collision_regex.search(text_blob):
+                                continue 
+                            asset_map['matches'].append({"title": art.title, "is_critical": is_crit})
+                            break
+
+    # 2. SCAN CVE DATABASE
     for cve in recent_cves:
-        # CVEs are inherently cyber-related, no keyword filtering required
-        text_blob = f"{cve.product} {cve.description}".lower()
-        prepped_cves.append({'obj': cve, 'text': text_blob, 'id': cve.cve_id})
-
-    for term, data in unique_terms.items():
-        compiled_regex = data['regex']
+        cve_text = f"{cve.product} {cve.description}".lower()
+        cve_vendor = str(cve.vendor).lower()
+        cve_product = str(cve.product).lower()
         
-        for art_data in prepped_articles:
-            if term in art_data['text'] and compiled_regex.search(art_data['text']):
-                data['matches'].append({"title": art_data['obj'].title, "is_critical": art_data['is_critical']})
-
-        for cve_data in prepped_cves:
-            if term in cve_data['text'] and compiled_regex.search(cve_data['text']):
-                data['matches'].append({"title": f"CISA KEV: {cve_data['id']}", "is_critical": True})
+        for asset_map in all_assets:
+            matched = False
+            
+            # Highest Fidelity: Explicit DB Column Match for Hardware
+            if asset_map['is_hw']:
+                hw = asset_map['obj']
+                hw_vendor = str(hw.os_vendor or "").lower()
+                hw_name = str(hw.operating_system or hw.os_product or "").lower()
+                
+                if (hw_vendor and hw_vendor in cve_vendor) and (hw_name and hw_name in cve_product):
+                    asset_map['matches'].append({"title": f"CISA KEV: {cve.cve_id}", "is_critical": True})
+                    continue
+                    
+            # Check Exact Signatures
+            for pat in asset_map['exact']:
+                if pat.search(cve_text):
+                    asset_map['matches'].append({"title": f"CISA KEV: {cve.cve_id}", "is_critical": True})
+                    matched = True
+                    break
+                    
+            if matched: continue
+            
+            # Check Ambiguous Signatures (CVEs inherently have software context)
+            for ambig in asset_map['ambig']:
+                if ambig['regex'].search(cve_text):
+                    collision_regex = ACRONYM_COLLISIONS.get(ambig['term'])
+                    if collision_regex and collision_regex.search(cve_text):
+                        continue
+                    asset_map['matches'].append({"title": f"CISA KEV: {cve.cve_id}", "is_critical": True})
+                    break
 
     # ==========================================
-    # PHASE 3: RECONSTRUCT POSTURE MATRICES
+    # PHASE 4: POSTURE RECONSTRUCTION
     # ==========================================
     annotated_sw = []
     annotated_hw = []
@@ -610,48 +668,39 @@ def calculate_internal_cis_score(db_session):
     global_osint_titles = set()
     global_critical_titles = set()
 
-    for sw_map in sw_search_maps:
-        term = sw_map['term']
-        if term and unique_terms[term]['matches']:
-            unique_intel = {}
-            for m in unique_terms[term]['matches']:
-                unique_intel[m['title']] = m
-                global_osint_titles.add(m['title'])
-                if m['is_critical']: global_critical_titles.add(m['title'])
+    for asset_map in all_assets:
+        if not asset_map['matches']: continue
             
+        unique_intel = {}
+        for m in asset_map['matches']:
+            unique_intel[m['title']] = m
+            global_osint_titles.add(m['title'])
+            if m['is_critical']: global_critical_titles.add(m['title'])
+            
+        if asset_map['is_hw']:
+            hw = asset_map['obj']
+            display_name = hw.asset_name if hw.asset_name else f"Device ({hw.ip_address})"
+            os_display = f"{hw.operating_system or 'Unknown'} {hw.os_version or ''}".strip()
+            
+            annotated_hw.append({
+                "Identifier": display_name,
+                "IP Address": hw.ip_address,
+                "OS": os_display,
+                "OSINT Risk Score": min(len(unique_intel) * 25, 100),
+                "OSINT Threat Matches": len(unique_intel),
+                "Top Threat Reference": list(unique_intel.keys())[0]
+            })
+        else:
+            sw = asset_map['obj']
             annotated_sw.append({
-                "Software Name": sw_map['obj'].name,
+                "Software Name": sw.name,
                 "OSINT Risk Score": min(len(unique_intel) * 25, 100),
                 "Active OSINT Matches": len(unique_intel),
                 "Top Threat Reference": list(unique_intel.keys())[0]
             })
 
-    for hw_map in hw_search_maps:
-        hw = hw_map['obj']
-        unique_intel = {}
-        
-        for term in hw_map['terms']:
-            # ADD THIS SAFETY CHECK: Ensure the term isn't None and exists in the dictionary
-            if term and term in unique_terms:
-                for m in unique_terms[term]['matches']:
-                    unique_intel[m['title']] = m
-                    global_osint_titles.add(m['title'])
-                    if m['is_critical']: global_critical_titles.add(m['title'])
-
-        display_name = hw.asset_name if hw.asset_name else f"Device ({hw.ip_address})"
-        os_display = f"{hw.operating_system or 'Unknown'} {hw.os_version or ''}".strip()
-
-        annotated_hw.append({
-            "Identifier": display_name,
-            "IP Address": hw.ip_address,
-            "OS": os_display,
-            "OSINT Risk Score": min(len(unique_intel) * 25, 100),
-            "OSINT Threat Matches": len(unique_intel),
-            "Top Threat Reference": list(unique_intel.keys())[0] if unique_intel else "Clear"
-        })
-
     # ==========================================
-    # PHASE 4: CIS RISK CALCULATION
+    # PHASE 5: CIS RISK CALCULATION
     # ==========================================
     total_osint_hits = len(global_osint_titles)
     critical_osint_hits = len(global_critical_titles)
@@ -663,7 +712,7 @@ def calculate_internal_cis_score(db_session):
     elif total_osint_hits > 10: lethality += 1
 
     total_assets = len(hw_assets) + len(sw_assets)
-    assets_at_risk = len([a for a in annotated_hw if a["OSINT Threat Matches"] > 0]) + len(annotated_sw)
+    assets_at_risk = len(annotated_hw) + len(annotated_sw)
     percent_at_risk = (assets_at_risk / total_assets) * 100 if total_assets > 0 else 0
 
     criticality = 0
@@ -682,9 +731,6 @@ def calculate_internal_cis_score(db_session):
     elif final_score >= -4: risk_level = "BLUE"
     else: risk_level = "GREEN"
 
-    annotated_hw = sorted(annotated_hw, key=lambda x: x["OSINT Risk Score"], reverse=True)
-    annotated_sw = sorted(annotated_sw, key=lambda x: x["OSINT Risk Score"], reverse=True)
-
     return {
         "score": final_score,
         "risk_level": risk_level,
@@ -693,9 +739,10 @@ def calculate_internal_cis_score(db_session):
         "total_sw_loaded": len(sw_assets),
         "total_osint_hits": total_osint_hits,
         "critical_osint_hits": critical_osint_hits,
-        "hw_data": annotated_hw,
-        "sw_data": annotated_sw
+        "hw_data": sorted(annotated_hw, key=lambda x: x["OSINT Risk Score"], reverse=True),
+        "sw_data": sorted(annotated_sw, key=lambda x: x["OSINT Risk Score"], reverse=True)
     }
+    
 def generate_and_save_internal_risk_snapshot():
     """Runs the optimized CIS calculation and saves the snapshot to the DB for the dashboard."""
     from src.database import SessionLocal, InternalRiskSnapshot
