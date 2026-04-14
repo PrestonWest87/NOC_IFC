@@ -96,6 +96,78 @@ class EnterpriseAIOpsEngine:
                 })
         return fleet_events
 
+    def generate_chronic_insights(self):
+        """
+        Analyzes historical SolarWinds alerts to identify chronic degradation.
+        Returns:
+            f (DataFrame): Top Offending Nodes
+            v (DataFrame): Infrastructure Hotspots
+            r (list): AI Predictive Maintenance Forecast
+        """
+        import pandas as pd
+        from datetime import datetime, timedelta
+        from src.database import SolarWindsAlert
+        
+        # 1. Fetch 7 days of historical alerts to build a baseline
+        cutoff = datetime.utcnow() - timedelta(days=7)
+        alerts = self.session.query(SolarWindsAlert).filter(SolarWindsAlert.received_at >= cutoff).all()
+        
+        if not alerts:
+            return None, None, None
+            
+        # 2. Parse telemetry into a DataFrame for rapid aggregation
+        data = []
+        for a in alerts:
+            p = a.raw_payload if isinstance(a.raw_payload, dict) else {}
+            cp = p.get('Custom_Properties_Universal') or {}
+            site = cp.get('Site') or a.mapped_location or 'Unknown'
+            
+            # Skip resolved messages to focus strictly on degradation events
+            if 'resolved' in str(a.status).lower(): continue
+            
+            data.append({
+                'node_name': a.node_name,
+                'device_type': a.device_type,
+                'site': site
+            })
+            
+        df = pd.DataFrame(data)
+        if df.empty:
+            return None, None, None
+            
+        # 3. Calculate "f": Top Offending Nodes (Flapping/Failing Equipment)
+        node_counts = df['node_name'].value_counts().reset_index()
+        node_counts.columns = ['Node Name', 'Total Incidents (7 Days)']
+        
+        node_meta = df[['node_name', 'device_type', 'site']].drop_duplicates(subset=['node_name'])
+        f = pd.merge(node_counts, node_meta, left_on='Node Name', right_on='node_name').drop(columns=['node_name'])
+        f.rename(columns={'device_type': 'Device Type', 'site': 'Site'}, inplace=True)
+        f = f.head(15) # Pass top 15 offenders to UI
+        
+        # 4. Calculate "v": Infrastructure Hotspots (Sites with the most issues)
+        site_counts = df[df['site'] != 'Unknown']['site'].value_counts().reset_index()
+        site_counts.columns = ['Site', 'Total Incidents (7 Days)']
+        v = site_counts.head(10)
+        
+        # 5. Calculate "r": AI Predictive Maintenance Forecast
+        r = []
+        if not f.empty:
+            top_node = f.iloc[0]['Node Name']
+            top_node_count = f.iloc[0]['Total Incidents (7 Days)']
+            if top_node_count > 5:
+                r.append(f"🔴 **CRITICAL FLAP DETECTED:** Node `{top_node}` is exhibiting severe chronic instability with {top_node_count} logged incidents this week. Recommend immediate hardware diagnostic or circuit test.")
+        
+        if not v.empty:
+            top_site = v.iloc[0]['Site']
+            top_site_count = v.iloc[0]['Total Incidents (7 Days)']
+            if top_site_count > 15:
+                r.append(f"🟠 **REGIONAL DEGRADATION:** The `{top_site}` facility is a current infrastructure hotspot. Recommend dispatching field tech to review local power conditioning and physical transport handoffs.")
+                
+        if not r:
+            r.append("✅ Telemetry indicates normal operational limits. Devices are stable and no immediate predictive maintenance is required.")
+            
+        return f, v, r
+
     def calculate_root_cause(self, site_name, data, active_weather, active_cloud, active_bgp, fleet_events=[]):
         meta = data.get('site_metadata', {})
         domains = data.get('domains_affected', set())
