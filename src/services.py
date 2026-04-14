@@ -631,10 +631,12 @@ def calculate_internal_cis_score(db_session):
         unique_intel = {}
         
         for term in hw_map['terms']:
-            for m in unique_terms[term]['matches']:
-                unique_intel[m['title']] = m
-                global_osint_titles.add(m['title'])
-                if m['is_critical']: global_critical_titles.add(m['title'])
+            # ADD THIS SAFETY CHECK: Ensure the term isn't None and exists in the dictionary
+            if term and term in unique_terms:
+                for m in unique_terms[term]['matches']:
+                    unique_intel[m['title']] = m
+                    global_osint_titles.add(m['title'])
+                    if m['is_critical']: global_critical_titles.add(m['title'])
 
         display_name = hw.asset_name if hw.asset_name else f"Device ({hw.ip_address})"
         os_display = f"{hw.operating_system or 'Unknown'} {hw.os_version or ''}".strip()
