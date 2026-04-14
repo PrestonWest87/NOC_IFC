@@ -497,8 +497,8 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
 def calculate_internal_cis_score(db_session):
     """
     Calculates an Internal CIS Threat Score based PURELY on OSINT correlations.
-    Utilizes a Tokenized Inverted Index for O(1) pre-filtering, a Semantic Context 
-    Enforcer for IT-specific acronyms, and a strict Kill-Switch for native OS bloatware.
+    Features a Tokenized Index, Double-Gatekeeper Context Filter for news noise, 
+    and Bi-Directional Proximity Regex for ambiguous software names.
     """
     from src.database import HardwareAsset, SoftwareAsset, Article, CveItem
     from datetime import datetime, timedelta
@@ -516,8 +516,6 @@ def calculate_internal_cis_score(db_session):
     # ==========================================
     STOP_WORDS = {"and", "the", "for", "with", "system", "server", "software", "application", "platform", "tool", "device"}
     
-    # KILL-SWITCH: Native Mac/Windows UI bloatware and generic nouns. 
-    # Assets matching these are completely dropped from the scan.
     IGNORE_LIST = {
         "apps", "app store", "books", "calculator", "calendar", "canvas", "chess", "clock", 
         "computer", "connect", "console", "contacts", "customer support", "dashboard", 
@@ -530,22 +528,25 @@ def calculate_internal_cis_score(db_session):
         "voice memos", "weather", "wish", "xbox"
     }
 
-    # CONTEXT ENFORCER: Legitimate IT concepts/commands that share names with English words.
-    # We DO NOT ignore these, but they require vulnerability context to trigger an alert.
+    # Nouns that are common English words but legitimately need tracking
     COMMON_NOUNS = {
         "apt", "npm", "yum", "pip", "brew", "mac", "windows", "linux", "android", 
         "zoom", "cups", "ssh", "ftp", "telnet", "sudo", "mount", "ufw", "make", 
-        "tracker", "patch", "bash", "cron", "less", "office", "info"
+        "tracker", "patch", "bash", "cron", "less", "office", "info", "youtube", "surface", "google"
     }
 
-    SOFTWARE_CONTEXT_KWS = {
-        "vulnerability", "cve", "patch", "update", "flaw", "bug", "rce", "privilege escalation",
-        "package", "library", "buffer overflow", "zero-day", "0-day", "exploit", "version", "bypass"
-    }
+    # Double-Gatekeeper Classification
+    STRONG_CYBER_KWS = {"vulnerability", "cve", "malware", "ransomware", "phishing", "zero-day", "0-day", "exploit", "rce", "ddos", "cyber", "hacked", "botnet"}
+    WEAK_CYBER_KWS = {"breach", "patch", "flaw", "leak", "bug", "actor", "bypass"}
+    
+    # Regex string for the 100-character proximity checking
+    PROXIMITY_KWS = "|".join(list(STRONG_CYBER_KWS) + ["flaw", "bug", "bypass", "patch"])
 
     ACRONYM_COLLISIONS = {
         "apt": re.compile(r'\b(?:advanced persistent threat|apt\s*(?:group|actor|campaign|hacker|attack|malware|botnet|linked))\b', re.IGNORECASE),
-        "mac": re.compile(r'\b(?:mac\s*(?:address|spoofing|layer|protocol))\b', re.IGNORECASE)
+        "mac": re.compile(r'\b(?:mac\s*(?:address|spoofing|layer|protocol))\b', re.IGNORECASE),
+        "surface": re.compile(r'\b(?:attack\s*surface|surface\s*area)\b', re.IGNORECASE),
+        "office": re.compile(r'\b(?:office\s*of)\b', re.IGNORECASE)
     }
 
     def get_trigger_token(name):
@@ -554,7 +555,7 @@ def calculate_internal_cis_score(db_session):
         valid = [w for w in words if w not in STOP_WORDS]
         return max(valid, key=len) if valid else None
 
-    # Pre-compile Regex Signatures
+    # Pre-compile Advanced Regex Signatures
     hw_search_maps = []
     for hw in hw_assets:
         vendor = str(hw.os_vendor or "").strip().lower()
@@ -567,45 +568,62 @@ def calculate_internal_cis_score(db_session):
         if not trigger: continue
             
         exact_patterns = []
-        if version:
-            # Mandate that the Version exists within 50 chars of the Product Name
-            exact_patterns.append(re.compile(rf'\b{re.escape(name)}\b.{{0,50}}\b{re.escape(version)}\b', re.IGNORECASE))
-            if vendor and vendor not in name:
-                 exact_patterns.append(re.compile(rf'\b{re.escape(vendor)}\b.{{0,50}}\b{re.escape(version)}\b', re.IGNORECASE))
+        if name in COMMON_NOUNS:
+            # PROXIMITY CHECK: Product must be within ~100 chars of a security keyword
+            pat = rf'(?:\b(?:{PROXIMITY_KWS})\b.{{0,100}}\b{re.escape(name)}\b)|(?:\b{re.escape(name)}\b.{{0,100}}\b(?:{PROXIMITY_KWS})\b)'
+            if version:
+                pat = rf'(?:\b(?:{PROXIMITY_KWS})\b.{{0,100}}\b{re.escape(name)}\b.{{0,50}}\b{re.escape(version)}\b)'
+            exact_patterns.append(re.compile(pat, re.IGNORECASE | re.DOTALL))
         else:
-            exact_patterns.append(re.compile(rf'\b{re.escape(name)}\b', re.IGNORECASE))
+            if version:
+                exact_patterns.append(re.compile(rf'\b{re.escape(name)}\b.{{0,50}}\b{re.escape(version)}\b', re.IGNORECASE | re.DOTALL))
+                if vendor and vendor not in name:
+                     exact_patterns.append(re.compile(rf'\b{re.escape(vendor)}\b.{{0,50}}\b{re.escape(version)}\b', re.IGNORECASE | re.DOTALL))
+            else:
+                exact_patterns.append(re.compile(rf'\b{re.escape(name)}\b', re.IGNORECASE | re.DOTALL))
             
         hw_search_maps.append({'obj': hw, 'is_hw': True, 'trigger': trigger, 'exact': exact_patterns, 'raw_name': name, 'matches': []})
 
     sw_search_maps = []
     for sw in sw_assets:
         name = str(sw.name or "").strip().lower()
-        
-        # Kill-Switch: Drop bloatware immediately
         if not name or len(name) < 2 or name in IGNORE_LIST: continue
         
         trigger = get_trigger_token(name)
         if not trigger: continue
             
-        sw_search_maps.append({'obj': sw, 'is_hw': False, 'trigger': trigger, 'exact': [re.compile(rf'\b{re.escape(name)}\b', re.IGNORECASE)], 'raw_name': name, 'matches': []})
+        exact_patterns = []
+        if name in COMMON_NOUNS:
+            # PROXIMITY CHECK
+            pat = rf'(?:\b(?:{PROXIMITY_KWS})\b.{{0,100}}\b{re.escape(name)}\b)|(?:\b{re.escape(name)}\b.{{0,100}}\b(?:{PROXIMITY_KWS})\b)'
+            exact_patterns.append(re.compile(pat, re.IGNORECASE | re.DOTALL))
+        else:
+            exact_patterns.append(re.compile(rf'\b{re.escape(name)}\b', re.IGNORECASE | re.DOTALL))
+            
+        sw_search_maps.append({'obj': sw, 'is_hw': False, 'trigger': trigger, 'exact': exact_patterns, 'raw_name': name, 'matches': []})
 
     all_assets = hw_search_maps + sw_search_maps
 
     # ==========================================
-    # PHASE 2: INVERTED INDEXING (PERFORMANCE CORE)
+    # PHASE 2: INVERTED INDEXING (DOUBLE-GATEKEEPER)
     # ==========================================
-    CYBER_KEYWORDS = {"vulnerability", "breach", "hacked", "cyber", "malware", "ransomware", "phishing", "cve", "patch", "exploit", "zero-day", "flaw", "leak"}
-
     article_index = []
     for art in recent_articles:
         if art.score >= 40:
             text_blob = f"{art.title} {art.summary or ''}".lower()
-            if any(kw in text_blob for kw in CYBER_KEYWORDS):
-                word_set = set(re.findall(r'\b[a-z0-9]{2,}\b', text_blob))
+            
+            # Tokenize into a set for O(1) matching
+            word_set = set(re.findall(r'\b[a-z0-9]{2,}\b', text_blob))
+            
+            strong_hits = len(word_set.intersection(STRONG_CYBER_KWS))
+            weak_hits = len(word_set.intersection(WEAK_CYBER_KWS))
+            
+            # GATEKEEPER: An article must have 1 Strong OR 2 Weak keywords to proceed.
+            # This instantly drops stories about "whales breaching" or "leaking pipes".
+            if strong_hits > 0 or weak_hits >= 2:
                 article_index.append({
                     'obj': art, 'text': text_blob, 'word_set': word_set,
-                    'is_critical': art.score >= 80,
-                    'has_context': any(kw in word_set for kw in SOFTWARE_CONTEXT_KWS)
+                    'is_critical': art.score >= 80
                 })
 
     cve_index = []
@@ -625,8 +643,6 @@ def calculate_internal_cis_score(db_session):
     for art in article_index:
         for asset_map in all_assets:
             if asset_map['trigger'] not in art['word_set']: continue
-                
-            if asset_map['raw_name'] in COMMON_NOUNS and not art['has_context']: continue
                 
             collision_regex = ACRONYM_COLLISIONS.get(asset_map['raw_name'])
             if collision_regex and collision_regex.search(art['text']): continue
