@@ -504,8 +504,14 @@ def calculate_internal_cis_score(db_session):
     from datetime import datetime, timedelta
     import re
 
-    hw_assets = db_session.query(HardwareAsset).all()
-    sw_assets = db_session.query(SoftwareAsset).all()
+    # Fetch raw assets from the database
+    hw_assets_raw = db_session.query(HardwareAsset).all()
+    sw_assets_raw = db_session.query(SoftwareAsset).all()
+    
+    # --- PRE-PROCESSING DEDUPLICATION ---
+    # Eliminates redundant regex scanning and prevents duplicate rows in the UI
+    hw_assets = list({hw.ip_address: hw for hw in hw_assets_raw if hw.ip_address}.values())
+    sw_assets = list({sw.name.strip().lower(): sw for sw in sw_assets_raw if sw.name}.values())
     
     thirty_days_ago = datetime.utcnow() - timedelta(days=30)
     recent_articles = db_session.query(Article).filter(Article.published_date >= thirty_days_ago).all()
