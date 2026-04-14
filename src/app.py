@@ -1534,17 +1534,6 @@ elif page == "⚡ AIOps RCA":
                                     
                                     if p0: st.error(f"**Patient Zero (Suspected Origin Node):** {p0}")
                                     else: st.info("**Patient Zero:** Indeterminate (Simultaneous Failure)")
-                                    
-                        incidents = ai_engine.analyze_and_cluster(raw_alerts)
-                        for site, data in incidents.items():
-                            c, cf, p, e, b, p0, cs = ai_engine.calculate_root_cause(site, data, wea, cld, bgp)
-                            
-                            with st.container(border=True):
-                                    st.markdown(f"### {p} | Site: {site}")
-                                    st.warning(c)
-                                    
-                                    if p0: st.error(f"**Patient Zero (Suspected Origin Node):** {p0}")
-                                    else: st.info("**Patient Zero:** Indeterminate (Simultaneous Failure)")
                                         
                                     # --- CHECK MAINTENANCE STATUS ---
                                     site_record = next((l for l in locs if l.name == site), None)
