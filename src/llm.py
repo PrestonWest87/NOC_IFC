@@ -129,46 +129,120 @@ def analyze_cascading_impacts(articles, session):
     )
 
 def generate_unified_risk_brief(session, global_intel, internal_snapshot):
-    """Generates an executive-level summary merging Global and Internal risk postures."""
+    """Generates an exhaustive executive summary merging Global and Internal risk postures using Map-Reduce for large datasets."""
+    import json
+    from src.llm import _map_reduce_summarize, truncate_text, call_llm
+    
     config = get_llm_config(session)
     if not config: return "AI is currently disabled in settings."
 
     global_risk = global_intel.get('unified_risk', 'UNKNOWN')
-    cyber_brief = global_intel.get('cyber_brief', 'No data.')
-    phys_brief = global_intel.get('physical_brief', 'No data.')
     
-    internal_risk = internal_snapshot.risk_level if internal_snapshot else 'UNKNOWN'
-    internal_hits = internal_snapshot.total_osint_hits if internal_snapshot else 0
-    crit_hits = internal_snapshot.critical_osint_hits if internal_snapshot else 0
-    total_assets = internal_snapshot.total_assets if internal_snapshot else 0
+    # --- 1. Gather Raw Data (No arbitrary slicing limits) ---
+    hw_data = json.loads(internal_snapshot.hw_data_json) if internal_snapshot and internal_snapshot.hw_data_json else []
+    sw_data = json.loads(internal_snapshot.sw_data_json) if internal_snapshot and internal_snapshot.sw_data_json else []
+    
+    cyber_arts = global_intel.get('raw_cyber_articles', [])
+    phys_arts = global_intel.get('raw_phys_articles', [])
+    crimes = global_intel.get('recent_crimes', [])
 
-    context = f"""
-    --- GLOBAL THREAT POSTURE ---
-    Overall Level: {global_risk}
-    Cyber Context: {cyber_brief}
-    Physical Context: {phys_brief}
+    # ==========================================
+    # TIER 1: DOMAIN-SPECIFIC MAP-REDUCE
+    # ==========================================
     
-    --- INTERNAL ASSET POSTURE ---
-    Overall Level: {internal_risk}
-    Total Monitored Assets: {total_assets}
-    Assets Exposed to OSINT Threats: {internal_hits}
-    Critical Exposures: {crit_hits}
+    # A. Internal Hardware Exposures
+    if hw_data:
+        map_p = "You are a Risk Analyst. Extract the specific Hardware Identifiers, OS, and the exact OSINT Threats they are matched with. Be extremely concise. Bullet points only."
+        reduce_p = "Combine these batch extractions into a dense summary of our Hardware Attack Surface. Explicitly preserve the names of the assets and the specific threats targeting them."
+        hw_summary = _map_reduce_summarize(
+            hw_data, 
+            lambda hw: f"Identifier: {hw['Identifier']} | OS: {hw['OS']} | Active Threat Match: {hw['Top Threat Reference']} (Total Matches: {hw['OSINT Threat Matches']})", 
+            map_p, reduce_p, config, chunk_size=15
+        )
+    else: hw_summary = "No hardware assets currently exposed to active OSINT threats."
+    
+    # B. Internal Software Exposures
+    if sw_data:
+        map_p = "You are a Risk Analyst. Extract the specific Software Names and the exact OSINT Threats they are matched with. Be extremely concise."
+        reduce_p = "Combine these batch extractions into a dense summary of our Software Attack Surface. Explicitly preserve the names of the software and the specific threats targeting it."
+        sw_summary = _map_reduce_summarize(
+            sw_data, 
+            lambda sw: f"Software: {sw['Software Name']} | Active Threat Match: {sw['Top Threat Reference']} (Total Matches: {sw['Active OSINT Matches']})", 
+            map_p, reduce_p, config, chunk_size=15
+        )
+    else: sw_summary = "No software assets currently exposed to active OSINT threats."
+
+    # C. Global Cyber OSINT
+    if cyber_arts:
+        map_p = "Extract the core vulnerabilities, threat actors, and affected sectors from these intelligence items. Output concise bullet points."
+        reduce_p = "Combine these batch extractions into a comprehensive, highly technical digest of the Global Cyber Threat Landscape."
+        cyber_summary = _map_reduce_summarize(
+            cyber_arts, 
+            lambda a: f"Source: {a.source} | Title: {a.title} | Summary: {truncate_text(a.summary, 300)}", 
+            map_p, reduce_p, config, chunk_size=8
+        )
+    else: cyber_summary = "No critical global cyber OSINT reported."
+
+    # D. Physical & Perimeter OSINT
+    if phys_arts:
+        map_p = "Extract the core physical threats, severe weather events, or infrastructural hazards from these articles."
+        reduce_p = "Combine these extractions into a cohesive summary of the regional physical threat landscape."
+        phys_summary = _map_reduce_summarize(
+            phys_arts,
+            lambda a: f"Source: {a.source} | Title: {a.title} | Summary: {truncate_text(a.summary, 300)}",
+            map_p, reduce_p, config, chunk_size=8
+        )
+    else: phys_summary = "No significant regional physical threats reported in OSINT."
+    
+    # E. Local Perimeter Crime
+    crime_context = "\n".join([f"- {c['raw_title']} ({c['distance_miles']} miles away) [FBI Cat: {c.get('fbi_category', 'Unknown')}]" for c in crimes]) if crimes else "No active perimeter crimes logged."
+
+    # ==========================================
+    # TIER 2: THE MASTER EDITOR
+    # ==========================================
+    
+    compiled_intel = f"""
+    === OVERALL RISK LEVEL: {global_risk} ===
+    
+    --- HARDWARE ATTACK SURFACE ---
+    {hw_summary}
+    
+    --- SOFTWARE ATTACK SURFACE ---
+    {sw_summary}
+    
+    --- GLOBAL CYBER THREAT LANDSCAPE ---
+    {cyber_summary}
+    
+    --- PHYSICAL & PERIMETER THREATS ---
+    OSINT:
+    {phys_summary}
+    
+    LOCAL CRIMES:
+    {crime_context}
     """
 
-    sys_prompt = """You are a Chief Information Security Officer (CISO) briefing the Board of Directors.
-    Write a factual, executive-level Unified Risk Brief based on the provided global and internal telemetry.
+    master_sys_prompt = f"""You are the Chief Information Security Officer (CISO) delivering an exhaustive, boardroom-ready Unified Risk Brief.
+    The user requires a FULL, ROBUST, and THOROUGH brief modeled after a comprehensive Fusion Report.
     
     CRITICAL DIRECTIVES:
-    1. State the overall Global Risk Level and Internal Risk Level clearly.
-    2. DO NOT include any specific points, scores, or mathematical calculations.
-    3. Provide a clear, objective analysis of how the external threat landscape correlates with internal asset vulnerabilities.
-    4. Keep the tone highly professional, objective, and boardroom-ready (2-3 paragraphs max).
+    1. Assess the Overall Risk Level provided and set the tone accordingly.
+    2. Use the provided context to explicitly name the exact internal hardware and software assets exposed to OSINT threats. Detail exactly what exploits or threats are correlating with our internal systems based on the hardware and software summaries.
+    3. Break down the Global Cyber Threat landscape and directly tie it back to why it matters to the organization given our internal exposures.
+    4. Address the Physical and Perimeter security posture, citing specific crime incidents and OSINT hazards.
+    5. Structure the response in professional Markdown with these exact headers:
+        ## Executive Summary (BLUF)
+        ## Internal Attack Surface & OSINT Exposures
+        ## Global Cyber Threat Landscape
+        ## Physical & Perimeter Security Posture
+        ## Strategic Recommendations
+    6. Do NOT include any specific point calculations, raw scoring metrics, or mathematical equations. Focus purely on operational impact.
+    7. Do NOT use generic filler. Be highly specific using the data provided. Use expansive, detailed paragraphs and bulleted lists where appropriate to ensure the report is dense with actionable intelligence.
     """
 
     response = call_llm([
-        {"role": "system", "content": sys_prompt},
-        {"role": "user", "content": context}
-    ], config, temperature=0.2)
+        {"role": "system", "content": master_sys_prompt},
+        {"role": "user", "content": compiled_intel}
+    ], config, temperature=0.3)
     
     return response.strip() if response else "Brief generation failed."
 
