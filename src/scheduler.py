@@ -171,6 +171,35 @@ def fetch_feeds(source="Scheduled"):
     
     gc.collect()
 
+def job_unified_brief():
+    """Auto-generates the Unified Risk Brief every 2 hours."""
+    log("🤖 Generating Executive Unified Risk Brief...", "SYSTEM")
+    try:
+        from src.llm import generate_unified_risk_brief
+        from src.services import get_executive_grid_intel, get_recent_crimes, save_global_config
+        from src.database import InternalRiskSnapshot, RegionalHazard
+        
+        # Gather local telemetry
+        with SessionLocal() as session:
+            latest_internal = session.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
+            active_nws = session.query(RegionalHazard).count()
+        
+        # Gather global telemetry
+        crime_data = get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
+        global_intel = get_executive_grid_intel(active_nws, crime_data)
+        
+        # Fire AI and Save
+        with SessionLocal() as session:
+            brief_text = generate_unified_risk_brief(session, global_intel, latest_internal)
+            
+        if brief_text and "AI is currently disabled" not in brief_text:
+            save_global_config({
+                "unified_brief": brief_text,
+                "unified_brief_time": datetime.utcnow()
+            })
+            log("✅ Unified Risk Brief generated and saved.", "SYSTEM")
+    except Exception as e:
+        log(f"❌ Unified Brief Error: {e}", "SYSTEM")
 
 def job_internal_risk():
     """Wrapper to safely execute and log the internal risk calculation."""
@@ -270,7 +299,7 @@ if __name__ == "__main__":
     # 2. Map the Schedules to Threaded Wrappers
     schedule.every().sunday.at("02:00").do(run_threaded, job_retrain_ml)
     schedule.every(60).minutes.do(run_threaded, run_database_maintenance)
-    
+    schedule.every(2).hours.do(run_threaded, job_unified_brief)
     schedule.every(15).minutes.do(run_threaded, fetch_feeds)
     schedule.every(30).minutes.do(run_threaded, fetch_live_crimes)
     schedule.every(6).hours.do(run_threaded, fetch_cisa_kev)
