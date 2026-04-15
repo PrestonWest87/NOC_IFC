@@ -794,7 +794,7 @@ if page == "👁️ Global Dashboards":
         # Allow administrators to force a manual refresh of the 2-hour schedule
         if col_btn.button("⏳ Generating..." if is_brief_cooling else "🔄 Force Refresh Brief", disabled=not can_trigger_ai or is_brief_cooling, type="primary"):
             apply_cooldown("unified_brief")
-            with st.spinner("Synthesizing Global and Internal telemetry..."):
+            with st.spinner("Synthesizing Pre-Calculated Global and Internal telemetry..."):
                 from src.database import InternalRiskSnapshot
                 with svc.SessionLocal() as dbtmp:
                     latest_internal = dbtmp.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
