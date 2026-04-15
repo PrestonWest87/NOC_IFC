@@ -792,71 +792,52 @@ def generate_and_save_internal_risk_snapshot():
         db_session.add(snapshot)
         db_session.commit()
 
-def generate_unified_brief_email_html(report_time, markdown_content):
-    import re
-    
-    # Dynamically extract the Risk Level from the text to color the header
-    risk_level = "UNKNOWN"
-    match = re.search(r'(?i)Risk Level(?: is|:)?\s*(RED|ORANGE|YELLOW|BLUE|GREEN)', markdown_content)
-    if match:
-        risk_level = match.group(1).upper()
-        
-    color_map = {"GREEN": "#28a745", "BLUE": "#007bff", "YELLOW": "#ffc107", "ORANGE": "#fd7e14", "RED": "#dc3545"}
-    badge_color = color_map.get(risk_level, "#6c757d")
+import re
 
+def generate_unified_brief_email_html(report_time, markdown_content):
     def native_md_to_html(text):
-        # 1. Convert H2 to Outlook-safe Dark Blue Banners
-        text = re.sub(r'^## (.*?)$', r'<div style="background-color: #0f172a; color: #ffffff; padding: 12px 20px; margin-top: 30px; margin-bottom: 15px; border-radius: 4px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">\1</div>', text, flags=re.MULTILINE)
+        # 1. Custom Banners for Internal, Cyber, and Physical sections
+        # Internal Banner (Teal Accent)
+        text = re.sub(r'^##\s*(Internal Attack.*?)$', r'<div style="background-color: #1e293b; color: #ffffff; padding: 14px 20px; margin-top: 35px; margin-bottom: 15px; border-radius: 4px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; border-left: 6px solid #17a2b8;">\1</div>', text, flags=re.IGNORECASE | re.MULTILINE)
         
-        # 2. Convert H3 to Sub-headers
-        text = re.sub(r'^### (.*?)$', r'<h4 style="color: #0056b3; border-bottom: 2px solid #eeeeee; padding-bottom: 5px; margin-top: 20px; margin-bottom: 10px;">\1</h4>', text, flags=re.MULTILINE)
+        # Cyber Banner (Blue Accent)
+        text = re.sub(r'^##\s*(Global Cyber.*?)$', r'<div style="background-color: #1e293b; color: #ffffff; padding: 14px 20px; margin-top: 35px; margin-bottom: 15px; border-radius: 4px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; border-left: 6px solid #007bff;">\1</div>', text, flags=re.IGNORECASE | re.MULTILINE)
         
-        # 3. Bold text and Links
-        text = re.sub(r'\*\*(.*?)\*\*', r'<strong style="color: #222222;">\1</strong>', text)
-        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#0056b3; text-decoration:none;">\1</a>', text)
+        # Physical Banner (Red Accent)
+        text = re.sub(r'^##\s*(Physical.*?)$', r'<div style="background-color: #1e293b; color: #ffffff; padding: 14px 20px; margin-top: 35px; margin-bottom: 15px; border-radius: 4px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; border-left: 6px solid #d9534f;">\1</div>', text, flags=re.IGNORECASE | re.MULTILINE)
         
-        # 4. List Items
-        text = re.sub(r'^\* (.*?)$', r'<li style="margin-bottom: 8px;">\1</li>', text, flags=re.MULTILINE)
-        text = re.sub(r'^- (.*?)$', r'<li style="margin-bottom: 8px;">\1</li>', text, flags=re.MULTILINE)
+        # 2. General H2 fallback for Executive Summary & Recommendations (Plain Dark Blue)
+        text = re.sub(r'^##\s*(.*?)$', r'<div style="background-color: #0f172a; color: #ffffff; padding: 12px 20px; margin-top: 30px; margin-bottom: 15px; border-radius: 4px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">\1</div>', text, flags=re.MULTILINE)
+
+        # 3. Rest of your formatting rules
+        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#2c3e50; margin-bottom:5px; margin-top:15px;">\1</h3>', text, flags=re.MULTILINE)
+        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#2c3e50;">\1</h1>', text, flags=re.MULTILINE)
+        text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
+        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#3498db; text-decoration:none;">\1</a>', text)
+        text = re.sub(r'^\* (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
+        text = re.sub(r'^- (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
         
-        # 5. Wrap consecutive <li> tags in <ul>
-        text = re.sub(r'(<li.*?>.*?</li>\n?)+', lambda m: f"<ul style='margin-top: 10px; margin-bottom: 20px; color: #444444; font-size: 14px; line-height: 1.6; padding-left: 20px;'>{m.group(0)}</ul>", text)
+        # Fix linebreaks
+        text = text.replace('</div>\n', '</div>')
+        text = text.replace('\n', '<br>').replace('<br><br><h', '<br><h').replace('<br><br><div', '<br><div')
         
-        # 6. Safe Paragraph Linebreaks
-        text = text.replace('</div>\n\n', '</div>\n')
-        text = text.replace('</ul>\n\n', '</ul>\n')
-        text = text.replace('\n\n', '<br><br>')
-        
-        # 7. Fallback emoji stripper just in case the LLM disobeys
+        # 4. Fallback Emoji Stripper (Ensures Outlook safety if the AI hallucinates an icon)
         text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
         
         return text
 
-    html_body = native_md_to_html(markdown_content)
+    raw_html = native_md_to_html(markdown_content)
     
     formatted_html = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 20px;">
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; max-width: 800px; margin: 0 auto; border: 1px solid #dddddd; border-radius: 8px; border-collapse: collapse;">
-            <tr>
-                <td style="padding: 25px; background-color: #0f172a; border-radius: 8px 8px 0 0; text-align: center; border-bottom: 5px solid {badge_color};">
-                    <h2 style="color: #ffffff; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 1px;">Executive Unified Risk Brief</h2>
-                    <p style="color: #94a3b8; margin: 8px 0 0 0; font-size: 13px;">NOC Intelligence Fusion Center | Generated: {report_time}</p>
-                </td>
-            </tr>
-            <tr>
-                <td style="padding: 30px 40px; color: #444444; line-height: 1.7; font-size: 15px;">
-                    {html_body}
-                </td>
-            </tr>
-            <tr>
-                <td style="padding: 20px; background-color: #f8f9fa; border-top: 1px solid #eeeeee; text-align: center; border-radius: 0 0 8px 8px;">
-                    <p style="margin: 0; color: #888888; font-size: 12px;">This is an automated executive intelligence briefing generated by the internal AIOps system. Please do not reply directly to this email.</p>
-                </td>
-            </tr>
-        </table>
-    </body>
-    </html>
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 0 auto; color: #333; line-height: 1.5;">
+        <div style="background-color: #fcfcfc; padding: 20px; border-radius: 6px; border-left: 4px solid #f39c12; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <h2 style="color: #2c3e50; margin-top: 0;">Executive Unified Risk Brief</h2>
+            <p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 20px;"><strong>Generated:</strong> {report_time}</p>
+            <div style="font-size: 14px; background-color: #ffffff; padding: 15px; border-radius: 4px; border: 1px solid #eee;">
+                {raw_html}
+            </div>
+        </div>
+    </div>
     """
     return formatted_html
     
