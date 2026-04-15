@@ -794,47 +794,94 @@ def generate_and_save_internal_risk_snapshot():
 
 import re
 
-def generate_unified_brief_email_html(report_time, markdown_content):
-    def native_md_to_html(text):
-        # 1. Custom Banners for Internal, Cyber, and Physical sections
-        # Internal Banner (Teal Accent)
-        text = re.sub(r'^##\s*(Internal Attack.*?)$', r'<div style="background-color: #1e293b; color: #ffffff; padding: 14px 20px; margin-top: 35px; margin-bottom: 15px; border-radius: 4px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; border-left: 6px solid #17a2b8;">\1</div>', text, flags=re.IGNORECASE | re.MULTILINE)
-        
-        # Cyber Banner (Blue Accent)
-        text = re.sub(r'^##\s*(Global Cyber.*?)$', r'<div style="background-color: #1e293b; color: #ffffff; padding: 14px 20px; margin-top: 35px; margin-bottom: 15px; border-radius: 4px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; border-left: 6px solid #007bff;">\1</div>', text, flags=re.IGNORECASE | re.MULTILINE)
-        
-        # Physical Banner (Red Accent)
-        text = re.sub(r'^##\s*(Physical.*?)$', r'<div style="background-color: #1e293b; color: #ffffff; padding: 14px 20px; margin-top: 35px; margin-bottom: 15px; border-radius: 4px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; border-left: 6px solid #d9534f;">\1</div>', text, flags=re.IGNORECASE | re.MULTILINE)
-        
-        # 2. General H2 fallback for Executive Summary & Recommendations (Plain Dark Blue)
-        text = re.sub(r'^##\s*(.*?)$', r'<div style="background-color: #0f172a; color: #ffffff; padding: 12px 20px; margin-top: 30px; margin-bottom: 15px; border-radius: 4px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">\1</div>', text, flags=re.MULTILINE)
+import re
 
-        # 3. Rest of your formatting rules
+def generate_unified_brief_email_html(report_time, markdown_content):
+    # 1. Safely extract risk levels from the AI's generated text
+    def extract_risk(keyword, text):
+        match = re.search(rf'(?i){keyword}.{{0,50}}?\b(RED|ORANGE|YELLOW|BLUE|GREEN)\b', text)
+        return match.group(1).upper() if match else "UNKNOWN"
+        
+    global_risk = extract_risk("Global", markdown_content)
+    internal_risk = extract_risk("Internal", markdown_content)
+    overall_risk = extract_risk("Overall", markdown_content)
+    
+    # Fallbacks just in case the LLM worded it slightly differently
+    if overall_risk == "UNKNOWN": overall_risk = global_risk if global_risk != "UNKNOWN" else "YELLOW"
+    if global_risk == "UNKNOWN": global_risk = overall_risk
+    if internal_risk == "UNKNOWN": internal_risk = overall_risk
+    
+    color_map = {
+        "GREEN": "#28a745", "BLUE": "#007bff", 
+        "YELLOW": "#ffc107", "ORANGE": "#fd7e14", 
+        "RED": "#dc3545", "UNKNOWN": "#6c757d"
+    }
+    
+    overall_color = color_map.get(overall_risk, "#6c757d")
+    global_color = color_map.get(global_risk, "#6c757d")
+    internal_color = color_map.get(internal_risk, "#6c757d")
+
+    def native_md_to_html(text):
+        # Base formatting
         text = re.sub(r'^### (.*?)$', r'<h3 style="color:#2c3e50; margin-bottom:5px; margin-top:15px;">\1</h3>', text, flags=re.MULTILINE)
+        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#2980b9; margin-bottom:5px; border-bottom:1px solid #eee; margin-top:20px;">\1</h2>', text, flags=re.MULTILINE)
         text = re.sub(r'^# (.*?)$', r'<h1 style="color:#2c3e50;">\1</h1>', text, flags=re.MULTILINE)
         text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
         text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#3498db; text-decoration:none;">\1</a>', text)
         text = re.sub(r'^\* (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
         text = re.sub(r'^- (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
+        text = text.replace('\n', '<br>').replace('<br><br><h', '<br><h')
         
-        # Fix linebreaks
-        text = text.replace('</div>\n', '</div>')
-        text = text.replace('\n', '<br>').replace('<br><br><h', '<br><h').replace('<br><br><div', '<br><div')
-        
-        # 4. Fallback Emoji Stripper (Ensures Outlook safety if the AI hallucinates an icon)
-        text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
-        
+        # EMOJI STRIPPING REMOVED: Emojis will now pass through natively
         return text
 
     raw_html = native_md_to_html(markdown_content)
     
+    # 2. Build the visual table banners (Outlook Safe)
+    banners_html = f"""
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 15px;">
+        <tr>
+            <td style="text-align: center; padding: 20px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
+                <h3 style="margin: 0; color: #333333; text-transform: uppercase; font-size: 15px; letter-spacing: 1px;">Unified Threat Posture</h3>
+                <div style="margin-top: 15px; padding: 10px 25px; background-color: {overall_color}; color: #ffffff; display: inline-block; font-size: 22px; font-weight: bold; border-radius: 4px;">
+                    {overall_risk}
+                </div>
+            </td>
+        </tr>
+    </table>
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 25px;">
+        <tr>
+            <td width="48%" style="text-align: center; padding: 15px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
+                <h3 style="margin: 0; color: #333333; text-transform: uppercase; font-size: 13px; letter-spacing: 1px;">Global Risk</h3>
+                <div style="margin-top: 10px; padding: 8px 20px; background-color: {global_color}; color: #ffffff; display: inline-block; font-size: 16px; font-weight: bold; border-radius: 4px;">
+                    {global_risk}
+                </div>
+            </td>
+            <td width="4%"></td> <td width="48%" style="text-align: center; padding: 15px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
+                <h3 style="margin: 0; color: #333333; text-transform: uppercase; font-size: 13px; letter-spacing: 1px;">Internal Risk</h3>
+                <div style="margin-top: 10px; padding: 8px 20px; background-color: {internal_color}; color: #ffffff; display: inline-block; font-size: 16px; font-weight: bold; border-radius: 4px;">
+                    {internal_risk}
+                </div>
+            </td>
+        </tr>
+    </table>
+    """
+
+    # 3. Assemble Final HTML
     formatted_html = f"""
     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 0 auto; color: #333; line-height: 1.5;">
-        <div style="background-color: #fcfcfc; padding: 20px; border-radius: 6px; border-left: 4px solid #f39c12; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <h2 style="color: #2c3e50; margin-top: 0;">Executive Unified Risk Brief</h2>
+        <div style="background-color: #fcfcfc; padding: 20px; border-radius: 6px; border-left: 4px solid {overall_color}; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <h2 style="color: #2c3e50; margin-top: 0; text-transform: uppercase;">Executive Unified Risk Brief</h2>
             <p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 20px;"><strong>Generated:</strong> {report_time}</p>
-            <div style="font-size: 14px; background-color: #ffffff; padding: 15px; border-radius: 4px; border: 1px solid #eee;">
+            
+            {banners_html}
+            
+            <div style="font-size: 14px; background-color: #ffffff; padding: 20px; border-radius: 4px; border: 1px solid #eee;">
                 {raw_html}
+            </div>
+            
+            <div style="margin-top: 25px; text-align: center; font-size: 11px; color: #999999;">
+                This is an automated intelligence briefing generated by the internal NOC AIOps system.<br>Please do not reply directly to this email.
             </div>
         </div>
     </div>
