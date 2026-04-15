@@ -172,6 +172,16 @@ def fetch_feeds(source="Scheduled"):
     gc.collect()
 
 
+def job_internal_risk():
+    """Wrapper to safely execute and log the internal risk calculation."""
+    log("🏢 Generating Internal Risk Snapshot...", "SYSTEM")
+    try:
+        generate_and_save_internal_risk_snapshot()
+        log("✅ Internal Risk Snapshot generated successfully.", "SYSTEM")
+    except Exception as e:
+        log(f"❌ Internal Risk Error: {e}", "SYSTEM")
+
+
 # =====================================================================
 # 2. GARBAGE COLLECTION & MAINTENANCE
 # =====================================================================
@@ -264,7 +274,7 @@ if __name__ == "__main__":
     schedule.every(15).minutes.do(run_threaded, fetch_feeds)
     schedule.every(30).minutes.do(run_threaded, fetch_live_crimes)
     schedule.every(6).hours.do(run_threaded, fetch_cisa_kev)
-    schedule.every(6).hours.do(run_threaded, generate_and_save_internal_risk_snapshot)
+    schedule.every(6).hours.do(run_threaded, job_internal_risk)
     
     # High-Priority / High-Churn Telemetry
     schedule.every(5).minutes.do(run_threaded, fetch_regional_hazards)
@@ -276,7 +286,7 @@ if __name__ == "__main__":
     # 3. Asynchronous Boot Sequence (Does not block the container from finishing startup)
     boot_jobs = [
         fetch_cisa_kev, fetch_regional_hazards, fetch_cloud_outages, 
-        run_telemetry_sync, fetch_live_crimes, fetch_feeds, generate_and_save_internal_risk_snapshot
+        run_telemetry_sync, fetch_live_crimes, fetch_feeds, job_internal_risk # <-- Updated
     ]
     for job in boot_jobs:
         run_threaded(job)
