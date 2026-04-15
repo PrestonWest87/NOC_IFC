@@ -129,104 +129,72 @@ def analyze_cascading_impacts(articles, session):
     )
 
 def generate_unified_risk_brief(session, global_intel, internal_snapshot):
-    """Generates an exhaustive executive summary merging Global and Internal risk postures using Map-Reduce for large datasets."""
+    """Generates an exhaustive executive summary in a SINGLE FAST PASS using pre-calculated matrices."""
     import json
-    from src.llm import _map_reduce_summarize, truncate_text, call_llm
+    from src.llm import call_llm
     
     config = get_llm_config(session)
     if not config: return "AI is currently disabled in settings."
 
     global_risk = global_intel.get('unified_risk', 'UNKNOWN')
     
-    # --- 1. Gather Raw Data (No arbitrary slicing limits) ---
+    # --- 1. Extract Pre-Calculated Data ---
     hw_data = json.loads(internal_snapshot.hw_data_json) if internal_snapshot and internal_snapshot.hw_data_json else []
     sw_data = json.loads(internal_snapshot.sw_data_json) if internal_snapshot and internal_snapshot.sw_data_json else []
     
-    cyber_arts = global_intel.get('raw_cyber_articles', [])
-    phys_arts = global_intel.get('raw_phys_articles', [])
-    crimes = global_intel.get('recent_crimes', [])
-
-    # ==========================================
-    # TIER 1: DOMAIN-SPECIFIC MAP-REDUCE
-    # ==========================================
+    # Since the Python backend already correlated and sorted these by severity,
+    # we just take the top 10 most critical to feed the LLM context directly.
+    top_hw = hw_data[:10]
+    top_sw = sw_data[:10]
     
-    # A. Internal Hardware Exposures
-    if hw_data:
-        map_p = "You are a Risk Analyst. Extract the specific Hardware Identifiers, OS, and the exact OSINT Threats they are matched with. Be extremely concise. Bullet points only."
-        reduce_p = "Combine these batch extractions into a dense summary of our Hardware Attack Surface. Explicitly preserve the names of the assets and the specific threats targeting them."
-        hw_summary = _map_reduce_summarize(
-            hw_data, 
-            lambda hw: f"Identifier: {hw['Identifier']} | OS: {hw['OS']} | Active Threat Match: {hw['Top Threat Reference']} (Total Matches: {hw['OSINT Threat Matches']})", 
-            map_p, reduce_p, config, chunk_size=15
-        )
-    else: hw_summary = "No hardware assets currently exposed to active OSINT threats."
-    
-    # B. Internal Software Exposures
-    if sw_data:
-        map_p = "You are a Risk Analyst. Extract the specific Software Names and the exact OSINT Threats they are matched with. Be extremely concise."
-        reduce_p = "Combine these batch extractions into a dense summary of our Software Attack Surface. Explicitly preserve the names of the software and the specific threats targeting it."
-        sw_summary = _map_reduce_summarize(
-            sw_data, 
-            lambda sw: f"Software: {sw['Software Name']} | Active Threat Match: {sw['Top Threat Reference']} (Total Matches: {sw['Active OSINT Matches']})", 
-            map_p, reduce_p, config, chunk_size=15
-        )
-    else: sw_summary = "No software assets currently exposed to active OSINT threats."
+    cyber_arts = global_intel.get('raw_cyber_articles', [])[:6]
+    phys_arts = global_intel.get('raw_phys_articles', [])[:5]
+    crimes = global_intel.get('recent_crimes', [])[:5]
 
-    # C. Global Cyber OSINT
-    if cyber_arts:
-        map_p = "Extract the core vulnerabilities, threat actors, and affected sectors from these intelligence items. Output concise bullet points."
-        reduce_p = "Combine these batch extractions into a comprehensive, highly technical digest of the Global Cyber Threat Landscape."
-        cyber_summary = _map_reduce_summarize(
-            cyber_arts, 
-            lambda a: f"Source: {a.source} | Title: {a.title} | Summary: {truncate_text(a.summary, 300)}", 
-            map_p, reduce_p, config, chunk_size=8
-        )
-    else: cyber_summary = "No critical global cyber OSINT reported."
-
-    # D. Physical & Perimeter OSINT
-    if phys_arts:
-        map_p = "Extract the core physical threats, severe weather events, or infrastructural hazards from these articles."
-        reduce_p = "Combine these extractions into a cohesive summary of the regional physical threat landscape."
-        phys_summary = _map_reduce_summarize(
-            phys_arts,
-            lambda a: f"Source: {a.source} | Title: {a.title} | Summary: {truncate_text(a.summary, 300)}",
-            map_p, reduce_p, config, chunk_size=8
-        )
-    else: phys_summary = "No significant regional physical threats reported in OSINT."
+    # --- 2. Format Context for the LLM ---
+    hw_context = "\n".join([f"- {hw['Identifier']} ({hw['OS']}): {hw['OSINT Threat Matches']} Active Exploit/OSINT Matches. Top Threat Reference: {hw['Top Threat Reference']}" for hw in top_hw]) if top_hw else "No hardware assets currently exposed to active OSINT threats."
     
-    # E. Local Perimeter Crime
+    sw_context = "\n".join([f"- {sw['Software Name']}: {sw['Active OSINT Matches']} Active Exploit/OSINT Matches. Top Threat Reference: {sw['Top Threat Reference']}" for sw in top_sw]) if top_sw else "No software assets currently exposed to active OSINT threats."
+    
+    cyber_context = "\n".join([f"- {a.title} ({a.source})" for a in cyber_arts]) if cyber_arts else "No critical global cyber OSINT reported."
+    
+    phys_context = "\n".join([f"- {a.title} ({a.source})" for a in phys_arts]) if phys_arts else "No significant regional physical threats reported."
+    
     crime_context = "\n".join([f"- {c['raw_title']} ({c['distance_miles']} miles away) [FBI Cat: {c.get('fbi_category', 'Unknown')}]" for c in crimes]) if crimes else "No active perimeter crimes logged."
 
-    # ==========================================
-    # TIER 2: THE MASTER EDITOR
-    # ==========================================
-    
+    # --- 3. Build the Master Context String ---
     compiled_intel = f"""
-    === OVERALL RISK LEVEL: {global_risk} ===
+    === MACRO THREAT POSTURE ===
+    Overall Global Risk Level: {global_risk}
+    Global Cyber Intel Brief: {global_intel.get('cyber_brief', 'N/A')}
+    Global Physical Intel Brief: {global_intel.get('physical_brief', 'N/A')}
     
-    --- HARDWARE ATTACK SURFACE ---
-    {hw_summary}
+    Internal Risk Level: {internal_snapshot.risk_level if internal_snapshot else 'UNKNOWN'}
+    Internal Total Assets: {internal_snapshot.total_assets if internal_snapshot else 0}
+    Internal Assets with Active OSINT Exploits: {internal_snapshot.total_osint_hits if internal_snapshot else 0}
     
-    --- SOFTWARE ATTACK SURFACE ---
-    {sw_summary}
+    === INTERNAL ATTACK SURFACE (TOP PRE-CALCULATED EXPOSURES) ===
+    --- HARDWARE ---
+    {hw_context}
     
-    --- GLOBAL CYBER THREAT LANDSCAPE ---
-    {cyber_summary}
+    --- SOFTWARE ---
+    {sw_context}
     
-    --- PHYSICAL & PERIMETER THREATS ---
-    OSINT:
-    {phys_summary}
+    === GLOBAL THREAT LANDSCAPE (TOP ACTIVE THREATS) ===
+    --- CYBER OSINT ---
+    {cyber_context}
     
-    LOCAL CRIMES:
+    --- PHYSICAL OSINT & CRIMES ---
+    {phys_context}
     {crime_context}
     """
 
+    # --- 4. Single Pass LLM Execution ---
     master_sys_prompt = f"""You are the Chief Information Security Officer (CISO) delivering an exhaustive, boardroom-ready Unified Risk Brief.
-    The user requires a FULL, ROBUST, and THOROUGH brief modeled after a comprehensive Fusion Report.
     
     CRITICAL DIRECTIVES:
-    1. Assess the Overall Risk Level provided and set the tone accordingly.
-    2. Use the provided context to explicitly name the exact internal hardware and software assets exposed to OSINT threats. Detail exactly what exploits or threats are correlating with our internal systems based on the hardware and software summaries.
+    1. Assess the Macro Threat Posture provided and set the tone accordingly. Explain the convergence of the Global and Internal risk levels.
+    2. Use the provided "Top Pre-Calculated Exposures" to explicitly name the exact internal hardware and software assets exposed to OSINT threats. Detail exactly what exploits or threats are correlating with our internal systems.
     3. Break down the Global Cyber Threat landscape and directly tie it back to why it matters to the organization given our internal exposures.
     4. Address the Physical and Perimeter security posture, citing specific crime incidents and OSINT hazards.
     5. Structure the response in professional Markdown with these exact headers:
@@ -236,7 +204,7 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
         ## Physical & Perimeter Security Posture
         ## Strategic Recommendations
     6. Do NOT include any specific point calculations, raw scoring metrics, or mathematical equations. Focus purely on operational impact.
-    7. Do NOT use generic filler. Be highly specific using the data provided. Use expansive, detailed paragraphs and bulleted lists where appropriate to ensure the report is dense with actionable intelligence.
+    7. Do NOT use generic filler. Be highly specific using the exact asset names, threat references, and numbers provided. Use expansive, detailed paragraphs and bulleted lists where appropriate to ensure the report is dense with actionable intelligence.
     """
 
     response = call_llm([
