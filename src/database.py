@@ -95,10 +95,10 @@ class SystemConfig(Base):
     smtp_sender = Column(String, nullable=True)
     smtp_recipient = Column(String, nullable=True)
     smtp_enabled = Column(Boolean, default=False)
-    
-    # --- NEW: THREAT MATRIX BASELINE OVERRIDES ---
     baseline_override_cyber = Column(Float, default=0.0) 
     baseline_override_phys = Column(Float, default=0.0)
+    unified_brief = Column(Text, nullable=True)
+    unified_brief_time = Column(DateTime, nullable=True)
     
 class ShiftLogEntry(Base):
     __tablename__ = "shift_logs"
@@ -386,6 +386,12 @@ def init_db():
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE shift_logs ADD COLUMN is_deleted BOOLEAN DEFAULT 0"))
     except Exception: 
+        pass
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN unified_brief TEXT"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN unified_brief_time DATETIME"))
+    except Exception:
         pass
     
     # Seed Initial Data
