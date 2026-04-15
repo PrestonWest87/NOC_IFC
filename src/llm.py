@@ -128,6 +128,50 @@ def analyze_cascading_impacts(articles, session):
         map_p, reduce_p, config, chunk_size=8
     )
 
+def generate_unified_risk_brief(session, global_intel, internal_snapshot):
+    """Generates an executive-level summary merging Global and Internal risk postures."""
+    config = get_llm_config(session)
+    if not config: return "AI is currently disabled in settings."
+
+    global_risk = global_intel.get('unified_risk', 'UNKNOWN')
+    cyber_brief = global_intel.get('cyber_brief', 'No data.')
+    phys_brief = global_intel.get('physical_brief', 'No data.')
+    
+    internal_risk = internal_snapshot.risk_level if internal_snapshot else 'UNKNOWN'
+    internal_hits = internal_snapshot.total_osint_hits if internal_snapshot else 0
+    crit_hits = internal_snapshot.critical_osint_hits if internal_snapshot else 0
+    total_assets = internal_snapshot.total_assets if internal_snapshot else 0
+
+    context = f"""
+    --- GLOBAL THREAT POSTURE ---
+    Overall Level: {global_risk}
+    Cyber Context: {cyber_brief}
+    Physical Context: {phys_brief}
+    
+    --- INTERNAL ASSET POSTURE ---
+    Overall Level: {internal_risk}
+    Total Monitored Assets: {total_assets}
+    Assets Exposed to OSINT Threats: {internal_hits}
+    Critical Exposures: {crit_hits}
+    """
+
+    sys_prompt = """You are a Chief Information Security Officer (CISO) briefing the Board of Directors.
+    Write a factual, executive-level Unified Risk Brief based on the provided global and internal telemetry.
+    
+    CRITICAL DIRECTIVES:
+    1. State the overall Global Risk Level and Internal Risk Level clearly.
+    2. DO NOT include any specific points, scores, or mathematical calculations.
+    3. Provide a clear, objective analysis of how the external threat landscape correlates with internal asset vulnerabilities.
+    4. Keep the tone highly professional, objective, and boardroom-ready (2-3 paragraphs max).
+    """
+
+    response = call_llm([
+        {"role": "system", "content": sys_prompt},
+        {"role": "user", "content": context}
+    ], config, temperature=0.2)
+    
+    return response.strip() if response else "Brief generation failed."
+
 def generate_aggregated_shift_summary(session, logs, timeframe_label, target_role="All"):
     """Generates a role-bound weekly or monthly summary using Map-Reduce to handle large log volumes."""
     config = get_llm_config(session)
