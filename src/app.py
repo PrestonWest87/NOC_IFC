@@ -737,6 +737,7 @@ if page == "👁️ Global Dashboards":
                     <h3 style='margin:0; color: #a0a0a0;'>INTERNAL ASSET POSTURE (CIS STANDARD)</h3>
                     <h1 style='margin:0; font-size: 3rem; color: {score_color};'>{display_risk} [{latest.score}]</h1>
                     <p style='margin:0; color: #a0a0a0;'>Analyzed {latest.total_assets} total assets against OSINT feeds.</p>
+                    <p style='margin:0; color: #a0a0a0; font-size: 0.9em; margin-top: 10px;'><i>Last Updated: {format_local_time(latest.timestamp)}</i></p>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -1808,7 +1809,7 @@ elif page == "📝 Shift Logbook":
             with st.spinner("Synthesizing morning shift logs..."):
                 today_start = datetime.now(LOCAL_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
                 utc_start = today_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
-                utc_end = utc_start # Backend automatically adds 24 hours to this search window
+                utc_end = utc_start 
                 
                 morn_logs = [l for l in svc.get_shift_logs(st.session_state.current_role, utc_start, utc_end) if "Morning" in l.shift_period and not getattr(l, 'is_deleted', False)]
                 
@@ -1821,13 +1822,23 @@ elif page == "📝 Shift Logbook":
                     from src.llm import call_llm
                     summary = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": log_text}], sys_config)
                     if summary:
-                        # Store both the content AND the exact time it was generated
                         st.session_state[eom_key] = {
                             "timestamp": datetime.now(LOCAL_TZ).strftime('%B %d, %Y at %I:%M %p %Z'),
                             "content": summary
                         }
+                        # Auto-Append to Shift Log
+                        with svc.SessionLocal() as session:
+                            from src.database import ShiftLogEntry
+                            new_log = ShiftLogEntry(
+                                analyst=current_user_obj.full_name or st.session_state.current_user,
+                                author_role=st.session_state.current_role,
+                                shift_period="Morning (06:00 - 14:30)",
+                                content=f"🌅 **AUTO-GENERATED MORNING HANDOFF REPORT:**\n\n{summary}"
+                            )
+                            session.add(new_log)
+                            session.commit()
+                        st.success("Morning report generated and appended to the shift log!")
 
-        # Render the persistent report if it exists in memory
         if eom_key in st.session_state:
             st.caption(f"🕒 **Last Generated:** {st.session_state[eom_key]['timestamp']}")
             st.markdown(st.session_state[eom_key]['content'])
@@ -1850,19 +1861,69 @@ elif page == "📝 Shift Logbook":
                     from src.llm import call_llm
                     summary = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": log_text}], sys_config)
                     if summary:
-                        # Store both the content AND the exact time it was generated
                         st.session_state[eod_key] = {
                             "timestamp": datetime.now(LOCAL_TZ).strftime('%B %d, %Y at %I:%M %p %Z'),
                             "content": summary
                         }
+                        # Auto-Append to Shift Log
+                        with svc.SessionLocal() as session:
+                            from src.database import ShiftLogEntry
+                            new_log = ShiftLogEntry(
+                                analyst=current_user_obj.full_name or st.session_state.current_user,
+                                author_role=st.session_state.current_role,
+                                shift_period="Afternoon/Evening (11:30 - 20:00)",
+                                content=f"🌃 **AUTO-GENERATED END OF DAY REPORT:**\n\n{summary}"
+                            )
+                            session.add(new_log)
+                            session.commit()
+                        st.success("End of Day report generated and appended to the shift log!")
 
-        # Render the persistent report if it exists in memory
         if eod_key in st.session_state:
             st.caption(f"🕒 **Last Generated:** {st.session_state[eod_key]['timestamp']}")
             st.markdown(st.session_state[eod_key]['content'])
 
-    
-    st.divider()
+    # --- ADMIN RETROACTIVE REPORTING ---
+    if st.session_state.current_role == "admin":
+        with st.expander("🕰️ Admin: Retroactive End of Day Report", expanded=False):
+            st.caption("Generate a missing End of Day report for a previous day and inject it into that day's log.")
+            c_ret1, c_ret2 = st.columns(2)
+            retro_date = c_ret1.date_input("Select Previous Date", value=datetime.now(LOCAL_TZ).date() - timedelta(days=1), key="retro_eod_date")
+            retro_role = c_ret2.selectbox("Target Role", [r.name for r in svc.get_all_roles()], key="retro_eod_role")
+            
+            if st.button("🤖 Generate Retroactive EOD Report", key="gen_retro_eod", type="primary", disabled=not ai_enabled, use_container_width=True):
+                with st.spinner(f"Synthesizing logs for {retro_date}..."):
+                    retro_dt_start = datetime.combine(retro_date, datetime.min.time()).replace(tzinfo=LOCAL_TZ).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+                    retro_dt_end = retro_dt_start + timedelta(days=1)
+                    
+                    retro_logs = [l for l in svc.get_shift_logs(retro_role, retro_dt_start, retro_dt_end) if not getattr(l, 'is_deleted', False)]
+                    
+                    if not retro_logs:
+                        st.warning(f"No active logs found for {retro_date} under the {retro_role} role.")
+                    else:
+                        log_text = "\n".join([f"[{format_local_time(l.created_at)}] {l.shift_period} | {l.analyst}: {l.content}" for l in retro_logs])
+                        sys_prompt = "You are a NOC Shift Supervisor. Read the following chronologically ordered running log for the entire day. Write a comprehensive, professional End of Day Shift Handoff Summary combining the key incidents, ongoing outages, and resolutions. Do NOT use pleasantries. Format with markdown."
+                        
+                        from src.llm import call_llm
+                        retro_summary = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": log_text}], sys_config)
+                        
+                        if retro_summary:
+                            # Set the timestamp to 23:59:59 of the targeted day
+                            target_local = datetime.combine(retro_date, datetime.max.time()).replace(tzinfo=LOCAL_TZ)
+                            target_utc = target_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+                            
+                            with svc.SessionLocal() as session:
+                                from src.database import ShiftLogEntry
+                                new_log = ShiftLogEntry(
+                                    analyst=current_user_obj.full_name or st.session_state.current_user,
+                                    author_role=retro_role,
+                                    shift_date=target_utc,
+                                    shift_period="Afternoon/Evening (11:30 - 20:00)",
+                                    content=f"🕰️ **RETROACTIVE END OF DAY REPORT:**\n\n{retro_summary}",
+                                    created_at=target_utc
+                                )
+                                session.add(new_log)
+                                session.commit()
+                            st.success(f"Retroactive EOD report generated and appended to the {retro_date} shift log!")
     st.subheader(" Aggregated Executive Summaries")
     st.caption("Compiles historical shift logs into comprehensive Weekly or Monthly executive overviews using Map-Reduce AI.")
     
