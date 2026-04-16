@@ -1615,6 +1615,10 @@ elif page == "⚡ AIOps RCA":
                             bgp = dbtmp.query(BgpAnomaly).filter_by(is_resolved=False).all()
                             raw_alerts = dbtmp.query(SolarWindsAlert).filter(SolarWindsAlert.is_correlated == False, SolarWindsAlert.status != 'Resolved').all()
                             
+                        # NEW: Apply RBAC filtering to raw_alerts before passing to the correlation engine
+                        if st.session_state.allowed_site_types != "ALL":
+                            raw_alerts = [a for a in raw_alerts if a.mapped_location in allowed_loc_names]
+                            
                         # 1. Cluster the alerts as usual
                         incidents = ai_engine.analyze_and_cluster(raw_alerts)
                         
