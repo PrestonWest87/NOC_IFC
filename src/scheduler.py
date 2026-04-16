@@ -314,8 +314,14 @@ if __name__ == "__main__":
     
     # 3. Asynchronous Boot Sequence (Does not block the container from finishing startup)
     boot_jobs = [
-        fetch_cisa_kev, fetch_regional_hazards, fetch_cloud_outages, 
-        run_telemetry_sync, fetch_live_crimes, fetch_feeds, job_internal_risk # <-- Updated
+    fetch_cisa_kev, 
+    fetch_regional_hazards, 
+    fetch_cloud_outages, 
+    run_telemetry_sync, 
+    fetch_live_crimes, 
+    fetch_feeds, 
+    job_internal_risk,   # Ensure this runs first
+    job_unified_brief    # Add this so the brief generates immediately after internal risk
     ]
     for job in boot_jobs:
         run_threaded(job)
