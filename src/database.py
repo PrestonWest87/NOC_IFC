@@ -215,6 +215,17 @@ class CveItem(Base):
     required_action = Column(Text)
     due_date = Column(String)
 
+class ElasticEvent(Base):
+    __tablename__ = 'elastic_events'
+    
+    id = Column(String, primary_key=True) 
+    timestamp = Column(DateTime, index=True)
+    index_name = Column(String)
+    severity = Column(String, index=True) 
+    message = Column(String)
+    source_ip = Column(String, nullable=True)
+    event_category = Column(String, nullable=True)
+
 class DailyBriefing(Base):
     __tablename__ = "daily_briefings"
     id = Column(Integer, primary_key=True, index=True)
