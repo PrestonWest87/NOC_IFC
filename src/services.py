@@ -102,6 +102,21 @@ def get_regional_counties_mapping():
     except Exception as e:
         print(f"Error fetching county GeoJSON: {e}")
         return {}
+
+def get_all_site_types():
+    from src.database import MonitoredLocation
+    with SessionLocal() as db:
+        types = db.query(MonitoredLocation.loc_type).distinct().all()
+        return [t[0] for t in types if t[0]]
+
+def set_cluster_dispatch(alert_ids, is_dispatched):
+    from src.database import SolarWindsAlert
+    with SessionLocal() as db:
+        alerts = db.query(SolarWindsAlert).filter(SolarWindsAlert.id.in_(alert_ids)).all()
+        for a in alerts:
+            a.is_dispatched = is_dispatched
+        db.commit()
+        return True
       
 def get_shift_logs(role_filter="All", start_date=None, end_date=None):
     with SessionLocal() as db:
@@ -1556,18 +1571,20 @@ def get_all_roles():
     with SessionLocal() as db:
         return to_dotdict_list(db.query(Role).all())
 
-def create_role(name, allowed_pages, allowed_actions):
+def create_role(name, allowed_pages, allowed_actions, allowed_site_types=None):
+    if allowed_site_types is None: allowed_site_types = []
     with SessionLocal() as db:
         if db.query(Role).filter(Role.name == name).first(): return False
-        db.add(Role(name=name, allowed_pages=allowed_pages, allowed_actions=allowed_actions))
+        db.add(Role(name=name, allowed_pages=allowed_pages, allowed_actions=allowed_actions, allowed_site_types=allowed_site_types))
         db.commit()
         return True
 
-def update_role(name, allowed_pages, allowed_actions):
+def update_role(name, allowed_pages, allowed_actions, allowed_site_types=None):
+    if allowed_site_types is None: allowed_site_types = []
     with SessionLocal() as db:
         role = db.query(Role).filter(Role.name == name).first()
         if role:
-            role.allowed_pages, role.allowed_actions = allowed_pages, allowed_actions
+            role.allowed_pages, role.allowed_actions, role.allowed_site_types = allowed_pages, allowed_actions, allowed_site_types
             db.commit()
             return True
         return False
