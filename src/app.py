@@ -97,17 +97,27 @@ if st.session_state.current_user is None:
             if user.role == "admin":
                 st.session_state.allowed_pages = ALL_POSSIBLE_PAGES
                 st.session_state.allowed_actions = ALL_POSSIBLE_ACTIONS
-                st.session_state.allowed_site_types = "ALL" # <-- NEW
+                st.session_state.allowed_site_types = "ALL"
             else:
                 roles = svc.get_all_roles()
                 role_obj = next((r for r in roles if r.name == user.role), None)
                 if role_obj:
                     st.session_state.allowed_pages = role_obj.allowed_pages
                     st.session_state.allowed_actions = role_obj.allowed_actions or []
-                    st.session_state.allowed_site_types = getattr(role_obj, 'allowed_site_types', []) or [] # <-- NEW
+                    st.session_state.allowed_site_types = getattr(role_obj, 'allowed_site_types', []) or []
             safe_rerun()
 
-if st.form_submit_button("Authenticate", width="stretch"):
+# If the token check failed or they don't have one, render the Login UI
+if st.session_state.current_user is None:
+    c_space1, c_login, c_space2 = st.columns([1, 2, 1])
+    with c_login:
+        st.title("🛡️ NOC Intelligence Fusion Center")
+        st.markdown("### Authentication Required")
+        with st.form("login_form", clear_on_submit=True):
+            username = st.text_input("Username").strip()
+            password = st.text_input("Password", type="password")
+            
+            if st.form_submit_button("Authenticate", width="stretch", type="primary"):
                 user, token = svc.authenticate_user(username, password)
                 if user:
                     cookie_controller.set("noc_session_token", token, max_age=30*86400)
@@ -117,24 +127,25 @@ if st.form_submit_button("Authenticate", width="stretch"):
                     if user.role == "admin":
                         st.session_state.allowed_pages = ALL_POSSIBLE_PAGES
                         st.session_state.allowed_actions = ALL_POSSIBLE_ACTIONS
-                        st.session_state.allowed_site_types = "ALL" # <-- NEW
+                        st.session_state.allowed_site_types = "ALL"
                     else:
                         roles = svc.get_all_roles()
                         role_obj = next((r for r in roles if r.name == user.role), None)
                         if role_obj:
                             st.session_state.allowed_pages = role_obj.allowed_pages
                             st.session_state.allowed_actions = role_obj.allowed_actions or []
-                            st.session_state.allowed_site_types = getattr(role_obj, 'allowed_site_types', []) or [] # <-- NEW
+                            st.session_state.allowed_site_types = getattr(role_obj, 'allowed_site_types', []) or []
                     
-                    time.sleep(0.5); safe_rerun()
+                    time.sleep(0.5)
+                    safe_rerun()
                 else: 
                     st.error("❌ Invalid credentials.")
-                    st.stop() 
+    st.stop() # Prevents the rest of the dashboard from loading behind the login screen
 
 if st.session_state.current_role == "admin":
     st.session_state.allowed_pages = ALL_POSSIBLE_PAGES
     st.session_state.allowed_actions = ALL_POSSIBLE_ACTIONS
-    st.session_state.allowed_site_types = "ALL" # <-- NEW
+    st.session_state.allowed_site_types = "ALL"
 
 can_pin = "Action: Pin Articles" in st.session_state.allowed_actions
 can_train = "Action: Train ML Model" in st.session_state.allowed_actions
