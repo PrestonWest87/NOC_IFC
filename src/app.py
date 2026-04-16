@@ -1459,6 +1459,7 @@ elif page == "🎯 Threat Hunting & IOCs":
     
     if "Tab: Threat Hunting -> Global IOC Matrix" in st.session_state.allowed_actions: th_tab_names.append("🧮 Live Global IOC Matrix")
     if "Tab: Threat Hunting -> Deep Hunt Builder" in st.session_state.allowed_actions: th_tab_names.append("🔬 Deep Hunt & Detection Builder")
+    if "Tab: Reporting -> Elastic SIEM Report" in st.session_state.allowed_actions: th_tab_names.append("Elastic SIEM Report")
     
     if not th_tab_names: st.warning("No permission to view tabs in this module.")
     else:
@@ -1533,6 +1534,120 @@ elif page == "🎯 Threat Hunting & IOCs":
                                         st.divider()
                                         st.markdown("### 🔗 Reference Intel")
                                         for a in target_arts: st.markdown(f"- [{a.title}]({a.link})")
+            th_idx += 1
+        
+        if "Tab: Reporting -> Elastic SIEM Report" in st.session_state.allowed_actions:
+            with th_tabs[th_idx]:
+                st.subheader("🔎 Elastic SIEM Telemetry & Reporting")
+                st.caption("Live synthesis of internal SIEM logs against external NOC telemetry.")
+                
+                c_sync, c_space = st.columns([1, 4])
+                if c_sync.button("🔄 Sync Elastic Cache", width='stretch', type="primary"):
+                    with st.spinner("Polling Elastic Stack..."):
+                        from src.elastic_worker import sync_elastic_telemetry, purge_stale_elastic_data
+                        sync_elastic_telemetry(hours_back=24)
+                        purge_stale_elastic_data(hours_to_keep=72)
+                        st.rerun()
+
+                st.divider()
+
+                with svc.SessionLocal() as dbtmp:
+                    from src.database import ElasticEvent
+                    raw_events = dbtmp.query(ElasticEvent).filter(
+                        ElasticEvent.timestamp >= datetime.utcnow() - timedelta(hours=24)
+                    ).all()
+
+                if not raw_events:
+                    st.success("✅ No high-severity SIEM alerts logged in the last 24 hours.")
+                else:
+                    import pandas as pd
+                    import plotly.express as px
+                    
+                    df = pd.DataFrame([{
+                        "Timestamp": e.timestamp, "Severity": e.severity, 
+                        "Category": e.event_category, "Source IP": e.source_ip, "Message": e.message
+                    } for e in raw_events])
+                    
+                    # --- METRICS & CHARTS ---
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Total High/Crit Alerts (24h)", len(df))
+                    c2.metric("Unique Source IPs", df['Source IP'].nunique())
+                    c3.metric("Critical Events", len(df[df['Severity'] == 'CRITICAL']), delta_color="inverse")
+                    
+                    c_chart1, c_chart2 = st.columns(2)
+                    with c_chart1:
+                        sev_counts = df['Severity'].value_counts().reset_index()
+                        sev_counts.columns = ['Severity', 'Count']
+                        fig1 = px.pie(sev_counts, values='Count', names='Severity', hole=0.5, title="Alert Distribution",
+                                      color='Severity', color_discrete_map={"CRITICAL": "#dc3545", "HIGH": "#fd7e14"})
+                        st.plotly_chart(fig1, use_container_width=True)
+                        
+                    with c_chart2:
+                        top_ips = df['Source IP'].value_counts().head(5).reset_index()
+                        top_ips.columns = ['Source IP', 'Count']
+                        fig2 = px.bar(top_ips, x='Source IP', y='Count', title="Top 5 Offending Source IPs", color_discrete_sequence=['#2c3e50'])
+                        st.plotly_chart(fig2, use_container_width=True)
+                        
+                    # --- RAW DATA MATRIX ---
+                    with st.expander("🧮 View Raw SIEM Matrix", expanded=True):
+                        st.dataframe(df.sort_values('Timestamp', ascending=False), hide_index=True, width="stretch")
+                        
+                    st.divider()
+                    
+                    # --- EMAIL REPORT GENERATOR ---
+                    st.subheader("📤 Broadcast SIEM Shift Report")
+                    st.caption("Generates a boardroom-ready HTML email containing the charts and alert metrics.")
+                    
+                    c_em1, c_em2 = st.columns([3, 1])
+                    default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
+                    siem_recipients = c_em1.text_input("Recipient Email(s)", value=default_email, key="siem_recip")
+                    
+                    if c_em2.button("✉️ Transmit SIEM Report", type="primary", width='stretch'):
+                        if not siem_recipients:
+                            st.error("Please enter a recipient.")
+                        else:
+                            with st.spinner("Compiling HTML visual graphs and transmitting..."):
+                                # Reuse your existing HTML bar chart logic for emails
+                                def build_email_bar_chart(data_df, label_col, count_col, title, color="#2980b9"):
+                                    total = data_df[count_col].sum()
+                                    if total == 0: return ""
+                                    html = f"<h3 style='color:#2980b9; margin-bottom: 5px;'>{title}</h3>"
+                                    html += "<table style='width:100%; border-collapse: collapse; font-family: Arial, sans-serif; margin-bottom: 20px;'>"
+                                    for _, row in data_df.iterrows():
+                                        label, count = row[label_col], row[count_col]
+                                        pct = int((count / total) * 100) if total > 0 else 0
+                                        html += f"<tr>"
+                                        html += f"<td style='width:30%; padding: 4px 0; font-size:13px; font-weight:bold; color:#444;'>{label}</td>"
+                                        html += f"<td style='width:60%; padding: 4px 10px;'><div style='background-color:#e9ecef; width:100%; border-radius:3px;'><div style='background-color:{color}; width:{pct}%; height:18px; border-radius:3px;'></div></div></td>"
+                                        html += f"<td style='width:10%; padding: 4px 0; font-size:13px; text-align:right; font-weight:bold; color:#333;'>{count}</td>"
+                                        html += f"</tr>"
+                                    html += "</table>"
+                                    return html
+                                
+                                ip_html = build_email_bar_chart(top_ips, 'Source IP', 'Count', "Top 5 Offending IPs", color="#d9534f")
+                                sev_html = build_email_bar_chart(sev_counts, 'Severity', 'Count', "Alerts by Severity", color="#f0ad4e")
+                                
+                                html_body = f"""
+                                <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
+                                    <h2 style='color:#2c3e50;'>NOC SIEM Telemetry Report (24h)</h2>
+                                    <div style='background:#f8f9fa; padding:15px; border-left:4px solid #d9534f; margin-bottom: 20px;'>
+                                        <b>Total Escalated Alerts:</b> {len(df)}<br/>
+                                        <b>Critical Density:</b> {len(df[df['Severity'] == 'CRITICAL'])}<br/>
+                                        <b>Unique Attack Vectors (IPs):</b> {df['Source IP'].nunique()}
+                                    </div>
+                                    
+                                    {sev_html}
+                                    {ip_html}
+                                    
+                                    <p style="text-align: center; color: #7f8c8d; font-size: 12px; margin-top: 20px;">
+                                        Generated dynamically by NOC Intelligence Fusion Center
+                                    </p>
+                                </div>
+                                """
+                                from src.mailer import send_alert_email
+                                success, msg = send_alert_email("Daily SIEM Telemetry & Threat Report", html_body, recipient_override=siem_recipients, is_html=True)
+                                if success: st.success(f"Report dispatched to {siem_recipients}")
+                                else: st.error(f"SMTP Error: {msg}")
             th_idx += 1
 
 # ================= 4. AIOps RCA =================
@@ -2256,7 +2371,7 @@ elif page == "📑 Reporting & Briefings":
     if "Tab: Reporting -> Daily Fusion" in st.session_state.allowed_actions: rc_tab_names.append("📰 Daily Fusion Briefing")
     if "Tab: Reporting -> Report Builder" in st.session_state.allowed_actions: rc_tab_names.append("📝 Custom Report Builder")
     if "Tab: Reporting -> Shared Library" in st.session_state.allowed_actions: rc_tab_names.append("📚 Shared Library")
-    if "Tab: Reporting -> Elastic SIEM Report" in st.session_state.allowed_actions: rc_tab_names.append("Elastic SIEM Report")
+    
     
     if not rc_tab_names: st.warning("No permission to view tabs in this module.")
     else:
@@ -2366,119 +2481,6 @@ elif page == "📑 Reporting & Briefings":
                         st.success("Saved!")
             tab_idx += 1
 
-        if "Tab: Reporting -> Elastic SIEM Report" in st.session_state.allowed_actions:
-            with tabs[tab_idx]:
-                st.subheader("🔎 Elastic SIEM Telemetry & Reporting")
-                st.caption("Live synthesis of internal SIEM logs against external NOC telemetry.")
-                
-                c_sync, c_space = st.columns([1, 4])
-                if c_sync.button("🔄 Sync Elastic Cache", width='stretch', type="primary"):
-                    with st.spinner("Polling Elastic Stack..."):
-                        from src.elastic_worker import sync_elastic_telemetry, purge_stale_elastic_data
-                        sync_elastic_telemetry(hours_back=24)
-                        purge_stale_elastic_data(hours_to_keep=72)
-                        st.rerun()
-
-                st.divider()
-
-                with svc.SessionLocal() as dbtmp:
-                    from src.database import ElasticEvent
-                    raw_events = dbtmp.query(ElasticEvent).filter(
-                        ElasticEvent.timestamp >= datetime.utcnow() - timedelta(hours=24)
-                    ).all()
-
-                if not raw_events:
-                    st.success("✅ No high-severity SIEM alerts logged in the last 24 hours.")
-                else:
-                    import pandas as pd
-                    import plotly.express as px
-                    
-                    df = pd.DataFrame([{
-                        "Timestamp": e.timestamp, "Severity": e.severity, 
-                        "Category": e.event_category, "Source IP": e.source_ip, "Message": e.message
-                    } for e in raw_events])
-                    
-                    # --- METRICS & CHARTS ---
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("Total High/Crit Alerts (24h)", len(df))
-                    c2.metric("Unique Source IPs", df['Source IP'].nunique())
-                    c3.metric("Critical Events", len(df[df['Severity'] == 'CRITICAL']), delta_color="inverse")
-                    
-                    c_chart1, c_chart2 = st.columns(2)
-                    with c_chart1:
-                        sev_counts = df['Severity'].value_counts().reset_index()
-                        sev_counts.columns = ['Severity', 'Count']
-                        fig1 = px.pie(sev_counts, values='Count', names='Severity', hole=0.5, title="Alert Distribution",
-                                      color='Severity', color_discrete_map={"CRITICAL": "#dc3545", "HIGH": "#fd7e14"})
-                        st.plotly_chart(fig1, use_container_width=True)
-                        
-                    with c_chart2:
-                        top_ips = df['Source IP'].value_counts().head(5).reset_index()
-                        top_ips.columns = ['Source IP', 'Count']
-                        fig2 = px.bar(top_ips, x='Source IP', y='Count', title="Top 5 Offending Source IPs", color_discrete_sequence=['#2c3e50'])
-                        st.plotly_chart(fig2, use_container_width=True)
-                        
-                    # --- RAW DATA MATRIX ---
-                    with st.expander("🧮 View Raw SIEM Matrix", expanded=True):
-                        st.dataframe(df.sort_values('Timestamp', ascending=False), hide_index=True, width="stretch")
-                        
-                    st.divider()
-                    
-                    # --- EMAIL REPORT GENERATOR ---
-                    st.subheader("📤 Broadcast SIEM Shift Report")
-                    st.caption("Generates a boardroom-ready HTML email containing the charts and alert metrics.")
-                    
-                    c_em1, c_em2 = st.columns([3, 1])
-                    default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
-                    siem_recipients = c_em1.text_input("Recipient Email(s)", value=default_email, key="siem_recip")
-                    
-                    if c_em2.button("✉️ Transmit SIEM Report", type="primary", width='stretch'):
-                        if not siem_recipients:
-                            st.error("Please enter a recipient.")
-                        else:
-                            with st.spinner("Compiling HTML visual graphs and transmitting..."):
-                                # Reuse your existing HTML bar chart logic for emails
-                                def build_email_bar_chart(data_df, label_col, count_col, title, color="#2980b9"):
-                                    total = data_df[count_col].sum()
-                                    if total == 0: return ""
-                                    html = f"<h3 style='color:#2980b9; margin-bottom: 5px;'>{title}</h3>"
-                                    html += "<table style='width:100%; border-collapse: collapse; font-family: Arial, sans-serif; margin-bottom: 20px;'>"
-                                    for _, row in data_df.iterrows():
-                                        label, count = row[label_col], row[count_col]
-                                        pct = int((count / total) * 100) if total > 0 else 0
-                                        html += f"<tr>"
-                                        html += f"<td style='width:30%; padding: 4px 0; font-size:13px; font-weight:bold; color:#444;'>{label}</td>"
-                                        html += f"<td style='width:60%; padding: 4px 10px;'><div style='background-color:#e9ecef; width:100%; border-radius:3px;'><div style='background-color:{color}; width:{pct}%; height:18px; border-radius:3px;'></div></div></td>"
-                                        html += f"<td style='width:10%; padding: 4px 0; font-size:13px; text-align:right; font-weight:bold; color:#333;'>{count}</td>"
-                                        html += f"</tr>"
-                                    html += "</table>"
-                                    return html
-                                
-                                ip_html = build_email_bar_chart(top_ips, 'Source IP', 'Count', "Top 5 Offending IPs", color="#d9534f")
-                                sev_html = build_email_bar_chart(sev_counts, 'Severity', 'Count', "Alerts by Severity", color="#f0ad4e")
-                                
-                                html_body = f"""
-                                <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
-                                    <h2 style='color:#2c3e50;'>NOC SIEM Telemetry Report (24h)</h2>
-                                    <div style='background:#f8f9fa; padding:15px; border-left:4px solid #d9534f; margin-bottom: 20px;'>
-                                        <b>Total Escalated Alerts:</b> {len(df)}<br/>
-                                        <b>Critical Density:</b> {len(df[df['Severity'] == 'CRITICAL'])}<br/>
-                                        <b>Unique Attack Vectors (IPs):</b> {df['Source IP'].nunique()}
-                                    </div>
-                                    
-                                    {sev_html}
-                                    {ip_html}
-                                    
-                                    <p style="text-align: center; color: #7f8c8d; font-size: 12px; margin-top: 20px;">
-                                        Generated dynamically by NOC Intelligence Fusion Center
-                                    </p>
-                                </div>
-                                """
-                                from src.mailer import send_alert_email
-                                success, msg = send_alert_email("Daily SIEM Telemetry & Threat Report", html_body, recipient_override=siem_recipients, is_html=True)
-                                if success: st.success(f"Report dispatched to {siem_recipients}")
-                                else: st.error(f"SMTP Error: {msg}")
-            tab_idx += 1
             
         if "Tab: Reporting -> Shared Library" in st.session_state.allowed_actions:
             with tabs[tab_idx]:
