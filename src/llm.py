@@ -481,6 +481,45 @@ def generate_dynamic_scoring_report(session, intel):
     ], config, temperature=0.3)
     
     return response.strip() if response else "Brief generation failed."
+
+def generate_siem_triage_summary(session, flat_results):
+    """Uses the local LLM to triage a batch of live hunt results."""
+    import json
+    config = get_llm_config(session)
+    if not config: return "⚠️ AI is currently disabled in settings."
+    
+    # Compress data aggressively to protect the local model's context window
+    compressed_data = json.dumps(flat_results[:30]) 
+    
+    sys_prompt = """You are a Tier 3 SOC Analyst. Review this extracted SIEM telemetry. 
+    Provide a boardroom-ready Executive Summary of the threats, followed by a bulleted list of correlated IOCs or behavioral anomalies. 
+    Do not explain what JSON is. Be concise and authoritative."""
+    
+    response = call_llm([
+        {"role": "system", "content": sys_prompt},
+        {"role": "user", "content": f"DATA:\n{compressed_data}"}
+    ], config, temperature=0.2)
+    
+    return response.strip() if response else "Triage generation failed."
+
+def generate_elastic_dsl(session, nl_query):
+    """Translates natural language to Elastic DSL using the local model."""
+    config = get_llm_config(session)
+    if not config: return "{}"
+    
+    sys_prompt = """You are an Elastic SIEM engineer. Output ONLY a valid Elasticsearch JSON query body based on the user's prompt. 
+    Do NOT use markdown blocks (e.g., ```json). Do NOT explain the query. Just output the raw JSON. 
+    Assume standard Elastic Common Schema (ECS) fields like 'source.ip', 'event.action', 'log.level', and '@timestamp'."""
+    
+    response = call_llm([
+        {"role": "system", "content": sys_prompt},
+        {"role": "user", "content": nl_query}
+    ], config, temperature=0.1)
+    
+    if response:
+        # Strip out any markdown formatting the LLM might stubbornly include
+        return response.replace("```json", "").replace("```", "").strip()
+    return '{"query": {"match_all": {}}}'
   
 def generate_daily_fusion_report(session):
     """Multi-Tier Synthesis: Chunks data, summarizes domains, then uses a Master Editor for a seamless report."""
