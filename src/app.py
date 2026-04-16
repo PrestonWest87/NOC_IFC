@@ -129,7 +129,7 @@ if st.form_submit_button("Authenticate", width="stretch"):
                     time.sleep(0.5); safe_rerun()
                 else: 
                     st.error("❌ Invalid credentials.")
-    st.stop() 
+                    st.stop() 
 
 if st.session_state.current_role == "admin":
     st.session_state.allowed_pages = ALL_POSSIBLE_PAGES
