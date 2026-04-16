@@ -1559,10 +1559,10 @@ elif page == "⚡ AIOps RCA":
                     st.subheader("🗺️ Overlays")
                     locs = svc.get_cached_locations()
                     if st.session_state.allowed_site_types != "ALL":
-                    locs = [l for l in locs if l.loc_type in st.session_state.allowed_site_types]
-                    allowed_loc_names = {l.name for l in locs}
-                    # Automatically hide alerts for sites the user is not allowed to monitor
-                    alerts = [a for a in alerts if a.mapped_location in allowed_loc_names]
+                        locs = [l for l in locs if l.loc_type in st.session_state.allowed_site_types]
+                        allowed_loc_names = {l.name for l in locs}
+                        # Automatically hide alerts for sites the user is not allowed to monitor
+                        alerts = [a for a in alerts if a.mapped_location in allowed_loc_names]
 
                     # --- UNDOCUMENTED TROLLING MECHANISM (OPERATION: DEAN) ---
                     # Only inject the fake alerts if the person viewing the map is the chosen target
