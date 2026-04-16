@@ -4,23 +4,24 @@
 
 The `src/aiops_engine.py` file is the analytical core—the "brain"—of the NOC Intelligence Fusion Center. It houses the `EnterpriseAIOpsEngine` class, which is responsible for ingesting raw, non-uniform telemetry (like SolarWinds alerts) and transforming it into deterministic, multi-domain correlated incidents. 
 
-In its current architectural iteration, this engine has evolved from simple time-based clustering to a **Topological Ontology Model**. It calculates root cause by evaluating the hierarchical dependencies of physical infrastructure and dynamically cross-referencing those failures against external situational awareness grids (Severe Weather, Global BGP anomalies, and Cloud Provider outages). Furthermore, it includes a predictive analytics module utilizing Pandas to detect chronic, long-term degradation patterns before they result in catastrophic failure.
+In its current architectural iteration, this engine utilizes a **Topological Ontology Model** with **Structural Dominance Tiering**. It calculates root cause by evaluating the hierarchical dependencies of physical infrastructure and dynamically cross-referencing those failures against external situational awareness grids (Severe Weather, Global BGP anomalies, Cloud Provider outages, and Regional Fleet Outages). Furthermore, it includes a robust predictive analytics module utilizing Pandas to detect chronic, long-term degradation patterns over a 60-day baseline before they result in catastrophic failure.
 
 ---
 
 ## 2. Infrastructure Ontology & Dependency Hierarchy
 
-To accurately determine cascading failures, the engine must understand the physical and logical realities of network architecture. It accomplishes this via hardcoded ontological mappings.
+To accurately determine cascading failures, the engine must understand the physical and logical realities of network architecture. It accomplishes this via hardcoded ontological mappings and a strict tiering system.
 
-### `ONTOLOGY` & `DOMAIN_WEIGHTS`
-The engine categorizes arbitrary device strings (e.g., "Lanolinx-switch" or "VSAT Modem") into six foundational infrastructure domains. Each domain is assigned a topological weight representing its criticality to the site's survival. If a high-weight domain fails, it inherently causes the failure of lower-weight domains.
+### `ONTOLOGY` & `TIER_RANKING`
+The engine categorizes arbitrary device strings (e.g., "Lanolinx-switch" or "VSAT Modem") into six foundational infrastructure domains. Replacing the legacy weight system, each domain is now assigned a `TIER_RANKING` from 1 to 6, where a *lower number indicates higher structural authority*. 
 
-* **POWER_ENV (Weight: 100):** UPS, Generators, HVAC. *(If power dies, everything dies).*
-* **TRANSPORT_CORE (Weight: 80):** Routers, DWDM, Firewalls, Service Providers, VSAT Modems, Radios. *(If transport dies, the site is isolated).*
-* **NETWORK_ACCESS (Weight: 60):** Switches, Fabric Interconnects, Wireless Controllers, Access Points.
-* **COMPUTE_STORAGE (Weight: 40):** VM Hosts, Physical Servers, SANs, NTP Servers.
-* **SCADA_OT (Weight: 20):** RTUs, Plant Equipment, Meters, I/O.
-* **FACILITIES_IOT (Weight: 20):** IP Cameras, Access Control Panels, Intercoms.
+* **Tier 1: POWER_ENV:** UPS, Generators, HVAC, PDU. *(If power dies, everything dies).*
+* **Tier 2: TRANSPORT_CORE:** Routers, DWDM, Firewalls, Service Providers, VSAT Modems, Radios. *(If transport dies, the site is isolated).*
+* **Tier 3: NETWORK_ACCESS:** Switches, Fabric Interconnects, Wireless Controllers, Access Points.
+* **Tier 4: COMPUTE_STORAGE:** VM Hosts, Physical Servers, SANs, NTP Servers.
+* **Tier 5: SCADA_OT:** RTUs, Plant Equipment, Meters, I/O.
+* **Tier 5: FACILITIES_IOT:** IP Cameras, Access Control Panels, Intercoms.
+* **Tier 6: UNKNOWN_DOMAIN:** Any unrecognized device type.
 
 ---
 
@@ -30,54 +31,47 @@ Raw monitoring platforms often trigger "alert storms" where a single failure gen
 
 ### `analyze_and_cluster(self, active_alerts)`
 * **Functionality:** Ingests an array of active alerts and groups them by `site_name` (extracted from custom properties or mapped aliases).
-* **Metadata Extraction:** For each site cluster, it calculates aggregate telemetry:
+* **Metadata Extraction:** For each site cluster, it safely extracts and calculates aggregate telemetry, heavily guarded against `KeyError` and `TypeError` exceptions:
     * Averages CPU Load and Packet Loss (`avg_cpu`, `avg_loss`).
-    * Tracks all unique IP addresses involved to determine if the failure spans multiple VLANs via `_analyze_subnets()` (calculating the "Blast Radius").
-    * Compiles a breakdown of affected device types and domains.
+    * Tracks all unique IP addresses involved to determine if the failure spans multiple VLANs (calculating the "Blast Radius").
+    * Computes a "Cascade Delay" by comparing the timestamp of Patient Zero to the most recent alert in the cluster.
 
 ### `_determine_patient_zero(self, alerts)`
-**The Supreme Patient Zero Algorithm:** Traditional monitoring relies purely on timestamps to find the root cause. This fails due to varied SNMP/WMI polling cycles (a server might alert 2 minutes before the router that actually caused the outage). This algorithm bypasses the "polling cycle trap" using a weighted scoring matrix. It forces all alerts—even isolated single events—through this loop to ensure perfectly consistent data structures:
-1.  **Topological Score:** `DOMAIN_WEIGHT * 1000`. (A core router inherently outranks a server).
-2.  **Severity Score:** Hard "Down" states or 100% packet loss add 500 points. "Warning" states add 100 points.
-3.  **Time Offset Penalty:** Subtracts points based on the seconds elapsed since the very first alert in the cluster, capped at 200 points. 
-* *Result:* A foundational node (like a Router) that alerts 3 minutes late will correctly outrank a downstream node (like an IP Camera) that alerted immediately.
+**The Supreme Patient Zero Algorithm:** Traditional monitoring relies purely on timestamps to find the root cause, which fails due to varied SNMP/WMI polling cycles. This algorithm bypasses the "polling cycle trap" using a newly updated weighted scoring matrix:
+1.  **Topological Score:** Calculated mathematically as `(7 - tier) * 2000`. A Tier 1 Power device inherently scores 12,000, vastly outranking a Tier 5 IP Camera (4,000).
+2.  **Severity Score:** Hard "Down" states, 100% packet loss, or "offline" categories add 1000 points. "Critical" states or >50% loss add 500 points. "Warning" states add 100 points.
+3.  **Time Offset Penalty:** Acts as a micro-tiebreaker within the *same* tier. Subtracts points based on the seconds elapsed since the very first alert in the cluster, capped at a maximum penalty of 200 points. 
+* *Result:* Structural topology securely outweighs minor polling delays, guaranteeing the true foundational failure is always identified as Patient Zero.
 
 ---
 
 ## 4. Multi-Domain Root Cause Analysis (RCA)
 
-Once the Patient Zero is identified, the engine executes deterministic correlation against external intelligence grids.
+Once Patient Zero is identified, the engine executes deterministic correlation against external intelligence grids.
 
-### `calculate_root_cause(self, site_name, data, active_weather, active_cloud, active_bgp)`
-This master algorithm evaluates the clustered data against distinct correlation tiers and scoring mechanisms. It returns a definitive cause, an Evidence Log, a Blast Radius, and an Incident Priority (P1/P2/P3).
+### `calculate_root_cause(self, site_name, data, active_weather, active_cloud, active_bgp, fleet_events)`
+This master algorithm evaluates the clustered data against distinct correlation tiers. It returns a definitive cause, an Evidence Log, a Blast Radius, Patient Zero, and the Cascade Delay.
 
-1.  **Dependency Cascade (Score: +20):** If the incident spans multiple infrastructure domains, a baseline penalty is added to account for the widespread downstream isolation.
-2.  **Cloud / Upstream Correlation (Score: +85):** Scans the raw payload and node names against active global `CloudOutage` objects. If a node relies on a degraded SaaS/IaaS provider, the outage is attributed externally.
-3.  **BGP / Routing Correlation (Score: +75):** If the failure resides in the `TRANSPORT_CORE` domain, the engine checks the site's primary/secondary carrier ASNs against active global `BgpAnomaly` events.
-4.  **Hardware / Domain Heuristics (Score: Variable):** If no external digital factors align, it evaluates the internal domain of Patient Zero:
+1.  **Dependency Cascade (Score: +20):** Base penalty added if the incident spans multiple infrastructure domains.
+2.  **Fleet / Regional Carrier Correlation (Score: +100):** *NEW.* Uses `identify_fleet_outages` to detect if 5 or more sites sharing the same primary communications provider go down simultaneously. Overrides local diagnostics to declare a "Regional Carrier Outage."
+3.  **Cloud / Upstream Correlation (Score: +85):** Scans the raw payload against active global `CloudOutage` objects. Attributes failure to upstream SaaS/IaaS providers if a match is found.
+4.  **BGP / Routing Correlation (Score: +75):** If the failure resides in the `TRANSPORT_CORE`, the engine checks the site's carrier ASNs against global `BgpAnomaly` events.
+5.  **Hardware / Topological Heuristics (Score: +30 to +60):** If no external digital factors align, it evaluates the internal domain of Patient Zero:
     * *POWER_ENV:* "Catastrophic Facilities/Power Failure" (+60)
-    * *TRANSPORT_CORE (>80% Loss):* "WAN Isolation" (+50)
+    * *TRANSPORT_CORE (>80% Loss or Down):* "Site Isolation" (+50)
     * *SCADA_OT:* "Isolated OT/SCADA Telemetry Failure" (+30)
-    * *COMPUTE_STORAGE (>90% CPU):* "Resource Exhaustion" (+30)
-    * *NETWORK_ACCESS (Single Subnet):* "Localized Access Layer Failure" (+20)
-5.  **Geospatial Weather / Grid Correlation (Score: +40 to +55):** Uses the Haversine formula (`math.asin(math.sqrt(...))`) to calculate the exact distance in miles between the site's database latitude/longitude and the epicenter of active regional hazards (e.g., Tornado Warnings, NIFC Wildfires). If the distance is within the hazard radius, the failure is upgraded to a "Direct Kinetic Impact".
-6.  **Policy Override (Score: +50):** If the native monitoring tool explicitly flagged the alert payload with an `Alert_Level` of 1, the engine forcefully weights the incident to guarantee a critical escalation.
+6.  **Geospatial Weather / Grid Correlation (Score: +40 to +55):** Uses the Haversine formula (`math.asin(math.sqrt(...))`) to calculate the exact distance in miles between the site and active regional hazards. If the site is within the storm's radius, it is escalated to a "Direct Kinetic Impact."
+7.  **Policy Override (Score: +50):** Automatically escalates incidents explicitly flagged with `Alert_Level = 1` by the native monitoring tool.
 
 ---
 
 ## 5. Predictive Analytics & Chronic Pattern Recognition
 
-This module shifts the engine from *reactive* correlation to *proactive* analytics. By executing heavy Pandas DataFrame aggregations against the historical database, it identifies degrading hardware before catastrophic failure occurs.
+This module shifts the engine from *reactive* correlation to *proactive* analytics, moving to a heavy 60-day historical window.
 
-### `generate_chronic_insights(self, days_back=30)`
-Queries historical events dynamically via the engine's generic `alert_model` (defaulting to `SolarWindsAlert`) over a specified lookback period to generate three distinct operational intelligence reports:
+### `generate_chronic_insights(self)`
+Queries historical `SolarWindsAlert` records over the last 60 days, aggressively filtering out resolved messages to focus strictly on degradation events. It utilizes Pandas DataFrames to return three targeted operational intelligence reports:
 
-1.  **Cellular Micro-Blips (`flap_summary`):**
-    * *Algorithm:* Isolates alerts where the primary/secondary comms involve "Cellular" or "LTE" and the total duration of the outage is strictly `> 0` and `< 5.0` minutes.
-    * *Output:* Highlights circuits that are chronically state-flapping. These rapid connections/disconnections often resolve too quickly for human operators to notice or ticket, but indicate failing carrier signal strength.
-2.  **VSAT Environmental Vulnerability (`vsat_summary`):**
-    * *Algorithm:* Aggregates total outage events specifically targeting nodes utilizing VSAT/Satellite transport.
-    * *Output:* Generates a `Vulnerability_Score` out of 100. High-scoring sites represent satellite arrays highly susceptible to minor environmental shifts (rain fade), indicating a need for physical dish realignment or terrestrial fallback provisioning.
-3.  **Chronic Hardware Reboots (`reboot_summary`):**
-    * *Algorithm:* Filters the historical event payload for strings matching `reboot`, `crash`, or `unexpected`.
-    * *Output:* Identifies specific physical devices experiencing recurring, uncommanded state resets—a primary indicator of failing internal hardware (e.g., degraded RAM, failing power supply) preceding a total device death.
+1.  **Top Offending Nodes (`f` DataFrame):** Aggregates and returns the top 15 specific physical devices experiencing the highest volume of chronic failures or flapping states.
+2.  **Infrastructure Hotspots (`v` DataFrame):** Aggregates and returns the top 10 physical facility sites experiencing the highest overall volume of IT incidents, exposing localized power or transport instability.
+3.  **AI Predictive Maintenance Forecast (`r` list):** An automated insights engine that flags nodes with >5 incidents a week as "CRITICAL FLAP DETECTED" or sites with >15 incidents as "REGIONAL DEGRADATION", generating explicit, actionable recommendations for field technicians (e.g., circuit testing, power conditioning checks).
