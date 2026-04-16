@@ -1537,7 +1537,7 @@ elif page == "🎯 Threat Hunting & IOCs":
             th_idx += 1
         
         if "Tab: Reporting -> Elastic SIEM Report" in st.session_state.allowed_actions:
-            with tabs[tab_idx]:
+            with th_tabs[th_idx]:
                 st.subheader("🌌 Advanced SIEM Fusion & Hunt")
                 st.caption("Live, bi-directional telemetry hunt utilizing local AI-assisted query generation.")
                 
@@ -1647,7 +1647,7 @@ elif page == "🎯 Threat Hunting & IOCs":
                                 
                                 st.code(raw_json, language="json")
                                 st.success("Query Generated! Copy this and use it in Kibana, or pass it to a custom Live Hunt API call.")
-            tab_idx += 1
+            th_idx += 1
 
 # ================= 4. AIOps RCA =================
 elif page == "⚡ AIOps RCA":
