@@ -4,7 +4,7 @@
 
 The `src/llm.py` module acts as the Cognitive Processing Hub of the Intelligence Fusion Center (IFC). In its latest architectural iteration, this module has been heavily refactored to optimize for Local Edge Compute and GPU Memory constraints, such as running open-weights models via LM Studio, Ollama, or vLLM.
 
-To prevent massive context-window overflows, CUDA Out-Of-Memory crashes, and severe UI latency, the engine implements aggressive text truncation, dynamic chunk resizing, universal Map-Reduce pipelines, and extended timeout tolerances for local inference speeds. It also introduces role-bound shift log summarization and dynamic scoring reports for the Executive Dashboard.
+To prevent massive context-window overflows, CUDA Out-Of-Memory crashes, and severe UI latency, the engine implements aggressive text truncation, dynamic chunk resizing, universal Map-Reduce pipelines, and extended timeout tolerances for local inference speeds. It has been recently expanded to support the new **Internal Asset Risk Matrix**, **Unified Risk Briefs**, and the **AI Shift Logbook**.
 
 ---
 
@@ -36,11 +36,16 @@ The generation of the "Bottom Line Up Front" (BLUF) prioritizes self-attention a
 * **Strict Output Structuring:** Forces the LLM to output exactly four concise bullet points: Core Event, Impact Radius, Technical Details, and Actionable Posture. It executes with a strict temperature of 0.1 to avoid conversational filler.
 
 ### 3.2 Dynamic Scoring Report: `generate_dynamic_scoring_report(session, intel)`
-Generates an expansive, boardroom-ready intelligence brief summarizing 48-hour Cyber/CVE data and 24-hour perimeter crimes without the risk of AI hallucination.
-* **Algorithmic Guardrails:** Explicitly commands the LLM *not* to calculate scores, reference the CIS formula, or attempt mathematical justifications.
+Generates an expansive, boardroom-ready intelligence brief summarizing 48-hour Cyber/CVE data and 24-hour perimeter crimes.
+* **Algorithmic Guardrails:** Explicitly commands the LLM *not* to calculate scores, reference the CIS formula, or attempt mathematical justifications, preventing AI hallucination.
 * **Narrative Synthesis:** Weaves the extracted telemetry into a cohesive narrative mapped directly to the system's current `unified_risk` posture (e.g., BLUE, YELLOW, RED).
 
-### 3.3 Weather & Hazard Analytics: `generate_executive_weather_brief(analytics, p1_count, sys_config)`
+### 3.3 Unified Risk Brief: `generate_unified_risk_brief(session, global_intel, latest_internal)`
+**[NEW]** Synthesizes multi-domain threats into a single macroscopic narrative.
+* **Functionality:** Takes the external global OSINT telemetry and merges it with the localized `InternalRiskSnapshot` (Hardware/Software vulnerabilities).
+* **Output:** Generates a highly polished executive narrative comparing the active threat landscape directly against the organization's current internal asset attack surface.
+
+### 3.4 Weather & Hazard Analytics: `generate_executive_weather_brief(analytics, p1_count, sys_config)`
 * **Functionality:** Synthesizes a meteorological intelligence report specifically highlighting active Regional Hazards. Focuses on the operational districts most impacted and any critical (Priority 1) infrastructure exposures.
 
 ---
@@ -49,10 +54,9 @@ Generates an expansive, boardroom-ready intelligence brief summarizing 48-hour C
 
 All strategic reporting functions have had their chunk sizes and ingestion limits aggressively tuned to accommodate the throughput of local models and prevent hallucination due to context dilution.
 
-* **`cross_reference_cves`:** Chunks Known Exploited Vulnerabilities (KEVs) into batches of 8. It executes a strict scan (temperature 0.0) against the internal tech stack during the Map phase, and then reduces any matches into a Master Alert.
+* **`cross_reference_cves`:** Chunks Known Exploited Vulnerabilities (KEVs) into batches of 8. It executes a strict scan (temperature 0.0) against the internal `sys_config.tech_stack` during the Map phase, reducing matches into a Master Alert.
 * **`build_custom_intel_report`:** Utilizes a chunk limit of 3 and sets text truncation to 600 characters. This ensures exhaustive extraction of technical details, IOCs, and targeted systems during the Map phase without losing intelligence.
-* **`generate_aggregated_shift_summary`:** A two-tier Map-Reduce pipeline that digests high volumes of `ShiftLogEntry` records. It is explicitly scoped to a `target_role` (e.g., "admin", "analyst") and extracts critical incidents and unresolved issues into a polished Markdown handoff document for the specified weekly or monthly timeframe.
-* **`analyze_cascading_impacts` & `generate_briefing`:** Utilizes the universal `_map_reduce_summarize` pipeline with chunk sizes of 8 and 10, respectively, securely fitting within standard context windows.
+* **`generate_aggregated_shift_summary(session, valid_logs, agg_period, agg_target_role)`:** **[NEW]** A two-tier Map-Reduce pipeline that digests high volumes of `ShiftLogEntry` records. It is explicitly scoped to the requested `agg_target_role` (e.g., "admin", "analyst") and extracts critical incidents into a polished Markdown handoff document for the specified weekly or monthly timeframe.
 
 ---
 
@@ -60,9 +64,9 @@ All strategic reporting functions have had their chunk sizes and ingestion limit
 
 ### 5.1 Shift Context: `generate_rolling_summary(session)`
 * **Temporal Scoping:** Generates a cohesive executive narrative scoped strictly to the last 6 hours.
-* **Native String Compression:** Because the 6-hour volume is relatively small, this function bypasses the Map-Reduce pipeline. It natively gathers up to 10 top-scoring cyber articles, 10 hazards, and 10 cloud outages, appending them into a single context string. This is passed to a Master Editor prompt (temperature 0.2) to weave a fast-paced 2-paragraph executive summary ending in a definitive Grid Status assessment.
+* **Native String Compression:** Because the 6-hour volume is relatively small, this function bypasses the Map-Reduce pipeline. It natively gathers up to 10 top-scoring cyber articles, 10 hazards, and 10 cloud outages, appending them into a single context string. This is passed to a Master Editor prompt (temperature 0.2) to weave a fast-paced 2-paragraph summary.
 
 ### 5.2 Master SitRep: `generate_daily_fusion_report(session)`
-* **Architecture:** Refactored to route entirely through the `_map_reduce_summarize` pipeline across four distinct infrastructure domains.
+* **Architecture:** Routes entirely through the `_map_reduce_summarize` pipeline across four distinct infrastructure domains.
 * **Execution:** Iterates over the previous day's telemetry. Each domain executes its own Map-Reduce pipeline with tuned chunk sizes: Cyber (chunk 6), Vulnerabilities (chunk 8), Infrastructure Hazards (chunk 6), and Cloud Services (chunk 5).
 * **Master Editor & Fallback:** The four resulting domain summaries are concatenated and sent to a final Senior Director prompt for narrative smoothing and Markdown formatting. If the Master Editor fails or times out, the function falls back to a hardcoded string concatenation, guaranteeing the daily report is consistently generated regardless of LLM stability.
