@@ -469,7 +469,7 @@ if page == "👁️ Global Dashboards":
             * 🟠 **ORANGE (HIGH | +3 to +5):** High risk targeting core infrastructure. Multiple service outages, critical vulnerabilities actively exploited with significant impact.
             * 🔴 **RED (SEVERE | +6 to +8):** Severe risk. Widespread outages, destructive compromises to SCADA/critical systems. Potential for actual loss of life or economic security.
             """)
-            if st.button("Close", use_container_width=True):
+            if st.button("Close", width='stretch'):
                 st.rerun()
 
         st.subheader("📊 Executive Grid Threat Matrix")
@@ -477,7 +477,7 @@ if page == "👁️ Global Dashboards":
         # Legend Trigger Button
         col_title, col_leg = st.columns([3, 1])
         col_title.caption("Strategic synthesis of Physical and Cyber telemetry measured against a 14-day operational baseline.")
-        if col_leg.button("ℹ️ View CIS Threat Legend", use_container_width=True):
+        if col_leg.button("ℹ️ View CIS Threat Legend", width='stretch'):
             show_cis_legend()
             
         ar_warn = svc.get_cached_geojson()[1] or {}
@@ -703,7 +703,7 @@ if page == "👁️ Global Dashboards":
                 # Restrict visibility to administrators only
                 if st.session_state.current_role == "admin":
                     is_snap_cooling = check_cooldown("force_internal_snap", 30)
-                    if st.button("⏳ Processing..." if is_snap_cooling else "🔄 Force Generate", type="primary", use_container_width=True, disabled=is_snap_cooling):
+                    if st.button("⏳ Processing..." if is_snap_cooling else "🔄 Force Generate", type="primary", width='stretch', disabled=is_snap_cooling):
                         apply_cooldown("force_internal_snap")
                         with st.spinner("Calculating matrices..."):
                             svc.generate_and_save_internal_risk_snapshot()
@@ -762,7 +762,7 @@ if page == "👁️ Global Dashboards":
                 df_chart.set_index("Time", inplace=True)
                 df_chart.sort_index(inplace=True) # Ensure chronological order left-to-right
                 
-                st.line_chart(df_chart, use_container_width=True, color="#dc3545")
+                st.line_chart(df_chart, width='stretch', color="#dc3545")
                 st.divider()
         
                 # --- HARDWARE TABLE ---
@@ -1814,7 +1814,7 @@ elif page == "📝 Shift Logbook":
         
         if not is_del:
             # ANY user (Analyst or Admin) can soft-delete an active log
-            if st.button("🗑️ Soft Delete Log", type="primary", use_container_width=True):
+            if st.button("🗑️ Soft Delete Log", type="primary", width='stretch'):
                 with svc.SessionLocal() as session:
                     from src.database import ShiftLogEntry
                     db_log = session.query(ShiftLogEntry).get(log_entry.id)
@@ -1825,7 +1825,7 @@ elif page == "📝 Shift Logbook":
         else:
             # ONLY Admins can restore a log that has been deleted
             if st.session_state.current_role == "admin":
-                if st.button("♻️ Restore Log", use_container_width=True):
+                if st.button("♻️ Restore Log", width='stretch'):
                     with svc.SessionLocal() as session:
                         from src.database import ShiftLogEntry
                         db_log = session.query(ShiftLogEntry).get(log_entry.id)
@@ -1979,7 +1979,7 @@ elif page == "📝 Shift Logbook":
             retro_date = c_ret1.date_input("Select Previous Date", value=datetime.now(LOCAL_TZ).date() - timedelta(days=1), key="retro_eod_date")
             retro_role = c_ret2.selectbox("Target Role", [r.name for r in svc.get_all_roles()], key="retro_eod_role")
             
-            if st.button("🤖 Generate Retroactive EOD Report", key="gen_retro_eod", type="primary", disabled=not ai_enabled, use_container_width=True):
+            if st.button("🤖 Generate Retroactive EOD Report", key="gen_retro_eod", type="primary", disabled=not ai_enabled, width='stretch'):
                 with st.spinner(f"Synthesizing logs for {retro_date}..."):
                     retro_dt_start = datetime.combine(retro_date, datetime.min.time()).replace(tzinfo=LOCAL_TZ).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
                     retro_dt_end = retro_dt_start + timedelta(days=1)
@@ -2090,7 +2090,7 @@ elif page == "📝 Shift Logbook":
     # ================= DAY VIEW =================
     if st.session_state.log_view_mode == "Day View":
         c_nav1, c_nav2, c_nav3 = st.columns([1, 2, 1])
-        if c_nav1.button("⬅️ Previous Day", use_container_width=True): 
+        if c_nav1.button("⬅️ Previous Day", width='stretch'): 
             st.session_state.selected_log_date -= timedelta(days=1); safe_rerun()
             
         new_date = c_nav2.date_input("Select Date", value=st.session_state.selected_log_date, label_visibility="collapsed")
@@ -2098,7 +2098,7 @@ elif page == "📝 Shift Logbook":
             st.session_state.selected_log_date = new_date; safe_rerun()
             
         is_today = st.session_state.selected_log_date >= datetime.now(LOCAL_TZ).date()
-        if c_nav3.button("Next Day ➡️", use_container_width=True, disabled=is_today): 
+        if c_nav3.button("Next Day ➡️", width='stretch', disabled=is_today): 
             st.session_state.selected_log_date += timedelta(days=1); safe_rerun()
             
         st.markdown(f"<h4 style='text-align: center;'>Logs for {st.session_state.selected_log_date.strftime('%A, %B %d, %Y')}</h4>", unsafe_allow_html=True)
@@ -2144,7 +2144,7 @@ elif page == "📝 Shift Logbook":
                     
                 c4.markdown(f"<span style='font-size: 0.9rem;'>{display_msg}</span>", unsafe_allow_html=True)
                 
-                if c5.button("📄 Expand", key=f"btn_day_{l.id}", use_container_width=True):
+                if c5.button("📄 Expand", key=f"btn_day_{l.id}", width='stretch'):
                     open_log_modal(l)
                     
                 st.markdown("<hr style='margin: 0.3rem 0; opacity: 0.3;'/>", unsafe_allow_html=True)
@@ -2154,7 +2154,7 @@ elif page == "📝 Shift Logbook":
         if "week_offset" not in st.session_state: st.session_state.week_offset = 0
         
         c_nav1, c_nav2, c_nav3 = st.columns([1, 2, 1])
-        if c_nav1.button("⬅️ Previous Week", use_container_width=True): st.session_state.week_offset -= 1; safe_rerun()
+        if c_nav1.button("⬅️ Previous Week", width='stretch'): st.session_state.week_offset -= 1; safe_rerun()
         
         today = datetime.now(LOCAL_TZ).date()
         target_week_start = today - timedelta(days=today.weekday()) + timedelta(weeks=st.session_state.week_offset)
@@ -2162,7 +2162,7 @@ elif page == "📝 Shift Logbook":
         
         c_nav2.markdown(f"<h4 style='text-align: center; margin-top: 0;'>Week of {target_week_start.strftime('%B %d, %Y')}</h4>", unsafe_allow_html=True)
         
-        if c_nav3.button("Next Week ➡️", use_container_width=True, disabled=(st.session_state.week_offset >= 0)): st.session_state.week_offset += 1; safe_rerun()
+        if c_nav3.button("Next Week ➡️", width='stretch', disabled=(st.session_state.week_offset >= 0)): st.session_state.week_offset += 1; safe_rerun()
         
         dt_start = datetime.combine(target_week_start, datetime.min.time()).replace(tzinfo=LOCAL_TZ).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
         dt_end = datetime.combine(target_week_end, datetime.min.time()).replace(tzinfo=LOCAL_TZ).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
@@ -2175,7 +2175,7 @@ elif page == "📝 Shift Logbook":
         for i, col in enumerate(cal_cols):
             current_day_date = target_week_start + timedelta(days=i)
             with col:
-                if st.button(f"{days_of_week[i][:3]}\n{current_day_date.strftime('%m/%d')}", key=f"day_btn_{i}", use_container_width=True):
+                if st.button(f"{days_of_week[i][:3]}\n{current_day_date.strftime('%m/%d')}", key=f"day_btn_{i}", width='stretch'):
                     st.session_state.selected_log_date = current_day_date
                     st.session_state.log_view_mode = "Day View"
                     safe_rerun()
@@ -2190,7 +2190,7 @@ elif page == "📝 Shift Logbook":
                         shift_abbr = "Morn" if "Morning" in l.shift_period else "Eve"
                         local_time = format_local_time(l.created_at).split(' ')[1]
                         
-                        if st.button(f"{local_time} | {shift_abbr}", key=f"btn_wk_{l.id}", help="Click to read full log", use_container_width=True):
+                        if st.button(f"{local_time} | {shift_abbr}", key=f"btn_wk_{l.id}", help="Click to read full log", width='stretch'):
                             open_log_modal(l)
 
     # ================= ADMIN DATA EXPORT =================
