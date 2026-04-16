@@ -1537,118 +1537,117 @@ elif page == "🎯 Threat Hunting & IOCs":
             th_idx += 1
         
         if "Tab: Reporting -> Elastic SIEM Report" in st.session_state.allowed_actions:
-            with th_tabs[th_idx]:
-                st.subheader("🔎 Elastic SIEM Telemetry & Reporting")
-                st.caption("Live synthesis of internal SIEM logs against external NOC telemetry.")
+            with tabs[tab_idx]:
+                st.subheader("🌌 Advanced SIEM Fusion & Hunt")
+                st.caption("Live, bi-directional telemetry hunt utilizing local AI-assisted query generation.")
                 
-                c_sync, c_space = st.columns([1, 4])
-                if c_sync.button("🔄 Sync Elastic Cache", width='stretch', type="primary"):
-                    with st.spinner("Polling Elastic Stack..."):
-                        from src.elastic_worker import sync_elastic_telemetry, purge_stale_elastic_data
-                        sync_elastic_telemetry(hours_back=24)
-                        purge_stale_elastic_data(hours_to_keep=72)
-                        st.rerun()
+                t_dash, t_hunt, t_ai = st.tabs(["📊 Rolling Cache (Fast)", "🕵️ Live Hunt (API)", "🤖 AI Query Builder"])
+                
+                # ---------------------------------------------------------
+                # TAB 1: THE LOCAL ROLLING CACHE (Fast, safe, offline-capable)
+                # ---------------------------------------------------------
+                with t_dash:
+                    c_sync, c_space = st.columns([1, 4])
+                    if c_sync.button("🔄 Sync Local Cache", width='stretch', type="primary", key="sync_es_cache"):
+                        with st.spinner("Polling Elastic Stack..."):
+                            from src.elastic_worker import sync_elastic_telemetry, purge_stale_elastic_data
+                            sync_elastic_telemetry(hours_back=24)
+                            purge_stale_elastic_data(hours_to_keep=72)
+                            st.rerun()
 
-                st.divider()
+                    with svc.SessionLocal() as dbtmp:
+                        from src.database import ElasticEvent
+                        raw_events = dbtmp.query(ElasticEvent).filter(
+                            ElasticEvent.timestamp >= datetime.utcnow() - timedelta(hours=24)
+                        ).all()
 
-                with svc.SessionLocal() as dbtmp:
-                    from src.database import ElasticEvent
-                    raw_events = dbtmp.query(ElasticEvent).filter(
-                        ElasticEvent.timestamp >= datetime.utcnow() - timedelta(hours=24)
-                    ).all()
+                    if not raw_events:
+                        st.success("✅ No high-severity SIEM alerts logged locally in the last 24 hours.")
+                    else:
+                        import pandas as pd
+                        import plotly.express as px
+                        
+                        df = pd.DataFrame([{
+                            "Time": e.timestamp, "Severity": e.severity, 
+                            "Category": e.event_category, "IP": e.source_ip, "Message": e.message
+                        } for e in raw_events])
+                        
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Local High/Crit Alerts", len(df))
+                        c2.metric("Unique Threat IPs", df['IP'].nunique())
+                        c3.metric("Critical Density", f"{int((len(df[df['Severity'] == 'CRITICAL']) / len(df)) * 100)}%")
+                        
+                        st.dataframe(df.sort_values('Time', ascending=False), hide_index=True, use_container_width=True)
 
-                if not raw_events:
-                    st.success("✅ No high-severity SIEM alerts logged in the last 24 hours.")
-                else:
-                    import pandas as pd
-                    import plotly.express as px
+                # ---------------------------------------------------------
+                # TAB 2: LIVE HUNT & CORRELATION (Direct API)
+                # ---------------------------------------------------------
+                with t_hunt:
+                    st.markdown("### 🎯 Live Elastic Hunt")
                     
-                    df = pd.DataFrame([{
-                        "Timestamp": e.timestamp, "Severity": e.severity, 
-                        "Category": e.event_category, "Source IP": e.source_ip, "Message": e.message
-                    } for e in raw_events])
+                    hc1, hc2, hc3 = st.columns(3)
+                    hunt_index = hc1.selectbox("Target Index", ["*", "logs-*", ".ds-winlogbeat-*", ".ds-logs-cisco_umbrella*", ".ds-logs-network_traffic*", ".ds-logs-system.security*"])
+                    hunt_limit = hc2.number_input("Result Limit (Protect RAM)", min_value=10, max_value=500, value=50)
+                    hunt_term = hc3.text_input("Quick Keyword Search", value="")
                     
-                    # --- METRICS & CHARTS ---
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("Total High/Crit Alerts (24h)", len(df))
-                    c2.metric("Unique Source IPs", df['Source IP'].nunique())
-                    c3.metric("Critical Events", len(df[df['Severity'] == 'CRITICAL']), delta_color="inverse")
+                    if st.button("🚀 Execute Live Hunt", type="primary", use_container_width=True):
+                        with st.spinner("Executing query against cluster..."):
+                            from src.elastic_worker import execute_live_query
+                            import json
+                            
+                            if hunt_term:
+                                query_body = {"query": {"query_string": {"query": f"*{hunt_term}*"}}, "sort": [{"@timestamp": {"order": "desc", "unmapped_type": "boolean"}}]}
+                            else:
+                                query_body = {"query": {"match_all": {}}, "sort": [{"@timestamp": {"order": "desc", "unmapped_type": "boolean"}}]}
+                                
+                            results = execute_live_query(index_pattern=hunt_index, query_body=query_body, size=hunt_limit)
+                            
+                            if isinstance(results, dict) and "error" in results:
+                                st.error(f"Elastic Error: {results['error']}")
+                            elif not results:
+                                st.warning("0 Results Found.")
+                            else:
+                                # Parse complex raw JSON into a flat, readable table
+                                flat_results = []
+                                for r in results:
+                                    src = r.get('_source', {})
+                                    flat_results.append({
+                                        "Time": src.get('@timestamp', ''),
+                                        "Severity": src.get('log', {}).get('level', src.get('event', {}).get('severity', 'UNKNOWN')),
+                                        "Message": src.get('message', src.get('event', {}).get('original', 'N/A')),
+                                        "Source IP": src.get('source', {}).get('ip', 'N/A')
+                                    })
+                                
+                                st.session_state.last_hunt_results = flat_results 
+                                st.dataframe(flat_results, use_container_width=True)
+                                
+                    # --- NATIVE AI SUMMARIZATION TRIGGER ---
+                    if hasattr(st.session_state, 'last_hunt_results') and st.session_state.last_hunt_results:
+                        if st.button("🧠 AI Triage & Summarize Results", use_container_width=True):
+                            with st.spinner("Analyzing telemetry payload with local model..."):
+                                from src.llm import generate_siem_triage_summary
+                                ai_text = generate_siem_triage_summary(svc.SessionLocal(), st.session_state.last_hunt_results)
+                                st.info(ai_text)
+
+                # ---------------------------------------------------------
+                # TAB 3: AI QUERY AUTO-BUILDER
+                # ---------------------------------------------------------
+                with t_ai:
+                    st.markdown("### 🤖 Natural Language to Elastic DSL")
+                    st.caption("Tell the AI what you want to find, and it will generate the perfect JSON query for Elastic.")
                     
-                    c_chart1, c_chart2 = st.columns(2)
-                    with c_chart1:
-                        sev_counts = df['Severity'].value_counts().reset_index()
-                        sev_counts.columns = ['Severity', 'Count']
-                        fig1 = px.pie(sev_counts, values='Count', names='Severity', hole=0.5, title="Alert Distribution",
-                                      color='Severity', color_discrete_map={"CRITICAL": "#dc3545", "HIGH": "#fd7e14"})
-                        st.plotly_chart(fig1, use_container_width=True)
-                        
-                    with c_chart2:
-                        top_ips = df['Source IP'].value_counts().head(5).reset_index()
-                        top_ips.columns = ['Source IP', 'Count']
-                        fig2 = px.bar(top_ips, x='Source IP', y='Count', title="Top 5 Offending Source IPs", color_discrete_sequence=['#2c3e50'])
-                        st.plotly_chart(fig2, use_container_width=True)
-                        
-                    # --- RAW DATA MATRIX ---
-                    with st.expander("🧮 View Raw SIEM Matrix", expanded=True):
-                        st.dataframe(df.sort_values('Timestamp', ascending=False), hide_index=True, width="stretch")
-                        
-                    st.divider()
+                    nl_query = st.text_area("What are you looking for?", placeholder="e.g., Show me all failed Windows logins from outside the US in the last 2 hours.", height=100)
                     
-                    # --- EMAIL REPORT GENERATOR ---
-                    st.subheader("📤 Broadcast SIEM Shift Report")
-                    st.caption("Generates a boardroom-ready HTML email containing the charts and alert metrics.")
-                    
-                    c_em1, c_em2 = st.columns([3, 1])
-                    default_email = sys_config.smtp_recipient if sys_config and sys_config.smtp_recipient else ""
-                    siem_recipients = c_em1.text_input("Recipient Email(s)", value=default_email, key="siem_recip")
-                    
-                    if c_em2.button("✉️ Transmit SIEM Report", type="primary", width='stretch'):
-                        if not siem_recipients:
-                            st.error("Please enter a recipient.")
+                    if st.button("Generate Query", type="primary"):
+                        if not nl_query: st.warning("Enter a prompt first.")
                         else:
-                            with st.spinner("Compiling HTML visual graphs and transmitting..."):
-                                # Reuse your existing HTML bar chart logic for emails
-                                def build_email_bar_chart(data_df, label_col, count_col, title, color="#2980b9"):
-                                    total = data_df[count_col].sum()
-                                    if total == 0: return ""
-                                    html = f"<h3 style='color:#2980b9; margin-bottom: 5px;'>{title}</h3>"
-                                    html += "<table style='width:100%; border-collapse: collapse; font-family: Arial, sans-serif; margin-bottom: 20px;'>"
-                                    for _, row in data_df.iterrows():
-                                        label, count = row[label_col], row[count_col]
-                                        pct = int((count / total) * 100) if total > 0 else 0
-                                        html += f"<tr>"
-                                        html += f"<td style='width:30%; padding: 4px 0; font-size:13px; font-weight:bold; color:#444;'>{label}</td>"
-                                        html += f"<td style='width:60%; padding: 4px 10px;'><div style='background-color:#e9ecef; width:100%; border-radius:3px;'><div style='background-color:{color}; width:{pct}%; height:18px; border-radius:3px;'></div></div></td>"
-                                        html += f"<td style='width:10%; padding: 4px 0; font-size:13px; text-align:right; font-weight:bold; color:#333;'>{count}</td>"
-                                        html += f"</tr>"
-                                    html += "</table>"
-                                    return html
+                            with st.spinner("Translating intent to Elastic DSL..."):
+                                from src.llm import generate_elastic_dsl
+                                raw_json = generate_elastic_dsl(svc.SessionLocal(), nl_query)
                                 
-                                ip_html = build_email_bar_chart(top_ips, 'Source IP', 'Count', "Top 5 Offending IPs", color="#d9534f")
-                                sev_html = build_email_bar_chart(sev_counts, 'Severity', 'Count', "Alerts by Severity", color="#f0ad4e")
-                                
-                                html_body = f"""
-                                <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
-                                    <h2 style='color:#2c3e50;'>NOC SIEM Telemetry Report (24h)</h2>
-                                    <div style='background:#f8f9fa; padding:15px; border-left:4px solid #d9534f; margin-bottom: 20px;'>
-                                        <b>Total Escalated Alerts:</b> {len(df)}<br/>
-                                        <b>Critical Density:</b> {len(df[df['Severity'] == 'CRITICAL'])}<br/>
-                                        <b>Unique Attack Vectors (IPs):</b> {df['Source IP'].nunique()}
-                                    </div>
-                                    
-                                    {sev_html}
-                                    {ip_html}
-                                    
-                                    <p style="text-align: center; color: #7f8c8d; font-size: 12px; margin-top: 20px;">
-                                        Generated dynamically by NOC Intelligence Fusion Center
-                                    </p>
-                                </div>
-                                """
-                                from src.mailer import send_alert_email
-                                success, msg = send_alert_email("Daily SIEM Telemetry & Threat Report", html_body, recipient_override=siem_recipients, is_html=True)
-                                if success: st.success(f"Report dispatched to {siem_recipients}")
-                                else: st.error(f"SMTP Error: {msg}")
-            th_idx += 1
+                                st.code(raw_json, language="json")
+                                st.success("Query Generated! Copy this and use it in Kibana, or pass it to a custom Live Hunt API call.")
+            tab_idx += 1
 
 # ================= 4. AIOps RCA =================
 elif page == "⚡ AIOps RCA":
