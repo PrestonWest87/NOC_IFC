@@ -97,39 +97,34 @@ if st.session_state.current_user is None:
             if user.role == "admin":
                 st.session_state.allowed_pages = ALL_POSSIBLE_PAGES
                 st.session_state.allowed_actions = ALL_POSSIBLE_ACTIONS
+                st.session_state.allowed_site_types = "ALL" # <-- NEW
             else:
                 roles = svc.get_all_roles()
                 role_obj = next((r for r in roles if r.name == user.role), None)
                 if role_obj:
                     st.session_state.allowed_pages = role_obj.allowed_pages
                     st.session_state.allowed_actions = role_obj.allowed_actions or []
+                    st.session_state.allowed_site_types = getattr(role_obj, 'allowed_site_types', []) or [] # <-- NEW
             safe_rerun()
 
-if st.session_state.current_user is None:
-    st.title("🔐 NOC Fusion Center")
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c2:
-        with st.form("login_form"):
-            username = st.text_input("Username")
-            password = st.text_input("Password", type="password")
-            if st.form_submit_button("Authenticate", width="stretch"):
+if st.form_submit_button("Authenticate", width="stretch"):
                 user, token = svc.authenticate_user(username, password)
                 if user:
                     cookie_controller.set("noc_session_token", token, max_age=30*86400)
                     st.session_state.current_user = user.username
                     st.session_state.current_role = user.role
                     
-                    # --- NEW LOGIC ADDED HERE ---
                     if user.role == "admin":
                         st.session_state.allowed_pages = ALL_POSSIBLE_PAGES
                         st.session_state.allowed_actions = ALL_POSSIBLE_ACTIONS
+                        st.session_state.allowed_site_types = "ALL" # <-- NEW
                     else:
                         roles = svc.get_all_roles()
                         role_obj = next((r for r in roles if r.name == user.role), None)
                         if role_obj:
                             st.session_state.allowed_pages = role_obj.allowed_pages
                             st.session_state.allowed_actions = role_obj.allowed_actions or []
-                    # ----------------------------
+                            st.session_state.allowed_site_types = getattr(role_obj, 'allowed_site_types', []) or [] # <-- NEW
                     
                     time.sleep(0.5); safe_rerun()
                 else: 
@@ -139,6 +134,7 @@ if st.session_state.current_user is None:
 if st.session_state.current_role == "admin":
     st.session_state.allowed_pages = ALL_POSSIBLE_PAGES
     st.session_state.allowed_actions = ALL_POSSIBLE_ACTIONS
+    st.session_state.allowed_site_types = "ALL" # <-- NEW
 
 can_pin = "Action: Pin Articles" in st.session_state.allowed_actions
 can_train = "Action: Train ML Model" in st.session_state.allowed_actions
@@ -1065,6 +1061,9 @@ elif page == "🗺️ Regional Grid":
             safe_rerun()
     
     locs = svc.get_cached_locations()
+    if st.session_state.allowed_site_types != "ALL":
+        locs = [l for l in locs if l.loc_type in st.session_state.allowed_site_types]
+        
     df = pd.DataFrame([{
         "id": l.id, "Name": l.name, "Type": l.loc_type, "District": l.district,
         "Priority": l.priority, "Risk": l.current_spc_risk, 
@@ -1559,6 +1558,11 @@ elif page == "⚡ AIOps RCA":
                 with c_l:
                     st.subheader("🗺️ Overlays")
                     locs = svc.get_cached_locations()
+                    if st.session_state.allowed_site_types != "ALL":
+                    locs = [l for l in locs if l.loc_type in st.session_state.allowed_site_types]
+                    allowed_loc_names = {l.name for l in locs}
+                    # Automatically hide alerts for sites the user is not allowed to monitor
+                    alerts = [a for a in alerts if a.mapped_location in allowed_loc_names]
 
                     # --- UNDOCUMENTED TROLLING MECHANISM (OPERATION: DEAN) ---
                     # Only inject the fake alerts if the person viewing the map is the chosen target
@@ -1647,6 +1651,17 @@ elif page == "⚡ AIOps RCA":
                                         
                                     can_dispatch = "Action: Dispatch RCA Tickets" in st.session_state.allowed_actions
                                     can_manage_maint = "Action: Manage Site Maintenance" in st.session_state.allowed_actions
+                                    
+                                    # --- NEW: RBAC DISPATCHED CHECKBOX ---
+                                    is_dispatched = any(getattr(a, 'is_dispatched', False) for a in data['alerts'])
+                                    if can_dispatch:
+                                        new_dispatch = st.checkbox("✅ Ticket Dispatched", value=is_dispatched, key=f"disp_{site}")
+                                        if new_dispatch != is_dispatched:
+                                            svc.set_cluster_dispatch([a.id for a in data['alerts']], new_dispatch)
+                                            st.rerun()
+                                    else:
+                                        if is_dispatched:
+                                            st.success("✅ Ticket Dispatched")
                                     
                                     # --- NOC TICKET DISPATCH CONTROLS ---
                                     if can_dispatch:
@@ -2587,10 +2602,15 @@ elif page == "⚙️ Settings & Admin":
                             new_role_name = st.text_input("Role Name").strip().lower()
                             new_role_pages = st.multiselect("Allowed Master Pages", ALL_POSSIBLE_PAGES)
                             new_role_actions = st.multiselect("Allowed Sub-Tabs & Actions", ALL_POSSIBLE_ACTIONS)
+                            
+                            # --- NEW: SITE TYPE CONFIGURATION ---
+                            avail_types = svc.get_all_site_types()
+                            new_role_site_types = st.multiselect("Allowed Site Types", avail_types, default=avail_types)
+                            
                             if st.form_submit_button("Create Role", width="stretch"):
                                 if not new_role_name or not new_role_pages: st.error("Role name and at least one page required.")
                                 else:
-                                    if svc.create_role(new_role_name, new_role_pages, new_role_actions):
+                                    if svc.create_role(new_role_name, new_role_pages, new_role_actions, new_role_site_types):
                                         if hasattr(svc.get_all_roles, "clear"): svc.get_all_roles.clear()
                                         st.success(f"Role '{new_role_name}' created!"); time.sleep(1); safe_rerun()
                                     else: st.error("Role name already exists.")
@@ -2609,13 +2629,19 @@ elif page == "⚙️ Settings & Admin":
                                     valid_default_pages = [p for p in current_pages if p in ALL_POSSIBLE_PAGES]
                                     valid_default_actions = [a for a in current_actions if a in ALL_POSSIBLE_ACTIONS]
                                     
+                                    # --- NEW: SITE TYPE CONFIGURATION ---
+                                    avail_types = svc.get_all_site_types()
+                                    current_types = getattr(selected_role_obj, 'allowed_site_types', []) or []
+                                    valid_default_types = [t for t in current_types if t in avail_types]
+                                    
                                     updated_pages = st.multiselect("Allowed Master Pages", ALL_POSSIBLE_PAGES, default=valid_default_pages)
                                     updated_actions = st.multiselect("Allowed Sub-Tabs & Actions", ALL_POSSIBLE_ACTIONS, default=valid_default_actions)
+                                    updated_site_types = st.multiselect("Allowed Site Types", avail_types, default=valid_default_types)
                                     
                                     if st.form_submit_button("Update Role", width="stretch"):
                                         if not updated_pages: st.error("A role must have at least one allowed page.")
                                         else:
-                                            svc.update_role(role_to_edit, updated_pages, updated_actions)
+                                            svc.update_role(role_to_edit, updated_pages, updated_actions, updated_site_types)
                                             if hasattr(svc.get_all_roles, "clear"): svc.get_all_roles.clear()
                                             st.success(f"Role '{role_to_edit}' updated!"); time.sleep(1); safe_rerun()
                         else: st.info("No editable roles available.")
