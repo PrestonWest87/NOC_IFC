@@ -1111,13 +1111,16 @@ def dispatch_perimeter_crime_alerts():
     import os
     from zoneinfo import ZoneInfo
     
-    # You can update your .env to CRIME_ALERT_SMS (e.g., using an email-to-SMS gateway address)
+    # Reads the recipient(s) from your .env file. Supports comma-separated lists!
     alert_sms = os.getenv("CRIME_ALERT_SMS")
     if not alert_sms:
-        # Fallback to the old env var just in case you haven't renamed it yet
+        # Fallback to the old env var
         alert_sms = os.getenv("CRIME_ALERT_EMAIL")
         if not alert_sms:
             return False, "CRIME_ALERT_SMS not set in environment variables."
+            
+    # Clean up the string just in case there are weird spaces in the .env file
+    alert_sms = ", ".join([email.strip() for email in alert_sms.split(",")])
         
     with SessionLocal() as db:
         # Find all un-dispatched crimes within 0.4 miles that are categorized as High severity
@@ -1131,7 +1134,7 @@ def dispatch_perimeter_crime_alerts():
             return True, "No new alerts to dispatch."
             
         for crime in new_crimes:
-            # Standard Google Maps query link (much more reliable for mobile SMS click-throughs)
+            # Standard Google Maps query link (mobile SMS click-through)
             gmaps_link = f"https://www.google.com/maps?q={crime.lat},{crime.lon}"
             
             # Formatted to be slightly shorter for SMS reading
@@ -1150,8 +1153,8 @@ def dispatch_perimeter_crime_alerts():
             success, msg = send_alert_email(
                 subject=f"Crime Alert: {crime.distance_miles}mi",
                 body=sms_body,
-                recipient_override=alert_sms,
-                is_html=False  # IMPORTANT: Set to False so it sends as pure plain text
+                recipient_override=alert_sms,  # Passes the cleaned, comma-separated list
+                is_html=False 
             )
             
             # If the SMS sent successfully, mark it as dispatched so we never send it again
