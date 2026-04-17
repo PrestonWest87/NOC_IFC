@@ -295,12 +295,27 @@ with st.sidebar.expander("📝 My Profile"):
         new_fn = st.text_input("Full Name", value=current_user_obj.full_name or "")
         new_jt = st.text_input("Job Title", value=current_user_obj.job_title or "")
         new_ci = st.text_input("Contact Info", value=current_user_obj.contact_info or "")
+        
+        # --- NEW SHIFT SELECTION ---
+        shift_options = ["Morning", "Afternoon", "Night", "No Shift"]
+        current_shift = getattr(current_user_obj, 'default_shift', "No Shift")
+        if current_shift not in shift_options: current_shift = "No Shift"
+        new_shift = st.selectbox("Default Shift", shift_options, index=shift_options.index(current_shift))
+        
         st.divider()
         old_pwd = st.text_input("Current Password", type="password")
         new_pwd = st.text_input("New Password", type="password")
         if st.form_submit_button("Save Profile", width="stretch"):
             success, msg = svc.update_user_profile(st.session_state.current_user, new_fn, new_jt, new_ci, old_pwd, new_pwd)
-            if success: st.success(msg); time.sleep(0.5); safe_rerun()
+            if success: 
+                # Direct DB update for the new shift field
+                with svc.SessionLocal() as db:
+                    from src.database import User
+                    u = db.query(User).filter_by(username=st.session_state.current_user).first()
+                    if u:
+                        u.default_shift = new_shift
+                        db.commit()
+                st.success(msg); time.sleep(0.5); safe_rerun()
             else: st.error(msg)
 
 st.sidebar.divider()
@@ -1998,7 +2013,18 @@ elif page == "📝 Shift Logbook":
     with c_entry:
         with st.form("incident_entry_form", clear_on_submit=True):
             c_sh1, c_sh2 = st.columns(2)
-            shift_period = c_sh1.selectbox("Active Shift", ["Morning (06:00 - 14:30)", "Afternoon/Evening (11:30 - 20:00)"])
+            
+            # --- NEW DYNAMIC SHIFT/DATE LOGIC ---
+            user_shift = getattr(current_user_obj, 'default_shift', 'No Shift')
+
+            if user_shift == "No Shift":
+                shift_val = c_sh1.date_input("Active Shift Date", value=datetime.now(LOCAL_TZ).date())
+                shift_period = f"Date: {shift_val.strftime('%Y-%m-%d')}"
+            else:
+                shift_choices = ["Morning", "Afternoon", "Night"]
+                default_idx = shift_choices.index(user_shift) if user_shift in shift_choices else 0
+                shift_period = c_sh1.selectbox("Active Shift", shift_choices, index=default_idx)
+            
             analyst_name = c_sh2.text_input("Analyst", value=current_user_obj.full_name or st.session_state.current_user)
             
             default_text = st.session_state.get("aiops_draft", "")
