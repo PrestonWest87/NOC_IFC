@@ -300,12 +300,13 @@ def get_recent_crimes(max_distance=None, grid_only=False, hours_back=168):
             "distance_miles": c.distance_miles, "severity": c.severity,
             "lat": c.lat, "lon": c.lon
         } for c in crimes]
-
+        
 def force_fetch_crime_data():
     """Triggers the crime worker logic manually from the UI."""
     try:
         from src.crime_worker import fetch_live_crimes
         fetch_live_crimes()
+        dispatch_perimeter_crime_alerts() # <-- ADD THIS LINE
         return True
     except Exception as e:
         print(f"Manual fetch failed: {e}")
@@ -821,8 +822,6 @@ def generate_and_save_internal_risk_snapshot():
 
 import re
 
-import re
-
 def generate_unified_brief_email_html(report_time, markdown_content):
     # 1. Safely extract risk levels from the AI's generated text
     def extract_risk(keyword, text):
@@ -1105,6 +1104,62 @@ def get_active_wildfires():
             return active_fires
         return []
     except: return []
+
+def dispatch_perimeter_crime_alerts():
+    """Checks for un-dispatched high severity crimes within 0.4 miles and sends an SMS-friendly alert."""
+    from src.database import SessionLocal, CrimeIncident
+    import os
+    from zoneinfo import ZoneInfo
+    
+    # You can update your .env to CRIME_ALERT_SMS (e.g., using an email-to-SMS gateway address)
+    alert_sms = os.getenv("CRIME_ALERT_SMS")
+    if not alert_sms:
+        # Fallback to the old env var just in case you haven't renamed it yet
+        alert_sms = os.getenv("CRIME_ALERT_EMAIL")
+        if not alert_sms:
+            return False, "CRIME_ALERT_SMS not set in environment variables."
+        
+    with SessionLocal() as db:
+        # Find all un-dispatched crimes within 0.4 miles that are categorized as High severity
+        new_crimes = db.query(CrimeIncident).filter(
+            CrimeIncident.distance_miles <= 0.4,
+            CrimeIncident.severity.ilike('%High%'),
+            CrimeIncident.is_alert_dispatched == False
+        ).all()
+        
+        if not new_crimes:
+            return True, "No new alerts to dispatch."
+            
+        for crime in new_crimes:
+            # Standard Google Maps query link (much more reliable for mobile SMS click-throughs)
+            gmaps_link = f"https://www.google.com/maps?q={crime.lat},{crime.lon}"
+            
+            # Formatted to be slightly shorter for SMS reading
+            local_time = crime.timestamp.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/Chicago")).strftime('%m/%d %I:%M %p')
+            
+            # Concise Plain Text format for SMS
+            sms_body = (
+                f"🚨 PERIMETER ALERT 🚨\n"
+                f"{crime.raw_title}\n"
+                f"Dist: {crime.distance_miles} mi\n"
+                f"Time: {local_time}\n"
+                f"Map: {gmaps_link}"
+            )
+            
+            from src.mailer import send_alert_email
+            success, msg = send_alert_email(
+                subject=f"Crime Alert: {crime.distance_miles}mi",
+                body=sms_body,
+                recipient_override=alert_sms,
+                is_html=False  # IMPORTANT: Set to False so it sends as pure plain text
+            )
+            
+            # If the SMS sent successfully, mark it as dispatched so we never send it again
+            if success:
+                crime.is_alert_dispatched = True
+                
+        db.commit()
+    return True, "Perimeter SMS alerts processed."
 
 def get_hazards(limit=15, hours_back=None):
     with SessionLocal() as db:
