@@ -134,14 +134,26 @@ def get_shift_logs(role_filter="All", start_date=None, end_date=None):
         logs = query.order_by(ShiftLogEntry.created_at.asc()).all()
         return to_dotdict_list(logs)
 
-def save_shift_log(analyst, role, shift_period, content):
+def save_shift_log(analyst, role, shift_period, content, custom_date=None):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
     with SessionLocal() as db:
-        db.add(ShiftLogEntry(
+        new_log = ShiftLogEntry(
             analyst=analyst, 
             author_role=role, 
             shift_period=shift_period, 
             content=content
-        ))
+        )
+        
+        # If a custom date was selected (No Shift), override the timestamp
+        if custom_date:
+            # Combine the selected date with the current time so it orders nicely
+            local_dt = datetime.combine(custom_date, datetime.now().time()).replace(tzinfo=ZoneInfo("America/Chicago"))
+            utc_dt = local_dt.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+            new_log.created_at = utc_dt
+            new_log.shift_date = utc_dt
+            
+        db.add(new_log)
         db.commit()
         return True
 
