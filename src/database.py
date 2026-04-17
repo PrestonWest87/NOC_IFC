@@ -48,7 +48,8 @@ class User(Base):
     full_name = Column(String, nullable=True)
     job_title = Column(String, nullable=True)
     contact_info = Column(String, nullable=True)
-
+    default_shift = Column(String, default="No Shift")
+    
 class Role(Base):
     __tablename__ = "roles"
     id = Column(Integer, primary_key=True, index=True)
@@ -417,6 +418,12 @@ def init_db():
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE system_config ADD COLUMN unified_brief TEXT"))
             conn.execute(text("ALTER TABLE system_config ADD COLUMN unified_brief_time DATETIME"))
+    except Exception:
+        pass
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN default_shift VARCHAR DEFAULT 'No Shift'"))
     except Exception:
         pass
     
