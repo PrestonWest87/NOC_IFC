@@ -2016,10 +2016,12 @@ elif page == "📝 Shift Logbook":
             
             # --- NEW DYNAMIC SHIFT/DATE LOGIC ---
             user_shift = getattr(current_user_obj, 'default_shift', 'No Shift')
+            custom_shift_date = None # Track the custom date
 
             if user_shift == "No Shift":
                 shift_val = c_sh1.date_input("Active Shift Date", value=datetime.now(LOCAL_TZ).date())
                 shift_period = f"Date: {shift_val.strftime('%Y-%m-%d')}"
+                custom_shift_date = shift_val # Capture it here
             else:
                 shift_choices = ["Morning", "Afternoon", "Night"]
                 default_idx = shift_choices.index(user_shift) if user_shift in shift_choices else 0
@@ -2033,7 +2035,8 @@ elif page == "📝 Shift Logbook":
             can_submit = "Action: Submit Shift Log" in st.session_state.allowed_actions
             if st.form_submit_button("➕ Append to Running Log", type="primary", disabled=not can_submit, width="stretch"):
                 if incident_notes.strip():
-                    svc.save_shift_log(analyst_name, st.session_state.current_role, shift_period, incident_notes.strip())
+                    # Pass the custom_shift_date to the service function
+                    svc.save_shift_log(analyst_name, st.session_state.current_role, shift_period, incident_notes.strip(), custom_date=custom_shift_date)
                     if "aiops_draft" in st.session_state: del st.session_state.aiops_draft
                     st.success("Incident appended to shift log!")
                     time.sleep(0.5); safe_rerun()
