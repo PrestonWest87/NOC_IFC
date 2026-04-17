@@ -301,7 +301,7 @@ if __name__ == "__main__":
     schedule.every(60).minutes.do(run_threaded, run_database_maintenance)
     schedule.every(2).hours.do(run_threaded, job_unified_brief)
     schedule.every(15).minutes.do(run_threaded, fetch_feeds)
-    schedule.every(30).minutes.do(run_threaded, fetch_live_crimes)
+    schedule.every(3).minutes.do(run_threaded, fetch_live_crimes)
     schedule.every(6).hours.do(run_threaded, fetch_cisa_kev)
     schedule.every(6).hours.do(run_threaded, job_internal_risk)
     
