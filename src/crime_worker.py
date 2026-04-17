@@ -6,6 +6,7 @@ import random
 import time
 import hashlib
 from datetime import datetime, timedelta
+from src.services import dispatch_perimeter_crime_alerts
 
 # --- PATH FIX: Ensure Python can find the 'src' module ---
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -119,6 +120,10 @@ def fetch_live_crimes():
             db.query(CrimeIncident).filter(CrimeIncident.timestamp < seven_days_ago).delete()
             db.commit()
             print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ CRIME WORKER: {added_count} new LR dispatches mapped.")
+
+            if added_count > 0:
+                from src.services import dispatch_perimeter_crime_alerts
+                dispatch_perimeter_crime_alerts()
 
     except Exception as e:
         print(f"🚨 LR CRIME WORKER FAILED: {e}")
