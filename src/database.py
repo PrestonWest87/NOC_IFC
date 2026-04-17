@@ -346,6 +346,7 @@ class CrimeIncident(Base):
     severity = Column(String)
     lat = Column(Float)
     lon = Column(Float)
+    is_alert_dispatched = Column(Boolean, default=False, index=True)
 
 class GeoJsonCache(Base):
     __tablename__ = "geojson_cache"
@@ -424,6 +425,12 @@ def init_db():
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN default_shift VARCHAR DEFAULT 'No Shift'"))
+    except Exception:
+        pass
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE crime_incidents ADD COLUMN is_alert_dispatched BOOLEAN DEFAULT 0"))
     except Exception:
         pass
     
