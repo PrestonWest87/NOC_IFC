@@ -148,7 +148,7 @@ def save_shift_log(analyst, role, shift_period, content, custom_date=None):
         # If a custom date was selected (No Shift), override the timestamp
         if custom_date:
             # Combine the selected date with the current time so it orders nicely
-            local_dt = datetime.combine(custom_date, datetime.now().time()).replace(tzinfo=ZoneInfo("America/Chicago"))
+            local_dt = datetime.combine(custom_date, datetime.now(ZoneInfo("America/Chicago")).time()).replace(tzinfo=ZoneInfo("America/Chicago"))
             utc_dt = local_dt.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
             new_log.created_at = utc_dt
             new_log.shift_date = utc_dt
