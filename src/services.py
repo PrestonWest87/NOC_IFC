@@ -1138,7 +1138,7 @@ def dispatch_perimeter_crime_alerts():
             gmaps_link = f"https://www.google.com/maps?q={crime.lat},{crime.lon}"
             
             # Formatted to be slightly shorter for SMS reading
-            local_time = crime.timestamp.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/Chicago")).strftime('%m/%d %I:%M %p')
+            local_time = crime.timestamp.strftime('%m/%d %I:%M %p')
             
             # Concise Plain Text format for SMS
             sms_body = (
