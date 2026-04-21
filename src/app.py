@@ -71,7 +71,7 @@ ALL_POSSIBLE_ACTIONS = [
     "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV", 
     "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",
     "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash", "Tab: Reporting -> Elastic SIEM Report",
-    "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", 
+    "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", "Tab: Regional Grid -> Atmos Weather", 
     "Tab: Threat Hunting -> Global IOC Matrix", "Tab: Threat Hunting -> Deep Hunt Builder", 
     "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
     "Tab: Shift Log -> Active Shift", "Tab: Shift Log -> History", # <-- NEW TABS
@@ -1173,6 +1173,7 @@ elif page == "🗺️ Regional Grid":
         if "Tab: Regional Grid -> Hazard Analytics" in st.session_state.allowed_actions: rg_tab_names.append("🌪️ Deep Hazard Analytics")
         if "Tab: Regional Grid -> Location Matrix" in st.session_state.allowed_actions: rg_tab_names.append("🗄️ Location Matrix")
         if "Tab: Regional Grid -> Weather Alerts Log" in st.session_state.allowed_actions: rg_tab_names.append("📜 Weather Alerts Log")
+        if "Tab: Regional Grid -> Atmos Weather" in st.session_state.allowed_actions: rg_tab_names.append("🌪️ Atmos Weather")
 
         if not rg_tab_names:
             st.warning("You do not have permission to view any modules within the Regional Grid.")
@@ -1463,6 +1464,174 @@ elif page == "🗺️ Regional Grid":
                                 
                                 if details['Instructions'] and details['Instructions'] != "No explicit instructions provided.":
                                     st.error(f"**NWS Actionable Instructions:**\n\n{details['Instructions']}")
+                rg_idx += 1
+
+            if "Tab: Regional Grid -> Atmos Weather" in st.session_state.allowed_actions:
+                with rg_tabs[rg_idx]:
+                    st.subheader("🌪️ Atmos Weather & Alerts")
+                    st.markdown("Integrated lightweight weather platform for live US alerts and personalized browser notifications.")
+                    
+                    # Request Browser Permissions via HTML/JS Component
+                    st.components.v1.html("""
+                        <div style="text-align: right;">
+                            <button onclick="requestPerms()" style="padding: 8px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-family: sans-serif;">🔔 Enable Browser Notifications</button>
+                        </div>
+                        <script>
+                            function requestPerms() {
+                                if ("Notification" in window) {
+                                    Notification.requestPermission().then(permission => {
+                                        if (permission === "granted") {
+                                            new Notification("Atmos Weather", {body: "Browser notifications enabled successfully!"});
+                                        }
+                                    });
+                                } else {
+                                    alert("Your browser does not support desktop notifications.");
+                                }
+                            }
+                        </script>
+                    """, height=50)
+
+                    st.divider()
+                    
+                    c_prefs, c_alerts = st.columns([1, 2])
+                    
+                    with c_prefs:
+                        st.markdown("### ⚙️ Alert Preferences")
+                        st.caption("Select which NWS event types should trigger browser push notifications.")
+                        
+                        user_prefs = svc.get_user_weather_prefs(st.session_state.current_user)
+                        available_events = [
+                            "Tornado Warning", "Severe Thunderstorm Warning", "Flash Flood Warning", 
+                            "Special Marine Warning", "Snow Squall Warning", "Winter Storm Warning",
+                            "Ice Storm Warning", "Blizzard Warning", "Red Flag Warning", "Hurricane Warning",
+                            "Severe Weather Statement", "Severe Thunderstorm Watch", "Tornado Watch"
+                        ]
+                        
+                        with st.form("atmos_prefs_form"):
+                            selected_alerts = st.multiselect("Notify me for:", available_events, default=[e for e in user_prefs if e in available_events])
+                            if st.form_submit_button("Save Preferences", width="stretch", type="primary"):
+                                svc.set_user_weather_prefs(st.session_state.current_user, selected_alerts)
+                                st.success("Preferences saved!")
+                                time.sleep(0.5)
+                                safe_rerun()
+                                
+                    with c_alerts:
+                        st.markdown("### 📡 Active Watched Alerts")
+                        
+                        if not selected_alerts:
+                            st.info("No alert types selected. Update your preferences to track specific warnings.")
+                        else:
+                            # Re-use existing backend logic to pull alerts matching user prefs
+                            all_logs = svc.get_weather_alerts_log(ar_data, oos_data, selected_alerts)
+                            
+                            if not all_logs:
+                                st.success("✅ No active alerts matching your preferences in the monitored zones.")
+                            else:
+                                if "notified_alerts" not in st.session_state:
+                                    st.session_state.notified_alerts = set()
+                                    
+                                new_alerts = []
+                                for alert in all_logs:
+                                    # Create a unique key per alert to avoid spamming the notification API
+                                    alert_key = f"{alert['Event']}_{alert['Affected Area']}_{alert['Effective']}"
+                                    if alert_key not in st.session_state.notified_alerts:
+                                        new_alerts.append(alert)
+                                        st.session_state.notified_alerts.add(alert_key)
+                                        
+                                    with st.container(border=True):
+                                        st.markdown(f"**🚨 {alert['Event']}**")
+                                        st.caption(f"**Area:** {alert['Affected Area']} | **Expires:** {alert['Expires']}")
+                                        with st.expander("Read NWS Description"):
+                                            st.write(alert['Description'])
+                                            
+                                # Trigger HTML5 Notification API for newly detected alerts
+                                if new_alerts:
+                                    js_notifications = ""
+                                    for idx, na in enumerate(new_alerts):
+                                        title = f"NWS Alert: {na['Event'].replace('"', '')}"
+                                        body = f"Affected: {na['Affected Area'].replace('"', '')}"
+                                        js_notifications += f"""setTimeout(() => {{new Notification("{title}", {{body: "{body}"}}); }}, {idx * 500});"""
+                                        
+                                    js_wrapper = f"""
+                                    <script>
+                                        if ("Notification" in window && Notification.permission === "granted") {{
+                                            {js_notifications}
+                                        }}
+                                    </script>
+                                    """"""
+                                    st.components.v1.html(js_wrapper, height=0, width=0)
+                                    
+                    st.divider()
+
+                    # --- 7-DAY SITE FORECAST ---
+                    st.markdown("### 📅 Site-Specific 7-Day Forecast")
+                    # Use the locations already loaded in the grid
+                    if not map_df.empty:
+                        target_site = st.selectbox("Select Monitored Facility", map_df['Name'].tolist())
+                        site_data = map_df[map_df['Name'] == target_site].iloc[0]
+                        
+                        forecast_data = svc.get_nws_forecast(site_data['Lat'], site_data['Lon'])
+                        
+                        if forecast_data:
+                            # Create a horizontal scrolling container for the forecast
+                            cols = st.columns(min(len(forecast_data), 6)) # Show first 6 periods (~3 days)
+                            for i, col in enumerate(cols):
+                                period = forecast_data[i]
+                                with col:
+                                    with st.container(border=True):
+                                        st.markdown(f"**{period['name']}**")
+                                        temp_color = "#dc3545" if period['isDaytime'] else "#007bff"
+                                        st.markdown(f"<h3 style='margin:0; color:{temp_color};'>{period['temperature']}°{period['temperatureUnit']}</h3>", unsafe_allow_html=True)
+                                        st.caption(period['shortForecast'])
+                                        
+                            with st.expander("Detailed Forecast Descriptions"):
+                                for period in forecast_data[:10]:
+                                    st.markdown(f"**{period['name']}:** {period['detailedForecast']}")
+                        else:
+                            st.warning("Forecast unavailable for this location. Ensure coordinates are exact.")
+                    else:
+                        st.info("No facilities loaded. Add facilities in Settings to view site forecasts.")
+
+                    st.divider()
+                    
+                    # --- PREDICTIVE SPC OUTLOOKS ---
+                    st.markdown("### 🔮 Predictive Convective Outlooks (SPC)")
+                    st.caption("NOAA Storm Prediction Center risk areas projected out to 72 hours.")
+                    
+                    # Pull all 3 days from the new tuple returned by get_cached_geojson()
+                    spc_d1, spc_d2, spc_d3, _, _ = svc.get_cached_geojson()
+                    
+                    d1_tab, d2_tab, d3_tab = st.tabs(["Day 1 (Today)", "Day 2 (Tomorrow)", "Day 3"])
+                    
+                    # Helper to render a quick PyDeck map for SPC geometry
+                    def render_spc_map(geojson_data):
+                        if not geojson_data or 'features' not in geojson_data:
+                            st.success("No Convective Risk Expected.")
+                            return
+                            
+                        # Format colors natively
+                        color_map = {"TSTM": [192, 232, 192, 150], "MRGL": [124, 205, 124, 180], "SLGT": [246, 246, 123, 180], "ENH": [230, 153, 0, 180], "MDT": [255, 0, 0, 180], "HIGH": [255, 0, 255, 180]}
+                        for f in geojson_data['features']:
+                            lbl = f.get('properties', {}).get('LABEL', '')
+                            f['properties']['fill_color'] = color_map.get(lbl, [0, 0, 0, 0])
+                            
+                        layer = pdk.Layer(
+                            "GeoJsonLayer", geojson_data, pickable=True, stroked=True, filled=True,
+                            get_fill_color="properties.fill_color", get_line_color=[0, 0, 0, 255], line_width_min_pixels=1
+                        )
+                        st.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=pdk.ViewState(latitude=38.0, longitude=-95.0, zoom=3.5)))
+
+                    with d1_tab: render_spc_map(spc_d1)
+                    with d2_tab: render_spc_map(spc_d2)
+                    with d3_tab: render_spc_map(spc_d3)
+
+                    st.divider()
+                    
+                    # --- LIVE RADAR EMBED ---
+                    st.markdown("### 🌤️ Live Atmospheric Radar")
+                    st.components.v1.html("""
+                        <iframe src="https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=in&metricTemp=°F&metricWind=mph&zoom=5&overlay=radar&product=radar&level=surface&lat=34.746&lon=-92.289" width="100%" height="500" frameborder="0" style="border-radius: 8px;"></iframe>
+                    """, height=500)
                 rg_idx += 1
 
 # ================= 3. THREAT HUNTING & IOCS =================
