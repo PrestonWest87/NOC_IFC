@@ -1069,6 +1069,21 @@ def get_cloud_outages(active_only=True, limit=None):
         if limit: q = q.limit(limit)
         return to_dotdict_list(q.all())
 
+def get_user_weather_prefs(username):
+    from src.database import SessionLocal, UserWeatherPreference
+    with SessionLocal() as db:
+        prefs = db.query(UserWeatherPreference).filter_by(username=username).all()
+        return [p.alert_type for p in prefs]
+
+def set_user_weather_prefs(username, alerts):
+    from src.database import SessionLocal, UserWeatherPreference
+    with SessionLocal() as db:
+        # Clear existing and replace
+        db.query(UserWeatherPreference).filter_by(username=username).delete()
+        for alert in alerts:
+            db.add(UserWeatherPreference(username=username, alert_type=alert))
+        db.commit()
+
 @st.cache_data(ttl=900, max_entries=1)
 def get_active_wildfires():
     try:
