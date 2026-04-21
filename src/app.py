@@ -1570,31 +1570,39 @@ elif page == "🗺️ Regional Grid":
                     forecast_data = svc.get_nws_forecast(site_data['Lat'], site_data['Lon'])
                     
                     if forecast_data:
-                        cols = st.columns(min(len(forecast_data), 6))
-                        for i, col in enumerate(cols):
-                            period = forecast_data[i]
-                            with col:
-                                with st.container(border=True):
-                                    st.markdown(f"<div style='text-align:center; font-weight:bold; font-size:1.05em; color: #333;'>{period['name']}</div>", unsafe_allow_html=True)
-                                    
-                                    if 'icon' in period:
-                                        st.markdown(f"<div style='text-align:center;'><img src='{period['icon']}' style='border-radius:15px; width:65px; height:65px; margin:10px 0; box-shadow: 0px 4px 6px rgba(0,0,0,0.1);'></div>", unsafe_allow_html=True)
+                            # NWS provides up to 14 periods for a 7-day forecast.
+                            max_periods = min(len(forecast_data), 14)
+                            chunk_size = 7 # Break into rows of 7 to keep the UI clean
+                            
+                            for i in range(0, max_periods, chunk_size):
+                                chunk = forecast_data[i:i + chunk_size]
+                                cols = st.columns(len(chunk))
+                                
+                                for j, col in enumerate(cols):
+                                    period = chunk[j]
+                                    with col:
+                                        with st.container(border=True):
+                                            st.markdown(f"<div style='text-align:center; font-weight:bold; font-size:1.05em; color: #333;'>{period['name']}</div>", unsafe_allow_html=True)
+                                            
+                                            if 'icon' in period:
+                                                st.markdown(f"<div style='text-align:center;'><img src='{period['icon']}' style='border-radius:15px; width:65px; height:65px; margin:10px 0; box-shadow: 0px 4px 6px rgba(0,0,0,0.1);'></div>", unsafe_allow_html=True)
+                                                
+                                            temp_color = "#dc3545" if period['isDaytime'] else "#007bff"
+                                            st.markdown(f"<div style='text-align:center; color:{temp_color}; font-size:1.4em; font-weight:bold; margin-bottom:5px;'>{period['temperature']}°{period['temperatureUnit']}</div>", unsafe_allow_html=True)
+                                            
+                                            st.markdown(f"<div style='text-align:center; font-size:0.85em; color:#555; line-height: 1.2;'>{period['shortForecast']}</div>", unsafe_allow_html=True)
+                                            st.markdown(f"<div style='text-align:center; font-size:0.75em; color:#888; margin-top:8px;'>💨 {period.get('windSpeed', '')} {period.get('windDirection', '')}</div>", unsafe_allow_html=True)
                                         
-                                    temp_color = "#dc3545" if period['isDaytime'] else "#007bff"
-                                    st.markdown(f"<div style='text-align:center; color:{temp_color}; font-size:1.4em; font-weight:bold; margin-bottom:5px;'>{period['temperature']}°{period['temperatureUnit']}</div>", unsafe_allow_html=True)
-                                    
-                                    st.markdown(f"<div style='text-align:center; font-size:0.85em; color:#555; line-height: 1.2;'>{period['shortForecast']}</div>", unsafe_allow_html=True)
-                                    st.markdown(f"<div style='text-align:center; font-size:0.75em; color:#888; margin-top:8px;'>💨 {period.get('windSpeed', '')} {period.get('windDirection', '')}</div>", unsafe_allow_html=True)
-                                    
-                        with st.expander("📖 View Detailed Forecast Descriptions"):
-                            for period in forecast_data[:10]:
-                                border_color = '#dc3545' if period['isDaytime'] else '#007bff'
-                                st.markdown(f"""
-                                <div style="padding: 15px; margin-bottom: 12px; border-left: 5px solid {border_color}; background-color: #f8f9fa; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-                                    <div style="font-size: 1.05em; font-weight: 600; color: #2c3e50; margin-bottom: 6px;">{period['name']}</div>
-                                    <div style="font-size: 0.95em; color: #444; line-height: 1.5;">{period['detailedForecast']}</div>
-                                </div>
-                                """, unsafe_allow_html=True)
+                            with st.expander("📖 View Detailed Forecast Descriptions"):
+                                # Ensure the detailed view also shows all 14 periods
+                                for period in forecast_data[:14]:
+                                    border_color = '#dc3545' if period['isDaytime'] else '#007bff'
+                                    st.markdown(f"""
+                                    <div style="padding: 15px; margin-bottom: 12px; border-left: 5px solid {border_color}; background-color: #f8f9fa; border-radius: 6px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                                        <div style="font-size: 1.05em; font-weight: 600; color: #2c3e50; margin-bottom: 6px;">{period['name']}</div>
+                                        <div style="font-size: 0.95em; color: #444; line-height: 1.5;">{period['detailedForecast']}</div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
                     else:
                         st.warning("Forecast unavailable for this location. Ensure coordinates are exact.")
                 else:
@@ -1644,7 +1652,7 @@ elif page == "🗺️ Regional Grid":
                 st.markdown("### 🌤️ Live Atmospheric Radar")
                 st.components.v1.html("""
                     <iframe src="https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=in&metricTemp=°F&metricWind=mph&zoom=5&overlay=radar&product=radar&level=surface&lat=34.746&lon=-92.289" width="100%" height="500" frameborder="0" style="border-radius: 8px;"></iframe>
-                """, height=800)
+                """, height=600)
                 st.divider()
             rg_idx += 1
 
