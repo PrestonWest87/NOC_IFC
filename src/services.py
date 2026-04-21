@@ -170,6 +170,32 @@ def set_site_maintenance(site_name, is_maint, etr_date, reason):
     get_cached_locations.clear()
 
 
+@st.cache_data(ttl=3600) # Cache forecasts for 1 hour to prevent rate limiting
+def get_nws_forecast(lat, lon):
+    """Fetches the 7-day forecast for a specific coordinate using the NWS API."""
+    headers = {
+        "User-Agent": "NOC_IFC_Weather_Module (noc@aecc.com)" # NWS requires a User-Agent
+    }
+    try:
+        # Step 1: Get the gridpoints URL
+        point_url = f"https://api.weather.gov/points/{lat},{lon}"
+        point_res = requests.get(point_url, headers=headers, timeout=10)
+        point_res.raise_for_status()
+        
+        forecast_url = point_res.json().get("properties", {}).get("forecast")
+        if not forecast_url: return None
+        
+        # Step 2: Get the actual forecast
+        forecast_res = requests.get(forecast_url, headers=headers, timeout=10)
+        forecast_res.raise_for_status()
+        
+        periods = forecast_res.json().get("properties", {}).get("periods", [])
+        return periods
+    except Exception as e:
+        print(f"NWS Forecast Error for {lat},{lon}: {e}")
+        return None
+
+
 # ==========================================
 # 1. AUTHENTICATION & USER PROFILE
 # ==========================================
