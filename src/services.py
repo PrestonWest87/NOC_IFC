@@ -201,6 +201,74 @@ def get_nws_forecast(lat, lon):
         return None
 
 
+def get_filtered_notification_alerts(username, ar_data, oos_data, locs):
+    """
+    Retrieves weather alerts based on user preferences.
+    - Arkansas Alerts: Returns ALL alerts matching preferences.
+    - Out-of-State Alerts: Returns ONLY alerts that geographically intersect a monitored facility.
+    """
+    from src.database import SessionLocal, UserWeatherPreference
+    
+    with SessionLocal() as db:
+        prefs = db.query(UserWeatherPreference).filter_by(username=username).all()
+        alert_types = [p.alert_type for p in prefs]
+        
+    if not alert_types:
+        return []
+        
+    valid_alerts = []
+    
+    # 1. Process Arkansas Data (Keep everything matching preferences)
+    if ar_data and 'features' in ar_data:
+        for f in ar_data['features']:
+            props = f.get('properties', {})
+            event = props.get('event')
+            if event in alert_types:
+                valid_alerts.append({
+                    "Event": event,
+                    "Affected Area": props.get('areaDesc', 'Unknown'),
+                    "Expires": props.get('expires', 'Unknown'),
+                    "Description": props.get('description', '')
+                })
+                
+    # 2. Process OOS Data (Geofence constraint applied)
+    if oos_data and 'features' in oos_data:
+        for f in oos_data['features']:
+            props = f.get('properties', {})
+            event = props.get('event')
+            if event in alert_types:
+                geom = f.get('geometry')
+                if not geom: continue
+                try:
+                    poly = shape(geom)
+                    intersects = False
+                    for l in locs:
+                        pt = Point(l.lon, l.lat)
+                        if poly.intersects(pt):
+                            intersects = True
+                            break # We only need one facility to intersect to justify tracking it
+                            
+                    if intersects:
+                        valid_alerts.append({
+                            "Event": event,
+                            "Affected Area": props.get('areaDesc', 'Unknown'),
+                            "Expires": props.get('expires', 'Unknown'),
+                            "Description": props.get('description', '')
+                        })
+                except Exception:
+                    pass
+                    
+    # Deduplicate alerts to prevent spam (NWS sometimes issues redundant polygons)
+    seen = set()
+    unique_alerts = []
+    for a in valid_alerts:
+        key = f"{a['Event']}_{a['Affected Area']}_{a['Expires']}"
+        if key not in seen:
+            seen.add(key)
+            unique_alerts.append(a)
+            
+    return unique_alerts
+
 # ==========================================
 # 1. AUTHENTICATION & USER PROFILE
 # ==========================================
