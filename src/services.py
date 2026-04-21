@@ -1510,7 +1510,7 @@ def nuke_crime_data():
             # Delete rows from both tables and combine the count
             lr_deleted = db.query(CrimeIncident).delete()
             db.commit()
-            return True, (lr_deleted + jms_deleted)
+            return True, (lr_deleted)
         except Exception as e:
             db.rollback()
             return False, str(e)
