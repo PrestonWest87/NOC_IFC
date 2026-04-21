@@ -306,7 +306,7 @@ if __name__ == "__main__":
     schedule.every(6).hours.do(run_threaded, job_internal_risk)
     
     # High-Priority / High-Churn Telemetry
-    schedule.every(5).minutes.do(run_threaded, fetch_regional_hazards)
+    schedule.every(2).minutes.do(run_threaded, fetch_regional_hazards)
     schedule.every(5).minutes.do(run_threaded, fetch_cloud_outages)
     schedule.every(5).minutes.do(run_threaded, run_telemetry_sync)
     
