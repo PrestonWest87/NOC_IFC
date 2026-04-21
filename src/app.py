@@ -1644,7 +1644,8 @@ elif page == "🗺️ Regional Grid":
                 st.markdown("### 🌤️ Live Atmospheric Radar")
                 st.components.v1.html("""
                     <iframe src="https://embed.windy.com/embed.html?type=map&location=coordinates&metricRain=in&metricTemp=°F&metricWind=mph&zoom=5&overlay=radar&product=radar&level=surface&lat=34.746&lon=-92.289" width="100%" height="500" frameborder="0" style="border-radius: 8px;"></iframe>
-                """, height=500)
+                """, height=800)
+                st.divider()
             rg_idx += 1
 
 # ================= 3. THREAT HUNTING & IOCS =================
