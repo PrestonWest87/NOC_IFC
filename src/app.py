@@ -1605,19 +1605,27 @@ elif page == "🗺️ Regional Grid":
                     st.markdown("### 🔮 Predictive Convective Outlooks (SPC)")
                     st.caption("NOAA Storm Prediction Center risk areas projected out to 72 hours.")
                     
-                    # Pull all 3 days from the new tuple returned by get_cached_geojson()
+                    # Pull all 3 days from the tuple returned by get_cached_geojson()
+                    # (Assuming ar_data and oos_data were already unpacked earlier in the file, 
+                    # we can use _, _ here to just grab the SPC geometries)
                     spc_d1, spc_d2, spc_d3, _, _ = svc.get_cached_geojson()
                     
                     d1_tab, d2_tab, d3_tab = st.tabs(["Day 1 (Today)", "Day 2 (Tomorrow)", "Day 3"])
                     
                     # Helper to render a quick PyDeck map for SPC geometry
                     def render_spc_map(geojson_data):
-                        if not geojson_data or 'features' not in geojson_data:
-                            st.success("No Convective Risk Expected.")
+                        # Enhanced check to ensure features actually exist and aren't empty
+                        if not geojson_data or 'features' not in geojson_data or len(geojson_data['features']) == 0:
+                            st.success("✅ No Convective Risk Expected for this period.")
                             return
                             
-                        # Format colors natively
-                        color_map = {"TSTM": [192, 232, 192, 150], "MRGL": [124, 205, 124, 180], "SLGT": [246, 246, 123, 180], "ENH": [230, 153, 0, 180], "MDT": [255, 0, 0, 180], "HIGH": [255, 0, 255, 180]}
+                        # Standard NWS/SPC Hex Color Mapping
+                        color_map = {
+                            "TSTM": [192, 232, 192, 150], "MRGL": [124, 205, 124, 180], 
+                            "SLGT": [246, 246, 123, 180], "ENH": [230, 153, 0, 180], 
+                            "MDT": [255, 0, 0, 180], "HIGH": [255, 0, 255, 180]
+                        }
+                        
                         for f in geojson_data['features']:
                             lbl = f.get('properties', {}).get('LABEL', '')
                             f['properties']['fill_color'] = color_map.get(lbl, [0, 0, 0, 0])
@@ -1626,7 +1634,13 @@ elif page == "🗺️ Regional Grid":
                             "GeoJsonLayer", geojson_data, pickable=True, stroked=True, filled=True,
                             get_fill_color="properties.fill_color", get_line_color=[0, 0, 0, 255], line_width_min_pixels=1
                         )
-                        st.pydeck_chart(pdk.Deck(layers=[layer], initial_view_state=pdk.ViewState(latitude=38.0, longitude=-95.0, zoom=3.5)))
+                        
+                        # Added tooltip for interactive hover
+                        st.pydeck_chart(pdk.Deck(
+                            layers=[layer], 
+                            initial_view_state=pdk.ViewState(latitude=38.0, longitude=-95.0, zoom=3.5),
+                            tooltip={"text": "Risk Level: {LABEL}"}
+                        ))
 
                     with d1_tab: render_spc_map(spc_d1)
                     with d2_tab: render_spc_map(spc_d2)
