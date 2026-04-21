@@ -23,19 +23,26 @@ SPC_URLS = {
 }
 
 def fetch_spc_outlooks():
-    """Fetches SPC Day 1 Convective Outlook and caches the JSON to the DB."""
+    """Fetches SPC Day 1, 2, and 3 Convective Outlooks and caches the JSON to the DB."""
+    SPC_URLS = {
+        "spc_day1": "https://www.spc.noaa.gov/products/outlook/day1otlk_cat.nolyr.geojson",
+        "spc_day2": "https://www.spc.noaa.gov/products/outlook/day2otlk_cat.nolyr.geojson",
+        "spc_day3": "https://www.spc.noaa.gov/products/outlook/day3otlk_cat.nolyr.geojson"
+    }
+    
     with SessionLocal() as session:
         try:
-            url = "https://www.spc.noaa.gov/products/outlook/day1otlk_cat.lyr.geojson"
             headers = {'User-Agent': 'Mozilla/5.0 (NOC_Fusion_Center)'}
-            response = requests.get(url, headers=headers, timeout=15)
-            
-            if response.status_code == 200:
-                save_geojson_to_db(session, "spc", response.json())
-                session.commit()
-                log_print("✅ Downloaded and cached SPC GeoJSON to DB.")
-            else:
-                log_print(f"❌ Failed to fetch SPC. HTTP {response.status_code}")
+            for feed_name, url in SPC_URLS.items():
+                response = requests.get(url, headers=headers, timeout=15)
+                
+                if response.status_code == 200:
+                    save_geojson_to_db(session, feed_name, response.json())
+                    log_print(f"✅ Downloaded and cached {feed_name} GeoJSON to DB.")
+                else:
+                    log_print(f"❌ Failed to fetch {feed_name}. HTTP {response.status_code}")
+                    
+            session.commit()
         except Exception as e:
             session.rollback()
             log_print(f"❌ SPC Fetch Error: {e}")
