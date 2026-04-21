@@ -16,6 +16,12 @@ def save_geojson_to_db(session, feed_name, data):
     else:
         session.add(GeoJsonCache(feed_name=feed_name, data=data))
 
+SPC_URLS = {
+    "spc_day1": "https://www.spc.noaa.gov/products/outlook/day1otlk_cat.nolyr.geojson",
+    "spc_day2": "https://www.spc.noaa.gov/products/outlook/day2otlk_cat.nolyr.geojson",
+    "spc_day3": "https://www.spc.noaa.gov/products/outlook/day3otlk_cat.nolyr.geojson"
+}
+
 def fetch_spc_outlooks():
     """Fetches SPC Day 1 Convective Outlook and caches the JSON to the DB."""
     with SessionLocal() as session:
