@@ -1812,13 +1812,13 @@ elif page == "⚡ AIOps RCA":
                                     # --- NEW: RBAC DISPATCHED CHECKBOX ---
                                     is_dispatched = any(getattr(a, 'is_dispatched', False) for a in data['alerts'])
                                     if can_dispatch:
-                                        new_dispatch = st.checkbox("✅ Ticket Dispatched", value=is_dispatched, key=f"disp_{site}")
+                                        new_dispatch = st.checkbox("Ticket Dispatched", value=is_dispatched, key=f"disp_{site}")
                                         if new_dispatch != is_dispatched:
                                             svc.set_cluster_dispatch([a.id for a in data['alerts']], new_dispatch)
                                             st.rerun()
                                     else:
                                         if is_dispatched:
-                                            st.success("✅ Ticket Dispatched")
+                                            st.success("Ticket Dispatched")
                                     
                                     # --- NOC TICKET DISPATCH CONTROLS ---
                                     if can_dispatch:
