@@ -354,6 +354,12 @@ class GeoJsonCache(Base):
     data = Column(JSON)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
+class UserWeatherPreference(Base):
+    __tablename__ = "user_weather_prefs"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, index=True)
+    alert_type = Column(String)
+
 # ==========================================
 # INITIALIZATION & SEEDING
 # ==========================================
@@ -412,6 +418,19 @@ def init_db():
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_weather_prefs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username VARCHAR,
+                    alert_type VARCHAR
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_weather_prefs_username ON user_weather_prefs (username)"))
+    except Exception:
+        pass
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE shift_logs ADD COLUMN is_deleted BOOLEAN DEFAULT 0"))
     except Exception: 
         pass
@@ -452,7 +471,7 @@ def init_db():
             "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV", 
             "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",
             "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash", 
-            "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", 
+            "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", "Tab: Regional Grid -> Atmos Weather", 
             "Tab: Threat Hunting -> Global IOC Matrix", "Tab: Threat Hunting -> Deep Hunt Builder", "Tab: Reporting -> Elastic SIEM Report",
             "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
             "Tab: Shift Log -> Active Shift", "Tab: Shift Log -> History",
