@@ -1109,7 +1109,8 @@ elif page == "🗺️ Regional Grid":
         "Lat": l.lat, "Lon": l.lon
     } for l in locs]) if locs else pd.DataFrame()
     
-    spc_data, ar_data, oos_data = svc.get_cached_geojson()
+    spc_d1, spc_d2, spc_d3, ar_data, oos_data = svc.get_cached_geojson()
+    spc_data = spc_d1
     
     active_event_types = set()
     for geo_dataset in [ar_data, oos_data]:
