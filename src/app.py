@@ -180,6 +180,49 @@ if black_ops["nick_enabled"] and st.session_state.current_user == "nwilson":
             del st.session_state.nick_troll_end
 
 
+if st.session_state.current_user:
+    if "notified_alerts" not in st.session_state:
+        st.session_state.notified_alerts = set()
+        
+    try:
+        # Pull required cache
+        g_locs = svc.get_cached_locations()
+        g_spc_d1, g_spc_d2, g_spc_d3, g_ar_data, g_oos_data = svc.get_cached_geojson()
+        
+        # Fetch the geographically filtered alerts
+        global_alerts = svc.get_filtered_notification_alerts(
+            st.session_state.current_user, g_ar_data, g_oos_data, g_locs
+        )
+        
+        new_alerts = []
+        for alert in global_alerts:
+            # Unique identifier prevents duplicate browser pushes
+            alert_key = f"{alert['Event']}_{alert['Affected Area']}_{alert['Expires']}"
+            if alert_key not in st.session_state.notified_alerts:
+                new_alerts.append(alert)
+                st.session_state.notified_alerts.add(alert_key)
+                
+        # Trigger HTML5 Notification API globally
+        if new_alerts:
+            js_notifications = ""
+            for idx, na in enumerate(new_alerts):
+                clean_event = na['Event'].replace('"', '')
+                clean_area = na['Affected Area'].replace('"', '')
+                title = f"NWS Alert: {clean_event}"
+                body = f"Affected: {clean_area}"
+                js_notifications += f'setTimeout(() => {{new Notification("{title}", {{body: "{body}"}}); }}, {idx * 500});\n'
+                
+            js_wrapper = f"""
+            <script>
+                if ("Notification" in window && Notification.permission === "granted") {{
+                    {js_notifications}
+                }}
+            </script>
+            """
+            st.components.v1.html(js_wrapper, height=0, width=0)
+    except Exception as e:
+        pass # Fail silently so global UI doesn't crash on DB locks
+
 
 # --- DYNAMIC THEMING ENGINE ---
 theme_options = [
@@ -1515,48 +1558,22 @@ elif page == "🗺️ Regional Grid":
                     if not selected_alerts:
                         st.info("No alert types selected. Update your preferences to track specific warnings.")
                     else:
-                        all_logs = svc.get_weather_alerts_log(ar_data, oos_data, selected_alerts)
+                        # Use the new spatial filtering logic to populate the visual list
+                        all_logs = svc.get_filtered_notification_alerts(
+                            st.session_state.current_user, ar_data, oos_data, map_df.to_dict('records') if not map_df.empty else locs
+                        )
                         
                         if not all_logs:
                             st.success("✅ No active alerts matching your preferences in the monitored zones.")
                         else:
-                            if "notified_alerts" not in st.session_state:
-                                st.session_state.notified_alerts = set()
-                                
-                            new_alerts = []
                             for alert in all_logs:
-                                alert_key = f"{alert['Event']}_{alert['Affected Area']}_{alert['Effective']}"
-                                if alert_key not in st.session_state.notified_alerts:
-                                    new_alerts.append(alert)
-                                    st.session_state.notified_alerts.add(alert_key)
-                                    
                                 with st.container(border=True):
                                     st.markdown(f"**🚨 {alert['Event']}**")
                                     st.caption(f"**Area:** {alert['Affected Area']} | **Expires:** {alert['Expires']}")
                                     with st.expander("Read NWS Description"):
                                         st.write(alert['Description'])
                                         
-                            if new_alerts:
-                                js_notifications = ""
-                                for idx, na in enumerate(new_alerts):
-                                    clean_event = na['Event'].replace('"', '')
-                                    clean_area = na['Affected Area'].replace('"', '')
-                                    
-                                    title = f"NWS Alert: {clean_event}"
-                                    body = f"Affected: {clean_area}"
-                                    
-                                    js_notifications += f'setTimeout(() => {{new Notification("{title}", {{body: "{body}"}}); }}, {idx * 500});\n'
-                                                                    
-                                js_wrapper = f"""
-                                <script>
-                                    if ("Notification" in window && Notification.permission === "granted") {{
-                                        {js_notifications}
-                                    }}
-                                </script>
-                                """
-                                st.components.v1.html(js_wrapper, height=0, width=0)
-                                
-                st.divider()
+                    st.divider()
 
                 # --- 7-DAY SITE FORECAST ---
                 st.markdown("### 📅 Site-Specific 7-Day Forecast")
