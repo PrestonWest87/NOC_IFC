@@ -50,18 +50,23 @@ def get_cached_locations():
 
 @st.cache_data(ttl=120, max_entries=1)
 def get_cached_geojson():
-    """Reads the pre-fetched JSON geometry directly from the database."""
-    spc, ar, oos = None, None, None
+    spc_d1, spc_d2, spc_d3, ar, oos = None, None, None, None, None
     with SessionLocal() as db:
-        spc_rec = db.query(GeoJsonCache).filter_by(feed_name="spc").first()
+        # Pull all three SPC days
+        d1_rec = db.query(GeoJsonCache).filter_by(feed_name="spc_day1").first() # Or "spc" depending on your current naming
+        d2_rec = db.query(GeoJsonCache).filter_by(feed_name="spc_day2").first()
+        d3_rec = db.query(GeoJsonCache).filter_by(feed_name="spc_day3").first()
+        
         ar_rec = db.query(GeoJsonCache).filter_by(feed_name="nws_ar").first()
         oos_rec = db.query(GeoJsonCache).filter_by(feed_name="nws_oos").first()
         
-        if spc_rec: spc = spc_rec.data
+        if d1_rec: spc_d1 = d1_rec.data
+        if d2_rec: spc_d2 = d2_rec.data
+        if d3_rec: spc_d3 = d3_rec.data
         if ar_rec: ar = ar_rec.data
         if oos_rec: oos = oos_rec.data
         
-    return spc, ar, oos
+    return spc_d1, spc_d2, spc_d3, ar, oos
 
 @st.cache_data(ttl=86400, max_entries=1)
 def get_ar_counties_mapping():
