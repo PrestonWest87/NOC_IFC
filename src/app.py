@@ -1548,17 +1548,23 @@ elif page == "🗺️ Regional Grid":
                                 if new_alerts:
                                     js_notifications = ""
                                     for idx, na in enumerate(new_alerts):
-                                        title = f"NWS Alert: {na['Event'].replace('"', '')}"
-                                        body = f"Affected: {na['Affected Area'].replace('"', '')}"
-                                        js_notifications += f"""setTimeout(() => {{new Notification("{title}", {{body: "{body}"}}); }}, {idx * 500});"""
+                                        # Extract the replace logic to variables to prevent f-string quote clashing
+                                        clean_event = na['Event'].replace('"', '')
+                                        clean_area = na['Affected Area'].replace('"', '')
                                         
+                                        title = f"NWS Alert: {clean_event}"
+                                        body = f"Affected: {clean_area}"
+                                        
+                                        # FIXED: Removed triple quotes here. Using standard single quotes for the f-string.
+                                        js_notifications += f'setTimeout(() => {{new Notification("{title}", {{body: "{body}"}}); }}, {idx * 500});\n'
+                                                                        
                                     js_wrapper = f"""
                                     <script>
                                         if ("Notification" in window && Notification.permission === "granted") {{
                                             {js_notifications}
                                         }}
                                     </script>
-                                    """"""
+                                    """
                                     st.components.v1.html(js_wrapper, height=0, width=0)
                                     
                     st.divider()
