@@ -48,3 +48,20 @@ The transmission block is designed for secure, resilient delivery:
 Within the broader application architecture, this module is primarily leveraged by:
 * **The AIOps Engine (`aiops_engine.py`):** When the deterministic correlation engine successfully clusters an outage and identifies the root cause, it dynamically generates an ITSM ticketing payload and calls `send_alert_email()` to dispatch the ticket to a service desk ingestion address (e.g., ServiceNow, Jira Service Management).
 * **The Operational Dashboard (`app.py`):** Used in the "Global SitRep" and "Geospatial Analytics" tabs to allow human operators to manually broadcast AI-synthesized intelligence briefings to executive distribution lists with a single click.
+
+---
+
+## 6. Complete Function Reference
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `send_alert_email` | `(subject, body, recipient_override, is_html) -> tuple` | Send email |
+
+---
+
+## 7. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| smtplib | SMTP | https://docs.python.org/3/library/smtplib.html |
+| email.mime | MIME | https://docs.python.org/3/library/email.mime.html |

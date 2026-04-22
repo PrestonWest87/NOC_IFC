@@ -56,3 +56,21 @@ Because standard cron jobs can be brittle inside containerized environments, thi
 Within the broader architecture:
 * **The Master Scheduler (`src/scheduler.py`):** Typically, this `start_report_scheduler()` function is invoked as a parallel `threading.Thread` by the main application orchestrator upon startup.
 * **The User Interface (`app.py`):** When operators navigate to the **"📰 Daily Fusion Report"** tab in the Streamlit UI, the application simply queries the `DailyBriefing` table and renders this pre-compiled Markdown, resulting in instantaneous load times. (The UI also contains a manual override button to force-trigger this generation if needed).
+
+---
+
+## 6. Complete Function Reference
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `run_daily_report` | `() -> None` | Generate daily report at 06:00 |
+| `start_report_scheduler` | `() -> None` | Report scheduler loop |
+
+---
+
+## 7. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| datetime | Time handling | https://docs.python.org/3/library/datetime.html |
+| time | Sleep | https://docs.python.org/3/library/time.html |

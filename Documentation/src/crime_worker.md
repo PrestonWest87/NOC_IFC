@@ -45,3 +45,29 @@ Once an incident is geocoded, scored, and deduplicated, it interacts with the un
 
 * **Insertion (`CrimeIncident`):** The enriched incident—complete with its calculated Haversine distance, enterprise severity score, and normalized coordinates—is committed to the `CrimeIncident` SQLite table.
 * **Autonomous Garbage Collection:** To prevent the SQLite database from bloating over time, the worker executes an automatic purge at the end of every polling cycle. It runs a `DELETE` query dropping all `CrimeIncident` records where the timestamp is older than the 7-day threshold. This ensures the application footprint remains lightweight and edge-deployable.
+
+---
+
+## 5. Complete Function Reference
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `calculate_distance` | `(lat1, lon1, lat2, lon2) -> float` | Haversine distance in miles |
+| `geocode_address_arcgis` | `(address, hq_lat, hq_lon, region) -> tuple` | ArcGIS geocoding with fallback |
+| `fetch_live_crimes` | `() -> int` | Main fetch loop, returns count |
+
+### Constants
+
+| Constant | Type | Description |
+|----------|-----|-------------|
+| `GEO_CACHE` | `dict` | In-memory geocoding cache |
+
+---
+
+## 6. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| ArcGIS Geocoding | Address → Lat/Lon | https://developers.arcgis.com/ |
+| Requests | HTTP client | https://docs.python-requests.org/ |
+| math | Distance calculations | https://docs.python.org/3/library/math.html |

@@ -55,3 +55,32 @@ This is the primary operational loop, designed for idempotency and self-cleaning
     * **Insert:** If the record does not exist, it inserts a new `CloudOutage`.
     * **Update:** If the record *does* exist, it checks if the operational status has changed from down to resolved (via keyword heuristics like `[RESOLVED]`). If so, it flips the `is_resolved` boolean to `True`.
 5.  **Data Retention Lifecycle:** The worker executes an automated garbage collection routine (`session.query.delete()`) to permanently remove any incident where `is_resolved == True` AND the timestamp is older than 3 days, ensuring the table remains highly performant.
+
+---
+
+## 5. Complete Function Reference
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `is_foreign_region` | `(text) -> bool` | Check if outage is foreign |
+| `extract_us_regions` | `(text) -> list` | Extract US regions from text |
+| `is_future_maintenance` | `(title, description) -> bool` | Check if maintenance is future |
+| `extract_service_name` | `(provider, title) -> str` | Extract service name |
+| `fetch_cloud_outages` | `() -> int` | Main fetch loop, returns count |
+
+### Constants
+
+| Constant | Type | Description |
+|----------|-----|-------------|
+| `CLOUD_FEEDS` | `dict` | 18 cloud provider RSS feeds |
+| `US_REGIONS` | `dict` | US region mappings |
+| `FOREIGN_IDENTIFIERS` | `list` | Foreign region identifiers |
+
+---
+
+## 6. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| Feedparser | RSS parsing | https://feedparser.readthedocs.io/ |
+| Requests | HTTP client | https://docs.python-requests.org/ |

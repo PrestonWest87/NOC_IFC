@@ -70,3 +70,67 @@ All strategic reporting functions have had their chunk sizes and ingestion limit
 * **Architecture:** Routes entirely through the `_map_reduce_summarize` pipeline across four distinct infrastructure domains.
 * **Execution:** Iterates over the previous day's telemetry. Each domain executes its own Map-Reduce pipeline with tuned chunk sizes: Cyber (chunk 6), Vulnerabilities (chunk 8), Infrastructure Hazards (chunk 6), and Cloud Services (chunk 5).
 * **Master Editor & Fallback:** The four resulting domain summaries are concatenated and sent to a final Senior Director prompt for narrative smoothing and Markdown formatting. If the Master Editor fails or times out, the function falls back to a hardcoded string concatenation, guaranteeing the daily report is consistently generated regardless of LLM stability.
+
+---
+
+## 6. Complete Function Reference
+
+### 6.1 Configuration Functions
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `get_llm_config` | `(session) -> dict` | Get LLM configuration from database |
+
+### 6.2 Core LLM Functions
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `call_llm` | `(messages, config, temperature) -> str` | Universal API caller with timeout handling |
+| `chunk_list` | `(data, size) -> generator` | Chunk list for context management |
+| `truncate_text` | `(text, max_chars) -> str` | Truncate text to limit |
+| `_map_reduce_summarize` | `(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size) -> str` | Universal Map-Reduce pipeline |
+
+### 6.3 BLUF & Analysis Functions
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `generate_bluf` | `(article, session) -> str` | Bottom Line Up Front for article |
+| `analyze_cascading_impacts` | `(articles, session) -> str` | Multi-tier impact analysis |
+| `generate_unified_risk_brief` | `(session, global_intel, internal_snapshot) -> str` | Unified risk brief |
+| `generate_aggregated_shift_summary` | `(session, logs, timeframe_label, target_role) -> str` | Shift log summary |
+
+### 6.4 Reporting Functions
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `generate_briefing` | `(articles, session) -> str` | Multi-article briefing |
+| `cross_reference_cves` | `(cves, session) -> str` | CVE cross-reference |
+| `generate_feed_overview` | `(articles, focus_prompt, session) -> str` | Feed overview |
+| `generate_executive_weather_brief` | `(analytics, p1_count, sys_config) -> str` | Weather brief |
+| `build_custom_intel_report` | `(articles, objective, session) -> str` | Custom report |
+| `generate_rolling_summary` | `(session) -> str` | 6-hour rolling summary |
+| `generate_dynamic_scoring_report` | `(session, intel) -> str` | Boardroom-ready report |
+
+### 6.5 SIEM Functions
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `generate_siem_triage_summary` | `(session, flat_results) -> str` | SIEM alert summary |
+| `generate_elastic_dsl` | `(session, nl_query) -> str` | Natural language to DSL |
+
+### 6.6 Daily Functions
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `generate_daily_fusion_report` | `(session) -> str` | Daily fusion report with Map-Reduce |
+
+---
+
+## 7. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| Requests | HTTP client | https://docs.python-requests.org/ |
+| Ollama | Local LLM | https://github.com/ollama/ollama |
+| LM Studio | Local LLM | https://lmstudio.ai/ |
+| OpenAI | Cloud LLM | https://platform.openai.com/ |

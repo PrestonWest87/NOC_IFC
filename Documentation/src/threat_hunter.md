@@ -80,3 +80,37 @@ Within the Intelligence Fusion Center ecosystem, this module is deeply integrate
 * **Threshold Gating:** To conserve database space, `extract_all_iocs()` is *only* triggered if an article achieves an AI/Keyword Threat Score $\ge$ 50 **AND** is NLP-categorized as "Cyber".
 * **Database Target:** The resulting dictionaries are instantiated as `ExtractedIOC` objects and committed to the database via foreign-key relationships to the parent `Article`.
 * **User Interface (`app.py`):** Drives the "Live Global IOC Matrix" in the Threat Hunting UI, generating immediate Virustotal and Shodan pivot links based on the `indicator_type`.
+
+---
+
+## 7. Complete Function Reference
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `refang` | `(text) -> str` | Refang text |
+| `is_private_ip` | `(ip) -> bool` | Check private IP |
+| `extract_all_iocs` | `(raw_text) -> list` | Extract all IOCs |
+
+### Constants
+
+| Constant | Type | Description |
+|----------|-----|-------------|
+| `REGEX_IPV4` | `Pattern` | IPv4 regex |
+| `REGEX_SHA256` | `Pattern` | SHA256 regex |
+| `REGEX_SHA1` | `Pattern` | SHA1 regex |
+| `REGEX_MD5` | `Pattern` | MD5 regex |
+| `REGEX_CVE` | `Pattern` | CVE regex |
+| `REGEX_EMAIL` | `Pattern` | Email regex |
+| `REGEX_URL` | `Pattern` | URL regex |
+| `REGEX_MITRE` | `Pattern` | MITRE regex |
+| `REGEX_DOMAIN` | `Pattern` | Domain regex |
+| `IGNORE_IPS` | `set` | Safe IPs |
+| `IGNORE_DOMAINS` | `set` | Safe domains |
+
+---
+
+## 8. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| re | Regex | https://docs.python.org/3/library/re.html |

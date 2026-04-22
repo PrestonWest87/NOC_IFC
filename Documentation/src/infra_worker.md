@@ -63,3 +63,26 @@ This is the master wrapper function that initializes the database session (`Sess
 Within the IFC ecosystem, this telemetry data is consumed by:
 * **The UI (Regional Grid Tab):** In `app.py`, the `MonitoredLocation` records are plotted onto the PyDeck 3D map. The `current_spc_risk` dynamically alters the color and status of the NOC sites on the dashboard.
 * **The AIOps Engine (`aiops_engine.py`):** When a SolarWinds node goes down, the engine queries the `RegionalHazard` table. If the failed node's mapped location overlaps with an active environmental hazard, the AI natively correlates the outage to "Severe Weather Hazards" rather than an internal misconfiguration.
+
+---
+
+## 6. Complete Function Reference
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `log_print` | `(msg) -> None` | Debug logging |
+| `save_geojson_to_db` | `(session, feed_name, data) -> None` | Save GeoJSON to cache |
+| `fetch_spc_outlooks` | `() -> int` | Fetch SPC convective outlooks |
+| `fetch_nws_alerts_for_region` | `(area_str, feed_name) -> int` | Fetch NWS alerts |
+| `fetch_regional_hazards` | `() -> int` | Master wrapper function |
+
+---
+
+## 7. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| NWS API | Weather alerts | https://www.weather.gov/api/ |
+| SPC | Storm predictions | https://www.spc.noaa.gov/ |
+| Shapely | Geospatial geometry | https://shapely.readthedocs.io/ |
+| Requests | HTTP client | https://docs.python-requests.org/ |

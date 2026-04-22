@@ -56,3 +56,27 @@ This is the primary callable function exposed by the module. It acts as a scorin
 Within the broader Intelligence Fusion Center (IFC) architecture, this module is primarily leveraged by:
 * **The Intelligence Ingestion Pipeline (e.g., `telemetry_worker`, `scheduler`, or RSS parsers):** Applied to every new article saved to the database to automatically populate the `Article.category` column, allowing the UI to instantly filter data into respective dashboard tabs.
 * **Administrative Maintenance (`src/app.py` - Danger Zone):** Used in the "Recategorize Articles" tool (`svc.recategorize_all_articles()`) to retroactively apply this new 8-domain density scoring logic to legacy database records that were previously uncategorized or miscategorized.
+
+---
+
+## 5. Complete Function Reference
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `categorize_text` | `(text) -> str` | Score-based text categorization |
+
+### Constants
+
+| Constant | Type | Description |
+|----------|-----|-------------|
+| `CATEGORIES` | `dict` | Category name to regex pattern mapping |
+| `COMPILED_CATEGORIES` | `dict` | Pre-compiled regex patterns |
+
+---
+
+## 6. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| re | Regex | https://docs.python.org/3/library/re.html |
+| collections | Counter | https://docs.python.org/3/library/collections.html |

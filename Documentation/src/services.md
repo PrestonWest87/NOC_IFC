@@ -79,3 +79,104 @@ The heaviest computational logic involving Shapely geometries and NWS API routin
 ### `nuke_crime_data()`, `nuke_weather_data()`, & `nuke_tables(model_names)`
 * **The Cross-Dialect Solution:** Executing raw SQL `TRUNCATE CASCADE` commands works in PostgreSQL but throws fatal syntax errors in SQLite. This function accepts an array of model string names, maps them to the actual ORM classes, and executes a pure SQLAlchemy `.delete()`.
 * **Kill-Switch Operations:** Allows administrators in the UI's "Danger Zone" to instantly purge corrupted NOAA/SPC geometry caches or Local CAD data without rebooting the Docker containers, forcing a clean data pull on the next scheduler tick.
+
+---
+
+## 8. Complete Function Reference
+
+### 8.1 DotDict Utilities
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `to_dotdict` | `(obj) -> DotDict` | Converts SQLAlchemy ORM to dictionary with dot access |
+| `to_dotdict_list` | `(objs) -> list` | Batch converts list of ORM objects |
+
+### 8.2 Caching Functions
+
+| Function | Signature | TTL | Purpose |
+|----------|----------|-----|---------|
+| `get_cached_config` | `() -> DotDict` | 5 min | System configuration |
+| `get_cached_locations` | `() -> list` | 10 min | Monitored locations |
+| `get_cached_geojson` | `() -> tuple` | 2 min | Weather GeoJSON data |
+| `get_ar_counties_mapping` | `() -> dict` | 24 hr | AR county boundaries |
+| `get_regional_counties_mapping` | `() -> dict` | 24 hr | Multi-state counties |
+| `get_all_site_types` | `() -> list` | 60 min | Distinct site types |
+
+### 8.3 Authentication Functions
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `authenticate_user` | `(username, password) -> tuple` | Returns (user, token) or (None, None) |
+| `get_user_by_token` | `(token) -> DotDict` | Find user by session token |
+| `get_user_by_username` | `(username) -> DotDict` | Find user by username |
+| `update_user_profile` | `(username, full_name, job_title, contact_info, old_pwd, new_pwd) -> bool` | Update profile |
+| `logout_user` | `(username) -> None` | Clear session token |
+
+### 8.4 Dashboard Functions
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `get_dashboard_metrics` | `() -> dict` | 24-hour KPIs |
+| `get_pinned_articles` | `() -> list` | Pinned articles |
+| `get_live_articles` | `(limit=15) -> list` | Live articles |
+| `toggle_pin` | `(art_id) -> None` | Toggle pin status |
+| `boost_score` | `(art_id, amount=15) -> None` | Boost article score |
+| `change_status` | `(art_id, new_feedback) -> None` | Change feedback status |
+| `save_ai_bluf` | `(art_id, bluf_text) -> None` | Save AI BLUF |
+
+### 8.5 Geospatial Functions
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `get_recent_crimes` | `(max_distance, grid_only, hours_back) -> list` | Crime incidents with distance |
+| `force_fetch_crime_data` | `() -> None` | Force crime data fetch |
+| `get_nws_forecast` | `(lat, lon) -> dict` | 7-day weather forecast |
+| `set_site_maintenance` | `(site_name, is_maint, etr_date, reason) -> None` | Set maintenance status |
+
+### 8.6 Risk Functions
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `get_historical_threat_scores` | `(days=14) -> list` | Historical scores |
+| `save_threat_score` | `(c_pts, p_pts, c_base, p_base) -> None` | Save daily score |
+| `get_executive_grid_intel` | `(active_warn_count, recent_crimes) -> dict` | Executive threat matrix |
+| `calculate_internal_cis_score` | `(db_session) -> int` | CIS score calculation |
+| `generate_and_save_internal_risk_snapshot` | `() -> None` | Background snapshot generation |
+
+### 8.7 Shift Log Functions
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `get_shift_logs` | `(role_filter, start_date, end_date) -> list` | Query shift logs |
+| `save_shift_log` | `(analyst, role, shift_period, content, custom_date) -> None` | Save log entry |
+
+### 8.8 Reporting Functions
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `generate_unified_brief_email_html` | `(report_time, markdown_content) -> str` | Format briefing email |
+| `generate_outlook_html_report` | `(intel) -> str` | Generate HTML report |
+| `send_executive_report` | `(recipient_email, intel, sys_config) -> bool` | Send email |
+| `get_all_daily_briefings` | `() -> list` | All briefings |
+| `get_daily_briefing` | `(target_date) -> DotDict` | Specific briefing |
+| `save_daily_briefing` | `(target_date, content) -> None` | Save briefing |
+| `get_paginated_articles` | `(feed_type, cat_filter, page, page_size, search_term, min_score) -> tuple` | Paginated articles |
+
+### 8.9 Cluster Functions
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `set_cluster_dispatch` | `(alert_ids, is_dispatched) -> None` | Mark cluster as dispatched |
+| `get_filtered_notification_alerts` | `(username, ar_data, oos_data, locs) -> list` | Filtered alerts for user |
+| `set_cluster_dispatch` | `(alert_ids, is_dispatched) -> None` | Toggle dispatch status |
+
+---
+
+## 9. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| Pandas | Data processing | https://pandas.pydata.org/ |
+| Requests | HTTP client | https://docs.python-requests.org/ |
+| Shapely | Geospatial geometry | https://shapely.readthedocs.io/ |
+| bcrypt | Password hashing | https://pypi.org/project/bcrypt/ |

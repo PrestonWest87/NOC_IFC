@@ -63,3 +63,48 @@ To guarantee the SQLite database remains lightweight, performant, and resistant 
 * **The 30-Day Expiration:** Permanently drops un-pinned intelligence older than 30 days to free up SQLite indexing space. 
 * **Kinetic Expiration:** Drops any `CrimeIncident` or `RegionalHazard` object older than 7 days, as severe weather and law enforcement dispatches are only relevant in the immediate tactical timeframe.
 * **`VACUUM` Execution:** After data is deleted, the scheduler executes an implicit database vacuum to physically release the storage bytes back to the host machine's disk drive.
+
+---
+
+## 6. Complete Function Reference
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `log` | `(message, source) -> None` | Timestamped logging |
+| `fetch_single_feed` | `(session, f_name, f_url) -> list` | Async single RSS feed fetch |
+| `fetch_all_feeds_chunked` | `(feed_data, chunk_size) -> list` | Async chunked feed fetching |
+| `parse_and_score_feed` | `(f_name, content, known_links) -> list` | Parse RSS and apply scoring |
+| `bulk_save_to_db` | `(db_session, arts_data) -> int` | Bulk insert articles |
+| `fetch_feeds` | `(source) -> int` | Main RSS fetch entry point |
+| `job_unified_brief` | `() -> None` | Generate unified brief (2hr) |
+| `job_internal_risk` | `() -> None` | Generate internal risk (6hr) |
+| `run_database_maintenance` | `() -> None` | Database cleanup (60min) |
+| `job_retrain_ml` | `() -> None` | ML model retrain (Sunday 02:00) |
+| `run_threaded` | `(job_func, *args, **kwargs) -> None` | Thread wrapper for multiprocessing |
+
+---
+
+## 7. Scheduler Job Matrix
+
+| Job | Interval | Function | Target |
+|-----|----------|-----------|--------|
+| RSS Feed Fetch | 15 min | `fetch_feeds` | Worker |
+| Crime Fetch | 3 min | `crime_worker.fetch_live_crimes` | Worker |
+| Regional Hazards | 2 min | `infra_worker.fetch_regional_hazards` | Worker |
+| Cloud Outages | 5 min | `cloud_worker.fetch_cloud_outages` | Worker |
+| CISA KEV | 6 hours | `cve_worker.fetch_cisa_kev` | Worker |
+| Internal Risk | 6 hours | `services.generate_and_save_internal_risk_snapshot` | Worker |
+| Unified Brief | 2 hours | `llm.generate_unified_risk_brief` | Worker |
+| DB Maintenance | 60 min | `run_database_maintenance` | Worker |
+| ML Retrain | Sunday 02:00 | `job_retrain_ml` | Worker |
+
+---
+
+## 8. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| schedule | Cron scheduling | https://schedule.readthedocs.io/ |
+| aiohttp | Async HTTP | https://docs.aiohttp.org/ |
+| feedparser | RSS parsing | https://feedparser.readthedocs.io/ |
+| asyncio | Async I/O | https://docs.python.org/3/library/asyncio.html |

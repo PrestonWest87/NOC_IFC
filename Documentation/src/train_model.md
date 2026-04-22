@@ -54,3 +54,27 @@ Once `model.fit(X, y)` completes, the trained pipeline (containing both the fitt
 Within the broader ecosystem:
 * **Trigger Mechanism (`scheduler.py` & `app.py`):** The `train()` function can be executed on-demand via the UI by an administrator, or autonomously via the weekly background cron job to ensure the model naturally adapts to shifting threat landscapes over time.
 * **Inference Consumption (`logic.py`):** The `HybridScorer` class dynamically loads `src/ml_model.pkl` into memory. Every new RSS article fetched by the system is subsequently passed into `model.predict_proba()` to generate the AI Confidence Score used for automated threat triage and prioritization.
+
+---
+
+## 5. Complete Function Reference
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `train` | `() -> None` | Train and save ML model |
+
+### Constants
+
+| Constant | Type | Description |
+|----------|-----|-------------|
+| `MODEL_PATH` | `str` | `src/ml_model.pkl` |
+
+---
+
+## 6. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| sklearn | ML classification | https://scikit-learn.org/ |
+| joblib | Model serialization | https://joblib.readthedocs.io/ |
+| pandas | Data processing | https://pandas.pydata.org/ |

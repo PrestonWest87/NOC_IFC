@@ -89,3 +89,59 @@ The control plane containing eight sub-tabs:
 * **Users & Roles:** Granular RBAC controls allowing admins to craft custom roles mapped to specific pages, UI actions, and authorized facility types.
 * **Danger Zone:** Houses destructive tools to run the Garbage Collector, clear crime/weather telemetry arrays, or trigger full factory database resets. 
 * **Black Ops:** Undocumented operational tools (*Operation: Nick* and *Operation: Dean*) used for targeted screen locks or cascading failure mock drills.**
+
+---
+
+## 5. Function Reference
+
+### 5.1 Initialization Functions
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `setup_database` | `() -> bool` | Initializes database schema on app start (cached resource) |
+| `get_black_ops_state` | `() -> dict` | Returns Black Ops runtime state (nick_enabled, dean_target, dean_start) |
+| `force_db_migration` | `() -> None` | Forces database init and clears stale cache keys |
+
+### 5.2 UI Helper Functions
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `safe_rerun` | `() -> None` | Triggers Streamlit rerun to refresh UI state |
+| `check_cooldown` | `(key, cooldown_seconds=60) -> bool` | Checks if action is in cooldown period |
+| `apply_cooldown` | `(key) -> None` | Applies cooldown timestamp to action |
+| `format_local_time` | `(utc_dt) -> str` | Converts UTC datetime to local timezone string |
+| `get_score_badge` | `(score) -> str` | Returns HTML-colored score badge (RED >=80, YELLOW >=50, GREEN <50) |
+| `get_cat_icon` | `(cat) -> str` | Returns emoji icon for article category |
+| `render_article_feed` | `(feed_articles, key_prefix="") -> None` | Renders paginated article feed with actions |
+
+### 5.3 Constants
+
+| Constant | Type | Description |
+|----------|-----|-------------|
+| `LOCAL_TZ` | `ZoneInfo` | America/Chicago timezone |
+| `ALL_POSSIBLE_PAGES` | `list` | 8 allowed page names |
+| `ALL_POSSIBLE_ACTIONS` | `list` | 32 allowed action/tab permissions |
+| `theme_options` | `list` | 6 UI theme names |
+
+### 5.4 Theme Engine
+
+| Theme Name | CSS Override |
+|-----------|--------------|
+| `Standard` | Default Streamlit styling |
+| `NOC Terminal` | Green-on-black monospace |
+| `High Contrast (Dark)` | Yellow on black, high visibility |
+| `Cyberpunk` | Pink/cyan neon aesthetic |
+| `Solarized Dark` | Solarized color palette |
+| `Midnight Ocean` | Blue-gray professional dark |
+
+---
+
+## 6. External API Citations
+
+| API / Service | Purpose | Documentation |
+|-------------|---------|-------------|
+| Streamlit | UI Framework | https://docs.streamlit.io |
+| Streamlit Cookies Controller | Cookie persistence | https://pypi.org/project/streamlit-cookies-controller/ |
+| Streamlit Autorefresh | Auto-refresh timers | https://pypi.org/project/streamlit-autorefresh/ |
+| PyDeck | Geospatial maps | https://pydeck.js.org |
+| Pandas | Data tables | https://pandas.pydata.org |

@@ -48,3 +48,32 @@ The listener is strictly an ingestion tool; it intentionally performs zero analy
 * **Database Commits (`SolarWindsAlert`):** The standardized data is instantiated as a `SolarWindsAlert` ORM object and committed to the database. The `raw_payload` (the unparsed original JSON) is saved into a distinct column to support future ML retraining, forensic auditing, or custom playbook generation.
 * **Correlation Flags:** The alert is explicitly saved with `is_correlated = False` and `is_dispatched = False`.
 * **The Decoupled Handoff:** Once the row is committed, the listener's job is done. The `EnterpriseAIOpsEngine`—running asynchronously in the separate `worker` container—polls the database every 5 seconds to scoop up these un-correlated alerts, calculate their topological blast radii, and cluster them into physical incidents.
+
+---
+
+## 6. Complete Function Reference
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `log` | `(msg) -> None` | Simple logging to console |
+| `classify_device` | `(text_corpus, node_type_hint) -> str` | NLP device classification |
+| `smart_extract` | `(payload: dict) -> dict` | Parse SolarWinds JSON payload |
+| `process_payload_background` | `(raw_payload: dict) -> None` | Background database insert |
+| `receive_alert` | `(request: Request, background_tasks: BackgroundTasks)` | FastAPI endpoint handler |
+
+### FastAPI Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/webhook/solarwinds` | POST | Receive SolarWinds alerts |
+| `/health` | GET | Health check |
+
+---
+
+## 7. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| FastAPI | Web framework | https://fastapi.tiangolo.com/ |
+| Uvicorn | ASGI server | https://www.uvicorn.org/ |
+| SQLAlchemy | ORM | https://docs.sqlalchemy.org/ |

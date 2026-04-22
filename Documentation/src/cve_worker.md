@@ -49,3 +49,26 @@ Within the broader architecture, this module is executed by:
 * **The Global Scheduler (`src/scheduler.py`)**: Runs this script on a predefined chronological loop (e.g., daily or hourly) to ensure the NOC is always aware of zero-day additions to the KEV catalog.
 * **User Manual Override (`app.py`)**: Can be forcefully triggered by NOC Operators clicking the "Sync CISA KEV" button in the Threat Telemetry module, bypassing the scheduler for immediate updates.
 * **AI Security Auditor Integration**: The data populated by this script is continuously monitored by the AIOps LLM prompt. The system cross-references the `vendor` and `product` fields of new KEV entries against the `tech_stack` defined in `SystemConfig` to automatically alert operators if internal infrastructure is actively targeted.
+
+---
+
+## 6. Complete Function Reference
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `fetch_cisa_kev` | `() -> int` | Sync CISA KEV catalog, returns count |
+
+### Constants
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `CISA_KEV_URL` | `https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json` | CISA feed |
+
+---
+
+## 7. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| CISA KEV | Vulnerability catalog | https://www.cisa.gov/known-exploited-vulnerabilities-catalog |
+| Requests | HTTP client | https://docs.python-requests.org/ |

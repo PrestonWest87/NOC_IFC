@@ -118,12 +118,51 @@ These tables construct the physical ontology of the organization and house the r
 
 ---
 
-## 8. Initialization & Data Seeding
+## 9. Database Models (Complete Reference)
 
-### `init_db()`
-* **Functionality:** A self-healing bootstrap sequence executed immediately upon application start.
-* **Operational Flow:**
-    1.  **Race Condition Mitigation:** Executes `time.sleep(random.uniform(0.1, 1.5))` to prevent database lock collisions when multiple Docker microservices spin up simultaneously.
-    2.  **Schema Generation:** Uses `Base.metadata.create_all(bind=engine)` to natively build the SQLite tables if they do not exist.
-    3.  **Silent Migrations:** Executes a series of non-blocking `ALTER TABLE` statements wrapped in `try...except` blocks to natively append new columns (like `allowed_site_types`, `under_maintenance`, or `is_dispatched`) to legacy databases without wiping production data.
-    4.  **RBAC Auto-Healing:** Hardcodes the `ALL_POSSIBLE_PAGES` and `ALL_POSSIBLE_ACTIONS` arrays. It checks for the existence of the default `admin` role and forcefully appends new operational capabilities to ensure legacy deployments are always compatible with UI updates.
+| Model | Table | Purpose |
+|------|-------|---------|
+| `User` | `users` | Human operator identities, profiles, authentication |
+| `Role` | `roles` | RBAC profiles, allowed pages/actions/site_types |
+| `SystemConfig` | `system_config` | Global variables, LLM/SMTP config, risk thresholds |
+| `HardwareAsset` | `hardware_assets` | Internal hardware inventory |
+| `SoftwareAsset` | `software_assets` | Internal software inventory |
+| `InternalRiskSnapshot` | `internal_risk_snapshots` | Point-in-time internal risk calculations |
+| `ShiftLogEntry` | `shift_logs` | Tactical operational logs |
+| `SavedReport` | `saved_reports` | Custom intelligence reports |
+| `DailyBriefing` | `daily_briefings` | AI-synthesized briefings |
+| `Article` | `articles` | RSS threat intelligence articles |
+| `ExtractedIOC` | `extracted_iocs` | Extracted IOCs from articles |
+| `CveItem` | `cve_items` | CISA KEV catalog mirror |
+| `CrimeIncident` | `crime_incidents` | Local law enforcement CAD data |
+| `RegionalHazard` | `regional_hazards` | NWS weather alerts |
+| `CloudOutage` | `cloud_outages` | Cloud service status |
+| `BgpAnomaly` | `bgp_anomalies` | RIPE BGP routing anomalies |
+| `SolarWindsAlert` | `solarwinds_alerts` | ITSM webhook alerts |
+| `ElasticEvent` | `elastic_events` | SIEM event cache |
+| `DailyThreatScore` | `daily_threat_scores` | Historical threat scoring |
+| `MonitoredLocation` | `monitored_locations` | Geographic facility tracking |
+| `GeoJsonCache` | `geojson_caches` | Weather GeoJSON cache |
+| `UserWeatherPreference` | `user_weather_preferences` | User weather alert settings |
+| `TimelineEvent` | `timeline_events` | Event timeline |
+| `FeedSource` | `feed_sources` | RSS feed sources |
+| `Keyword` | `keywords` | Scored keywords |
+
+---
+
+## 10. Engine Configuration
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `init_db` | `() -> None` | Database initialization, schema creation, data seeding |
+| `set_sqlite_pragma` | `(dbapi_connection, connection_record) -> None` | Sets WAL, cache_size, temp_store, mmap_size |
+
+---
+
+## 11. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| SQLAlchemy | ORM | https://docs.sqlalchemy.org/ |
+| SQLite | Database | https://www.sqlite.org/docs.html |
+| bcrypt | Password hashing | https://pypi.org/project/bcrypt/ |

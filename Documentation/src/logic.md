@@ -54,3 +54,30 @@ Rather than relying on a simplistic maximum value function, the engine applies c
 ## 4. System Integration Context
 
 Within the broader Intelligence Fusion Center ecosystem, this module is directly leveraged by background ingestion pipelines. As new intelligence is pulled, the text is passed through `HybridScorer.score()`. The resulting `final_score` and `reasons` populate database records, dictating whether incoming data breaches the threshold to alert operators.
+
+---
+
+## 5. Complete Function Reference
+
+### Class: HybridScorer
+
+| Method | Signature | Purpose |
+|-------|----------|---------|
+| `__init__` | `(self, model_path) -> None` | Load ML model and keywords |
+| `score` | `(self, text: str) -> tuple` | Returns (score, reasons) |
+
+### Functions
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `get_scorer` | `() -> HybridScorer` | Singleton scorer |
+| `force_reload_scorer` | `() -> None` | Force reload after training |
+
+---
+
+## 6. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| joblib | ML model loading | https://joblib.readthedocs.io/ |
+| sklearn | ML classification | https://scikit-learn.org/ |

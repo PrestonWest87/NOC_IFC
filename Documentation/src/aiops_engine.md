@@ -75,3 +75,36 @@ Queries historical `SolarWindsAlert` records over the last 60 days, aggressively
 1.  **Top Offending Nodes (`f` DataFrame):** Aggregates and returns the top 15 specific physical devices experiencing the highest volume of chronic failures or flapping states.
 2.  **Infrastructure Hotspots (`v` DataFrame):** Aggregates and returns the top 10 physical facility sites experiencing the highest overall volume of IT incidents, exposing localized power or transport instability.
 3.  **AI Predictive Maintenance Forecast (`r` list):** An automated insights engine that flags nodes with >5 incidents a week as "CRITICAL FLAP DETECTED" or sites with >15 incidents as "REGIONAL DEGRADATION", generating explicit, actionable recommendations for field technicians (e.g., circuit testing, power conditioning checks).
+
+---
+
+## 6. Complete Function Reference
+
+### Class: EnterpriseAIOpsEngine
+
+| Method | Signature | Purpose |
+|-------|----------|---------|
+| `__init__` | `(self, db_session)` | Initialize session |
+| `_get_domain` | `(self, node_type) -> str` | Get domain from node type |
+| `_determine_patient_zero` | `(self, alerts) -> dict` | Determine root alert |
+| `identify_fleet_outages` | `(self, incidents, threshold) -> list` | Detect fleet outages |
+| `generate_chronic_insights` | `(self) -> dict` | Chronic analytics |
+| `calculate_root_cause` | `(self, site_name, data, active_weather, active_cloud, active_bgp, fleet_events) -> dict` | Root cause analysis |
+| `analyze_and_cluster` | `(self, active_alerts) -> dict` | Cluster alerts |
+
+### Constants
+
+| Constant | Type | Description |
+|----------|-----|-------------|
+| `ONTOLOGY` | `dict` | Device type ontology (6 domains) |
+| `TIER_RANKING` | `dict` | Domain priority ranking |
+
+---
+
+## 7. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| pandas | Data processing | https://pandas.pydata.org/ |
+| math | Calculations | https://docs.python.org/3/library/math.html |
+| ipaddress | IP validation | https://docs.python.org/3/library/ipaddress.html |

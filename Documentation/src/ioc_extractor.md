@@ -76,3 +76,35 @@ This is the master execution loop exposed to the application.
 
 * **Singleton Instantiation:** At the bottom of the file, the module instantiates a singleton object: `ioc_engine = EnterpriseIOCExtractor()`. 
 * **Performance Impact:** Other modules (like the Multiprocessing workers in `scheduler.py`) import this pre-initialized `ioc_engine` rather than creating a new class instance. This ensures the massive dictionary of Regex rules is only compiled into CPU memory once per process, retaining lightning-fast parsing speeds during massive intelligence feed syncs.
+
+---
+
+## 7. Complete Function Reference
+
+### Class: EnterpriseIOCExtractor
+
+| Method | Signature | Purpose |
+|-------|----------|---------|
+| `__init__` | `(self)` | Initialize whitelists and rulesets |
+| `_initialize_whitelists` | `(self) -> None` | Setup ignore lists |
+| `_compile_rulesets` | `(self) -> None` | Compile regex patterns |
+| `refang_payload` | `(self, text: str) -> str` | Defang/defang text |
+| `_is_valid_ip` | `(self, ip_str: str) -> bool` | IP validation |
+| `_get_context` | `(self, text: str, match: re.Match) -> str` | Extract context |
+| `extract` | `(self, raw_text: str) -> List[Dict]` | Main extraction |
+
+### Constants
+
+| Constant | Type | Description |
+|----------|-----|-------------|
+| `CONTEXT_WINDOW` | `int` | 45 characters |
+
+---
+
+## 8. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| re | Regex | https://docs.python.org/3/library/re.html |
+| ipaddress | IP validation | https://docs.python.org/3/library/ipaddress.html |
+| urllib.parse | URL decoding | https://docs.python.org/3/library/urllib.parse.html |

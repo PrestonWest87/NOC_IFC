@@ -64,3 +64,35 @@ The module is divided into three distinct polling functions, each managing its o
 Within the broader Intelligence Fusion Center ecosystem:
 * **The Global Scheduler (`scheduler.py`):** Invokes `run_telemetry_sync()` every **5 minutes**. This high-frequency polling ensures the NOC detects power cuts and routing drops almost instantly.
 * **The AIOps Engine (`aiops_engine.py`):** These records are the final piece of the ontological puzzle. The engine passes active `RegionalOutage` and `BgpAnomaly` records into `calculate_root_cause()`. If a router drops offline and intersects with an ODIN power blast radius, the AI automatically correlates the event as "Facility Power Loss" rather than a hardware fault, entirely eliminating manual diagnostic time.
+
+---
+
+## 6. Complete Function Reference
+
+| Function | Signature | Purpose |
+|----------|----------|---------|
+| `log_print` | `(msg) -> None` | Debug logging |
+| `fetch_ornl_odin_power` | `() -> int` | Fetch power grid data |
+| `fetch_bgp_anomalies` | `() -> int` | Fetch BGP anomalies |
+| `fetch_ioda_isp_outages` | `() -> int` | Fetch ISP outages |
+| `run_telemetry_sync` | `() -> int` | Master wrapper |
+
+### Constants
+
+| Constant | Type | Description |
+|----------|-----|-------------|
+| `AR_COUNTY_COORDS` | `dict` | County name to coordinates |
+| `HEADERS` | `dict` | HTTP request headers |
+| `ELASTIC_URL` | `str` | Elastic connection URL |
+| `ELASTIC_API_KEY` | `str` | Elastic API key |
+
+---
+
+## 7. API Citations
+
+| API / Service | Purpose | Documentation |
+|---------------|---------|-------------|
+| ORNL ODIN | Power grid | https://odn.disasterspacing.org/ |
+| RIPE RIS | BGP routing | https://ris.ripe.net/ |
+| IODA | Outage detection | https://ioda.caida.org/ |
+| Requests | HTTP client | https://docs.python-requests.org/ |
