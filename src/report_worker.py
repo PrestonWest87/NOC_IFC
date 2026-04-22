@@ -8,7 +8,7 @@ from src.llm import generate_daily_fusion_report
 LOCAL_TZ = ZoneInfo("America/Chicago")
 
 def run_daily_report():
-    print("🤖 [REPORT WORKER] 06:00 AM trigger hit! Initiating Daily Fusion Report synthesis...")
+    print("[AI] [REPORT WORKER] 06:00 AM trigger hit! Initiating Daily Fusion Report synthesis...")
     session = SessionLocal()
     try:
         now_local = datetime.now(LOCAL_TZ)
@@ -17,7 +17,7 @@ def run_daily_report():
         # 1. Prevent duplicate runs if the server restarts
         existing = session.query(DailyBriefing).filter(DailyBriefing.report_date == yesterday_local).first()
         if existing:
-            print("✅ [REPORT WORKER] Report for yesterday already exists. Skipping.")
+            print("[OK] [REPORT WORKER] Report for yesterday already exists. Skipping.")
             return
 
         # 2. Fire the Map-Reduce AI engine
@@ -28,18 +28,18 @@ def run_daily_report():
             new_rep = DailyBriefing(report_date=date_obj, content=report_markdown)
             session.add(new_rep)
             session.commit()
-            print("✅ [REPORT WORKER] Daily Fusion Report completed and saved to database!")
+            print("[OK] [REPORT WORKER] Daily Fusion Report completed and saved to database!")
         else:
-            print("⚠️ [REPORT WORKER] AI returned an empty report. Check API connection.")
+            print("[WARN] [REPORT WORKER] AI returned an empty report. Check API connection.")
             
     except Exception as e:
-        print(f"❌ [REPORT WORKER] Crash during report generation: {e}")
+        print(f"[ERROR] [REPORT WORKER] Crash during report generation: {e}")
         session.rollback()
     finally:
         session.close()
 
 def start_report_scheduler():
-    print("⏳ [REPORT WORKER] Online. Standing by for 06:00 AM CST...")
+    print(" [REPORT WORKER] Online. Standing by for 06:00 AM CST...")
     while True:
         now_cst = datetime.now(LOCAL_TZ)
         

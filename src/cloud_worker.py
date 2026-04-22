@@ -26,7 +26,7 @@ CLOUD_FEEDS = {
     "Mimecast": "https://status.meraki.net/history.rss"
 }
 
-# --- 🌎 ENTERPRISE GEO-FENCING DEFINITIONS ---
+# ---  ENTERPRISE GEO-FENCING DEFINITIONS ---
 US_REGIONS = {
     "us-east-1": "US-East (N. Virginia)", "us-east-2": "US-East (Ohio)",
     "us-west-1": "US-West (N. California)", "us-west-2": "US-West (Oregon)",
@@ -112,7 +112,7 @@ def extract_service_name(provider, title):
     return "General/Multiple Services"
 
 def fetch_cloud_outages():
-    print(f"☁️ [CLOUD WORKER] Fetching status feeds from {len(CLOUD_FEEDS)} providers...")
+    print(f" [CLOUD WORKER] Fetching status feeds from {len(CLOUD_FEEDS)} providers...")
     session = SessionLocal()
     added_count = 0
     resolved_count = 0
@@ -147,7 +147,7 @@ def fetch_cloud_outages():
                     # Check both 'summary' and 'description' to cover multiple RSS formats
                     description = entry.get('summary', entry.get('description', ''))
                     
-                    # --- 🛡️ ENTERPRISE NOISE FILTERS ---
+                    # --- ENTERPRISE NOISE FILTERS ---
                     if is_future_maintenance(title, description):
                         filtered_count += 1
                         continue
@@ -193,7 +193,7 @@ def fetch_cloud_outages():
                             
             except Exception as e:
                 failed_providers.append(provider)
-                print(f"⚠️ [CLOUD WORKER] Skipping {provider} due to timeout/error: {e}")
+                print(f"[WARN] [CLOUD WORKER] Skipping {provider} due to timeout/error: {e}")
                 continue # Gracefully skip to the next provider
 
         # Self-cleaning: Purge resolved incidents older than 3 days
@@ -202,13 +202,13 @@ def fetch_cloud_outages():
         
         session.commit()
         
-        summary = f"✅ [CLOUD WORKER] Added {added_count} new alerts. Marked {resolved_count} resolved. Filtered {filtered_count} future/foreign noise events."
+        summary = f"[OK] [CLOUD WORKER] Added {added_count} new alerts. Marked {resolved_count} resolved. Filtered {filtered_count} future/foreign noise events."
         if failed_providers:
             summary += f" (Failed to reach: {', '.join(failed_providers)})"
         print(summary)
         
     except Exception as e:
-        print(f"❌ [CLOUD WORKER] Critical failure in cloud worker: {e}")
+        print(f"[ERROR] [CLOUD WORKER] Critical failure in cloud worker: {e}")
         session.rollback()
     finally:
         session.close()

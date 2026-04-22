@@ -32,14 +32,14 @@ def fetch_spc_outlooks():
                 
                 if response.status_code == 200:
                     save_geojson_to_db(session, feed_name, response.json())
-                    log_print(f"✅ Downloaded and cached {feed_name} GeoJSON to DB.")
+                    log_print(f"[OK] Downloaded and cached {feed_name} GeoJSON to DB.")
                 else:
-                    log_print(f"❌ Failed to fetch {feed_name}. HTTP {response.status_code}")
+                    log_print(f"[ERROR] Failed to fetch {feed_name}. HTTP {response.status_code}")
                     
             session.commit()
         except Exception as e:
             session.rollback()
-            log_print(f"❌ SPC Fetch Error: {e}")
+            log_print(f"[ERROR] SPC Fetch Error: {e}")
 
 def fetch_nws_alerts_for_region(area_str, feed_name):
     """Fetches active NWS alerts, caches JSON to DB, and logs metadata."""
@@ -80,13 +80,13 @@ def fetch_nws_alerts_for_region(area_str, feed_name):
                         added += 1
                 
                 session.commit()
-                log_print(f"✅ NWS ({area_str}) Sync complete. Added {added}, updated {updated}.")
+                log_print(f"[OK] NWS ({area_str}) Sync complete. Added {added}, updated {updated}.")
             else:
-                log_print(f"❌ NWS API returned HTTP {response.status_code} for {area_str}")
+                log_print(f"[ERROR] NWS API returned HTTP {response.status_code} for {area_str}")
                 
         except Exception as e:
             session.rollback()
-            log_print(f"❌ NWS Fetch Error for {area_str}: {e}")
+            log_print(f"[ERROR] NWS Fetch Error for {area_str}: {e}")
 
 def fetch_regional_hazards():
     """Main wrapper for infrastructure telemetry."""

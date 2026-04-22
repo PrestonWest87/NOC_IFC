@@ -1,3 +1,14 @@
+"""
+NOC Intelligence Fusion Center - Background Scheduler
+
+This module orchestrates all background tasks for the NOC Intelligence system,
+including RSS feed fetching, weather/telemetry ingestion, ML model training,
+and automated reporting.
+
+Tasks are scheduled using the 'schedule' library and run in background threads
+to prevent blocking the main scheduler loop.
+"""
+
 import time
 import schedule
 import feedparser
@@ -28,6 +39,7 @@ from src.crime_worker import fetch_live_crimes
 init_db()
 
 def log(message, source="SYSTEM"):
+    """Print timestamped log messages to stdout for Docker log capture."""
     local_time = datetime.now(ZoneInfo("America/Chicago")).strftime('%H:%M:%S')
     print(f"[{local_time}] [{source.upper()}] {message}")
     sys.stdout.flush()
@@ -43,6 +55,7 @@ _global_scorer = get_scorer()
 # =====================================================================
 
 async def fetch_single_feed(session, f_name, f_url):
+    """Fetch a single RSS feed with async HTTP request."""
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -54,11 +67,11 @@ async def fetch_single_feed(session, f_name, f_url):
             content = await response.text()
             return f_name, content
     except Exception as e:
-        log(f"⚠️ Async Fetch Error on {f_name}: {e}", "WORKER")
+        log(f"[WARN] Async Fetch Error on {f_name}: {e}", "WORKER")
         return f_name, None
 
 async def fetch_all_feeds_chunked(feed_data, chunk_size=5):
-    """Fetches feeds in smaller batches to prevent RAM spikes."""
+    """Fetch multiple RSS feeds in chunks to prevent memory spikes."""
     results = []
     async with aiohttp.ClientSession() as session:
         for i in range(0, len(feed_data), chunk_size):
@@ -66,12 +79,12 @@ async def fetch_all_feeds_chunked(feed_data, chunk_size=5):
             tasks = [fetch_single_feed(session, f_name, f_url) for _, f_name, f_url in chunk]
             chunk_results = await asyncio.gather(*tasks)
             results.extend(chunk_results)
-            # Brief pause to let the async loop breathe and garbage collect
-            await asyncio.sleep(0.1) 
+            await asyncio.sleep(0.1)
     return results
 
 def parse_and_score_feed(f_name, content, known_links):
-    from src.ioc_extractor import ioc_engine 
+    """Parse RSS feed content and score articles for relevance."""
+    from src.ioc_extractor import ioc_engine
     from src.categorizer import categorize_text
     
     ALERT_THRESHOLD = 45
@@ -107,108 +120,146 @@ def parse_and_score_feed(f_name, content, known_links):
     return f_name, new_articles_data
 
 def bulk_save_to_db(db_session, arts_data):
+    """Saves articles in batches for better memory efficiency."""
     if not arts_data: return 0
     added = 0
+    batch_size = 100
+    batch = []
+
     for d in arts_data:
         art = Article(
             title=d["title"], link=d["link"], summary=d["summary"], source=d["source"],
             published_date=datetime.utcnow(), score=d["score"], category=d["category"],
             keywords_found=d["keywords_found"], is_bubbled=d["is_bubbled"]
         )
-        db_session.add(art)
+        batch.append(art)
+
+        if len(batch) >= batch_size:
+            db_session.add_all(batch)
+            try:
+                db_session.flush()
+                for item in batch:
+                    if d.get("iocs"):
+                        ioc_objs = [
+                            ExtractedIOC(
+                                article_id=item.id, indicator_type=ioc["Type"],
+                                indicator_value=ioc["Indicator"], context=ioc["Context"]
+                            ) for ioc in d["iocs"]
+                        ]
+                        db_session.add_all(ioc_objs)
+                db_session.commit()
+                added += len(batch)
+            except IntegrityError:
+                db_session.rollback()
+            batch = []
+
+    if batch:
+        db_session.add_all(batch)
         try:
-            db_session.flush() # Locks in the ID for the IOC foreign key
-            if d.get("iocs"):
-                ioc_objs = [
-                    ExtractedIOC(
-                        article_id=art.id, indicator_type=ioc["Type"], 
-                        indicator_value=ioc["Indicator"], context=ioc["Context"]
-                    ) for ioc in d["iocs"]
-                ]
-                db_session.add_all(ioc_objs)
+            db_session.flush()
+            for item in batch:
+                if d.get("iocs"):
+                    ioc_objs = [
+                        ExtractedIOC(
+                            article_id=item.id, indicator_type=ioc["Type"],
+                            indicator_value=ioc["Indicator"], context=ioc["Context"]
+                        ) for ioc in d["iocs"]
+                    ]
+                    db_session.add_all(ioc_objs)
             db_session.commit()
-            db_session.expunge_all()
-            added += 1
+            added += len(batch)
         except IntegrityError:
             db_session.rollback()
+
+    db_session.expunge_all()
     return added
 
 def fetch_feeds(source="Scheduled"):
+    """Main entry point for scheduled RSS feed fetching and scoring."""
     import gc
-    log("🚀 Starting LOW-CPU feed fetch cycle...", source)
-    
+    log("[WORKER] Starting feed fetch cycle...", source)
+
     with SessionLocal() as main_session:
         sources = main_session.query(FeedSource).filter(FeedSource.is_active == True).all()
         if not sources: return
-            
+
         feed_data = [(s.id, s.name, s.url) for s in sources]
-        
+
         seven_days_ago = datetime.utcnow() - timedelta(days=7)
         known_links_query = main_session.query(Article.link).filter(Article.published_date >= seven_days_ago).all()
         known_links = {link[0] for link in known_links_query}
 
-        # Phase 1: Download everything concurrently (Cheap on CPU)
+        # Phase 1: Download everything concurrently
         results = asyncio.run(fetch_all_feeds_chunked(feed_data, chunk_size=5))
         total_added = 0
-        
-        # Phase 2: Sequential Processing with Yielding (Hyper-efficient)
+
+        # Phase 2: Sequential Processing
         for f_name, content in results:
             try:
                 _, extracted_arts = parse_and_score_feed(f_name, content, known_links)
                 if extracted_arts:
                     added = bulk_save_to_db(main_session, extracted_arts)
-                    if added > 0: log(f"✅ {f_name}: Saved {added} new articles.", "WORKER")
+                    if added > 0: log(f"[OK] {f_name}: Saved {added} new articles.", "WORKER")
                     total_added += added
-                    
-                # THE MAGIC SAUCE: Yield CPU for 100 milliseconds
-                time.sleep(0.1)
-                
-            except Exception as e:
-                log(f"💥 Processing error on {f_name}: {e}", "WORKER")
 
-    log(f"🏁 Cycle complete. Added {total_added} items.", source)
+                time.sleep(0.1)
+
+            except Exception as e:
+                log(f"[ERROR] Processing error on {f_name}: {e}", "WORKER")
+
+    log(f"[COMPLETE] Cycle complete. Added {total_added} items.", source)
     main_session.close()
-    
+
     gc.collect()
 
 def job_unified_brief():
     """Auto-generates the Unified Risk Brief every 2 hours."""
-    log("🤖 Generating Executive Unified Risk Brief...", "SYSTEM")
+    log("[AI] Generating Executive Unified Risk Brief...", "SYSTEM")
     try:
         from src.llm import generate_unified_risk_brief
         from src.services import get_executive_grid_intel, get_recent_crimes, save_global_config
         from src.database import InternalRiskSnapshot, RegionalHazard
-        
+
         # Gather local telemetry
         with SessionLocal() as session:
             latest_internal = session.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
             active_nws = session.query(RegionalHazard).count()
-        
+
         # Gather global telemetry
         crime_data = get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
         global_intel = get_executive_grid_intel(active_nws, crime_data)
-        
+
         # Fire AI and Save
         with SessionLocal() as session:
             brief_text = generate_unified_risk_brief(session, global_intel, latest_internal)
-            
+
         if brief_text and "AI is currently disabled" not in brief_text:
             save_global_config({
                 "unified_brief": brief_text,
                 "unified_brief_time": datetime.utcnow()
             })
-            log("✅ Unified Risk Brief generated and saved.", "SYSTEM")
+            log("[OK] Unified Risk Brief generated and saved.", "SYSTEM")
+
+            # Check for global risk increase and send alert if needed
+            from src.risk_alert import check_and_alert
+            check_and_alert(global_risk=global_intel.get('unified_risk'), internal_risk=None)
     except Exception as e:
-        log(f"❌ Unified Brief Error: {e}", "SYSTEM")
+        log(f"[ERROR] Unified Brief Error: {e}", "SYSTEM")
 
 def job_internal_risk():
     """Wrapper to safely execute and log the internal risk calculation."""
-    log("🏢 Generating Internal Risk Snapshot...", "SYSTEM")
+    log("[SYSTEM] Generating Internal Risk Snapshot...", "SYSTEM")
     try:
-        generate_and_save_internal_risk_snapshot()
-        log("✅ Internal Risk Snapshot generated successfully.", "SYSTEM")
+        from src.services import generate_and_save_internal_risk_snapshot
+        cis_data = generate_and_save_internal_risk_snapshot()
+        log("[OK] Internal Risk Snapshot generated successfully.", "SYSTEM")
+
+        # Check for internal risk increase and send alert if needed
+        if cis_data:
+            from src.risk_alert import check_and_alert
+            check_and_alert(global_risk=None, internal_risk=cis_data.get('risk_level'))
     except Exception as e:
-        log(f"❌ Internal Risk Error: {e}", "SYSTEM")
+        log(f"[ERROR] Internal Risk Error: {e}", "SYSTEM")
 
 
 # =====================================================================
@@ -216,7 +267,7 @@ def job_internal_risk():
 # =====================================================================
 
 def run_database_maintenance():
-    log("🧹 Running Master Database Maintenance...", "SYSTEM")
+    log("[CLEANUP] Running Master Database Maintenance...", "SYSTEM")
     with SessionLocal() as session:
         try:
             now = datetime.utcnow()
@@ -243,10 +294,10 @@ def run_database_maintenance():
             session.execute(text("DELETE FROM extracted_iocs WHERE article_id NOT IN (SELECT id FROM articles);"))
             session.commit()
             
-            log("✅ Database tables pruned and committed.", "SYSTEM")
+            log("[OK] Database tables pruned and committed.", "SYSTEM")
         except Exception as e:
             session.rollback()
-            log(f"⚠️ Maintenance Error: {e}", "SYSTEM")
+            log(f"[WARN] Maintenance Error: {e}", "SYSTEM")
         
     try:
         # SQLite Specific Advanced Maintenance
@@ -264,17 +315,17 @@ def run_database_maintenance():
 def job_retrain_ml():
     """Automated Weekly ML Retraining Pipeline"""
     global _global_scorer
-    log("🧠 Initiating weekly ML Model Retraining...", "SYSTEM")
+    log("[AI] Initiating weekly ML Model Retraining...", "SYSTEM")
     try:
         train()
-        log("✅ ML Model retrained successfully and saved to disk.", "SYSTEM")
+        log("[OK] ML Model retrained successfully and saved to disk.", "SYSTEM")
         
         # Hot-Reload the scorer in memory so the new neural weights take effect immediately
         _global_scorer = get_scorer()
-        log("🔄 Global NLP Scorer hot-reloaded with fresh model weights.", "SYSTEM")
+        log(" Global NLP Scorer hot-reloaded with fresh model weights.", "SYSTEM")
         
     except Exception as e:
-        log(f"❌ ML Training Pipeline failed: {e}", "SYSTEM")
+        log(f"[ERROR] ML Training Pipeline failed: {e}", "SYSTEM")
 
 
 # =====================================================================
@@ -310,7 +361,7 @@ if __name__ == "__main__":
     schedule.every(5).minutes.do(run_threaded, fetch_cloud_outages)
     schedule.every(5).minutes.do(run_threaded, run_telemetry_sync)
     
-    log("🚀 Master Orchestrator Online. Firing Boot Sequence...", "SYSTEM")
+    log("[START] Master Orchestrator Online. Firing Boot Sequence...", "SYSTEM")
     
     # 3. Asynchronous Boot Sequence (Does not block the container from finishing startup)
     boot_jobs = [
@@ -332,5 +383,5 @@ if __name__ == "__main__":
             schedule.run_pending()
             time.sleep(1)
     except KeyboardInterrupt:
-        log("🛑 Orchestrator shutting down gracefully...", "SYSTEM")
+        log("[STOP] Orchestrator shutting down gracefully...", "SYSTEM")
         sys.exit(0)

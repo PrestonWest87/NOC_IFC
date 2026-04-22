@@ -61,72 +61,87 @@ def geocode_address_arcgis(address, hq_lat, hq_lon, region="Little Rock, AR"):
 
 def fetch_live_crimes():
     """Fetches Little Rock AR Dispatch JSON"""
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] 🚨 CRIME WORKER: Polling LR Dispatches...")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] [CRIME] Polling LR Dispatches...")
     api_url = "https://web.littlerock.state.ar.us/pub/Home/CadEvents"
-    
+
     try:
         response = requests.post(api_url, timeout=15)
         response.raise_for_status()
         data = response.json()
-        
+
         hq_lat, hq_lon = 34.6755, -92.3235
         seven_days_ago = datetime.now() - timedelta(hours=168)
-        
+
         with SessionLocal() as db:
+            batch = []
+            batch_size = 100
+            seen_ids = set()
             added_count = 0
-            seen_ids = set() 
-            
+
             for entry in data:
                 try:
                     desc = entry.get("typeDescription", "UNKNOWN").upper()
                     location = entry.get("location", "UNKNOWN")
                     raw_date = entry.get("dispatchDate", "")
-                    
+
                     if not raw_date: continue
                     incident_date = datetime.strptime(raw_date, "%m/%d/%Y %H:%M:%S")
                     if incident_date < seven_days_ago: continue
-                    
+
                     incident_lat, incident_lon, is_approx = geocode_address_arcgis(location, hq_lat, hq_lon)
                     distance = calculate_distance(hq_lat, hq_lon, incident_lat, incident_lon)
-                    
-                    # Deterministic MD5 Hash prevents duplicates
+
                     loc_hash = hashlib.md5(location.encode('utf-8')).hexdigest()[:6]
                     inc_id = f"LR_{incident_date.strftime('%Y%m%d%H%M%S')}_{loc_hash}"
-                    
+
                     if inc_id in seen_ids: continue
                     seen_ids.add(inc_id)
-                    
+
                     severity = "Low"
                     if any(k in desc for k in ["ARSON", "EXPLOSIVE", "TERROR", "SABOTAGE", "SHOOTING"]): category, severity = "Critical Infrastructure Threat", "Critical"
                     elif any(k in desc for k in ["THEFT", "BURGLARY", "ROBBERY", "BREAKING"]): category, severity = "Asset/Copper Theft Risk", "High"
                     elif any(k in desc for k in ["ASSAULT", "BATTERY", "HOMICIDE", "WEAPON", "SHOTS"]): category, severity = "Violent Proximity Threat", "High"
                     elif any(k in desc for k in ["VANDALISM", "TRESPASS", "PROWLER", "DISTURBANCE", "SUSPICIOUS"]): category, severity = "Perimeter Breach/Vandalism", "Medium"
                     else: category, severity = "General Police Activity", "Low"
-                    
+
                     display_title = f"{desc.title()}"
                     if is_approx: display_title += " (Approx Loc)"
-                    
-                    existing_incident = db.query(CrimeIncident).filter_by(id=inc_id).first()
-                    if not existing_incident:
-                        db.add(CrimeIncident(
-                            id=inc_id, category=category, raw_title=display_title,
-                            timestamp=incident_date, distance_miles=round(distance, 2),
-                            severity=severity, lat=incident_lat, lon=incident_lon
-                        ))
-                        added_count += 1
+
+                    batch.append(CrimeIncident(
+                        id=inc_id, category=category, raw_title=display_title,
+                        timestamp=incident_date, distance_miles=round(distance, 2),
+                        severity=severity, lat=incident_lat, lon=incident_lon
+                    ))
+
+                    if len(batch) >= batch_size:
+                        for item in batch:
+                            existing = db.query(CrimeIncident).filter_by(id=item.id).first()
+                            if not existing:
+                                db.add(item)
+                                added_count += 1
+                        db.commit()
+                        batch = []
+
                 except Exception: continue
-            
-            db.commit()
+
+            if batch:
+                for item in batch:
+                    existing = db.query(CrimeIncident).filter_by(id=item.id).first()
+                    if not existing:
+                        db.add(item)
+                        added_count += 1
+                db.commit()
+
             db.query(CrimeIncident).filter(CrimeIncident.timestamp < seven_days_ago).delete()
             db.commit()
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ CRIME WORKER: {added_count} new LR dispatches mapped.")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [OK] CRIME WORKER: {added_count} new LR dispatches mapped.")
 
             if added_count > 0:
                 from src.services import dispatch_perimeter_crime_alerts
                 dispatch_perimeter_crime_alerts()
 
     except Exception as e:
-        print(f"🚨 LR CRIME WORKER FAILED: {e}")
+        print(f"[ERROR] CRIME WORKER FAILED: {e}")
 
 if __name__ == "__main__":
     from src.database import init_db

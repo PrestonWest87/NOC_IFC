@@ -19,10 +19,10 @@ def train():
         df = pd.read_sql(query.statement, session.bind)
 
     if len(df) < 10:
-        print(f"⚠️ Not enough training data! You have {len(df)} labels. Please review at least 10 articles in the UI.")
+        print(f"[WARN] Not enough training data! You have {len(df)} labels. Please review at least 10 articles in the UI.")
         return
 
-    print(f"🧠 Training Advanced ML Model on {len(df)} curated articles...")
+    print(f"[AI] Training Advanced ML Model on {len(df)} curated articles...")
 
     # 2. Preprocessing
     # Combine Title + Summary for deep context, force lowercase
@@ -46,7 +46,7 @@ def train():
 
     # 5. Save the "Brain"
     joblib.dump(model, MODEL_PATH)
-    print(f"✅ Advanced NOC ML Model successfully saved to {MODEL_PATH}")
+    print(f"[OK] Advanced NOC ML Model successfully saved to {MODEL_PATH}")
 
 if __name__ == "__main__":
     train()

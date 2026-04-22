@@ -49,10 +49,10 @@ def fetch_ornl_odin_power():
                             radius_km=est_radius, is_resolved=False
                         ))
                 session.commit()
-                log_print("✅ ODIN Power Grid sync complete.")
+                log_print("[OK] ODIN Power Grid sync complete.")
         except Exception as e:
             session.rollback()
-            log_print(f"❌ ODIN fetch failed: {e}")
+            log_print(f"[ERROR] ODIN fetch failed: {e}")
 
 def fetch_bgp_anomalies():
     """Checks for BGP route leaks or drops for configured ASNs via RIPE Stat."""
@@ -83,10 +83,10 @@ def fetch_bgp_anomalies():
                                 is_resolved=False
                             ))
             session.commit()
-            log_print("✅ RIPE BGP Telemetry sync complete.")
+            log_print("[OK] RIPE BGP Telemetry sync complete.")
         except Exception as e:
             session.rollback()
-            log_print(f"❌ BGP fetch failed: {e}")
+            log_print(f"[ERROR] BGP fetch failed: {e}")
 
 def fetch_ioda_isp_outages():
     """Pulls live ISP outage alerts for Arkansas and Monitored ASNs via the IODA API."""
@@ -130,16 +130,16 @@ def fetch_ioda_isp_outages():
                             ))
                             
             session.commit()
-            log_print(f"✅ IODA ISP sync complete. Found {total_alerts} active alerts.")
+            log_print(f"[OK] IODA ISP sync complete. Found {total_alerts} active alerts.")
         except Exception as e:
             session.rollback()
-            log_print(f"❌ IODA ISP fetch failed: {e}")
+            log_print(f"[ERROR] IODA ISP fetch failed: {e}")
 
 def run_telemetry_sync():
     fetch_ornl_odin_power()
     fetch_bgp_anomalies()
     fetch_ioda_isp_outages() 
-    log_print("✅ Multi-Domain Telemetry Sync Complete.")
+    log_print("[OK] Multi-Domain Telemetry Sync Complete.")
 
 if __name__ == "__main__":
     run_telemetry_sync()

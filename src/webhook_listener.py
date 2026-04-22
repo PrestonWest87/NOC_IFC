@@ -82,9 +82,9 @@ def process_payload_background(raw_payload: dict):
                 for a in active:
                     a.status, a.resolved_at = 'Resolved', datetime.utcnow()
                 
-                db.add(TimelineEvent(source="Webhook", event_type="Resolution", message=f"🟢 {parsed['node_name']} recovered at {mapped_site}"))
+                db.add(TimelineEvent(source="Webhook", event_type="Resolution", message=f" {parsed['node_name']} recovered at {mapped_site}"))
                 db.commit()
-                log(f"✅ Resolved Active Alert for {parsed['node_name']}")
+                log(f"[OK] Resolved Active Alert for {parsed['node_name']}")
                 return
 
             new_alert = SolarWindsAlert(
@@ -95,13 +95,13 @@ def process_payload_background(raw_payload: dict):
                 device_type=parsed["device_type"], is_correlated=False
             )
             db.add(new_alert)
-            db.add(TimelineEvent(source="Webhook", event_type="Alert", message=f"🔴 Alert: {parsed['node_name']} ({parsed['device_type']}) at {mapped_site}"))
+            db.add(TimelineEvent(source="Webhook", event_type="Alert", message=f"[CRITICAL] Alert: {parsed['node_name']} ({parsed['device_type']}) at {mapped_site}"))
             
             db.commit()
-            log(f"🚨 Processed New Alert: {parsed['node_name']} at {mapped_site}")
+            log(f"[ALERT] Processed New Alert: {parsed['node_name']} at {mapped_site}")
         except Exception as e:
             db.rollback()
-            log(f"❌ Background Processing Error: {e}")
+            log(f"[ERROR] Background Processing Error: {e}")
 
 @app.post("/webhook/solarwinds")
 async def receive_alert(request: Request, background_tasks: BackgroundTasks):
@@ -112,7 +112,7 @@ async def receive_alert(request: Request, background_tasks: BackgroundTasks):
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
     except Exception as e:
-        log(f"❌ Gateway Rejection Error: {e}")
+        log(f"[ERROR] Gateway Rejection Error: {e}")
         raise HTTPException(status_code=500, detail="Internal Gateway Error")
 
 if __name__ == "__main__":

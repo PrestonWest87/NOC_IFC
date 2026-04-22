@@ -44,7 +44,7 @@ class HybridScorer:
             # The keywords missed it (Score < 50), but the AI is highly confident (>75%) it's a threat.
             if keep_prob >= 0.75 and final_score < 50.0:
                 final_score = max(final_score, 65.0) # Instantly bubble it to the dashboard
-                reasons.append(f"🧠 AI Boost: Hidden Threat Detected (Confidence: {int(keep_prob * 100)}%)")
+                reasons.append(f"[AI] AI Boost: Hidden Threat Detected (Confidence: {int(keep_prob * 100)}%)")
                 
             # SCENARIO B: AI Spam Filter (Noise Reduction)
             # The keywords triggered (Score > 50), but the AI recognizes the context is harmless (<25% probability).
@@ -52,14 +52,14 @@ class HybridScorer:
                 noise_confidence = int((1 - keep_prob) * 100)
                 penalty = final_score * 0.60 # Strip 60% of the score away
                 final_score -= penalty
-                reasons.append(f"🧠 AI Penalty: Context identified as Noise (Confidence: {noise_confidence}%)")
+                reasons.append(f"[AI] AI Penalty: Context identified as Noise (Confidence: {noise_confidence}%)")
                 
             # SCENARIO C: Minor Synergy Adjustments
             # If the AI is mildly confident, give it a slight algorithmic bump.
             elif keep_prob > 0.50 and final_score > 0:
                 bonus = keep_prob * 10.0
                 final_score += bonus
-                reasons.append(f"🧠 AI Synergy Bonus (+{int(bonus)})")
+                reasons.append(f"[AI] AI Synergy Bonus (+{int(bonus)})")
 
         return min(final_score, 100.0), reasons
 

@@ -44,10 +44,10 @@ try:
     buckets = res.get('aggregations', {}).get('accessible_indices', {}).get('buckets', [])
     
     if not buckets:
-        print("\n⚠️ Query succeeded, but 0 indices were returned.")
+        print("\n[WARN] Query succeeded, but 0 indices were returned.")
         print("Your API key either has no read permissions, or the allowed indices are currently empty.")
     else:
-        print(f"\n✅ SUCCESS! Your API Key has read access to {len(buckets)} index/data streams:\n")
+        print(f"\n[OK] SUCCESS! Your API Key has read access to {len(buckets)} index/data streams:\n")
         print(f"{'INDEX / DATA STREAM NAME':<50} | {'DOCUMENTS SEEN'}")
         print("-" * 70)
         
@@ -59,4 +59,4 @@ try:
     print("\n========================================")
 
 except Exception as e:
-    print(f"\n❌ ERROR: {e}")
+    print(f"\n[ERROR] ERROR: {e}")

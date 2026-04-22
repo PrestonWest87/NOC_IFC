@@ -1,0 +1,19 @@
+# Environment files (secrets)
+.env
+
+# Runtime data
+data/
+
+# Python bytecode
+src/__pycache__/
+*.pyc
+*.pyo
+__pycache__/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

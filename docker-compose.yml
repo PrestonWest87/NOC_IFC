@@ -16,6 +16,10 @@ services:
     volumes:
       - ./src:/app/src
       - ./data:/app/data
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 
   webhook:
     build: .

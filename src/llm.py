@@ -1,3 +1,12 @@
+"""
+NOC Intelligence Fusion Center - LLM Integration Module
+
+This module provides LLM (Large Language Model) integration for the NOC system,
+including unified brief generation, daily reports, and executive summaries.
+
+Supports OpenAI-compatible APIs and local LLM deployments (Ollama, LM Studio).
+"""
+
 import requests
 import json
 import uuid
@@ -36,11 +45,11 @@ def call_llm(messages, config, temperature=0.1):
         return response.json()['choices'][0]['message']['content']
     
     except requests.exceptions.Timeout:
-        return "⚠️ **AI NETWORK ERROR:** Request timed out after 120 seconds. Is the LLM online?"
+        return "[WARN] **AI NETWORK ERROR:** Request timed out after 120 seconds. Is the LLM online?"
     except requests.exceptions.ConnectionError:
-        return "⚠️ **AI NETWORK ERROR:** Connection Refused. Check your Endpoint URL."
+        return "[WARN] **AI NETWORK ERROR:** Connection Refused. Check your Endpoint URL."
     except Exception as e:
-        return f"⚠️ **AI SYSTEM ERROR:** {str(e)}"
+        return f"[WARN] **AI SYSTEM ERROR:** {str(e)}"
 
 def chunk_list(data, size):
     """Helper generator to chunk lists to prevent LLM context-window overflow."""
@@ -66,7 +75,7 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
             {"role": "user", "content": context}
         ], config, temperature=0.1) # Low temp for strict fact extraction
         
-        if resp and "⚠️" not in resp: 
+        if resp and "[WARN]" not in resp: 
             batch_summaries.append(resp)
             
     if not batch_summaries: return "AI failed to process batch."
@@ -132,34 +141,44 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     """Generates an exhaustive executive summary in a SINGLE FAST PASS using pre-calculated matrices."""
     import json
     from src.llm import call_llm
-    
+
     config = get_llm_config(session)
     if not config: return "AI is currently disabled in settings."
 
     global_risk = global_intel.get('unified_risk', 'UNKNOWN')
-    
+    internal_risk = internal_snapshot.risk_level if internal_snapshot else 'NONE'
+
+    # Diagnostic logging for accuracy verification
+    print(f"[BRIEF DEBUG] Global Risk Level: {global_risk}")
+    print(f"[BRIEF DEBUG] Internal Risk Level: {internal_risk}")
+    if internal_snapshot:
+        age = (datetime.utcnow() - internal_snapshot.timestamp).total_seconds() / 60
+        print(f"[BRIEF DEBUG] Internal Snapshot Age: {age:.1f} minutes")
+    else:
+        print("[BRIEF WARNING] No internal snapshot available")
+
     # --- 1. Extract Pre-Calculated Data ---
     hw_data = json.loads(internal_snapshot.hw_data_json) if internal_snapshot and internal_snapshot.hw_data_json else []
     sw_data = json.loads(internal_snapshot.sw_data_json) if internal_snapshot and internal_snapshot.sw_data_json else []
-    
+
     # Since the Python backend already correlated and sorted these by severity,
     # we just take the top 10 most critical to feed the LLM context directly.
     top_hw = hw_data[:10]
     top_sw = sw_data[:10]
-    
+
     cyber_arts = global_intel.get('raw_cyber_articles', [])[:6]
     phys_arts = global_intel.get('raw_phys_articles', [])[:5]
     crimes = global_intel.get('recent_crimes', [])[:5]
 
     # --- 2. Format Context for the LLM ---
     hw_context = "\n".join([f"- {hw['Identifier']} ({hw['OS']}): {hw['OSINT Threat Matches']} Active Exploit/OSINT Matches. Top Threat Reference: {hw['Top Threat Reference']}" for hw in top_hw]) if top_hw else "No hardware assets currently exposed to active OSINT threats."
-    
+
     sw_context = "\n".join([f"- {sw['Software Name']}: {sw['Active OSINT Matches']} Active Exploit/OSINT Matches. Top Threat Reference: {sw['Top Threat Reference']}" for sw in top_sw]) if top_sw else "No software assets currently exposed to active OSINT threats."
-    
+
     cyber_context = "\n".join([f"- {a.title} ({a.source})" for a in cyber_arts]) if cyber_arts else "No critical global cyber OSINT reported."
-    
+
     phys_context = "\n".join([f"- {a.title} ({a.source})" for a in phys_arts]) if phys_arts else "No significant regional physical threats reported."
-    
+
     crime_context = "\n".join([f"- {c['raw_title']} ({c['distance_miles']} miles away) [FBI Cat: {c.get('fbi_category', 'Unknown')}]" for c in crimes]) if crimes else "No active perimeter crimes logged."
 
     # --- 3. Build the Master Context String ---
@@ -168,8 +187,8 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     Overall Global Risk Level: {global_risk}
     Global Cyber Intel Brief: {global_intel.get('cyber_brief', 'N/A')}
     Global Physical Intel Brief: {global_intel.get('physical_brief', 'N/A')}
-    
-    Internal Risk Level: {internal_snapshot.risk_level if internal_snapshot else 'UNKNOWN'}
+
+    Internal Risk Level: {internal_risk}
     Internal Total Assets: {internal_snapshot.total_assets if internal_snapshot else 0}
     Internal Assets with Active OSINT Exploits: {internal_snapshot.total_osint_hits if internal_snapshot else 0}
     
@@ -242,13 +261,13 @@ def generate_aggregated_shift_summary(session, logs, timeframe_label, target_rol
     
     Structure the response in Markdown with these EXACT headers:
     
-    ## 📅 {timeframe_label} Operational Overview: {target_role.upper()}
+    ##  {timeframe_label} Operational Overview: {target_role.upper()}
     [Write a 2-3 paragraph executive narrative of the team's operational tempo, major incidents, and overall stability during this period.]
     
-    ## 🚨 Critical Incidents & Resolutions
+    ## [ALERT] Critical Incidents & Resolutions
     [Provide bullet points of the most impactful outages or incidents handled by this team and explicitly detail how they were resolved.]
     
-    ## 🔄 Ongoing / Unresolved Issues
+    ##  Ongoing / Unresolved Issues
     [List any issues that appear to span across multiple shifts or remain active based on the logs. If none, state 'No major ongoing issues explicitly tracked.']
     
     Be professional, highly readable, and authoritative. Do NOT hallucinate incidents not present in the digest."""
@@ -298,9 +317,9 @@ def cross_reference_cves(cves, session):
         response = call_llm(messages, config, temperature=0.0)
         if not response: continue
             
-        if "CLEAR" not in response.upper() and "⚠️" not in response:
+        if "CLEAR" not in response.upper() and "[WARN]" not in response:
             raw_matches.append(response.replace("MATCH:", "").strip())
-        elif "ERROR:" in response.upper() or "⚠️" in response:
+        elif "ERROR:" in response.upper() or "[WARN]" in response:
             error_messages.append("Batch timeout.")
 
     if not raw_matches: return "CLEAR: No active KEVs match internal infrastructure."
@@ -467,10 +486,10 @@ def generate_dynamic_scoring_report(session, intel):
     
     Structure your response in Markdown with these EXACT headers:
     
-    ## 🛡️ Cyber Intelligence Brief
+    ## Cyber Intelligence Brief
     [Write long, expansive paragraphs detailing the specific cyber threats, their reporting SOURCES, identified threat actors, and CISA vulnerabilities. Group similar threats together to tell a flowing story of the digital landscape.]
     
-    ## ⚡ Physical & Perimeter Security Brief
+    ##  Physical & Perimeter Security Brief
     [Write long, expansive paragraphs breaking down the perimeter incidents (explicitly using the FBI UCR definitions provided) and severe weather hazards. Explain their specific proximity risk to the Headquarters facility and personnel.]
     
     Be expansive, professional, highly readable, and authoritative."""
@@ -486,7 +505,7 @@ def generate_siem_triage_summary(session, flat_results):
     """Uses the local LLM to triage a batch of live hunt results."""
     import json
     config = get_llm_config(session)
-    if not config: return "⚠️ AI is currently disabled in settings."
+    if not config: return "[WARN] AI is currently disabled in settings."
     
     # Compress data aggressively to protect the local model's context window
     compressed_data = json.dumps(flat_results[:30]) 
@@ -599,15 +618,15 @@ def generate_daily_fusion_report(session):
     4. Preserve all specific data points (CVE numbers, threat actor names, locations, cloud providers).
     5. Do not hallucinate or add external information.
     
-    Title the report: # 📊 NOC Daily Fusion Report: {report_date_str}"""
+    Title the report: #  NOC Daily Fusion Report: {report_date_str}"""
 
     master_report = call_llm([
         {"role": "system", "content": master_sys_prompt}, 
         {"role": "user", "content": compiled_domains}
     ], config, temperature=0.2)
 
-    if not master_report or "⚠️" in master_report:
+    if not master_report or "[WARN]" in master_report:
         # Fallback to basic concatenation if the Master Editor fails
-        return start_of_yesterday, f"# 📊 NOC Daily Fusion Report: {report_date_str}\n\n## 📰 Cyber\n{cyber_summary}\n\n## 🪲 KEVs\n{cve_summary}\n\n## 🗺️ Infrastructure\n{hazard_summary}\n\n## ☁️ Cloud\n{cloud_summary}"
+        return start_of_yesterday, f"#  NOC Daily Fusion Report: {report_date_str}\n\n##  Cyber\n{cyber_summary}\n\n##  KEVs\n{cve_summary}\n\n##  Infrastructure\n{hazard_summary}\n\n##  Cloud\n{cloud_summary}"
 
     return start_of_yesterday, master_report

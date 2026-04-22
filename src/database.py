@@ -101,7 +101,10 @@ class SystemConfig(Base):
     baseline_override_phys = Column(Float, default=0.0)
     unified_brief = Column(Text, nullable=True)
     unified_brief_time = Column(DateTime, nullable=True)
-    
+    last_global_risk = Column(String, nullable=True)
+    last_internal_risk = Column(String, nullable=True)
+    last_risk_alert_time = Column(DateTime, nullable=True)
+
 class ShiftLogEntry(Base):
     __tablename__ = "shift_logs"
     id = Column(Integer, primary_key=True, index=True)
@@ -452,14 +455,22 @@ def init_db():
             conn.execute(text("ALTER TABLE crime_incidents ADD COLUMN is_alert_dispatched BOOLEAN DEFAULT 0"))
     except Exception:
         pass
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN last_global_risk VARCHAR"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN last_internal_risk VARCHAR"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN last_risk_alert_time DATETIME"))
+    except Exception:
+        pass
     
     # Seed Initial Data
     session = SessionLocal()
     try:
         all_pages = [
-            "👁️ Global Dashboards", "📡 Threat Telemetry", "🗺️ Regional Grid",
-            "🎯 Threat Hunting & IOCs", "⚡ AIOps RCA", "📝 Shift Logbook", 
-            "📑 Reporting & Briefings", "⚙️ Settings & Admin"
+            "Global Dashboards", "Threat Telemetry", "Regional Grid",
+            "Threat Hunting & IOCs", "AIOps RCA", "Shift Logbook",
+            "Reporting & Briefings", "Settings & Admin"
         ]
         
         # ADDED "Action: Dispatch RCA Tickets" and "Action: Manage Site Maintenance"

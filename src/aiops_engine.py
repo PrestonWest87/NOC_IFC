@@ -155,16 +155,16 @@ class EnterpriseAIOpsEngine:
             top_node = f.iloc[0]['Node Name']
             top_node_count = f.iloc[0]['Total Incidents (60 Days)']
             if top_node_count > 5:
-                r.append(f"🔴 **CRITICAL FLAP DETECTED:** Node `{top_node}` is exhibiting severe chronic instability with {top_node_count} logged incidents this week. Recommend immediate hardware diagnostic or circuit test.")
+                r.append(f"[CRITICAL] **CRITICAL FLAP DETECTED:** Node `{top_node}` is exhibiting severe chronic instability with {top_node_count} logged incidents this week. Recommend immediate hardware diagnostic or circuit test.")
         
         if not v.empty:
             top_site = v.iloc[0]['Site']
             top_site_count = v.iloc[0]['Total Incidents (60 Days)']
             if top_site_count > 15:
-                r.append(f"🟠 **REGIONAL DEGRADATION:** The `{top_site}` facility is a current infrastructure hotspot. Recommend dispatching field tech to review local power conditioning and physical transport handoffs.")
+                r.append(f"[HIGH] **REGIONAL DEGRADATION:** The `{top_site}` facility is a current infrastructure hotspot. Recommend dispatching field tech to review local power conditioning and physical transport handoffs.")
                 
         if not r:
-            r.append("✅ Telemetry indicates normal operational limits. Devices are stable and no immediate predictive maintenance is required.")
+            r.append("[OK] Telemetry indicates normal operational limits. Devices are stable and no immediate predictive maintenance is required.")
             
         return f, v, r
 

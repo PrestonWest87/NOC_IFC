@@ -5,7 +5,7 @@ from database import SessionLocal, CveItem
 CISA_KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 
 def fetch_cisa_kev():
-    print("🛡️ [CVE WORKER] Fetching latest CISA KEV catalog...")
+    print("[CVE WORKER] Fetching latest CISA KEV catalog...")
     session = SessionLocal()
     
     try:
@@ -40,10 +40,10 @@ def fetch_cisa_kev():
                 added_count += 1
                 
         session.commit()
-        print(f"✅ [CVE WORKER] Success! Added {added_count} new exploited vulnerabilities.")
+        print(f"[OK] [CVE WORKER] Success! Added {added_count} new exploited vulnerabilities.")
         
     except Exception as e:
-        print(f"❌ [CVE WORKER] Failed to fetch or parse KEV data: {e}")
+        print(f"[ERROR] [CVE WORKER] Failed to fetch or parse KEV data: {e}")
         session.rollback()
     finally:
         session.close()

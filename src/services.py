@@ -520,22 +520,22 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     if kev_count > 0:
         l = 5; s = 1
         cyber_points += 50
-        evidence_log.append(f"🔴 **Lethality ↑(5), SysDef ↓(1):** {kev_count} Active KEVs (Known Exploited Vulnerabilities) detected bypassing patches.")
+        evidence_log.append(f"[CRIT] **Lethality Up(5), SysDef Down(1):** {kev_count} Active KEVs (Known Exploited Vulnerabilities) detected bypassing patches.")
     elif len(recent_cves) > 10:
         l = max(l, 3); s = min(s, 2)
         cyber_points += 15
-        evidence_log.append(f"🟠 **Lethality ↑(3), SysDef ↓(2):** Elevated vulnerability volume ({len(recent_cves)} recent CVEs) increasing exploit probability.")
+        evidence_log.append(f"[HIGH] **Lethality Up(3), SysDef Down(2):** Elevated vulnerability volume ({len(recent_cves)} recent CVEs) increasing exploit probability.")
 
     # 2. Evaluate ICS / SCADA targeting
     critical_ics = [a for a in ics_advisories if a['is_critical']]
     if critical_ics:
         c = 5
         cyber_points += 20
-        evidence_log.append(f"🔴 **Criticality ↑(5):** {len(critical_ics)} ICS advisories explicitly targeting core OT/SCADA vendors (e.g., SEL, Siemens).")
+        evidence_log.append(f"[CRIT] **Criticality Up(5):** {len(critical_ics)} ICS advisories explicitly targeting core OT/SCADA vendors (e.g., SEL, Siemens).")
     elif ics_advisories:
         c = max(c, 4)
         cyber_points += 10
-        evidence_log.append(f"🟠 **Criticality ↑(4):** {len(ics_advisories)} general ICS advisories detected.")
+        evidence_log.append(f"[HIGH] **Criticality Up(4):** {len(ics_advisories)} general ICS advisories detected.")
 
     # 3. Evaluate General Threat Actor OSINT
     apt_count = sum(1 for a in pure_cyber_articles if getattr(a, 'is_apt_related', False))
@@ -546,12 +546,12 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
         l = max(l, 4)
         c = max(c, 4)
         cyber_points += (apt_count * 15) + (ran_count * 10)
-        evidence_log.append(f"🟠 **Lethality ↑(4), Criticality ↑(4):** Active tracking of {apt_count} APT and {ran_count} Ransomware campaigns in industry OSINT.")
+        evidence_log.append(f"[HIGH] **Lethality Up(4), Criticality Up(4):** Active tracking of {apt_count} APT and {ran_count} Ransomware campaigns in industry OSINT.")
 
     if util_count > 0:
         c = 5
         cyber_points += (util_count * 10)
-        evidence_log.append(f"🔴 **Criticality ↑(5):** {util_count} threats explicitly mention targeting Utility/Grid infrastructure.")
+        evidence_log.append(f"[CRIT] **Criticality Up(5):** {util_count} threats explicitly mention targeting Utility/Grid infrastructure.")
 
     # Final Calculation
     cis_cyber_score = (c + l) - (s + n)
@@ -601,7 +601,7 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
         
     physical_brief = f"**HQ Perimeter (24h):** {len(recent_crimes)} total incidents. "
     physical_brief += f"({len(crimes_persons)} Persons, {len(crimes_property)} Property, {len(crimes_society)} Society). "
-    if len(pure_phys_articles) > 0: physical_brief += f"🚨 OSINT: {len(pure_phys_articles)} local physical threats. "
+    if len(pure_phys_articles) > 0: physical_brief += f"[ALERT] OSINT: {len(pure_phys_articles)} local physical threats. "
     physical_brief += f"Weather footprint: {min(int(active_warn_count * 1.5), 20)} pts."
 
     # --- UNIFIED TIERING ---
@@ -919,6 +919,8 @@ def generate_and_save_internal_risk_snapshot():
         db_session.add(snapshot)
         db_session.commit()
 
+    return cis_data
+
 import re
 
 def generate_unified_brief_email_html(report_time, markdown_content):
@@ -1050,13 +1052,13 @@ def generate_outlook_html_report(intel):
             </tr>
             <tr>
                 <td style="padding: 20px;">
-                    <h4 style="color: #0056b3; border-bottom: 2px solid #eeeeee; padding-bottom: 5px;">⚡ Physical & Crime Intelligence</h4>
+                    <h4 style="color: #0056b3; border-bottom: 2px solid #eeeeee; padding-bottom: 5px;">Physical & Crime Intelligence</h4>
                     <p style="color: #444444; line-height: 1.6; font-size: 14px;"><strong>Status: {name_map.get(intel['physical_score'], 'UNKNOWN')}</strong><br/>{intel['physical_brief']}</p>
                 </td>
             </tr>
             <tr>
                 <td style="padding: 20px; padding-top: 0;">
-                    <h4 style="color: #0056b3; border-bottom: 2px solid #eeeeee; padding-bottom: 5px;">🛡️ Cyber & SCADA Intelligence</h4>
+                    <h4 style="color: #0056b3; border-bottom: 2px solid #eeeeee; padding-bottom: 5px;">Cyber & SCADA Intelligence</h4>
                     <p style="color: #444444; line-height: 1.6; font-size: 14px;"><strong>Status: {name_map.get(intel['cyber_score'], 'UNKNOWN')}</strong><br/>{intel['cyber_brief']}</p>
                 </td>
             </tr>
@@ -1118,7 +1120,7 @@ def generate_daily_report_email_html(report_date, markdown_content):
     formatted_html = f"""
     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 0 auto; color: #333; line-height: 1.5;">
         <div style="background-color: #fcfcfc; padding: 20px; border-radius: 6px; border-left: 4px solid #d9534f; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <h2 style="color: #2c3e50; margin-top: 0;">📰 NOC Daily Fusion Report</h2>
+            <h2 style="color: #2c3e50; margin-top: 0;">NOC Daily Fusion Report</h2>
             <p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 20px;"><strong>Date:</strong> {report_date}</p>
             <div style="font-size: 14px; background-color: #ffffff; padding: 15px; border-radius: 4px; border: 1px solid #eee;">
                 {raw_html}
@@ -1256,7 +1258,7 @@ def dispatch_perimeter_crime_alerts():
             
             # Concise Plain Text format for SMS
             sms_body = (
-                f"🚨 PERIMETER ALERT 🚨\n"
+                f"[ALERT] PERIMETER ALERT [ALERT]\n"
                 f"{crime.raw_title}\n"
                 f"Dist: {crime.distance_miles} mi\n"
                 f"Time: {local_time}\n"
@@ -1291,7 +1293,7 @@ def process_nws_alerts(data, selected_events, is_oos=False):
     zonewide_alerts = []
 
     if not data or "features" not in data:
-        map_diagnostics.append(f"⚠️ {'OOS' if is_oos else 'AR'} data empty or missing 'features'.")
+        map_diagnostics.append(f"[WARN] {'OOS' if is_oos else 'AR'} data empty or missing 'features'.")
         return warn_geo, watch_geo, zonewide_alerts, map_diagnostics
 
     regional_counties_geom = get_regional_counties_mapping()
@@ -1641,7 +1643,7 @@ def resolve_alert(alert_id, node_name):
         a = db.query(SolarWindsAlert).filter_by(id=alert_id).first()
         if a:
             a.status = 'Resolved'
-            db.add(TimelineEvent(source="User", event_type="Resolution", message=f"🟢 Operator manually resolved {node_name}"))
+            db.add(TimelineEvent(source="User", event_type="Resolution", message=f"[OK] Operator manually resolved {node_name}"))
             db.commit()
 
 def acknowledge_cluster(alert_ids):
@@ -1674,27 +1676,27 @@ def generate_global_sitrep(sys_config_dict):
         active_weather = db.query(RegionalHazard).all()
         active_bgp = db.query(BgpAnomaly).filter_by(is_resolved=False).all()
 
-        report = f"### 🌍 Global Situation Report (SitRep)\n\n"
+        report = f"### Global Situation Report (SitRep)\n\n"
         report += f"**Active Infrastructure Alerts:** {len(raw_alerts)} | "
         report += f"**Cloud Outages:** {len(active_clouds)} | "
         report += f"**Grid/Weather Anomalies:** {len(active_weather)}\n\n"
 
         if not raw_alerts:
-            report += "✅ **Grid Operational:** No active un-correlated infrastructure alerts detected.\n"
+            report += "[OK] **Grid Operational:** No active un-correlated infrastructure alerts detected.\n"
             return report
 
         # FIX 2: Route the alerts through our Supreme AI Engine!
         ai_engine = EnterpriseAIOpsEngine(db)
         incidents = ai_engine.analyze_and_cluster(raw_alerts)
 
-        report += "#### 🧠 Deterministic Causal Clusters\n"
+        report += "#### Intelligence Causal Clusters\n"
         
         for site, data in incidents.items():
             cause, score, priority, evidence, blast, p0, cascade = ai_engine.calculate_root_cause(
                 site, data, active_weather, active_clouds, active_bgp
             )
             
-            icon = "🔴" if score >= 80 else "🟠" if score >= 50 else "🟡"
+            icon = "[CRIT]" if score >= 80 else "[HIGH]" if score >= 50 else "[MEDIUM]"
             
             report += f"**{icon} {site} [{priority}]**\n"
             report += f"- **Impact:** {len(data['alerts'])} nodes offline across {len(data['domains_affected'])} topology layers ({blast}).\n"
@@ -1707,8 +1709,8 @@ def generate_global_sitrep(sys_config_dict):
             sys_prompt = "You are an elite NOC AIOps Engine. Summarize the following deterministic IT SitRep into a technical 2-sentence executive summary. Do not use pleasantries."
             ai_summary = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": report}], sys_config_dict, temperature=0.1)
 
-            if ai_summary and "⚠️" not in ai_summary:
-                report = f"### 🤖 AI Executive Summary\n> {ai_summary}\n\n---\n\n" + report
+            if ai_summary and "[WARN]" not in ai_summary:
+                report = f"### AI Executive Summary\n> {ai_summary}\n\n---\n\n" + report
 
         return report
 def generate_rca_ticket_text(site, data, priority, patient_zero, root_cause):
@@ -2105,7 +2107,7 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, selected_even
         
     if show_active_wildfires and cache["nifc_data"]:
         df_fires = pd.DataFrame(cache["nifc_data"])
-        df_fires['info'] = "🔥 " + df_fires['name'] + " (" + df_fires['state'] + ")\nAcres: " + df_fires['acres'].astype(str) + "\nContainment: " + df_fires['contained'].astype(str) + "%"
+        df_fires['info'] = "FIRE: " + df_fires['name'] + " (" + df_fires['state'] + ")\nAcres: " + df_fires['acres'].astype(str) + "\nContainment: " + df_fires['contained'].astype(str) + "%"
         layers.append(pdk.Layer("ScatterplotLayer", data=df_fires, id=f"nifc_{layer_id}", pickable=True, opacity=0.9, stroked=True, filled=True, get_radius="1500 + (acres * 15)", radius_min_pixels=5, radius_max_pixels=35, line_width_min_pixels=1, get_position="[lon, lat]", get_fill_color="color", get_line_color=[0, 0, 0, 255]))
 
     # Facility Sites
