@@ -9,11 +9,13 @@ import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime, timedelta, timezone
-
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 load_dotenv()
+
+CENTRAL_TZ = ZoneInfo("America/Chicago")
 
 
 RISK_TIER_ORDER = ["GREEN", "BLUE", "YELLOW", "ORANGE", "RED"]
@@ -58,7 +60,7 @@ def should_send_alert() -> bool:
         if not config or not config.last_risk_alert_time:
             return True
 
-        elapsed = datetime.now(timezone.utc) - config.last_risk_alert_time
+        elapsed = datetime.now(CENTRAL_TZ) - config.last_risk_alert_time
         return elapsed >= timedelta(hours=4)
 
 
@@ -69,7 +71,7 @@ def update_last_alert_time():
     with SessionLocal() as session:
         config = session.query(SystemConfig).first()
         if config:
-            config.last_risk_alert_time = datetime.now(timezone.utc)
+            config.last_risk_alert_time = datetime.now(CENTRAL_TZ)
             session.commit()
 
 
@@ -119,7 +121,7 @@ def build_alert_email_body(
     lines.append(f"  Global Risk:   {current_global or 'UNKNOWN'}")
     lines.append(f"  Internal Risk: {current_internal or 'UNKNOWN'}")
     lines.append("")
-    lines.append(f"Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    lines.append(f"Time: {datetime.now(CENTRAL_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')}")
     lines.append("")
     lines.append("-" * 50)
     lines.append("This is an automated alert from the NOC Intelligence Fusion Center.")
@@ -232,7 +234,7 @@ def build_eq_alert_email_body(alerts: list) -> str:
         lines.append("")
     
     lines.append("-" * 50)
-    lines.append(f"Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    lines.append(f"Time: {datetime.now(CENTRAL_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')}")
     lines.append("")
     lines.append("This is an automated alert from the NOC Intelligence Fusion Center.")
     

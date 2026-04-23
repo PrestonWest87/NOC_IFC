@@ -3,10 +3,13 @@ import uuid
 import gc
 import math
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from src.database import SessionLocal, RegionalHazard, GeoJsonCache, MonitoredLocation
 
+CENTRAL_TZ = ZoneInfo("America/Chicago")
+
 def log_print(msg):
-    print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] [INFRA] {msg}")
+    print(f"[{datetime.now(CENTRAL_TZ).strftime('%H:%M:%S')}] [INFRA] {msg}")
 
 def save_geojson_to_db(session, feed_name, data):
     """Upserts the raw JSON geometry into the database."""
@@ -158,7 +161,7 @@ def check_earthquake_proximity(equake_data, distance_miles=50):
             eq_lon, eq_lat = coords[0], coords[1]
             place = props.get('place', 'Unknown')
             time_ms = props.get('time', 0)
-            time_str = datetime.fromtimestamp(time_ms/1000).strftime('%Y-%m-%d %H:%M') if time_ms else 'Unknown'
+            time_str = datetime.fromtimestamp(time_ms/1000, CENTRAL_TZ).strftime('%Y-%m-%d %H:%M') if time_ms else 'Unknown'
             depth = coords[2]
             
             for site in sites:

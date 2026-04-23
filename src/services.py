@@ -1386,7 +1386,7 @@ def get_weather_alerts_log(ar_data, oos_data, selected_events, usgs_ar_data=None
                 coords = f.get("geometry", {}).get("coordinates", [0, 0, 0])
                 depth = coords[2] if len(coords) > 2 else 0
                 time_ms = props.get("time", 0)
-                time_str = datetime.fromtimestamp(time_ms/1000).strftime('%Y-%m-%d %H:%M') if time_ms else "Unknown"
+                time_str = datetime.fromtimestamp(time_ms/1000, LOCAL_TZ).strftime('%Y-%m-%d %H:%M') if time_ms else "Unknown"
                 
                 all_alert_details.append({
                     "Event": f"[USGS {label}] Earthquake", "Severity": _get_eq_severity(mag), "Certainty": "Confirmed",
