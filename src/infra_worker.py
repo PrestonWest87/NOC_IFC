@@ -136,7 +136,7 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 
 def check_earthquake_proximity(equake_data, distance_miles=50):
     """Check if earthquakes are within specified distance of any monitored site."""
-    from src.risk_alert import send_alert, get_alert_recipients, build_eq_alert_email
+    from src.risk_alert import send_alert, get_alert_recipients, build_eq_alert_email_body
     
     if not equake_data or 'features' not in equake_data:
         return
