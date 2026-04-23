@@ -210,3 +210,30 @@ def check_and_alert(global_risk: str = None, internal_risk: str = None):
         update_last_alert_time()
 
     update_tracked_risks(global_risk, internal_risk)
+
+
+def build_eq_alert_email_body(alerts: list) -> str:
+    """Build plain text email body for earthquake proximity alerts."""
+    lines = [
+        "NOC Intelligence Fusion Center - Earthquake Proximity Alert",
+        "=" * 50,
+        "",
+        f"Earthquake(s) detected within 50 miles of monitored sites:",
+        ""
+    ]
+    
+    for a in alerts:
+        lines.append(f"Site: {a['site']} ({a['site_type']})")
+        lines.append(f"  Distance: {a['distance']} miles")
+        lines.append(f"  Magnitude: M{a['mag']}")
+        lines.append(f"  Location: {a['place']}")
+        lines.append(f"  Depth: {a['depth']:.1f} km")
+        lines.append(f"  Time: {a['time']}")
+        lines.append("")
+    
+    lines.append("-" * 50)
+    lines.append(f"Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    lines.append("")
+    lines.append("This is an automated alert from the NOC Intelligence Fusion Center.")
+    
+    return "\n".join(lines)

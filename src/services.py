@@ -51,6 +51,7 @@ def get_cached_locations():
 @st.cache_data(ttl=120, max_entries=1)
 def get_cached_geojson():
     spc_d1, spc_d2, spc_d3, ar, oos = None, None, None, None, None
+    usgs_ar, usgs_oos = None, None
     with SessionLocal() as db:
         # Pull all three SPC days
         d1_rec = db.query(GeoJsonCache).filter_by(feed_name="spc_day1").first() # Or "spc" depending on your current naming
@@ -60,13 +61,18 @@ def get_cached_geojson():
         ar_rec = db.query(GeoJsonCache).filter_by(feed_name="nws_ar").first()
         oos_rec = db.query(GeoJsonCache).filter_by(feed_name="nws_oos").first()
         
+        usgs_ar_rec = db.query(GeoJsonCache).filter_by(feed_name="usgs_ar").first()
+        usgs_oos_rec = db.query(GeoJsonCache).filter_by(feed_name="usgs_oos").first()
+        
         if d1_rec: spc_d1 = d1_rec.data
         if d2_rec: spc_d2 = d2_rec.data
         if d3_rec: spc_d3 = d3_rec.data
         if ar_rec: ar = ar_rec.data
         if oos_rec: oos = oos_rec.data
+        if usgs_ar_rec: usgs_ar = usgs_ar_rec.data
+        if usgs_oos_rec: usgs_oos = usgs_oos_rec.data
         
-    return spc_d1, spc_d2, spc_d3, ar, oos
+    return spc_d1, spc_d2, spc_d3, ar, oos, usgs_ar, usgs_oos
 
 @st.cache_data(ttl=86400, max_entries=1)
 def get_ar_counties_mapping():
@@ -1348,8 +1354,10 @@ def process_nws_alerts(data, selected_events, is_oos=False):
             
     return warn_geo, watch_geo, zonewide_alerts, map_diagnostics
 
-def get_weather_alerts_log(ar_data, oos_data, selected_events):
+def get_weather_alerts_log(ar_data, oos_data, selected_events, usgs_ar_data=None, usgs_oos_data=None):
     all_alert_details = []
+    
+    # NWS Alerts (existing code)
     for geo_ds, is_oos in [(ar_data, False), (oos_data, True)]:
         if geo_ds and "features" in geo_ds:
             for f in geo_ds["features"]:
@@ -1365,7 +1373,37 @@ def get_weather_alerts_log(ar_data, oos_data, selected_events):
                     "Description": props.get("description", "No detailed description provided by NWS."),
                     "Instructions": props.get("instruction", "No explicit instructions provided.")
                 })
+    
+    # USGS Earthquakes
+    for usgs_data, label in [(usgs_ar_data, "AR"), (usgs_oos_data, "OOS")]:
+        if usgs_data and "features" in usgs_data:
+            for f in usgs_data["features"]:
+                props = f.get("properties", {})
+                mag = props.get("mag", 0)
+                if mag < 2.0:
+                    continue
+                
+                coords = f.get("geometry", {}).get("coordinates", [0, 0, 0])
+                depth = coords[2] if len(coords) > 2 else 0
+                time_ms = props.get("time", 0)
+                time_str = datetime.fromtimestamp(time_ms/1000).strftime('%Y-%m-%d %H:%M') if time_ms else "Unknown"
+                
+                all_alert_details.append({
+                    "Event": f"[USGS {label}] Earthquake", "Severity": _get_eq_severity(mag), "Certainty": "Confirmed",
+                    "Headline": f"M{mag:.1f} Earthquake - {props.get('place', 'Unknown')}", "Affected Area": f"{label} Region",
+                    "Effective": time_str, "Expires": "N/A",
+                    "Description": f"Magnitude {mag:.1f} earthquake at depth {depth:.1f}km. Location: {props.get('place', 'Unknown')}",
+                    "Instructions": f"Monitor for aftershocks. Check structural integrity at nearby facilities."
+                })
+    
     return all_alert_details
+
+def _get_eq_severity(mag):
+    """Map earthquake magnitude to severity level."""
+    if mag >= 5.0: return "Severe"
+    if mag >= 4.0: return "High"
+    if mag >= 3.0: return "Moderate"
+    return "Minor"
 
 def calculate_site_intersections(map_df, master_polygons):
     toggled_affected_sites, master_affected_sites = [], []
@@ -1982,10 +2020,11 @@ def build_aiops_map_layers(alerts, locs):
     return layers, view_state
 
 @st.cache_data(ttl=150, max_entries=2)
-def _precompute_geo_matrix(spc_data, ar_data, oos_data, selected_events_tuple, map_df):
+def _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, selected_events_tuple, map_df):
     """Heavy Math Engine: Parses JSON, builds Shapely objects, and calculates all intersections ONCE."""
     import pandas as pd
     from shapely.geometry import Point, shape
+    from datetime import datetime
     
     master_polygons = []
     map_diagnostics = []
@@ -2055,7 +2094,47 @@ def _precompute_geo_matrix(spc_data, ar_data, oos_data, selected_events_tuple, m
                 master_polygons.append({"event": f"Active Wildfire: {row['name']}", "shape": fire_poly, "severity": "High"})
             except: pass
 
-    # 5. Execute CPU-Heavy Bounding Box Math ONCE
+    # 5. Process USGS Earthquakes
+    eq_data = []
+    def get_eq_color(mag):
+        if mag >= 5.0: return [255, 0, 0, 200]
+        if mag >= 4.0: return [255, 165, 0, 200]
+        if mag >= 3.0: return [255, 255, 0, 200]
+        return [0, 0, 255, 200]
+    
+    def process_usgs_quakes(usgs_data, label_prefix):
+        if not usgs_data or 'features' not in usgs_data:
+            return
+        for f in usgs_data['features']:
+            props = f.get('properties', {})
+            mag = props.get('mag', 0)
+            if mag < 2.0:
+                continue
+            coords = f.get('geometry', {}).get('coordinates', [0, 0, 0])
+            lon, lat, depth = coords[0], coords[1], coords[2]
+            place = props.get('place', 'Unknown')
+            time_ms = props.get('time', 0)
+            time_str = datetime.fromtimestamp(time_ms/1000).strftime('%Y-%m-%d %H:%M') if time_ms else 'Unknown'
+            
+            fill_color = get_eq_color(mag)
+            quake_info = f"M{mag:.1f}: {place}\nDepth: {depth:.1f}km\nTime: {time_str}"
+            eq_data.append({
+                "lon": lon, "lat": lat, "mag": mag, "place": place,
+                "depth": depth, "time": time_str, "info": quake_info,
+                "color": fill_color
+            })
+            
+            try:
+                eq_point = Point(lon, lat).buffer(0.02)
+                severity = "High" if mag >= 4.0 else "Medium"
+                master_polygons.append({"event": f"EQ ({label_prefix}): M{mag:.1f}", "shape": eq_point, "severity": severity})
+            except: pass
+    
+    for usgs_d, prefix in [(usgs_ar_data, "AR"), (usgs_oos_data, "OOS")]:
+        if usgs_d:
+            process_usgs_quakes(usgs_d, prefix)
+
+    # 6. Execute CPU-Heavy Bounding Box Math ONCE
     _, master_affected_sites = calculate_site_intersections(map_df, master_polygons)
     
     return {
@@ -2064,11 +2143,12 @@ def _precompute_geo_matrix(spc_data, ar_data, oos_data, selected_events_tuple, m
         "oos_warn": oos_warn, "oos_watch": oos_watch,
         "ar_fire_geo": ar_fire_geo,
         "nifc_data": nifc_data,
+        "eq_data": eq_data,
         "master_affected_sites": master_affected_sites,
         "map_diagnostics": map_diagnostics
     }
 
-def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, selected_events, toggles):
+def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, selected_events, toggles):
     """Lightweight UI Compiler: Reads from RAM cache and filters strings natively."""
     import pydeck as pdk
     import pandas as pd
@@ -2077,7 +2157,7 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, selected_even
     layer_id = str(uuid.uuid4())[:6]
     
     # Extract fully pre-computed dictionaries from RAM (0% CPU impact on UI Toggle)
-    cache = _precompute_geo_matrix(spc_data, ar_data, oos_data, tuple(selected_events), map_df)
+    cache = _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, tuple(selected_events), map_df)
     
     layers = []
     show_radar = toggles.get("radar", True)
@@ -2087,6 +2167,7 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, selected_even
     show_oos = toggles.get("oos", True)
     show_fire_risk = toggles.get("fire_risk", False)
     show_active_wildfires = toggles.get("active_wildfires", False)
+    show_earthquakes = toggles.get("earthquakes", True)
     
     # 1. RADAR
     if show_radar:
@@ -2110,6 +2191,11 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, selected_even
         df_fires['info'] = "FIRE: " + df_fires['name'] + " (" + df_fires['state'] + ")\nAcres: " + df_fires['acres'].astype(str) + "\nContainment: " + df_fires['contained'].astype(str) + "%"
         layers.append(pdk.Layer("ScatterplotLayer", data=df_fires, id=f"nifc_{layer_id}", pickable=True, opacity=0.9, stroked=True, filled=True, get_radius="1500 + (acres * 15)", radius_min_pixels=5, radius_max_pixels=35, line_width_min_pixels=1, get_position="[lon, lat]", get_fill_color="color", get_line_color=[0, 0, 0, 255]))
 
+    if show_earthquakes and cache["eq_data"]:
+        df_eq = pd.DataFrame(cache["eq_data"])
+        df_eq['radius'] = df_eq['mag'] * 3000 + 1000
+        layers.append(pdk.Layer("ScatterplotLayer", data=df_eq, id=f"eq_{layer_id}", pickable=True, opacity=0.9, stroked=True, filled=True, get_radius="radius", radius_min_pixels=4, radius_max_pixels=30, line_width_min_pixels=1, get_position="[lon, lat]", get_fill_color="color", get_line_color=[0, 0, 0, 255], gettooltip=True))
+
     # Facility Sites
     if not map_df.empty:
         layers.append(pdk.Layer("ScatterplotLayer", map_df, pickable=True, opacity=0.9, stroked=True, filled=True, radius_scale=6, radius_min_pixels=4, radius_max_pixels=12, line_width_min_pixels=1, get_position="[Lon, Lat]", get_fill_color=[255, 255, 255], get_line_color=[0, 0, 0]))
@@ -2123,6 +2209,7 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, selected_even
         if "SPC:" in hazard and show_spc: is_visible = True
         elif "Wildfire Risk:" in hazard and show_fire_risk: is_visible = True
         elif "Active Wildfire:" in hazard and show_active_wildfires: is_visible = True
+        elif "EQ (" in hazard and show_earthquakes: is_visible = True
         elif "[OOS]" in hazard and show_oos: is_visible = True
         elif "[AR]" in hazard:
             if site["Severity"] == "Warning" and show_warn: is_visible = True

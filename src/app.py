@@ -1152,7 +1152,7 @@ elif page == "Regional Grid":
     } for l in locs]) if locs else pd.DataFrame()
     
     # Unpack all 5 variables to support Atmos Weather predictive layers
-    spc_d1, spc_d2, spc_d3, ar_data, oos_data = svc.get_cached_geojson()
+    spc_d1, spc_d2, spc_d3, ar_data, oos_data, usgs_ar_data, usgs_oos_data = svc.get_cached_geojson()
     spc_data = spc_d1 # Preserve the main grid's dependency on Day 1
     
     active_event_types = set()
@@ -1177,7 +1177,7 @@ elif page == "Regional Grid":
         rg_idx = 0
         
         # Define default variables so background tabs still function safely even if the map tab isn't viewed
-        map_toggles = {"radar": False, "spc": False, "warn": False, "watch": False, "oos": False, "fire_risk": False, "active_wildfires": False}
+        map_toggles = {"radar": False, "spc": False, "warn": False, "watch": False, "oos": False, "fire_risk": False, "active_wildfires": False, "earthquakes": True}
         selected_events = active_event_types
         map_df = df.copy()
         show_radar_panel = False
@@ -1201,8 +1201,9 @@ elif page == "Regional Grid":
                         st.divider()
                         map_toggles["fire_risk"] = st.toggle("NWS Fire Weather & Red Flags", value=False)
                         map_toggles["active_wildfires"] = st.toggle("Active Wildfires (NIFC)", value=False)
+                        map_toggles["earthquakes"] = st.toggle("Earthquakes (USGS)", value=True)
                         
-                        if map_toggles["fire_risk"] or map_toggles["active_wildfires"]:
+                        if map_toggles["fire_risk"] or map_toggles["active_wildfires"] or map_toggles["earthquakes"]:
                             with st.container(border=True):
                                 st.markdown("** Fire Desk Legend:**")
                                 if map_toggles["fire_risk"]:
@@ -1210,6 +1211,8 @@ elif page == "Regional Grid":
                                     st.markdown(" **Fire Weather Watch** *(High Risk)*")
                                 if map_toggles["active_wildfires"]:
                                     st.markdown(" **Active Wildfire** *(Scales by Acreage)*")
+                                if map_toggles["earthquakes"]:
+                                    st.markdown(" **Earthquake** *(Blue: M2-3, Yellow: M3-4, Orange: M4-5, Red: M5+)*")
                     
                     with st.container(border=True):
                         st.markdown("**Hazard Isolation**")
@@ -1233,7 +1236,7 @@ elif page == "Regional Grid":
 
         # Compile map data globally so other tabs can use master_affected_sites seamlessly
         layers, view_state, map_diagnostics, toggled_affected_sites, master_affected_sites = svc.compile_regional_grid_map(
-            map_df, spc_data, ar_data, oos_data, selected_events, map_toggles
+            map_df, spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, selected_events, map_toggles
         )
 
         # Now resume rendering the Map tab!
@@ -1469,7 +1472,7 @@ elif page == "Regional Grid":
                 st.subheader("Comprehensive Weather Alerts Log")
                 st.markdown("Human-readable log of all active NWS Watches, Warnings, and Special Weather Statements.")
                 
-                all_alert_details = svc.get_weather_alerts_log(ar_data, oos_data, selected_events)
+                all_alert_details = svc.get_weather_alerts_log(ar_data, oos_data, selected_events, usgs_ar_data, usgs_oos_data)
                 
                 if not all_alert_details:
                     st.success("No active weather alerts matching your current hazard filters.")
