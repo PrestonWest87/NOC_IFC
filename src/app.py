@@ -2987,11 +2987,11 @@ elif page == "Settings & Admin":
                     with c_c1:
                         st.markdown("**System Countermeasures** (Host-based security)")
                         st.caption("1=Old OS/no AV | 2=Missing patches | 3=Patched/AV | 4=Hardened | 5=Patched+Hardened+IDS")
-                        sys_counter = st.select_slider("", options=[1, 2, 3, 4, 5], value=sys_counter_val)
+                        sys_counter = st.select_slider("sys_counter", options=[1, 2, 3, 4, 5], value=sys_counter_val)
                     with c_c2:
                         st.markdown("**Network Countermeasures** (Network security)")
                         st.caption("1=No firewall | 2=Permissive FW | 3=Restrictive FW | 4=FW+validated | 5=FW+IDS+validated")
-                        net_counter = st.select_slider("", options=[1, 2, 3, 4, 5], value=net_counter_val)
+                        net_counter = st.select_slider("net_counter", options=[1, 2, 3, 4, 5], value=net_counter_val)
 
                     if st.form_submit_button("Save Global Config", width="stretch"):
                         new_config = {
