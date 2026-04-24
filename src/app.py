@@ -917,7 +917,26 @@ if page == "Global Dashboards":
                     st.error("Please enter at least one recipient email.")
                 else:
                     with st.spinner("Converting formatting and transmitting..."):
-                        formatted_html = svc.generate_unified_brief_email_html(local_b_time, sys_config.unified_brief)
+                        from src.database import InternalRiskSnapshot
+                        current_global = None
+                        current_internal = None
+                        
+                        with svc.SessionLocal() as dbtmp:
+                            latest_internal = dbtmp.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
+                            if latest_internal:
+                                current_internal = latest_internal.risk_level
+                            
+                            ar_warn, oos_warn, _ = svc.get_cached_geojson()
+                            active_nws = len(ar_warn.get("features", [])) + len(oos_warn.get("features", []))
+                            crime_data = svc.get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
+                            global_intel = svc.get_executive_grid_intel(active_nws, crime_data)
+                            current_global = global_intel.get('unified_risk')
+                        
+                        formatted_html = svc.generate_unified_brief_email_html(
+                            local_b_time, sys_config.unified_brief,
+                            global_risk=current_global,
+                            internal_risk=current_internal
+                        )
                         from src.mailer import send_alert_email
                         success, msg = send_alert_email("Executive Unified Risk Brief", formatted_html, recipient_override=ub_recipients, is_html=True)
                         if success: st.success("Brief successfully transmitted!")
