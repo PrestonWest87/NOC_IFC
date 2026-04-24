@@ -249,7 +249,7 @@ def generate_aggregated_shift_summary(session, logs, timeframe_label, target_rol
     
     log_digest = _map_reduce_summarize(
         logs,
-        lambda l: f"[{l.created_at.strftime('%Y-%m-%d %H:%M')}] {l.analyst}: {l.content}",
+        lambda l: f"[{(l.created_at.replace(tzinfo=ZoneInfo('UTC')).astimezone(LOCAL_TZ) if l.created_at else 'Unknown')}] {l.analyst}: {l.content}",
         map_p, reduce_p, config, chunk_size=20
     )
     

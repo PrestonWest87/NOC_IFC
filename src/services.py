@@ -35,6 +35,22 @@ def to_dotdict(obj):
 def to_dotdict_list(objs):
     return [to_dotdict(obj) for obj in objs]
 
+def central_now():
+    """Return current time in Central timezone."""
+    return datetime.now(LOCAL_TZ)
+
+def utc_now():
+    """Return current UTC time."""
+    return datetime.utcnow()
+
+def format_central(dt):
+    """Format a UTC datetime as Central time string."""
+    if dt is None:
+        return "Unknown"
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    return dt.astimezone(LOCAL_TZ).strftime('%Y-%m-%d %H:%M:%S')
+
 @st.cache_data(ttl=300)
 def get_cached_config():
     with SessionLocal() as db:
@@ -401,7 +417,7 @@ def get_recent_crimes(max_distance=None, grid_only=False, hours_back=168):
         crimes = query.order_by(CrimeIncident.timestamp.desc()).all()
         return [{
             "id": c.id, "category": c.category, "raw_title": c.raw_title,
-            "timestamp": c.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": format_central(c.timestamp),
             "distance_miles": c.distance_miles, "severity": c.severity,
             "lat": c.lat, "lon": c.lon
         } for c in crimes]
@@ -510,7 +526,7 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
             if "ICS" in source_upper or "CISA" in source_upper:
                 is_critical = any(v in art.title.upper() for v in critical_vendors)
                 is_kev = "KEV" in art.title.upper() or "EXPLOITED IN THE WILD" in art.title.upper() 
-                ics_advisories.append({"title": art.title, "link": art.link, "published": art.published_date.strftime("%Y-%m-%d"), "is_critical": is_critical, "is_kev": is_kev})
+                ics_advisories.append({"title": art.title, "link": art.link, "published": format_central(art.published_date)[:10], "is_critical": is_critical, "is_kev": is_kev})
 
 # ==========================================
     # CIS-ALIGNED SCORING ALGORITHM
@@ -1324,7 +1340,7 @@ def dispatch_perimeter_crime_alerts():
             gmaps_link = f"https://www.google.com/maps?q={crime.lat},{crime.lon}"
             
             # Formatted to be slightly shorter for SMS reading
-            local_time = crime.timestamp.strftime('%m/%d %I:%M %p')
+            local_time = format_central(crime.timestamp)[:-3]  # Remove seconds for brevity
             
             # Concise Plain Text format for SMS
             sms_body = (
@@ -1702,7 +1718,7 @@ def get_iocs(days_back=3):
             result.append({
                 "Type": ioc.indicator_type, "Indicator": ioc.indicator_value,
                 "Context": ioc.context if hasattr(ioc, 'context') else "Context unavailable.",
-                "Detected": ioc.detected_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ).strftime('%Y-%m-%d %H:%M:%S'),
+                "Detected": format_central(ioc.detected_at),
                 "Source Article": art.link if art else "Unknown"
             })
         return result
@@ -1823,7 +1839,7 @@ def generate_rca_ticket_text(site, data, priority, patient_zero, root_cause):
     ticket_text += "="*50 + f"\nPRIORITY: {priority}\nSITE/LOCATION: {site}\nSUSPECTED ORIGIN (PATIENT ZERO): {patient_zero}\nTOTAL NODES AFFECTED: {len(data.get('alerts', []))}\n" + "="*50 + f"\n\nROOT CAUSE ANALYSIS:\n" + "-"*20 + f"\n{root_cause}\n\nAFFECTED INFRASTRUCTURE DETAILS:\n" + "-"*30 + "\n"
     
     for idx, alert in enumerate(data.get('alerts', []), 1):
-        rcv_time = alert.received_at.strftime('%Y-%m-%d %H:%M:%S UTC') if alert.received_at else "Unknown"
+        rcv_time = format_central(alert.received_at) if alert.received_at else "Unknown"
         ticket_text += f"[{idx}] Node: {alert.node_name} | IP: {alert.ip_address} | Type: {alert.device_type}\n    Status: {alert.status} | Severity: {alert.severity}\n    Event Category: {alert.event_category}\n    Logged Time: {rcv_time}\n"
         if alert.details: ticket_text += f"    Details: {alert.details.strip()}\n"
         ticket_text += "\n"
