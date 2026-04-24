@@ -567,14 +567,14 @@ if page == "Global Dashboards":
         
         st.markdown(f"""
         <div style='text-align: center; padding: 20px; background-color: #1e1e1e; border-radius: 10px; border: 2px solid {risk_color}; margin-bottom: 20px;'>
-            <h3 style='margin:0; color: #a0a0a0;'>UNIFIED THREAT POSTURE (CIS STANDARD)</h3>
+            <h3 style='margin:0; color: #a0a0a0;'>GLOBAL THREAT POSTURE (CIS STANDARD)</h3>
             <h1 style='margin:0; font-size: 3rem; color: {risk_color};'>{display_risk}</h1>
             <p style='margin:0; color: #a0a0a0;'>Last Updated: {intel['timestamp']}</p>
         </div>
         """, unsafe_allow_html=True)
 
         # --- EXECUTIVE TREND GRAPH ---
-        with st.expander("View 14-Day Threat Deviation Trend", expanded=True):
+        with st.expander("View 14-Day CIS Alert Level Trend", expanded=True):
             history = svc.get_historical_threat_scores(14)
             if not history:
                 st.info("Gathering baseline telemetry. Graph will populate tomorrow.")
@@ -588,10 +588,28 @@ if page == "Global Dashboards":
                 if dates and dates[-1].date() == datetime.utcnow().date():
                     cyber_pts[-1] = intel['current_cyber_pts']
                     phys_pts[-1] = intel['current_phys_pts']
-                    
-                chart_data = pd.DataFrame({"Date": dates, "Cyber OT/IT Threat": cyber_pts, "Physical/Perimeter Threat": phys_pts}).set_index("Date")
+                
+                chart_data = pd.DataFrame({
+                    "Date": dates, 
+                    "Cyber CIS Score": cyber_pts, 
+                    "Physical CIS Score": phys_pts
+                }).set_index("Date")
                 st.line_chart(chart_data, color=["#00b4d8", "#ff9f1c"])
-                st.caption(f"**Current Cyber Points:** {intel['current_cyber_pts']} (Baseline: {int(intel['baseline_cyber'])}) | **Current Physical Points:** {intel['current_phys_pts']} (Baseline: {int(intel['baseline_phys'])})")
+                
+                st.caption(f"**Cyber:** {intel['current_cyber_pts']} ({intel['cyber_score']}) | **Physical:** {intel['current_phys_pts']} ({intel['physical_score']}) | **Unified:** {intel['unified_risk']}")
+                
+                # Show CIS Alert Level reference
+                col_ref1, col_ref2, col_ref3, col_ref4, col_ref5 = st.columns(5)
+                with col_ref1:
+                    st.markdown("<div style='background-color:#28a745;padding:5px;border-radius:5px;text-align:center;color:white;font-size:12px;'>GREEN<br>-8 to -5</div>", unsafe_allow_html=True)
+                with col_ref2:
+                    st.markdown("<div style='background-color:#007bff;padding:5px;border-radius:5px;text-align:center;color:white;font-size:12px;'>BLUE<br>-4 to -2</div>", unsafe_allow_html=True)
+                with col_ref3:
+                    st.markdown("<div style='background-color:#ffc107;padding:5px;border-radius:5px;text-align:center;color:black;font-size:12px;'>YELLOW<br>-1 to +2</div>", unsafe_allow_html=True)
+                with col_ref4:
+                    st.markdown("<div style='background-color:#fd7e14;padding:5px;border-radius:5px;text-align:center;color:white;font-size:12px;'>ORANGE<br>+3 to +5</div>", unsafe_allow_html=True)
+                with col_ref5:
+                    st.markdown("<div style='background-color:#dc3545;padding:5px;border-radius:5px;text-align:center;color:white;font-size:12px;'>RED<br>+6 to +8</div>", unsafe_allow_html=True)
 
         st.divider()
 
@@ -2957,6 +2975,23 @@ elif page == "Settings & Admin":
                     c_b1, c_b2 = st.columns(2)
                     base_cyb = c_b1.number_input("Cyber Baseline Override", value=float(config_dict.get('baseline_override_cyber', 0.0)), step=5.0)
                     base_phy = c_b2.number_input("Physical Baseline Override", value=float(config_dict.get('baseline_override_phys', 0.0)), step=5.0)
+                    
+                    st.divider()
+                    st.markdown("### CIS Alert Level Countermeasures")
+                    st.caption("Configure your organization's security posture per the CIS Alert Level framework. Higher values = better defenses = lower overall risk.")
+                    c_c1, c_c2 = st.columns(2)
+                    
+                    sys_counter_val = config_dict.get('sys_countermeasures', 3)
+                    net_counter_val = config_dict.get('net_countermeasures', 3)
+                    
+                    with c_c1:
+                        st.markdown("**System Countermeasures** (Host-based security)")
+                        st.caption("1=Old OS/no AV | 2=Missing patches | 3=Patched/AV | 4=Hardened | 5=Patched+Hardened+IDS")
+                        sys_counter = st.select_slider("", options=[1, 2, 3, 4, 5], value=sys_counter_val)
+                    with c_c2:
+                        st.markdown("**Network Countermeasures** (Network security)")
+                        st.caption("1=No firewall | 2=Permissive FW | 3=Restrictive FW | 4=FW+validated | 5=FW+IDS+validated")
+                        net_counter = st.select_slider("", options=[1, 2, 3, 4, 5], value=net_counter_val)
 
                     if st.form_submit_button("Save Global Config", width="stretch"):
                         new_config = {
@@ -2964,7 +2999,8 @@ elif page == "Settings & Admin":
                             "tech_stack": tech_stack_input, "is_active": is_active, "smtp_server": smtp_server, 
                             "smtp_port": smtp_port, "smtp_username": smtp_user, "smtp_password": smtp_pass, 
                             "smtp_sender": smtp_sender, "smtp_recipient": smtp_recip, "smtp_enabled": smtp_enabled,
-                            "baseline_override_cyber": base_cyb, "baseline_override_phys": base_phy
+                            "baseline_override_cyber": base_cyb, "baseline_override_phys": base_phy,
+                            "sys_countermeasures": sys_counter, "net_countermeasures": net_counter
                         }
                         svc.save_global_config(new_config)
                         st.success("Configuration Saved!"); time.sleep(1); safe_rerun()
