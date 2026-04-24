@@ -537,9 +537,9 @@ if page == "Global Dashboards":
         col_title.caption("Strategic synthesis of Physical and Cyber telemetry measured against a 14-day operational baseline.")
         if col_leg.button("View CIS Threat Legend", width='stretch'):
             show_cis_legend()
-            
-        ar_warn = svc.get_cached_geojson()[1] or {}
-        oos_warn = svc.get_cached_geojson()[2] or {}
+        
+        ar_warn = svc.get_cached_geojson()[3] or {}
+        oos_warn = svc.get_cached_geojson()[4] or {}
         active_nws = len(ar_warn.get("features", [])) + len(oos_warn.get("features", []))
         
         crime_data = svc.get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
@@ -877,8 +877,8 @@ if page == "Global Dashboards":
                 with svc.SessionLocal() as dbtmp:
                     latest_internal = dbtmp.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
                 
-                ar_warn = svc.get_cached_geojson()[1] or {}
-                oos_warn = svc.get_cached_geojson()[2] or {}
+                ar_warn = svc.get_cached_geojson()[3] or {}
+                oos_warn = svc.get_cached_geojson()[4] or {}
                 active_nws = len(ar_warn.get("features", [])) + len(oos_warn.get("features", []))
                 crime_data = svc.get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
                 global_intel = svc.get_executive_grid_intel(active_nws, crime_data)
@@ -926,7 +926,7 @@ if page == "Global Dashboards":
                             if latest_internal:
                                 current_internal = latest_internal.risk_level
                             
-                            ar_warn, oos_warn, _ = svc.get_cached_geojson()
+                            ar_warn, oos_warn, _ = svc.get_cached_geojson()[3:6]
                             active_nws = len(ar_warn.get("features", [])) + len(oos_warn.get("features", []))
                             crime_data = svc.get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
                             global_intel = svc.get_executive_grid_intel(active_nws, crime_data)
