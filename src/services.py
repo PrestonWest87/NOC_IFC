@@ -38,7 +38,7 @@ def to_dotdict_list(objs):
 @st.cache_data(ttl=300)
 def get_cached_config():
     with SessionLocal() as db:
-        config = db.query(SystemConfig).filter_by(is_active=True).first()
+        config = db.query(SystemConfig).first()
         if not config:
             config = SystemConfig(); db.add(config); db.commit(); db.refresh(config)
         return to_dotdict(config)
