@@ -535,6 +535,7 @@ if page == "Global Dashboards":
         # Legend Trigger Button
         col_title, col_leg = st.columns([3, 1])
         col_title.caption("Strategic synthesis of Physical and Cyber telemetry measured against a 14-day operational baseline.")
+        col_title.caption("Updates every 30 minutes.")
         if col_leg.button("View CIS Threat Legend", width='stretch'):
             show_cis_legend()
         
@@ -786,7 +787,7 @@ if page == "Global Dashboards":
             
             with col_title:
                 st.subheader("Internal Asset Risk Dashboard")
-                st.caption("Active correlation of internal assets against OSINT telemetry (Auto-updates every 6 hours).")
+                st.caption("Active correlation of internal assets against OSINT telemetry (Updates every hour).")
                 
             with col_admin_btn:
                 # Restrict visibility to administrators only
