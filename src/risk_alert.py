@@ -185,10 +185,12 @@ def check_and_alert(global_risk: str = None, internal_risk: str = None):
         return
 
     if not should_send_alert():
+        update_tracked_risks(global_risk, internal_risk)
         return
 
     recipients = get_alert_recipients()
     if not recipients:
+        update_tracked_risks(global_risk, internal_risk)
         return
 
     body = build_alert_email_body(
@@ -207,6 +209,8 @@ def check_and_alert(global_risk: str = None, internal_risk: str = None):
         subject += f": Internal Risk {internal_change[1]}"
 
     success, msg = send_alert(recipients, subject, body)
+
+    update_tracked_risks(global_risk, internal_risk)
 
     if success:
         update_last_alert_time()
