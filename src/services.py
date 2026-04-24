@@ -929,25 +929,41 @@ def generate_and_save_internal_risk_snapshot():
 
 import re
 
-def generate_unified_brief_email_html(report_time, markdown_content):
-    # 1. Safely extract risk levels from the AI's generated text
-    def extract_risk(keyword, text):
-        match = re.search(rf'(?i){keyword}.{{0,50}}?\b(RED|ORANGE|YELLOW|BLUE|GREEN)\b', text)
-        return match.group(1).upper() if match else "UNKNOWN"
-        
-    global_risk = extract_risk("Global", markdown_content)
-    internal_risk = extract_risk("Internal", markdown_content)
-    overall_risk = extract_risk("Overall", markdown_content)
+def generate_unified_brief_email_html(report_time, markdown_content, global_risk=None, internal_risk=None):
+    # 1. Grab actual risk levels from the database (or accept them as arguments)
+    if not global_risk or not internal_risk:
+        session = SessionLocal()
+        try:
+            config = session.query(SystemConfig).first()
+            if not global_risk:
+                global_risk = (config.last_global_risk or "UNKNOWN").upper()
+            if not internal_risk:
+                internal_risk = (config.last_internal_risk or "UNKNOWN").upper()
+        finally:
+            session.close()
+    else:
+        global_risk = global_risk.upper()
+        internal_risk = internal_risk.upper()
+
+    # Determine Overall Risk (Take the highest severity of Global vs Internal)
+    risk_tiers = {"GREEN": 1, "BLUE": 2, "YELLOW": 3, "ORANGE": 4, "RED": 5}
+    g_tier = risk_tiers.get(global_risk, 0)
+    i_tier = risk_tiers.get(internal_risk, 0)
     
-    # Fallbacks just in case the LLM worded it slightly differently
-    if overall_risk == "UNKNOWN": overall_risk = global_risk if global_risk != "UNKNOWN" else "YELLOW"
-    if global_risk == "UNKNOWN": global_risk = overall_risk
-    if internal_risk == "UNKNOWN": internal_risk = overall_risk
+    if g_tier == 0 and i_tier == 0:
+        overall_risk = "UNKNOWN"
+    elif g_tier >= i_tier:
+        overall_risk = global_risk
+    else:
+        overall_risk = internal_risk
     
     color_map = {
-        "GREEN": "#28a745", "BLUE": "#007bff", 
-        "YELLOW": "#ffc107", "ORANGE": "#fd7e14", 
-        "RED": "#dc3545", "UNKNOWN": "#6c757d"
+        "GREEN": "#01a46d",   # CIS Alert Level: Low
+        "BLUE": "#377fc7",    # CIS Alert Level: Guarded
+        "YELLOW": "#f5d800",  # CIS Alert Level: Elevated
+        "ORANGE": "#ff9b2b",  # CIS Alert Level: High
+        "RED": "#ec3e40",     # CIS Alert Level: Severe
+        "UNKNOWN": "#6c757d"  # Utility (Retained)
     }
     
     overall_color = color_map.get(overall_risk, "#6c757d")
@@ -1024,11 +1040,12 @@ def generate_unified_brief_email_html(report_time, markdown_content):
 def generate_outlook_html_report(intel):
     """Generates the static fallback report if the LLM generation fails or is bypassed."""
     color_map = {
-        "GREEN": "#28a745", 
-        "BLUE": "#007bff", 
-        "YELLOW": "#ffc107", 
-        "ORANGE": "#fd7e14", 
-        "RED": "#dc3545"
+        "GREEN": "#01a46d",   # CIS Alert Level: Low
+        "BLUE": "#377fc7",    # CIS Alert Level: Guarded
+        "YELLOW": "#f5d800",  # CIS Alert Level: Elevated
+        "ORANGE": "#ff9b2b",  # CIS Alert Level: High
+        "RED": "#ec3e40",     # CIS Alert Level: Severe
+        "UNKNOWN": "#6c757d"  # Utility (Retained)
     }
     badge_color = color_map.get(intel["unified_risk"].upper(), "#28a745")
     
