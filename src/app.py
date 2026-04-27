@@ -187,8 +187,10 @@ if st.session_state.current_user:
     try:
         # Pull required cache
         g_locs = svc.get_cached_locations()
-        g_spc_d1, g_spc_d2, g_spc_d3, g_ar_data, g_oos_data = svc.get_cached_geojson()
-        
+        geo_cache = svc.get_cached_geojson()
+        g_ar_data = geo_cache[3]
+        g_oos_data = geo_cache[4]
+    
         # Fetch the geographically filtered alerts
         global_alerts = svc.get_filtered_notification_alerts(
             st.session_state.current_user, g_ar_data, g_oos_data, g_locs
