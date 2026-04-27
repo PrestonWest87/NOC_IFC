@@ -1584,7 +1584,10 @@ elif page == "Regional Grid":
                         "Tornado Warning", "Severe Thunderstorm Warning", "Flash Flood Warning", 
                         "Special Marine Warning", "Snow Squall Warning", "Winter Storm Warning",
                         "Ice Storm Warning", "Blizzard Warning", "Red Flag Warning", "Hurricane Warning",
-                        "Severe Weather Statement", "Severe Thunderstorm Watch", "Tornado Watch"
+                        "Severe Weather Statement", "Severe Thunderstorm Watch", "Tornado Watch", 
+                        "Particularly Dangerous Situation Tornado Watch",
+                        "Particularly Dangerous Situation Severe Thunderstorm Watch",
+                        "PDS Tornado Watch", "PDS Severe Thunderstorm Watch"
                     ]
                     
                     with st.form("atmos_prefs_form"):
