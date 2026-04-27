@@ -1417,12 +1417,19 @@ def process_nws_alerts(data, selected_events, is_oos=False):
         for g in geometries_to_process:
             try:
                 poly_shape = shape(g)
-                is_severe = "Warning" in event_type or "Emergency" in event_type
-                severity = "Warning" if is_severe else "Watch/Advisory"
+                
+                # Check if the event or headline explicitly indicates a PDS
+                is_pds = "PDS" in event_type or "Particularly Dangerous Situation" in headline or "PDS" in headline
+                is_severe = "Warning" in event_type or "Emergency" in event_type or is_pds
+                
+                if is_pds and not ("Warning" in event_type or "Emergency" in event_type):
+                    severity = "PDS Watch"
+                else:
+                    severity = "Warning" if is_severe else "Watch/Advisory"
 
                 micro_feature = {"type": "Feature", "geometry": g, "properties": {"info": f"{prefix} {event_type}", "severity": severity, "shapely_obj": poly_shape}}
 
-                if is_severe:
+                if is_severe: # PDS Watches will now drop into the Red Warning Geo layer
                     micro_feature['properties']['fill_color'] = [139, 0, 0, 60] if is_oos else [255, 0, 0, 60]
                     micro_feature['properties']['line_color'] = [139, 0, 0, 255] if is_oos else [255, 0, 0, 255]
                     warn_geo["features"].append(micro_feature)
