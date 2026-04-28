@@ -258,31 +258,43 @@ class EnterpriseAIOpsEngine:
             else:
                 cause = f"Generalized Infrastructure Degradation originating at {p0.node_name}."
 
-        # --- PRESERVED 5. GEOSPATIAL WEATHER / GRID CORRELATION ---
         from src.database import MonitoredLocation, SessionLocal
         with SessionLocal() as db:
             site_record = db.query(MonitoredLocation).filter(MonitoredLocation.name == site_name).first()
-            if site_record and site_record.lat and site_record.lon:
-                for h in active_weather:
-                    if not getattr(h, 'lat', None) or not getattr(h, 'lon', None):
-                        if meta.get('district', '').lower() in str(h.location).lower() or site_name.lower() in str(h.location).lower():
-                            score += 40
-                            evidence_log.append(f"Regional Correlation: Site intersects active {h.hazard_type} warning zone.")
-                            if p0_domain in ["POWER_ENV", "TRANSPORT_CORE"]: cause = f"Severe Weather ({h.hazard_type}) induced failure of Utility/Carrier."
-                            break
-                    else:
-                        R = 3958.8 
-                        lat1, lon1, lat2, lon2 = map(math.radians, [site_record.lat, site_record.lon, h.lat, h.lon])
-                        dlat, dlon = lat2 - lat1, lon2 - lon1
-                        a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
-                        distance_miles = R * (2 * math.asin(math.sqrt(a)))
-                        hazard_radius = getattr(h, 'radius_km', 24.1) * 0.621371 
-                        
-                        if distance_miles <= hazard_radius:
-                            score += 55
-                            evidence_log.append(f"Geospatial Correlation: Site is exactly {round(distance_miles, 1)} miles from active {h.hazard_type} epicenter.")
-                            if p0_domain in ["POWER_ENV", "TRANSPORT_CORE"]: cause = f"Direct Kinetic Impact: Severe Weather ({h.hazard_type}) caused physical infrastructure failure."
-                            break
+            
+            if site_record:
+                # --- NEW: MAINTENANCE AUTO-CLEAR LOGIC ---
+                # Check if the site is under maintenance and the ETR has passed
+                if site_record.under_maintenance and site_record.maintenance_etr:
+                    if datetime.utcnow() > site_record.maintenance_etr:
+                        site_record.under_maintenance = False
+                        site_record.maintenance_etr = None
+                        site_record.maintenance_reason = None
+                        db.commit()
+                        evidence_log.append("Maintenance Override: Expired maintenance window was automatically cleared.")
+
+                # Continue with the existing geospatial checks
+                if site_record.lat and site_record.lon:
+                    for h in active_weather:
+                        if not getattr(h, 'lat', None) or not getattr(h, 'lon', None):
+                            if meta.get('district', '').lower() in str(h.location).lower() or site_name.lower() in str(h.location).lower():
+                                score += 40
+                                evidence_log.append(f"Regional Correlation: Site intersects active {h.hazard_type} warning zone.")
+                                if p0_domain in ["POWER_ENV", "TRANSPORT_CORE"]: cause = f"Severe Weather ({h.hazard_type}) induced failure of Utility/Carrier."
+                                break
+                        else:
+                            R = 3958.8 
+                            lat1, lon1, lat2, lon2 = map(math.radians, [site_record.lat, site_record.lon, h.lat, h.lon])
+                            dlat, dlon = lat2 - lat1, lon2 - lon1
+                            a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+                            distance_miles = R * (2 * math.asin(math.sqrt(a)))
+                            hazard_radius = getattr(h, 'radius_km', 24.1) * 0.621371 
+                            
+                            if distance_miles <= hazard_radius:
+                                score += 55
+                                evidence_log.append(f"Geospatial Correlation: Site is exactly {round(distance_miles, 1)} miles from active {h.hazard_type} epicenter.")
+                                if p0_domain in ["POWER_ENV", "TRANSPORT_CORE"]: cause = f"Direct Kinetic Impact: Severe Weather ({h.hazard_type}) caused physical infrastructure failure."
+                                break
 
         if data.get('max_alert_level', 3) == 1:
             score += 50
