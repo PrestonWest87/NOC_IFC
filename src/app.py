@@ -216,8 +216,11 @@ if st.session_state.current_user:
                 
             js_wrapper = f"""
             <script>
-                if ("Notification" in window && Notification.permission === "granted") {{
-                    {js_notifications}
+                let notifObj = window.Notification;
+                try {{ if (window.parent && window.parent.Notification) notifObj = window.parent.Notification; }} catch(e) {{}}
+                
+                if (notifObj && notifObj.permission === "granted") {{
+                    {js_notifications.replace('new Notification', 'new notifObj')}
                 }}
             </script>
             """
@@ -1558,14 +1561,41 @@ elif page == "Regional Grid":
                     </div>
                     <script>
                         function requestPerms() {
-                            if ("Notification" in window) {
-                                Notification.requestPermission().then(permission => {
-                                    if (permission === "granted") {
-                                        new Notification("Atmos Weather", {body: "Browser notifications enabled successfully!"});
-                                    }
-                                });
+                            // 1. Check for HTTPS / Secure Context first
+                            if (!window.isSecureContext) {
+                                alert("ERROR: Browser notifications require a secure HTTPS connection. If you are accessing this via an HTTP IP address, notifications will be blocked by your browser.");
+                                return;
+                            }
+                
+                            // 2. Attempt to use window.parent.Notification to break out of the Streamlit iframe if possible
+                            let notifObj = window.Notification;
+                            try {
+                                if (window.parent && window.parent.Notification) {
+                                    notifObj = window.parent.Notification;
+                                }
+                            } catch(e) {
+                                // Cross-origin iframe restriction caught
+                            }
+                
+                            if (notifObj) {
+                                if (notifObj.permission === "granted") {
+                                    alert("Notifications are already enabled!");
+                                    new notifObj("Atmos Weather", {body: "Test notification successful!"});
+                                } else if (notifObj.permission !== "denied") {
+                                    notifObj.requestPermission().then(permission => {
+                                        if (permission === "granted") {
+                                            new notifObj("Atmos Weather", {body: "Browser notifications enabled successfully!"});
+                                        } else {
+                                            alert("Permission denied. You may need to click the padlock/settings icon in your URL bar to manually allow notifications for this site.");
+                                        }
+                                    }).catch(err => {
+                                        alert("The permission prompt was blocked by the browser's iframe security. Please click the site settings (padlock icon) in your URL bar and manually set Notifications to 'Allow'.");
+                                    });
+                                } else {
+                                     alert("Notifications are currently blocked. Please click the site settings (padlock icon) in your URL bar and manually set Notifications to 'Allow'.");
+                                }
                             } else {
-                                alert("Your browser does not support desktop notifications.");
+                                alert("Your browser does not support desktop notifications, or they are completely restricted in this environment.");
                             }
                         }
                     </script>
