@@ -1976,13 +1976,11 @@ elif page == "AIOps RCA":
                 c_l, c_s = st.columns([3, 1])
                 
                 with c_s:
-                    st.subheader("Event Log")
-                    
-                    # Inject CSS to kill the bottom margin on the toggle and top margin on the divider
+                    # 1. Inject CSS to kill the dead space below the toggle and above the divider
                     st.markdown("""
                         <style>
                         div[data-testid="stToggle"] {
-                            margin-bottom: -15px !important;
+                            margin-bottom: -25px !important;
                         }
                         hr {
                             margin-top: 10px !important;
@@ -1990,12 +1988,16 @@ elif page == "AIOps RCA":
                         </style>
                     """, unsafe_allow_html=True)
                     
+                    st.subheader("Event Log")
+                    
+                    # 2. Toggle gets its own full line now, no squishing
                     live_polling = st.toggle("Live 5s Polling", value=True, key="aiops_live_poll")
                     
                     if live_polling:
                         from streamlit_autorefresh import st_autorefresh
                         st_autorefresh(interval=5000, key="aiops_5sec_refresh")
                         
+                    # 3. Divider sits cleanly right below
                     st.divider()
                     
                     for e in events:
