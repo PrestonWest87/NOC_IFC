@@ -1969,22 +1969,26 @@ elif page == "AIOps RCA":
         
         if "Tab: AIOps RCA -> Active Board" in st.session_state.allowed_actions:
             with ai_tabs[ai_idx]:
-                # --- AUTO-REFRESH INJECTION ---
-                c_head, c_tog = st.columns([5, 1])
-                with c_tog:
-                    # Toggle defaults to True, allowing analysts to pause it if they need to type a ticket
-                    live_polling = st.toggle("Live 5s Polling", value=True, key="aiops_live_poll")
                 
-                if live_polling:
-                    from streamlit_autorefresh import st_autorefresh
-                    st_autorefresh(interval=5000, key="aiops_5sec_refresh")
-                # ------------------------------
-
+                # Fetch data first so columns can be established at the top
                 alerts, events, grid = svc.get_aiops_dashboard_data()
+                
                 c_l, c_s = st.columns([3, 1])
+                
                 with c_s:
                     st.subheader("Event Log")
+                    
+                    # --- AUTO-REFRESH INJECTION MOVED HERE ---
+                    # Toggle defaults to True, allowing analysts to pause it if they need to type a ticket
+                    live_polling = st.toggle("Live 5s Polling", value=True, key="aiops_live_poll")
+                    
+                    if live_polling:
+                        from streamlit_autorefresh import st_autorefresh
+                        st_autorefresh(interval=5000, key="aiops_5sec_refresh")
+                    # -----------------------------------------
+                    
                     st.divider()
+                    
                     for e in events:
                         local_time = e.timestamp.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ)
                         time_str = local_time.strftime('%I:%M %p')
