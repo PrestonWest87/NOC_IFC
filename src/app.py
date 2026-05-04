@@ -1976,17 +1976,26 @@ elif page == "AIOps RCA":
                 c_l, c_s = st.columns([3, 1])
                 
                 with c_s:
-                    # Put the header and toggle side-by-side
-                    c_head, c_tog = st.columns([1.5, 1])
-                    with c_head:
-                        st.subheader("Event Log")
-                    with c_tog:
-                        live_polling = st.toggle("Live 5s Polling", value=True, key="aiops_live_poll")
+                    st.subheader("Event Log")
+                    
+                    # Inject CSS to kill the bottom margin on the toggle and top margin on the divider
+                    st.markdown("""
+                        <style>
+                        div[data-testid="stToggle"] {
+                            margin-bottom: -15px !important;
+                        }
+                        hr {
+                            margin-top: 10px !important;
+                        }
+                        </style>
+                    """, unsafe_allow_html=True)
+                    
+                    live_polling = st.toggle("Live 5s Polling", value=True, key="aiops_live_poll")
                     
                     if live_polling:
                         from streamlit_autorefresh import st_autorefresh
                         st_autorefresh(interval=5000, key="aiops_5sec_refresh")
-                    
+                        
                     st.divider()
                     
                     for e in events:
