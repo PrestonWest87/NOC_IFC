@@ -1976,16 +1976,16 @@ elif page == "AIOps RCA":
                 c_l, c_s = st.columns([3, 1])
                 
                 with c_s:
-                    st.subheader("Event Log")
-                    
-                    # --- AUTO-REFRESH INJECTION MOVED HERE ---
-                    # Toggle defaults to True, allowing analysts to pause it if they need to type a ticket
-                    live_polling = st.toggle("Live 5s Polling", value=True, key="aiops_live_poll")
+                    # Put the header and toggle side-by-side
+                    c_head, c_tog = st.columns([1.5, 1])
+                    with c_head:
+                        st.subheader("Event Log")
+                    with c_tog:
+                        live_polling = st.toggle("Live 5s Polling", value=True, key="aiops_live_poll")
                     
                     if live_polling:
                         from streamlit_autorefresh import st_autorefresh
                         st_autorefresh(interval=5000, key="aiops_5sec_refresh")
-                    # -----------------------------------------
                     
                     st.divider()
                     
