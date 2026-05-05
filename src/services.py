@@ -1838,20 +1838,26 @@ def generate_global_sitrep(sys_config_dict):
                 report = f"### AI Executive Summary\n> {ai_summary}\n\n---\n\n" + report
 
         return report
+
 def generate_rca_ticket_text(site, data, priority, patient_zero, root_cause):
     pz_obj = data.get('patient_zero')
     trigger_time = pz_obj.received_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ).strftime('%m/%d/%Y %I:%M %p %Z') if pz_obj and pz_obj.received_at else "Unknown Time"
     
-    ticket_text = f"Automated Comms Outage\n\n{site} - Trouble\n\nA communications failure occurred on {trigger_time} and did not recover. This is affecting SCADA connectivity. IT is requesting a technician onsite to investigate.\n\n"
-    ticket_text += "="*50 + f"\nPRIORITY: {priority}\nSITE/LOCATION: {site}\nSUSPECTED ORIGIN (PATIENT ZERO): {patient_zero}\nTOTAL NODES AFFECTED: {len(data.get('alerts', []))}\n" + "="*50 + f"\n\nROOT CAUSE ANALYSIS:\n" + "-"*20 + f"\n{root_cause}\n\nAFFECTED INFRASTRUCTURE DETAILS:\n" + "-"*30 + "\n"
+    # Dynamically grab the affected domains for the ticket description (e.g. TRANSPORT_CORE, SCADA_OT)
+    domains = list(data.get('domains_affected', []))
+    affecting_str = ", ".join(domains).title().replace("_", " ") if domains else "SCADA connectivity"
+    
+    ticket_text = f"{site} - Trouble\n\n"
+    ticket_text += f"Automated Comms Outage\n\nA communications issue was identified on {trigger_time}. This is affecting {affecting_str}. For more information, please see additional notes.\n\n"
+    
+    ticket_text += "="*50 + f"\nPRIORITY: {priority}\nSITE/LOCATION: {site}\nSUSPECTED ORIGIN: {patient_zero}\nTOTAL NODES AFFECTED: {len(data.get('alerts', []))}\n" + "="*50 + f"\n\nROOT CAUSE ANALYSIS:\n" + "-"*20 + f"\n{root_cause}\n\nAFFECTED INFRASTRUCTURE DETAILS:\n" + "-"*30 + "\n"
     
     for idx, alert in enumerate(data.get('alerts', []), 1):
         rcv_time = format_central(alert.received_at) if alert.received_at else "Unknown"
-        ticket_text += f"[{idx}] Node: {alert.node_name} | IP: {alert.ip_address} | Type: {alert.device_type}\n    Status: {alert.status} | Severity: {alert.severity}\n    Event Category: {alert.event_category}\n    Logged Time: {rcv_time}\n"
-        if alert.details: ticket_text += f"    Details: {alert.details.strip()}\n"
-        ticket_text += "\n"
+        # Compact single-line device format
+        ticket_text += f"[{idx}] {alert.node_name} ({alert.ip_address}) - {alert.status} | {alert.event_category} | Since: {rcv_time}\n"
+        
     return ticket_text
-
 
 # ==========================================
 # 8. REPORT CENTER
