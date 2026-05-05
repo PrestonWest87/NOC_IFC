@@ -6,32 +6,61 @@ from src.database import SessionLocal, MonitoredLocation, SolarWindsAlert
 class EnterpriseAIOpsEngine:
     # THE INFRASTRUCTURE ONTOLOGY
     ONTOLOGY = {
-        "TRANSPORT_CORE": ["Router", "DWDM", "Firewall", "Service Provider", "VSAT Modem", "Radio", "SD-WAN"],
-        "NETWORK_ACCESS": ["Switch", "Lanolinx-switch", "Fabric Interconnect", "Wireless Controller", "Access Point", "GarrettCom-6KL"],
-        "COMPUTE_STORAGE": ["VM Host", "VM Server", "Physical Machine", "Storage", "Storage Switch", "NTP Server"],
-        "POWER_ENV": ["UPS", "Generator", "DC Power Supply", "Data Center PDU", "Data Center A/C", "PDU", "HVAC"],
-        "SCADA_OT": ["RTU", "NTEST RTU", "Sub Equipment", "Plant Equipment", "Meter Point 7403", "Meter Point 8650", "CAT Bank Meter", "I/O", "Member Equipment"],
-        "FACILITIES_IOT": ["Access Control Panel", "Door Controller", "PACS", "Firealram", "IP Camera", "IP Phone", "Intercom"]
+        "PRIMARY_INTERNET": ["VSAT", "Cellular", "Radio", "SD-WAN", "Modem"],
+        "COMMS_EQUIPMENT": ["Router", "Switch", "Firewall", "Lanolinx-switch", "Fabric Interconnect"],
+        "POWER_SUPPLIES": ["UPS", "Generator", "DC Power Supply", "PDU", "PDS", "DC Controller"],
+        "RTU": ["RTU", "NTEST RTU"],
+        "SCADA": ["Sub Equipment", "Plant Equipment", "Meter Point", "I/O", "Member Equipment", "SCADA"],
+        "COMPUTE": ["VM Host", "VM Server", "Physical Machine", "Storage"],
+        "FACILITIES": ["Access Control Panel", "Door Controller", "IP Camera", "HVAC"]
     }
 
     # ENTERPRISE DOMINANCE TIERS (Lower Number = Higher Authority)
     TIER_RANKING = {
-        "POWER_ENV": 1,
-        "TRANSPORT_CORE": 2,
-        "NETWORK_ACCESS": 3,
-        "COMPUTE_STORAGE": 4,
-        "SCADA_OT": 5,
-        "FACILITIES_IOT": 5,
-        "UNKNOWN_DOMAIN": 6
+        "POWER_SUPPLIES": 1,
+        "PRIMARY_INTERNET": 2,
+        "COMMS_EQUIPMENT": 3,
+        "COMPUTE": 4,
+        "RTU": 5,
+        "SCADA": 6,
+        "FACILITIES": 7,
+        "UNKNOWN_DOMAIN": 8
     }
 
     def __init__(self, db_session):
         self.session = db_session
 
-    def _get_domain(self, node_type):
+    def _get_domain(self, node_type, node_name="", primary_comms=""):
+        node_str = f"{node_type} {node_name}".lower()
+        
+        # Explicit Internet/WAN overrides
+        if any(t in node_str for t in ["vsat", "cell", "cellular", "sd-wan", "isp", "modem"]):
+            return "PRIMARY_INTERNET"
+            
+        # Power overrides
+        if any(t in node_str for t in ["ups", "pds", "pdu", "dc controller", "generator", "dc power"]):
+            return "POWER_SUPPLIES"
+            
+        # Comms equipment (Router / Switch / Firewall)
+        if any(t in node_str for t in ["router", "switch", "firewall"]):
+            # Differentiate Internet Router vs Internal Comms Router
+            if "internet" in node_str or (primary_comms and primary_comms.lower() in node_str):
+                return "PRIMARY_INTERNET"
+            return "COMMS_EQUIPMENT"
+            
+        # RTU Check
+        if "rtu" in node_str:
+            return "RTU"
+            
+        # SCADA / Field Equipment
+        if any(t in node_str for t in ["scada", "meter", "i/o", "plant equipment", "sub equipment", "rtu"]):
+            return "SCADA"
+            
+        # Fallback to Ontology Map
         for domain, types in self.ONTOLOGY.items():
             if any(t.lower() in str(node_type).lower() for t in types):
                 return domain
+                
         return "UNKNOWN_DOMAIN"
 
     def _determine_patient_zero(self, alerts):
@@ -48,11 +77,14 @@ class EnterpriseAIOpsEngine:
             pm = p.get('Performance_Metrics') or {}
 
             node_type = nd.get('MachineType') or cp.get('Node_Type') or alert.device_type or 'Unknown'
-            domain = self._get_domain(node_type)
+            node_name = alert.node_name or ""
+            primary_comms = cp.get('Primary_Comms') or ""
+            
+            domain = self._get_domain(node_type, node_name, primary_comms)
 
             # NEW: Structural Dominance Tiering
-            tier = self.TIER_RANKING.get(domain, 6)
-            topo_score = (7 - tier) * 2000 
+            tier = self.TIER_RANKING.get(domain, 8)
+            topo_score = (9 - tier) * 2000 
 
             # Severity Score
             status = str(alert.status).lower()
@@ -84,7 +116,7 @@ class EnterpriseAIOpsEngine:
         for site, data in incidents.items():
             comms = data['site_metadata'].get('primary_coms', 'Unknown')
             if comms not in provider_map: provider_map[comms] = []
-            if any(sa['domain'] == "TRANSPORT_CORE" for sa in data['dependency_chain']):
+            if any(sa['domain'] in ["PRIMARY_INTERNET", "COMMS_EQUIPMENT"] for sa in data['dependency_chain']):
                 provider_map[comms].append(site)
 
         fleet_events = []
@@ -229,7 +261,7 @@ class EnterpriseAIOpsEngine:
         # --- PRESERVED 3. BGP / ROUTING CORRELATION ---
         bgp_hit = False
         if active_bgp and not cloud_hit and not fleet_hit:
-            if "TRANSPORT_CORE" in domains or "Service Provider" in str(domains):
+            if "PRIMARY_INTERNET" in domains or "COMMS_EQUIPMENT" in domains or "Service Provider" in str(domains):
                 for b in active_bgp:
                     if b.asn in str(meta.get('primary_coms', '')) or b.asn in str(meta.get('secondary_coms', '')):
                         cause = f"Carrier Routing Anomaly (BGP Event on {b.asn})"
@@ -240,18 +272,18 @@ class EnterpriseAIOpsEngine:
 
         # --- NEW & IMPROVED 4. HARDWARE / TOPOLOGICAL HEURISTICS ---
         if not cloud_hit and not bgp_hit and not fleet_hit:
-            if p0_domain == "POWER_ENV":
+            if p0_domain == "POWER_SUPPLIES":
                 cause = "Catastrophic Facilities/Power Failure causing complete site isolation."
                 score += 60
                 evidence_log.append(f"Structural Cause: Foundational Power/Environmental node ({p0.node_name}) failed.")
-            elif p0_domain == "TRANSPORT_CORE":
+            elif p0_domain in ["PRIMARY_INTERNET", "COMMS_EQUIPMENT"]:
                 if avg_loss >= 80 or 'down' in str(p0.status).lower():
                     cause = f"Site Isolation. Hard down on {meta.get('primary_coms', 'Unknown')} transport tier."
                     score += 50
-                    evidence_log.append(f"Structural Cause: Core transport equipment ({p0.node_name}) severed communication path.")
+                    evidence_log.append(f"Structural Cause: Core transport/comms equipment ({p0.node_name}) severed communication path.")
                 else:
                     cause = f"Severe Transport Congestion ({avg_loss}% Packet Loss)."
-            elif p0_domain == "SCADA_OT":
+            elif p0_domain in ["SCADA", "RTU"]:
                 cause = "Isolated OT/SCADA Telemetry Failure."
                 score += 30
                 evidence_log.append(f"Structural Cause: Field equipment ({p0.node_name}) alarming while Core IT network remains structurally stable.")
@@ -280,7 +312,7 @@ class EnterpriseAIOpsEngine:
                             if meta.get('district', '').lower() in str(h.location).lower() or site_name.lower() in str(h.location).lower():
                                 score += 40
                                 evidence_log.append(f"Regional Correlation: Site intersects active {h.hazard_type} warning zone.")
-                                if p0_domain in ["POWER_ENV", "TRANSPORT_CORE"]: cause = f"Severe Weather ({h.hazard_type}) induced failure of Utility/Carrier."
+                                if p0_domain in ["POWER_SUPPLIES", "PRIMARY_INTERNET"]: cause = f"Severe Weather ({h.hazard_type}) induced failure of Utility/Carrier."
                                 break
                         else:
                             R = 3958.8 
@@ -293,7 +325,7 @@ class EnterpriseAIOpsEngine:
                             if distance_miles <= hazard_radius:
                                 score += 55
                                 evidence_log.append(f"Geospatial Correlation: Site is exactly {round(distance_miles, 1)} miles from active {h.hazard_type} epicenter.")
-                                if p0_domain in ["POWER_ENV", "TRANSPORT_CORE"]: cause = f"Direct Kinetic Impact: Severe Weather ({h.hazard_type}) caused physical infrastructure failure."
+                                if p0_domain in ["POWER_SUPPLIES", "PRIMARY_INTERNET"]: cause = f"Direct Kinetic Impact: Severe Weather ({h.hazard_type}) caused physical infrastructure failure."
                                 break
 
         if data.get('max_alert_level', 3) == 1:
