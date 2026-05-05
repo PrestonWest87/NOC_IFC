@@ -1847,10 +1847,10 @@ def generate_rca_ticket_text(site, data, priority, patient_zero, root_cause):
     domains = list(data.get('domains_affected', []))
     affecting_str = ", ".join(domains).title().replace("_", " ") if domains else "SCADA connectivity"
     
-    ticket_text = f"{site} - Trouble\n\n"
-    ticket_text += f"Automated Comms Outage\n\nA communications issue was identified on {trigger_time}. This is affecting {affecting_str}. For more information, please see additional notes.\n\n"
+    ticket_text = f"Automated Comms Outage\n\n{site} - Trouble\n\n"
+    ticket_text += f"A communications issue was identified on {trigger_time}. This is affecting {affecting_str}. For more information, please see additional notes.\n\n"
     
-    ticket_text += "="*50 + f"\nPRIORITY: {priority}\nSITE/LOCATION: {site}\nSUSPECTED ORIGIN: {patient_zero}\nTOTAL NODES AFFECTED: {len(data.get('alerts', []))}\n" + "="*50 + f"\n\nROOT CAUSE ANALYSIS:\n" + "-"*20 + f"\n{root_cause}\n\nAFFECTED INFRASTRUCTURE DETAILS:\n" + "-"*30 + "\n"
+    ticket_text += f"\nPRIORITY: {priority}" + f"\n{root_cause}\n\nAFFECTED INFRASTRUCTURE DETAILS:\n"
     
     for idx, alert in enumerate(data.get('alerts', []), 1):
         rcv_time = format_central(alert.received_at) if alert.received_at else "Unknown"
