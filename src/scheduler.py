@@ -261,6 +261,99 @@ def job_internal_risk():
     except Exception as e:
         log(f"[ERROR] Internal Risk Error: {e}", "SYSTEM")
 
+def job_auto_dispatch_tickets():
+    """Evaluates active AIOps clusters and auto-dispatches tickets during off-hours (8 PM - 6 AM)."""
+    from src.database import SessionLocal, MonitoredLocation, SolarWindsAlert, RegionalHazard, CloudOutage, BgpAnomaly
+    from src.aiops_engine import EnterpriseAIOpsEngine
+    from src.mailer import send_alert_email
+    from src.services import generate_rca_ticket_text
+    
+    now_local = datetime.now(ZoneInfo("America/Chicago"))
+    hour = now_local.hour
+    
+    # Restrict to Off-hours: 8 PM (20:00) to 6 AM (06:00)
+    if 6 <= hour < 20:
+        return 
+        
+    with SessionLocal() as db:
+        # Get raw undispatched & unresolved alerts
+        raw_alerts = db.query(SolarWindsAlert).filter(
+            SolarWindsAlert.is_dispatched == False,
+            SolarWindsAlert.status != 'Resolved'
+        ).all()
+        
+        if not raw_alerts:
+            return
+            
+        ai_engine = EnterpriseAIOpsEngine(db)
+        incidents = ai_engine.analyze_and_cluster(raw_alerts)
+        now_utc = datetime.utcnow()
+        
+        for site, data in incidents.items():
+            alerts = data.get('alerts', [])
+            if not alerts:
+                continue
+                
+            # 1. Enforce 5-Hour Ticket Cooldown
+            loc = db.query(MonitoredLocation).filter_by(name=site).first()
+            if loc and loc.last_auto_dispatch:
+                time_since_dispatch = now_utc - loc.last_auto_dispatch
+                if time_since_dispatch < timedelta(hours=5):
+                    continue # Skip this site, already ticketed recently
+                    
+            # 2. Dynamic Timer Logic (Resets on newest device failure)
+            # Find the most recent failure in this cluster. The timer only counts from here.
+            newest_alert_time = max([a.received_at for a in alerts if a.received_at] or [now_utc])
+            duration_since_newest = now_utc - newest_alert_time
+            
+            trigger_dispatch = False
+            if len(alerts) == 1:
+                # Condition: 1 device down for > 30 minutes
+                if duration_since_newest > timedelta(minutes=30):
+                    trigger_dispatch = True
+            else:
+                # Condition: Multiple devices down for > 10 minutes
+                if duration_since_newest > timedelta(minutes=10):
+                    trigger_dispatch = True
+                    
+            # 3. Dispatch the Ticket
+            if trigger_dispatch:
+                log(f"[AUTO-TICKET] Conditions met for {site} ({len(alerts)} nodes). Dispatching...", "SYSTEM")
+                
+                active_weather = db.query(RegionalHazard).all()
+                active_clouds = db.query(CloudOutage).filter_by(is_resolved=False).all()
+                active_bgp = db.query(BgpAnomaly).filter_by(is_resolved=False).all()
+                
+                cause, score, priority, _, _, p0_name, _ = ai_engine.calculate_root_cause(
+                    site, data, active_weather, active_clouds, active_bgp
+                )
+                
+                ticket_body = generate_rca_ticket_text(site, data, priority, p0_name or "Unknown", cause)
+                fixed_recipients = "remedyforceworkflow@aecc.com, noc@aecc.com"
+                clean_p = priority.replace("?", "").strip()
+                
+                success, msg = send_alert_email(
+                    f"URGENT: {clean_p} Incident at {site}", 
+                    ticket_body, 
+                    recipient_override=fixed_recipients, 
+                    is_html=False
+                )
+                
+                if success:
+                    # Update alerts as dispatched to prevent infinite loop
+                    for a in alerts:
+                        db_alert = db.query(SolarWindsAlert).filter_by(id=a.id).first()
+                        if db_alert:
+                            db_alert.is_dispatched = True
+                            
+                    # Start the 5-hour cooldown timer
+                    if loc:
+                        loc.last_auto_dispatch = now_utc
+                    db.commit()
+                    log(f"[AUTO-TICKET] Successfully dispatched ticket for {site}.", "SYSTEM")
+                else:
+                    log(f"[AUTO-TICKET] Failed to send ticket for {site}: {msg}", "SYSTEM")
+
 
 # =====================================================================
 # 2. GARBAGE COLLECTION & MAINTENANCE
@@ -360,6 +453,7 @@ if __name__ == "__main__":
     schedule.every(2).minutes.do(run_threaded, fetch_regional_hazards)
     schedule.every(5).minutes.do(run_threaded, fetch_cloud_outages)
     schedule.every(5).minutes.do(run_threaded, run_telemetry_sync)
+    schedule.every(1).minutes.do(run_threaded, job_auto_dispatch_tickets)
     
     log("[START] Master Orchestrator Online. Firing Boot Sequence...", "SYSTEM")
     
