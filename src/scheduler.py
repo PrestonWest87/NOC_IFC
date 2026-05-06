@@ -297,8 +297,8 @@ def job_site_escalation_monitor():
                 continue
 
             # Separate alerts into low and high priority buckets
-            low_alerts = [a for a in alerts if str(a.severity).lower() in ['warning', 'low', 'moderate', '3', '4', '6']]
-            high_alerts = [a for a in alerts if str(a.severity).lower() in ['critical', 'high', '1', '2', '5']]
+            low_alerts = [a for a in alerts if str(a.severity).lower() in ['6']]
+            high_alerts = [a for a in alerts if str(a.severity).lower() in ['5']]
 
             # Calculate how long the site has been in a high-priority state
             oldest_high_alert = min([a.received_at for a in high_alerts if a.received_at])
