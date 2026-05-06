@@ -261,32 +261,53 @@ def job_internal_risk():
     except Exception as e:
         log(f"[ERROR] Internal Risk Error: {e}", "SYSTEM")
 
-def job_site_escalation_monitor():
+def job_tiered_alert_escalation():
     """
-    Monitors active AIOps clusters for Low -> High escalations strictly using the Alert_Level variable.
-    Waits 5 minutes after the escalation occurs, then sends a notification.
-    Enforces a strict 1-hour cooldown per site.
-    Restricted to alerts received within the last 12 hours.
+    Comprehensive Tiered Alert & RCA Ticketing Manager.
+    - Active ONLY during After-Hours (Nights & Weekends).
+    - Guarantees a standard ticket is created for ALL valid alerts.
+    - Appends ONPAGE routing exclusively for P1 and escalated P1 clusters.
+    - Enforces Anti-Flap Cooldowns (1hr High Priority, 5hr Low Priority).
     """
-    from src.database import SessionLocal, MonitoredLocation, SolarWindsAlert
+    from src.database import SessionLocal, SolarWindsAlert, MonitoredLocation, RegionalHazard, CloudOutage, BgpAnomaly
     from src.mailer import send_alert_email
     from src.aiops_engine import EnterpriseAIOpsEngine
+    from src.services import generate_rca_ticket_text
     from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
 
-    log("[SYSTEM] Running Site Escalation Monitor...", "SYSTEM")
-    
     now_utc = datetime.utcnow()
+    now_local = datetime.now(ZoneInfo("America/Chicago"))
     
-    # --- NEW: 12-Hour Cutoff Boundary ---
+    # Define Business Hours (Mon-Fri, 06:00 - 20:00 Central Time)
+    is_business_hours = (0 <= now_local.weekday() <= 4) and (6 <= now_local.hour < 20)
+    
+    # --- STRICT AFTER-HOURS ENFORCEMENT ---
+    if is_business_hours:
+        return
+
+    log("[SYSTEM] After-Hours RCA Ticketing & Escalation Manager Active...", "SYSTEM")
+    
+    # Restrict to current issues (12-hour boundary prevents ghost tickets)
     cutoff_time = now_utc - timedelta(hours=12)
     
-    ESCALATION_WAIT_MINUTES = 15 
-    ESCALATION_COOLDOWN_HOURS = 1 
-    TARGET_EMAIL = "noc@aecc.com" 
+    # --- ROUTING CONSTANTS ---
+    BASE_TICKET_EMAILS = "remedyforceworkflow@aecc.com, noc@aecc.com" 
+    ONPAGE_EMAIL = "noc@aecc.com" # TODO: Update to actual paging system email
+
+    # Rules Map: wait (mins), sla (str), weight (int), requires_onpage (bool), cooldown (hours)
+    PRIORITY_RULES = {
+        "p1-high": {"wait": 15,  "sla": "1 Hour",   "weight": 70, "requires_onpage": True,  "cooldown": 1},
+        "p1-low":  {"wait": 45,  "sla": "4 Hours",  "weight": 60, "requires_onpage": True,  "cooldown": 1},
+        "p2-high": {"wait": 30,  "sla": "2.5 Hours","weight": 50, "requires_onpage": False, "cooldown": 5},
+        "p2-low":  {"wait": 45,  "sla": "4 Hours",  "weight": 40, "requires_onpage": False, "cooldown": 5},
+        "p3":      {"wait": 45,  "sla": "8 Hours",  "weight": 30, "requires_onpage": False, "cooldown": 5},
+        "p4":      {"wait": 60,  "sla": "24 Hours", "weight": 20, "requires_onpage": False, "cooldown": 5},
+        "p5":      {"wait": 120, "sla": "72 Hours", "weight": 10, "requires_onpage": False, "cooldown": 5}
+    }
 
     with SessionLocal() as db:
-        
-        # --- NEW: Filter by received_at >= cutoff_time ---
+        # Fetch active alerts within the last 12 hours
         active_alerts = db.query(SolarWindsAlert).filter(
             SolarWindsAlert.status != 'Resolved',
             SolarWindsAlert.received_at >= cutoff_time
@@ -295,179 +316,159 @@ def job_site_escalation_monitor():
         if not active_alerts:
             return
 
+        active_weather = db.query(RegionalHazard).all()
+        active_clouds = db.query(CloudOutage).filter_by(is_resolved=False).all()
+        active_bgp = db.query(BgpAnomaly).filter_by(is_resolved=False).all()
+
         ai_engine = EnterpriseAIOpsEngine(db)
         incidents = ai_engine.analyze_and_cluster(active_alerts)
 
+        # --- HELPER: Anti-Flap Node Checker ---
+        def is_node_on_cooldown(node_name, cooldown_hours):
+            """Checks if we already dispatched a ticket for this exact node within its cooldown window."""
+            cooldown_cutoff = now_utc - timedelta(hours=cooldown_hours)
+            recent_dispatch = db.query(SolarWindsAlert).filter(
+                SolarWindsAlert.node_name == node_name,
+                SolarWindsAlert.is_dispatched == True,
+                SolarWindsAlert.received_at >= cooldown_cutoff
+            ).first()
+            return recent_dispatch is not None
+
         for site, data in incidents.items():
             alerts = data.get('alerts', [])
-            if not alerts:
+            if not alerts: 
                 continue
 
-            low_alerts = []
-            high_alerts = []
-
-            for a in alerts:
-                # Extract specifically from Custom_Properties_Universal -> Alert_Level
-                p = a.raw_payload if isinstance(a.raw_payload, dict) else {}
+            def get_tier(alert):
+                p = alert.raw_payload if isinstance(alert.raw_payload, dict) else {}
                 cp = p.get('Custom_Properties_Universal') or {}
-                alert_level = str(cp.get('Alert_Level', 'Unknown')).strip().lower()
+                raw_level = str(cp.get('Alert_Level', 'Unknown')).strip().lower()
+                for key in PRIORITY_RULES.keys():
+                    if key in raw_level: return key
+                return "unknown"
 
-                # Bucket the alert based SOLELY on the custom Alert_Level variable
-                if alert_level in ['3', '4', 'warning', 'low', 'moderate']:
-                    low_alerts.append(a)
-                elif alert_level in ['1', '2', 'critical', 'high', 'severe']:
-                    high_alerts.append(a)
-
-            # CONDITION 1: Site must have both Low and High priority alerts based on Alert_Level
-            if not high_alerts or not low_alerts:
-                continue 
-
-            oldest_high_alert = min([a.received_at for a in high_alerts if a.received_at])
+            alerts.sort(key=lambda a: a.received_at)
             
-            # CONDITION 2: Wait the specified amount of time (5 minutes)
-            if (now_utc - oldest_high_alert) >= timedelta(minutes=ESCALATION_WAIT_MINUTES):
-                
+            cause, score, rca_priority, _, _, p0_name, _ = ai_engine.calculate_root_cause(
+                site, data, active_weather, active_clouds, active_bgp
+            )
+            
+            # =========================================================
+            # 1. COMBINATION / CASCADE LOGIC (Low -> High)
+            # =========================================================
+            earliest_alert = alerts[0]
+            base_tier = get_tier(earliest_alert)
+            base_weight = PRIORITY_RULES[base_tier]["weight"] if base_tier in PRIORITY_RULES else 0
+            
+            escalating_alert = None
+            for a in alerts[1:]:
+                a_tier = get_tier(a)
+                a_weight = PRIORITY_RULES[a_tier]["weight"] if a_tier in PRIORITY_RULES else 0
+                if a_weight > base_weight:
+                    escalating_alert = a
+                    break
+
+            if escalating_alert:
                 loc = db.query(MonitoredLocation).filter_by(name=site).first()
-                if not loc:
-                    continue
+                time_since_escalation = now_utc - escalating_alert.received_at
                 
-                # CONDITION 3: The 1-Hour Cooldown Rule
-                if loc.last_escalation_dispatch and (now_utc - loc.last_escalation_dispatch) < timedelta(hours=ESCALATION_COOLDOWN_HOURS):
-                    continue 
+                # Wait 5 minutes after the escalation occurs to send combination ticket
+                if time_since_escalation >= timedelta(minutes=5):
+                    # Enforce the 1-Hour Site-Level Cascade Mute
+                    if not loc or not loc.last_escalation_dispatch or (now_utc - loc.last_escalation_dispatch) >= timedelta(hours=1):
+                        
+                        esc_tier = get_tier(escalating_alert)
+                        rules = PRIORITY_RULES.get(esc_tier, {})
+                        
+                        target_recipients = BASE_TICKET_EMAILS
+                        if rules.get("requires_onpage"):
+                            target_recipients += f", {ONPAGE_EMAIL}"
+                        
+                        ticket_body = f"*** AFTER-HOURS SITE ESCALATION / CASCADE ***\n"
+                        ticket_body += f"Site {site} cascaded to {esc_tier.upper()}.\n"
+                        ticket_body += f"Resolution SLA: {rules.get('sla', 'Unknown')}\n\n"
+                        ticket_body += generate_rca_ticket_text(site, data, esc_tier.upper(), p0_name or "Unknown", cause)
 
-                # ALL CONDITIONS MET - Fire the email
-                subject = f"SITE ESCALATION: {site} Has Escalated to High Priority"
-                body = f"Site **{site}** initially logged low priority events and has now escalated to HIGH/CRITICAL priority.\n\n"
-                body += f"**Active Alerts for this site:**\n"
-                for a in alerts:
-                    # Dynamically pull the Alert_Level for the email body display
-                    p_body = a.raw_payload if isinstance(a.raw_payload, dict) else {}
-                    cp_body = p_body.get('Custom_Properties_Universal') or {}
-                    display_level = cp_body.get('Alert_Level', 'Unknown')
-                    
-                    body += f"- **{a.node_name}** ({a.device_type}): Alert Level {display_level} - {a.event_type}\n"
-
-                success, msg = send_alert_email(subject, body, recipient_override=TARGET_EMAIL, is_html=True)
-                
-                if success:
-                    log(f"[ESCALATION SENT] Sent site escalation email for {site}.", "SYSTEM")
-                    loc.last_escalation_dispatch = now_utc
-                    db.commit()
-                else:
-                    log(f"[ESCALATION FAILED] SMTP Error for {site}: {msg}", "SYSTEM")
-
-def job_auto_dispatch_tickets():
-    """Evaluates active AIOps clusters and auto-dispatches tickets during off-hours (8 PM - 6 AM)."""
-    from src.database import SessionLocal, MonitoredLocation, SolarWindsAlert, RegionalHazard, CloudOutage, BgpAnomaly
-    from src.aiops_engine import EnterpriseAIOpsEngine
-    from src.mailer import send_alert_email
-    from src.services import generate_rca_ticket_text
-    from zoneinfo import ZoneInfo
-    from datetime import datetime, timedelta
-    
-    now_local = datetime.now(ZoneInfo("America/Chicago"))
-    now_utc = datetime.utcnow()
-    hour = now_local.hour
-    
-    # Restrict execution to Off-hours: 8 PM (20:00) to 6 AM (06:00)
-    if 6 <= hour < 20:
-        return 
-        
-    with SessionLocal() as db:
-        # --- THE FIX: 24-HOUR HARD CUTOFF ---
-        # Ignore the historical backlog. Only look at recent undispatched events.
-        cutoff_time = now_utc - timedelta(hours=24)
-        
-        raw_alerts = db.query(SolarWindsAlert).filter(
-            SolarWindsAlert.is_dispatched == False,
-            SolarWindsAlert.status != 'Resolved',
-            SolarWindsAlert.received_at >= cutoff_time  # <-- Prevents old alerts from firing
-        ).all()
-        
-        if not raw_alerts:
-            return
-            
-        ai_engine = EnterpriseAIOpsEngine(db)
-        incidents = ai_engine.analyze_and_cluster(raw_alerts)
-        
-        for site, data in incidents.items():
-            alerts = data.get('alerts', [])
-            if not alerts:
-                continue
-                
-            # Find the exact time the very first device in this cluster went down
-            valid_times = [a.received_at for a in alerts if a.received_at]
-            if not valid_times:
-                continue
-                
-            earliest_alert_time_utc = min(valid_times)
-            
-            # Convert the outage start time to Central Time to check the hour
-            earliest_alert_time_local = earliest_alert_time_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/Chicago"))
-            incident_start_hour = earliest_alert_time_local.hour
-            
-            # If the incident STARTED between 6:00 AM and 7:59 PM, ignore it.
-            if 6 <= incident_start_hour < 20:
-                continue 
-                
-            # 1. Enforce 5-Hour Ticket Cooldown
-            loc = db.query(MonitoredLocation).filter_by(name=site).first()
-            if loc and loc.last_auto_dispatch:
-                time_since_dispatch = now_utc - loc.last_auto_dispatch
-                if time_since_dispatch < timedelta(hours=5):
-                    continue # Skip this site, already ticketed recently
-                    
-            # 2. Dynamic Timer Logic (Resets on newest device failure)
-            newest_alert_time = max(valid_times)
-            duration_since_newest = now_utc - newest_alert_time
-            
-            trigger_dispatch = False
-            if len(alerts) == 1:
-                # Condition: 1 device down for > 30 minutes
-                if duration_since_newest > timedelta(minutes=30):
-                    trigger_dispatch = True
-            else:
-                # Condition: Multiple devices down for > 10 minutes
-                if duration_since_newest > timedelta(minutes=10):
-                    trigger_dispatch = True
-                    
-            # 3. Dispatch the Ticket
-            if trigger_dispatch:
-                print(f"[{now_local.strftime('%H:%M:%S')}] [AUTO-TICKET] Conditions met for {site} ({len(alerts)} nodes). Dispatching...")
-                
-                active_weather = db.query(RegionalHazard).all()
-                active_clouds = db.query(CloudOutage).filter_by(is_resolved=False).all()
-                active_bgp = db.query(BgpAnomaly).filter_by(is_resolved=False).all()
-                
-                cause, score, priority, _, _, p0_name, _ = ai_engine.calculate_root_cause(
-                    site, data, active_weather, active_clouds, active_bgp
-                )
-                
-                ticket_body = generate_rca_ticket_text(site, data, priority, p0_name or "Unknown", cause)
-                fixed_recipients = "remedyforceworkflow@aecc.com, noc@aecc.com"
-                clean_p = priority.replace("?", "").strip()
-                
-                success, msg = send_alert_email(
-                    f"URGENT: {clean_p} Incident at {site}", 
-                    ticket_body, 
-                    recipient_override=fixed_recipients, 
-                    is_html=False
-                )
-                
-                if success:
-                    # Update alerts as dispatched to prevent infinite loop
-                    for a in alerts:
-                        db_alert = db.query(SolarWindsAlert).filter_by(id=a.id).first()
-                        if db_alert:
-                            db_alert.is_dispatched = True
+                        success, msg = send_alert_email(
+                            f"URGENT ESCALATION: Cascade Incident at {site}", 
+                            ticket_body, 
+                            recipient_override=target_recipients, 
+                            is_html=False
+                        )
+                        
+                        if success:
+                            log(f"[CASCADE DISPATCHED] Sent ticket & notifications for {site}", "SYSTEM")
+                            if loc: loc.last_escalation_dispatch = now_utc
                             
-                    # Start the 5-hour cooldown timer
-                    if loc:
-                        loc.last_auto_dispatch = now_utc
-                    db.commit()
-                    print(f"[AUTO-TICKET] Successfully dispatched ticket for {site}.")
-                else:
-                    print(f"[AUTO-TICKET] Failed to send ticket for {site}: {msg}")
+                            for a in alerts:
+                                a.is_dispatched = True
+                            db.commit()
+                        else:
+                            log(f"[CASCADE FAILED] SMTP Error for {site}: {msg}", "SYSTEM")
+                        
+                        continue
+
+            # =========================================================
+            # 2. STANDARD TIERED SLA LOGIC (Individual Tickets)
+            # =========================================================
+            undispatched_alerts = [a for a in alerts if not a.is_dispatched]
+            
+            for a in undispatched_alerts:
+                tier = get_tier(a)
+                duration_active = now_utc - a.received_at
+                
+                if tier == "unknown":
+                    if duration_active >= timedelta(minutes=30):
+                        if not is_node_on_cooldown(a.node_name, cooldown_hours=5): # Default 5hr cooldown for unknowns
+                            ticket_body = f"*** REQUIRES MANAGEMENT DIRECTION ***\nUndocumented Priority Level: {a.event_type}\n\n"
+                            ticket_body += generate_rca_ticket_text(site, data, "UNKNOWN", p0_name or "Unknown", cause)
+                            
+                            success, msg = send_alert_email(f"UNDOCUMENTED ALERT: {a.node_name}", ticket_body, recipient_override=BASE_TICKET_EMAILS, is_html=False)
+                            if success:
+                                a.is_dispatched = True
+                                db.commit()
+                    continue
+                    
+                rules = PRIORITY_RULES[tier]
+                
+                if duration_active >= timedelta(minutes=rules["wait"]):
+                    
+                    # --- NEW: ANTI-FLAP NODE COOLDOWN CHECK ---
+                    if is_node_on_cooldown(a.node_name, rules["cooldown"]):
+                        # Silently mark as dispatched so it stops checking this specific bouncing alert
+                        a.is_dispatched = True
+                        db.commit()
+                        log(f"[MUTED] Suppressed alert for {a.node_name} (Node is on a {rules['cooldown']}hr cooldown).", "SYSTEM")
+                        continue
+                        
+                    is_onpage = rules["requires_onpage"]
+                    target_recipients = BASE_TICKET_EMAILS
+                    if is_onpage:
+                        target_recipients += f", {ONPAGE_EMAIL}"
+                        
+                    subject_prefix = "URGENT ESCALATION" if is_onpage else "AFTER-HOURS TICKET"
+                    
+                    ticket_body = f"*** {subject_prefix} ***\nPriority: {tier.upper()}\nTarget SLA: {rules['sla']}\n"
+                    if tier == "p2-high":
+                        ticket_body += "Requirement: Positive Handoff (No ONPAGE)\n"
+                    ticket_body += "\n" + generate_rca_ticket_text(site, data, tier.upper(), p0_name or "Unknown", cause)
+
+                    success, msg = send_alert_email(
+                        f"{subject_prefix}: {tier.upper()} Incident at {site}", 
+                        ticket_body, 
+                        recipient_override=target_recipients, 
+                        is_html=False
+                    )
+                    
+                    if success:
+                        log_type = "ONPAGE+TICKET" if is_onpage else "STANDARD TICKET"
+                        log(f"[DISPATCHED {log_type}] Sent {tier.upper()} for {a.node_name} to {target_recipients}", "SYSTEM")
+                        a.is_dispatched = True
+                        db.commit()
+                    else:
+                        log(f"[DISPATCH FAILED] SMTP Error for {a.node_name}: {msg}", "SYSTEM")
+
+
 # =====================================================================
 # 2. GARBAGE COLLECTION & MAINTENANCE
 # =====================================================================
@@ -566,8 +567,7 @@ if __name__ == "__main__":
     schedule.every(2).minutes.do(run_threaded, fetch_regional_hazards)
     schedule.every(5).minutes.do(run_threaded, fetch_cloud_outages)
     schedule.every(5).minutes.do(run_threaded, run_telemetry_sync)
-    schedule.every(1).minutes.do(run_threaded, job_auto_dispatch_tickets)
-    schedule.every(1).minutes.do(run_threaded, job_site_escalation_monitor)
+    schedule.every(1).minutes.do(run_threaded, job_tiered_alert_escalation)
     
     log("[START] Master Orchestrator Online. Firing Boot Sequence...", "SYSTEM")
     
