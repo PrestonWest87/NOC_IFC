@@ -266,6 +266,7 @@ def job_site_escalation_monitor():
     Monitors active AIOps clusters for Low -> High escalations strictly using the Alert_Level variable.
     Waits 5 minutes after the escalation occurs, then sends a notification.
     Enforces a strict 1-hour cooldown per site.
+    Restricted to alerts received within the last 12 hours.
     """
     from src.database import SessionLocal, MonitoredLocation, SolarWindsAlert
     from src.mailer import send_alert_email
@@ -275,13 +276,20 @@ def job_site_escalation_monitor():
     log("[SYSTEM] Running Site Escalation Monitor...", "SYSTEM")
     
     now_utc = datetime.utcnow()
-    ESCALATION_WAIT_MINUTES = 5 
+    
+    # --- NEW: 12-Hour Cutoff Boundary ---
+    cutoff_time = now_utc - timedelta(hours=12)
+    
+    ESCALATION_WAIT_MINUTES = 15 
     ESCALATION_COOLDOWN_HOURS = 1 
     TARGET_EMAIL = "noc@aecc.com" 
 
     with SessionLocal() as db:
+        
+        # --- NEW: Filter by received_at >= cutoff_time ---
         active_alerts = db.query(SolarWindsAlert).filter(
-            SolarWindsAlert.status != 'Resolved'
+            SolarWindsAlert.status != 'Resolved',
+            SolarWindsAlert.received_at >= cutoff_time
         ).all()
 
         if not active_alerts:
@@ -305,9 +313,9 @@ def job_site_escalation_monitor():
                 alert_level = str(cp.get('Alert_Level', 'Unknown')).strip().lower()
 
                 # Bucket the alert based SOLELY on the custom Alert_Level variable
-                if alert_level in ['3', '4', '5', 'warning', 'low', 'moderate']:
+                if alert_level in ['3', '4', 'warning', 'low', 'moderate']:
                     low_alerts.append(a)
-                elif alert_level in ['1', '2', '6', 'critical', 'high', 'severe']:
+                elif alert_level in ['1', '2', 'critical', 'high', 'severe']:
                     high_alerts.append(a)
 
             # CONDITION 1: Site must have both Low and High priority alerts based on Alert_Level
