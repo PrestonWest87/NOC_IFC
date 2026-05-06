@@ -263,7 +263,7 @@ def job_internal_risk():
 
 def job_site_escalation_monitor():
     """
-    Monitors active AIOps clusters for Low -> High escalations.
+    Monitors active AIOps clusters for Low -> High escalations strictly using the Alert_Level variable.
     Waits 5 minutes after the escalation occurs, then sends a notification.
     Enforces a strict 1-hour cooldown per site.
     """
@@ -275,12 +275,11 @@ def job_site_escalation_monitor():
     log("[SYSTEM] Running Site Escalation Monitor...", "SYSTEM")
     
     now_utc = datetime.utcnow()
-    ESCALATION_WAIT_MINUTES = 5  # "Specified amount of time" to wait
-    ESCALATION_COOLDOWN_HOURS = 1 # Do not send again for 1 hour
-    TARGET_EMAIL = "noc@aecc.com" # TODO: Update this email
+    ESCALATION_WAIT_MINUTES = 5 
+    ESCALATION_COOLDOWN_HOURS = 1 
+    TARGET_EMAIL = "noc@aecc.com" 
 
     with SessionLocal() as db:
-        # Grab all currently active alerts
         active_alerts = db.query(SolarWindsAlert).filter(
             SolarWindsAlert.status != 'Resolved'
         ).all()
@@ -296,11 +295,25 @@ def job_site_escalation_monitor():
             if not alerts:
                 continue
 
-            # Separate alerts into low and high priority buckets
-            low_alerts = [a for a in alerts if str(a.severity).lower() in ['6']]
-            high_alerts = [a for a in alerts if str(a.severity).lower() in ['5']]
+            low_alerts = []
+            high_alerts = []
 
-            # Calculate how long the site has been in a high-priority state
+            for a in alerts:
+                # Extract specifically from Custom_Properties_Universal -> Alert_Level
+                p = a.raw_payload if isinstance(a.raw_payload, dict) else {}
+                cp = p.get('Custom_Properties_Universal') or {}
+                alert_level = str(cp.get('Alert_Level', 'Unknown')).strip().lower()
+
+                # Bucket the alert based SOLELY on the custom Alert_Level variable
+                if alert_level in ['3', '4', '5', 'warning', 'low', 'moderate']:
+                    low_alerts.append(a)
+                elif alert_level in ['1', '2', '6', 'critical', 'high', 'severe']:
+                    high_alerts.append(a)
+
+            # CONDITION 1: Site must have both Low and High priority alerts based on Alert_Level
+            if not high_alerts or not low_alerts:
+                continue 
+
             oldest_high_alert = min([a.received_at for a in high_alerts if a.received_at])
             
             # CONDITION 2: Wait the specified amount of time (5 minutes)
@@ -312,20 +325,24 @@ def job_site_escalation_monitor():
                 
                 # CONDITION 3: The 1-Hour Cooldown Rule
                 if loc.last_escalation_dispatch and (now_utc - loc.last_escalation_dispatch) < timedelta(hours=ESCALATION_COOLDOWN_HOURS):
-                    continue # Site is muted for escalations
+                    continue 
 
                 # ALL CONDITIONS MET - Fire the email
                 subject = f"SITE ESCALATION: {site} Has Escalated to High Priority"
                 body = f"Site **{site}** initially logged low priority events and has now escalated to HIGH/CRITICAL priority.\n\n"
                 body += f"**Active Alerts for this site:**\n"
                 for a in alerts:
-                    body += f"- **{a.node_name}** ({a.device_type}): {a.severity} - {a.event_type}\n"
+                    # Dynamically pull the Alert_Level for the email body display
+                    p_body = a.raw_payload if isinstance(a.raw_payload, dict) else {}
+                    cp_body = p_body.get('Custom_Properties_Universal') or {}
+                    display_level = cp_body.get('Alert_Level', 'Unknown')
+                    
+                    body += f"- **{a.node_name}** ({a.device_type}): Alert Level {display_level} - {a.event_type}\n"
 
                 success, msg = send_alert_email(subject, body, recipient_override=TARGET_EMAIL, is_html=True)
                 
                 if success:
                     log(f"[ESCALATION SENT] Sent site escalation email for {site}.", "SYSTEM")
-                    # Update DB Timestamp specifically for escalations
                     loc.last_escalation_dispatch = now_utc
                     db.commit()
                 else:
