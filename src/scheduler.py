@@ -267,19 +267,26 @@ def job_auto_dispatch_tickets():
     from src.aiops_engine import EnterpriseAIOpsEngine
     from src.mailer import send_alert_email
     from src.services import generate_rca_ticket_text
+    from zoneinfo import ZoneInfo
+    from datetime import datetime, timedelta
     
     now_local = datetime.now(ZoneInfo("America/Chicago"))
+    now_utc = datetime.utcnow()
     hour = now_local.hour
     
-    # Restrict to Off-hours: 8 PM (20:00) to 6 AM (06:00)
+    # Restrict execution to Off-hours: 8 PM (20:00) to 6 AM (06:00)
     if 6 <= hour < 20:
         return 
         
     with SessionLocal() as db:
-        # Get raw undispatched & unresolved alerts
+        # --- THE FIX: 24-HOUR HARD CUTOFF ---
+        # Ignore the historical backlog. Only look at recent undispatched events.
+        cutoff_time = now_utc - timedelta(hours=24)
+        
         raw_alerts = db.query(SolarWindsAlert).filter(
             SolarWindsAlert.is_dispatched == False,
-            SolarWindsAlert.status != 'Resolved'
+            SolarWindsAlert.status != 'Resolved',
+            SolarWindsAlert.received_at >= cutoff_time  # <-- Prevents old alerts from firing
         ).all()
         
         if not raw_alerts:
@@ -287,12 +294,26 @@ def job_auto_dispatch_tickets():
             
         ai_engine = EnterpriseAIOpsEngine(db)
         incidents = ai_engine.analyze_and_cluster(raw_alerts)
-        now_utc = datetime.utcnow()
         
         for site, data in incidents.items():
             alerts = data.get('alerts', [])
             if not alerts:
                 continue
+                
+            # Find the exact time the very first device in this cluster went down
+            valid_times = [a.received_at for a in alerts if a.received_at]
+            if not valid_times:
+                continue
+                
+            earliest_alert_time_utc = min(valid_times)
+            
+            # Convert the outage start time to Central Time to check the hour
+            earliest_alert_time_local = earliest_alert_time_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/Chicago"))
+            incident_start_hour = earliest_alert_time_local.hour
+            
+            # If the incident STARTED between 6:00 AM and 7:59 PM, ignore it.
+            if 6 <= incident_start_hour < 20:
+                continue 
                 
             # 1. Enforce 5-Hour Ticket Cooldown
             loc = db.query(MonitoredLocation).filter_by(name=site).first()
@@ -302,8 +323,7 @@ def job_auto_dispatch_tickets():
                     continue # Skip this site, already ticketed recently
                     
             # 2. Dynamic Timer Logic (Resets on newest device failure)
-            # Find the most recent failure in this cluster. The timer only counts from here.
-            newest_alert_time = max([a.received_at for a in alerts if a.received_at] or [now_utc])
+            newest_alert_time = max(valid_times)
             duration_since_newest = now_utc - newest_alert_time
             
             trigger_dispatch = False
@@ -318,7 +338,7 @@ def job_auto_dispatch_tickets():
                     
             # 3. Dispatch the Ticket
             if trigger_dispatch:
-                log(f"[AUTO-TICKET] Conditions met for {site} ({len(alerts)} nodes). Dispatching...", "SYSTEM")
+                print(f"[{now_local.strftime('%H:%M:%S')}] [AUTO-TICKET] Conditions met for {site} ({len(alerts)} nodes). Dispatching...")
                 
                 active_weather = db.query(RegionalHazard).all()
                 active_clouds = db.query(CloudOutage).filter_by(is_resolved=False).all()
@@ -350,11 +370,9 @@ def job_auto_dispatch_tickets():
                     if loc:
                         loc.last_auto_dispatch = now_utc
                     db.commit()
-                    log(f"[AUTO-TICKET] Successfully dispatched ticket for {site}.", "SYSTEM")
+                    print(f"[AUTO-TICKET] Successfully dispatched ticket for {site}.")
                 else:
-                    log(f"[AUTO-TICKET] Failed to send ticket for {site}: {msg}", "SYSTEM")
-
-
+                    print(f"[AUTO-TICKET] Failed to send ticket for {site}: {msg}")
 # =====================================================================
 # 2. GARBAGE COLLECTION & MAINTENANCE
 # =====================================================================
