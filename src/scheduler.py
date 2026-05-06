@@ -542,6 +542,7 @@ if __name__ == "__main__":
     schedule.every(5).minutes.do(run_threaded, fetch_cloud_outages)
     schedule.every(5).minutes.do(run_threaded, run_telemetry_sync)
     schedule.every(1).minutes.do(run_threaded, job_auto_dispatch_tickets)
+    schedule.every(1).minutes.do(run_threaded, job_site_escalation_monitor)
     
     log("[START] Master Orchestrator Online. Firing Boot Sequence...", "SYSTEM")
     
