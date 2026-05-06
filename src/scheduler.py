@@ -277,7 +277,7 @@ def job_site_escalation_monitor():
     now_utc = datetime.utcnow()
     ESCALATION_WAIT_MINUTES = 5  # "Specified amount of time" to wait
     ESCALATION_COOLDOWN_HOURS = 1 # Do not send again for 1 hour
-    TARGET_EMAIL = "specific_escalation@aecc.com" # TODO: Update this email
+    TARGET_EMAIL = "noc@aecc.com" # TODO: Update this email
 
     with SessionLocal() as db:
         # Grab all currently active alerts
