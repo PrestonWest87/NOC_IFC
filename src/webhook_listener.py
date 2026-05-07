@@ -38,15 +38,16 @@ def smart_extract(payload: dict):
     extracted = {
         "node_name": nd.get("NodeName") or nd.get("SysName") or payload.get("entity_caption") or "Unknown",
         "ip_address": nd.get("IP_Address") or "Unknown",
-        "severity": payload.get("severity") or cp.get("Alert_Level") or "Unknown",
-        "event_type": payload.get("check") or payload.get("class") or payload.get("description") or "Unknown",
+        "severity": payload.get("severity") or cp.get("Severity") or "Unknown", # Native SolarWinds Severity
+        "alert_level": payload.get("Alert_Level") or cp.get("Alert_Level") or "Unknown", # EXPLICIT P1-P5 Alert Level
+        "event_type": payload.get("AlertName") or payload.get("check") or payload.get("class") or payload.get("description") or "Unknown",
         "status": nd.get("StatusDescription") or payload.get("description") or "Unknown",
         "is_resolution": False,
         "device_type": nd.get("MachineType") or cp.get("Node_Type") or payload.get("entity_type") or "Unknown",
         "event_category": "General Degradation",
         "site_group": cp.get("Site") or cp.get("City") or "Unknown",
-        "primary_comms": cp.get("Primary_Comms") or "Unknown", # NEW: Extracted for Fleet Correlation
-        "secondary_comms": cp.get("Secondary_Comms") or "Unknown" # NEW: Extracted for redundancy checks
+        "primary_comms": cp.get("Primary_Comms") or "Unknown",
+        "secondary_comms": cp.get("Secondary_Comms") or "Unknown" 
     }
 
     res_indicators = ['resolved', 'up', 'ok', 'clear', 'operational', 'recovered']
@@ -55,13 +56,11 @@ def smart_extract(payload: dict):
         extracted["is_resolution"] = True
         extracted["status"] = "Resolved"
 
-    # PRESERVED: Your original Regex fallback for missing IPs
     if extracted["ip_address"] == "Unknown":
         corpus = json.dumps(payload).lower()
         ip_match = re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', corpus)
         if ip_match: extracted["ip_address"] = ip_match.group(0)
 
-    # PRESERVED: Your original classifier logic
     extracted["device_type"] = classify_device(
         f"{extracted['node_name']} {extracted['event_type']} {extracted['device_type']}", 
         node_type_hint=extracted["device_type"]
@@ -72,7 +71,10 @@ def process_payload_background(raw_payload: dict):
     with SessionLocal() as db:
         try:
             parsed = smart_extract(raw_payload)
-            mapped_site = parsed["site_group"] # Direct mapping from payload
+            mapped_site = parsed["site_group"]
+
+            # INJECT the decoupled Alert Level directly into the payload so the scheduler never misses it
+            raw_payload["Normalized_Alert_Level"] = parsed["alert_level"]
 
             if parsed["is_resolution"]:
                 active = db.query(SolarWindsAlert).filter(
@@ -88,7 +90,7 @@ def process_payload_background(raw_payload: dict):
                 return
 
             new_alert = SolarWindsAlert(
-                event_type=parsed["event_type"], severity=parsed["severity"],
+                event_type=parsed["event_type"], severity=parsed["severity"], # Passes native severity
                 node_name=parsed["node_name"], ip_address=parsed["ip_address"],
                 status=parsed["status"], details=raw_payload.get("description", "No description provided"),
                 raw_payload=raw_payload, mapped_location=mapped_site,
