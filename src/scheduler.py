@@ -341,10 +341,22 @@ def job_tiered_alert_escalation():
 
             def get_tier(alert):
                 p = alert.raw_payload if isinstance(alert.raw_payload, dict) else {}
-                cp = p.get('Custom_Properties_Universal') or {}
-                raw_level = str(cp.get('Alert_Level', 'Unknown')).strip().lower()
-                for key in PRIORITY_RULES.keys():
-                    if key in raw_level: return key
+                
+                # Fetch the explicitly separated Alert Level we injected in the webhook
+                raw_level = str(p.get('Normalized_Alert_Level', 'Unknown')).strip().lower()
+                
+                # Normalize the string to remove spaces and hyphens for exact matching
+                normalized_level = raw_level.replace(" ", "").replace("-", "")
+                
+                # Exact Matching Logic
+                if "p1high" in normalized_level: return "p1-high"
+                if "p1low" in normalized_level: return "p1-low"
+                if "p2high" in normalized_level: return "p2-high"
+                if "p2low" in normalized_level: return "p2-low"
+                if "p3" in normalized_level: return "p3"
+                if "p4" in normalized_level: return "p4"
+                if "p5" in normalized_level: return "p5"
+                
                 return "unknown"
 
             alerts.sort(key=lambda a: a.received_at)
