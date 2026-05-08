@@ -1311,38 +1311,52 @@ def dispatch_perimeter_crime_alerts():
     """Checks for un-dispatched high severity crimes within 0.4 miles and sends an SMS-friendly alert."""
     from src.database import SessionLocal, CrimeIncident
     import os
-    from zoneinfo import ZoneInfo
+    from datetime import datetime, timedelta
     
-    # Reads the recipient(s) from your .env file. Supports comma-separated lists!
+    # Reads the recipient(s) from your .env file.
     alert_sms = os.getenv("CRIME_ALERT_SMS")
     if not alert_sms:
-        # Fallback to the old env var
         alert_sms = os.getenv("CRIME_ALERT_EMAIL")
         if not alert_sms:
             return False, "CRIME_ALERT_SMS not set in environment variables."
             
-    # Clean up the string just in case there are weird spaces in the .env file
     alert_sms = ", ".join([email.strip() for email in alert_sms.split(",")])
+    
+    # --- NEW: Enforce a strict 2-hour window for active alerting ---
+    # The database timestamps are in UTC.
+    recent_cutoff = datetime.utcnow() - timedelta(hours=2)
         
     with SessionLocal() as db:
-        # Find all un-dispatched crimes within 0.4 miles that are categorized as High severity
+        # Find all un-dispatched crimes within 0.4 miles that are High severity AND happened recently
         new_crimes = db.query(CrimeIncident).filter(
             CrimeIncident.distance_miles <= 0.4,
             CrimeIncident.severity.ilike('%High%'),
+            CrimeIncident.timestamp >= recent_cutoff, # Only alert on fresh incidents
             CrimeIncident.is_alert_dispatched == False
         ).all()
         
+        # We also need to find old, undispatched crimes and silently mark them as dispatched
+        # so they don't clog up the database query on the next run.
+        stale_crimes = db.query(CrimeIncident).filter(
+            CrimeIncident.distance_miles <= 0.4,
+            CrimeIncident.severity.ilike('%High%'),
+            CrimeIncident.timestamp < recent_cutoff,
+            CrimeIncident.is_alert_dispatched == False
+        ).all()
+        
+        for stale in stale_crimes:
+            stale.is_alert_dispatched = True
+            
         if not new_crimes:
-            return True, "No new alerts to dispatch."
+            db.commit() # Commit the stale updates
+            return True, "No new active alerts to dispatch."
             
         for crime in new_crimes:
-            # Standard Google Maps query link (mobile SMS click-through)
+            # Standard Google Maps query link
             gmaps_link = f"https://www.google.com/maps?q={crime.lat},{crime.lon}"
             
-            # Formatted to be slightly shorter for SMS reading
-            local_time = format_central(crime.timestamp)[:-3]  # Remove seconds for brevity
+            local_time = format_central(crime.timestamp)[:-3] 
             
-            # Concise Plain Text format for SMS
             sms_body = (
                 f"[ALERT] PERIMETER ALERT [ALERT]\n"
                 f"{crime.raw_title}\n"
@@ -1355,11 +1369,10 @@ def dispatch_perimeter_crime_alerts():
             success, msg = send_alert_email(
                 subject=f"Crime Alert: {crime.distance_miles}mi",
                 body=sms_body,
-                recipient_override=alert_sms,  # Passes the cleaned, comma-separated list
+                recipient_override=alert_sms, 
                 is_html=False 
             )
             
-            # If the SMS sent successfully, mark it as dispatched so we never send it again
             if success:
                 crime.is_alert_dispatched = True
                 
