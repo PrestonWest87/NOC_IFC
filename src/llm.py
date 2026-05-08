@@ -153,8 +153,10 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     # Diagnostic logging for accuracy verification
     print(f"[BRIEF DEBUG] Global Risk Level: {global_risk}")
     print(f"[BRIEF DEBUG] Internal Risk Level: {internal_risk}")
-    if internal_snapshot:
-        age = (datetime.utcnow() - internal_snapshot.timestamp).total_seconds() / 60
+    if internal_snapshot and internal_snapshot.timestamp:
+        # Strip tzinfo to prevent offset-naive vs offset-aware crash
+        snap_time = internal_snapshot.timestamp.replace(tzinfo=None)
+        age = (datetime.utcnow() - snap_time).total_seconds() / 60
         print(f"[BRIEF DEBUG] Internal Snapshot Age: {age:.1f} minutes")
     else:
         print("[BRIEF WARNING] No internal snapshot available")
