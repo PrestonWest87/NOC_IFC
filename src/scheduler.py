@@ -265,9 +265,9 @@ def job_tiered_alert_escalation():
     """
     Comprehensive Tiered Alert & RCA Ticketing Manager.
     - Active ONLY during After-Hours (Nights & Weekends).
-    - Guarantees a standard ticket is created for ALL valid alerts.
-    - Appends ONPAGE routing exclusively for P1 and escalated P1 clusters.
-    - Enforces Anti-Flap Cooldowns (1hr High Priority, 5hr Low Priority).
+    - Ignores daytime alerts.
+    - Retains 5-Minute Cascade/Escalation Logic.
+    - Mass-dispatches site clusters so only ONE ticket is generated per event.
     """
     from src.database import SessionLocal, SolarWindsAlert, MonitoredLocation, RegionalHazard, CloudOutage, BgpAnomaly
     from src.mailer import send_alert_email
@@ -275,27 +275,27 @@ def job_tiered_alert_escalation():
     from src.services import generate_rca_ticket_text
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
+    import re
 
     now_utc = datetime.utcnow()
-    now_local = datetime.now(ZoneInfo("America/Chicago"))
+    local_tz = ZoneInfo("America/Chicago")
     
-    # Define Business Hours (Mon-Fri, 06:00 - 20:00 Central Time)
-    is_business_hours = (0 <= now_local.weekday() <= 4) and (6 <= now_local.hour < 20)
-    
+    def is_business_hours(dt_utc):
+        if not dt_utc: return False
+        dt_local = dt_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(local_tz)
+        return (0 <= dt_local.weekday() <= 4) and (6 <= dt_local.hour < 20)
+
     # --- STRICT AFTER-HOURS ENFORCEMENT ---
-    #if is_business_hours:
-      #  return
+    if is_business_hours(now_utc):
+        return
 
     log("[SYSTEM] After-Hours RCA Ticketing & Escalation Manager Active...", "SYSTEM")
     
-    # Restrict to current issues (12-hour boundary prevents ghost tickets)
     cutoff_time = now_utc - timedelta(hours=12)
     
-    # --- ROUTING CONSTANTS ---
     BASE_TICKET_EMAILS = "remedyforceworkflow@aecc.com, noc@aecc.com" 
-    ONPAGE_EMAIL = "noc@aecc.com" # TODO: Update to actual paging system email
+    ONPAGE_EMAIL = "noc@aecc.com"
 
-    # Rules Map: wait (mins), sla (str), weight (int), requires_onpage (bool), cooldown (hours)
     PRIORITY_RULES = {
         "p1-high": {"wait": 15,  "sla": "1 Hour",   "weight": 70, "requires_onpage": True,  "cooldown": 1},
         "p1-low":  {"wait": 45,  "sla": "4 Hours",  "weight": 60, "requires_onpage": True,  "cooldown": 1},
@@ -307,11 +307,12 @@ def job_tiered_alert_escalation():
     }
 
     with SessionLocal() as db:
-        # Fetch active alerts within the last 12 hours
-        active_alerts = db.query(SolarWindsAlert).filter(
+        raw_alerts = db.query(SolarWindsAlert).filter(
             SolarWindsAlert.status != 'Resolved',
             SolarWindsAlert.received_at >= cutoff_time
         ).all()
+
+        active_alerts = [a for a in raw_alerts if not is_business_hours(a.received_at)]
 
         if not active_alerts:
             return
@@ -323,9 +324,7 @@ def job_tiered_alert_escalation():
         ai_engine = EnterpriseAIOpsEngine(db)
         incidents = ai_engine.analyze_and_cluster(active_alerts)
 
-        # --- HELPER: Anti-Flap Node Checker ---
         def is_node_on_cooldown(node_name, cooldown_hours):
-            """Checks if we already dispatched a ticket for this exact node within its cooldown window."""
             cooldown_cutoff = now_utc - timedelta(hours=cooldown_hours)
             recent_dispatch = db.query(SolarWindsAlert).filter(
                 SolarWindsAlert.node_name == node_name,
@@ -334,81 +333,72 @@ def job_tiered_alert_escalation():
             ).first()
             return recent_dispatch is not None
 
+        def get_tier(alert):
+            p = alert.raw_payload if isinstance(alert.raw_payload, dict) else {}
+            cp = p.get('Custom_Properties_Universal') or {}
+            raw_level = str(p.get('Normalized_Alert_Level') or cp.get('Alert_Level') or '').strip().lower()
+            
+            if "p1-high" in raw_level: return "p1-high"
+            if "p1-low" in raw_level: return "p1-low"
+            if "p2-high" in raw_level: return "p2-high"
+            if "p2-low" in raw_level: return "p2-low"
+
+            match = re.search(r'\d+', raw_level)
+            if match:
+                level_num = int(match.group())
+                if level_num == 1: return "p1-low" if "low" in raw_level else "p1-high"
+                elif level_num == 2: return "p2-low" if "low" in raw_level else "p2-high"
+                elif level_num == 3: return "p3"
+                elif level_num == 4: return "p4"
+                elif level_num == 5: return "p5"
+            return "unknown"
+
         for site, data in incidents.items():
             alerts = data.get('alerts', [])
-            if not alerts: 
+            undispatched_alerts = [a for a in alerts if not a.is_dispatched]
+            
+            if not undispatched_alerts:
                 continue
 
-            def get_tier(alert):
-                p = alert.raw_payload if isinstance(alert.raw_payload, dict) else {}
-                cp = p.get('Custom_Properties_Universal') or {}
-                
-                # STRICT EXTRACTION: Only pull from the Alert_Level property
-                raw_level = str(p.get('Normalized_Alert_Level') or cp.get('Alert_Level') or '').strip().lower()
-                
-                # --- 1. FUTURE STATE: Explicit String Matches ---
-                # If the payload explicitly passes the full string, map it immediately
-                if "p1-high" in raw_level: return "p1-high"
-                if "p1-low" in raw_level: return "p1-low"
-                if "p2-high" in raw_level: return "p2-high"
-                if "p2-low" in raw_level: return "p2-low"
-
-                # --- 2. CURRENT STATE & FALLBACK: Regex Number Extraction ---
-                import re
-                # Extracts the first digit it finds (e.g., "3" from "3", "p3", or "Alert Level 3")
-                match = re.search(r'\d+', raw_level)
-                
-                if match:
-                    level_num = int(match.group())
-                    
-                    if level_num == 1:
-                        # If they just pass "1" or "p1", default to high unless "low" is specified
-                        return "p1-low" if "low" in raw_level else "p1-high"
-                    elif level_num == 2:
-                        return "p2-low" if "low" in raw_level else "p2-high"
-                    elif level_num == 3:
-                        return "p3"
-                    elif level_num == 4:
-                        return "p4"
-                    elif level_num == 5:
-                        return "p5"
-                
-                # If the Alert_Level field was completely empty or had no numbers
-                return "unknown"
-            alerts.sort(key=lambda a: a.received_at)
+            # Sort by time so we can establish "Patient Zero" for the cascade logic
+            undispatched_alerts.sort(key=lambda a: a.received_at)
             
             cause, score, rca_priority, _, _, p0_name, _ = ai_engine.calculate_root_cause(
                 site, data, active_weather, active_clouds, active_bgp
             )
-            
+
             # =========================================================
-            # 1. COMBINATION / CASCADE LOGIC (Low -> High)
+            # 1. COMBINATION / CASCADE LOGIC (e.g. P3 escalates to P1)
             # =========================================================
-            earliest_alert = alerts[0]
+            earliest_alert = undispatched_alerts[0]
             base_tier = get_tier(earliest_alert)
-            base_weight = PRIORITY_RULES[base_tier]["weight"] if base_tier in PRIORITY_RULES else 0
+            base_weight = PRIORITY_RULES.get(base_tier, {"weight": -1})["weight"]
             
             escalating_alert = None
-            for a in alerts[1:]:
+            esc_tier = None
+            
+            # Scan all subsequent alerts for a higher priority weight
+            for a in undispatched_alerts[1:]:
                 a_tier = get_tier(a)
-                a_weight = PRIORITY_RULES[a_tier]["weight"] if a_tier in PRIORITY_RULES else 0
+                a_weight = PRIORITY_RULES.get(a_tier, {"weight": -1})["weight"]
                 if a_weight > base_weight:
                     escalating_alert = a
+                    esc_tier = a_tier
                     break
 
             if escalating_alert:
                 loc = db.query(MonitoredLocation).filter_by(name=site).first()
                 time_since_escalation = now_utc - escalating_alert.received_at
                 
-                # Wait 5 minutes after the escalation occurs to send combination ticket
+                # Wait exactly 5 minutes from the escalated alert's arrival
                 if time_since_escalation >= timedelta(minutes=5):
                     # Enforce the 1-Hour Site-Level Cascade Mute
                     if not loc or not loc.last_escalation_dispatch or (now_utc - loc.last_escalation_dispatch) >= timedelta(hours=1):
                         
-                        esc_tier = get_tier(escalating_alert)
                         rules = PRIORITY_RULES.get(esc_tier, {})
                         
                         target_recipients = BASE_TICKET_EMAILS
+                        # Inherit the ONPAGE logic from the escalated tier
                         if rules.get("requires_onpage"):
                             target_recipients += f", {ONPAGE_EMAIL}"
                         
@@ -425,77 +415,76 @@ def job_tiered_alert_escalation():
                         )
                         
                         if success:
-                            log(f"[CASCADE DISPATCHED] Sent ticket & notifications for {site}", "SYSTEM")
+                            log(f"[CASCADE DISPATCHED] Sent ticket & ONPAGE for {site}", "SYSTEM")
                             if loc: loc.last_escalation_dispatch = now_utc
                             
-                            for a in alerts:
+                            # CLUSTER MUTE: Mark ALL alerts at this site as dispatched
+                            for a in undispatched_alerts:
                                 a.is_dispatched = True
                             db.commit()
                         else:
                             log(f"[CASCADE FAILED] SMTP Error for {site}: {msg}", "SYSTEM")
-                        
-                        continue
+                
+                # If we detected an escalation, do NOT process standard logic. Just wait for the 5-min timer.
+                continue
 
             # =========================================================
-            # 2. STANDARD TIERED SLA LOGIC (Individual Tickets)
+            # 2. STANDARD TIERED SLA LOGIC (No escalation occurred)
             # =========================================================
-            undispatched_alerts = [a for a in alerts if not a.is_dispatched]
+            duration_active = now_utc - earliest_alert.received_at
             
-            for a in undispatched_alerts:
-                tier = get_tier(a)
-                duration_active = now_utc - a.received_at
+            if base_tier == "unknown":
+                if duration_active >= timedelta(minutes=30):
+                    if not is_node_on_cooldown(earliest_alert.node_name, cooldown_hours=5):
+                        ticket_body = f"*** REQUIRES MANAGEMENT DIRECTION ***\nUnmapped Priority for Alert: {earliest_alert.event_type}\n\n"
+                        ticket_body += generate_rca_ticket_text(site, data, "UNKNOWN", p0_name or "Unknown", cause)
+                        
+                        success, msg = send_alert_email(f"UNDOCUMENTED ALERT: {earliest_alert.node_name}", ticket_body, recipient_override=BASE_TICKET_EMAILS, is_html=False)
+                        if success:
+                            for a in undispatched_alerts: a.is_dispatched = True
+                            db.commit()
+                continue
                 
-                if tier == "unknown":
-                    if duration_active >= timedelta(minutes=30):
-                        if not is_node_on_cooldown(a.node_name, cooldown_hours=5): # Default 5hr cooldown for unknowns
-                            ticket_body = f"*** REQUIRES MANAGEMENT DIRECTION ***\nUndocumented Priority Level: {a.event_type}\n\n"
-                            ticket_body += generate_rca_ticket_text(site, data, "UNKNOWN", p0_name or "Unknown", cause)
-                            
-                            success, msg = send_alert_email(f"UNDOCUMENTED ALERT: {a.node_name}", ticket_body, recipient_override=BASE_TICKET_EMAILS, is_html=False)
-                            if success:
-                                a.is_dispatched = True
-                                db.commit()
+            rules = PRIORITY_RULES[base_tier]
+            
+            if duration_active >= timedelta(minutes=rules["wait"]):
+                
+                if is_node_on_cooldown(earliest_alert.node_name, rules["cooldown"]):
+                    # Mutate entire cluster if primary node is flapping
+                    for a in undispatched_alerts: a.is_dispatched = True
+                    db.commit()
+                    log(f"[MUTED] Suppressed alert cluster for {site} (Node {earliest_alert.node_name} is on cooldown).", "SYSTEM")
                     continue
                     
-                rules = PRIORITY_RULES[tier]
+                is_onpage = rules["requires_onpage"]
+                target_recipients = BASE_TICKET_EMAILS
+                if is_onpage:
+                    target_recipients += f", {ONPAGE_EMAIL}"
+                    
+                subject_prefix = "URGENT ESCALATION" if is_onpage else "AFTER-HOURS TICKET"
                 
-                if duration_active >= timedelta(minutes=rules["wait"]):
-                    
-                    # --- NEW: ANTI-FLAP NODE COOLDOWN CHECK ---
-                    if is_node_on_cooldown(a.node_name, rules["cooldown"]):
-                        # Silently mark as dispatched so it stops checking this specific bouncing alert
-                        a.is_dispatched = True
-                        db.commit()
-                        log(f"[MUTED] Suppressed alert for {a.node_name} (Node is on a {rules['cooldown']}hr cooldown).", "SYSTEM")
-                        continue
-                        
-                    is_onpage = rules["requires_onpage"]
-                    target_recipients = BASE_TICKET_EMAILS
-                    if is_onpage:
-                        target_recipients += f", {ONPAGE_EMAIL}"
-                        
-                    subject_prefix = "URGENT ESCALATION" if is_onpage else "AFTER-HOURS TICKET"
-                    
-                    ticket_body = f"*** {subject_prefix} ***\nPriority: {tier.upper()}\nTarget SLA: {rules['sla']}\n"
-                    if tier == "p2-high":
-                        ticket_body += "Requirement: Positive Handoff (No ONPAGE)\n"
-                    ticket_body += "\n" + generate_rca_ticket_text(site, data, tier.upper(), p0_name or "Unknown", cause)
+                ticket_body = f"*** {subject_prefix} ***\nPriority: {base_tier.upper()}\nTarget SLA: {rules['sla']}\n"
+                if base_tier == "p2-high":
+                    ticket_body += "Requirement: Positive Handoff (No ONPAGE)\n"
+                ticket_body += "\n" + generate_rca_ticket_text(site, data, base_tier.upper(), p0_name or "Unknown", cause)
 
-                    success, msg = send_alert_email(
-                        f"{subject_prefix}: {tier.upper()} Incident at {site}", 
-                        ticket_body, 
-                        recipient_override=target_recipients, 
-                        is_html=False
-                    )
+                success, msg = send_alert_email(
+                    f"{subject_prefix}: {base_tier.upper()} Incident at {site}", 
+                    ticket_body, 
+                    recipient_override=target_recipients, 
+                    is_html=False
+                )
+                
+                if success:
+                    log_type = "ONPAGE+TICKET" if is_onpage else "STANDARD TICKET"
+                    log(f"[DISPATCHED {log_type}] Sent {base_tier.upper()} for {site} to {target_recipients}", "SYSTEM")
                     
-                    if success:
-                        log_type = "ONPAGE+TICKET" if is_onpage else "STANDARD TICKET"
-                        log(f"[DISPATCHED {log_type}] Sent {tier.upper()} for {a.node_name} to {target_recipients}", "SYSTEM")
+                    # CLUSTER MUTE: Mute all associated alerts at the site
+                    for a in undispatched_alerts:
                         a.is_dispatched = True
-                        db.commit()
-                    else:
-                        log(f"[DISPATCH FAILED] SMTP Error for {a.node_name}: {msg}", "SYSTEM")
-
+                    db.commit()
+                else:
+                    log(f"[DISPATCH FAILED] SMTP Error for {earliest_alert.node_name}: {msg}", "SYSTEM")
 
 # =====================================================================
 # 2. GARBAGE COLLECTION & MAINTENANCE
