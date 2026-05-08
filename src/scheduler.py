@@ -341,24 +341,40 @@ def job_tiered_alert_escalation():
 
             def get_tier(alert):
                 p = alert.raw_payload if isinstance(alert.raw_payload, dict) else {}
+                cp = p.get('Custom_Properties_Universal') or {}
                 
-                # Fetch the explicitly separated Alert Level we injected in the webhook
-                raw_level = str(p.get('Normalized_Alert_Level', 'Unknown')).strip().lower()
+                # STRICT EXTRACTION: Only pull from the Alert_Level property
+                raw_level = str(p.get('Normalized_Alert_Level') or cp.get('Alert_Level') or '').strip().lower()
                 
-                # Normalize the string to remove spaces and hyphens for exact matching
-                normalized_level = raw_level.replace(" ", "").replace("-", "")
-                
-                # Exact Matching Logic
-                if "p1high" in normalized_level: return "p1-high"
-                if "p1low" in normalized_level: return "p1-low"
-                if "p2high" in normalized_level: return "p2-high"
-                if "p2low" in normalized_level: return "p2-low"
-                if "p3" in normalized_level: return "p3"
-                if "p4" in normalized_level: return "p4"
-                if "p5" in normalized_level: return "p5"
-                
-                return "unknown"
+                # --- 1. FUTURE STATE: Explicit String Matches ---
+                # If the payload explicitly passes the full string, map it immediately
+                if "p1-high" in raw_level: return "p1-high"
+                if "p1-low" in raw_level: return "p1-low"
+                if "p2-high" in raw_level: return "p2-high"
+                if "p2-low" in raw_level: return "p2-low"
 
+                # --- 2. CURRENT STATE & FALLBACK: Regex Number Extraction ---
+                import re
+                # Extracts the first digit it finds (e.g., "3" from "3", "p3", or "Alert Level 3")
+                match = re.search(r'\d+', raw_level)
+                
+                if match:
+                    level_num = int(match.group())
+                    
+                    if level_num == 1:
+                        # If they just pass "1" or "p1", default to high unless "low" is specified
+                        return "p1-low" if "low" in raw_level else "p1-high"
+                    elif level_num == 2:
+                        return "p2-low" if "low" in raw_level else "p2-high"
+                    elif level_num == 3:
+                        return "p3"
+                    elif level_num == 4:
+                        return "p4"
+                    elif level_num == 5:
+                        return "p5"
+                
+                # If the Alert_Level field was completely empty or had no numbers
+                return "unknown"
             alerts.sort(key=lambda a: a.received_at)
             
             cause, score, rca_priority, _, _, p0_name, _ = ai_engine.calculate_root_cause(
