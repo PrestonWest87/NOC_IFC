@@ -108,12 +108,7 @@ def process_payload_background(raw_payload: dict):
 @app.post("/webhook/solarwinds")
 async def receive_alert(request: Request, background_tasks: BackgroundTasks):
     try:
-        raw_payload = await request.json()
-
-        import json
-        with open("debug_last_payload.json", "w") as f:
-            json.dump(raw_payload, f, indent=4)
-        
+        raw_payload = await request.json()     
         background_tasks.add_task(process_payload_background, raw_payload)
         return {"status": "accepted", "message": "Payload queued for AI processing."}
     except json.JSONDecodeError:
