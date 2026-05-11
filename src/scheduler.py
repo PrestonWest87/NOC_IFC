@@ -299,8 +299,8 @@ def job_tiered_alert_escalation():
     ONPAGE_EMAIL = "noc@aecc.com"
     
     # Custom Overrides for P1-High
-    SPECIAL_FIBER_TICKET_EMAIL = "special_fiber_swf@yourdomain.com" # <--- UPDATE THIS
-    OTHER_P1_TICKET_EMAIL = "other_p1_high@yourdomain.com"          # <--- UPDATE THIS
+    SPECIAL_FIBER_TICKET_EMAIL = "noc@aecc.com" # <--- UPDATE THIS
+    OTHER_P1_TICKET_EMAIL = "noc.aecc.com"          # <--- UPDATE THIS
 
     PRIORITY_RULES = {
         "p1-high": {"wait": 15,  "sla": "1 Hour",   "weight": 70, "requires_onpage": True,  "cooldown": 1},
