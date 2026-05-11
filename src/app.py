@@ -2126,7 +2126,18 @@ elif page == "AIOps RCA":
                                             clean_c = c.replace("??", "").replace("???", "").replace("?", "").replace("??", "").replace("??", "").strip()
                                             clean_p0 = p0 if p0 else "Indeterminate (Simultaneous Failure)"
                                             
+                                            # 1. Fetch District from the local facility cache or fallback to the live SolarWinds alert metadata
+                                            district_name = getattr(site_record, 'district', None)
+                                            if not district_name:
+                                                district_name = data.get('site_metadata', {}).get('district', 'Unknown')
+                                            
+                                            # 2. Generate the base ticket text via services
                                             ticket_text = svc.generate_rca_ticket_text(site, data, clean_p, clean_p0, clean_c)
+                                            
+                                            # 3. Inject the District dynamically at the top of the ticket body for the UI
+                                            if "District:" not in ticket_text:
+                                                ticket_text = f"District: {district_name}\n{ticket_text}"
+                                            
                                             ticket_body = st.text_area("Ticket Notes / RCA Summary", value=ticket_text, height=350, key=f"t_body_{site}")
                                             
                                             fixed_recipients = "remedyforceworkflow@aecc.com, noc@aecc.com"
