@@ -373,7 +373,7 @@ def job_tiered_alert_escalation():
             # -> SITE-LEVEL ONPAGE MUTE (PREVENTS MAJOR OUTAGE FLOODING)
             if loc and getattr(loc, 'last_escalation_dispatch', None):
                 time_since_onpage = now_utc - loc.last_escalation_dispatch
-                if time_since_onpage < timedelta(hours=2):
+                if time_since_onpage < timedelta(hours=1):
                     log(f"[SITE MUTED] Suppressed alerts for {site}. Site recently ONPAGED.", "SYSTEM")
                     for a in undispatched_alerts: a.is_dispatched = True
                     db.commit()
@@ -434,7 +434,7 @@ def job_tiered_alert_escalation():
             current_ticket_email = TICKET_EMAIL
             
             if is_cascade:
-                wait_minutes = 5 # Cascades generally wait 5 minutes from the escalated alert
+                wait_minutes = 0 # Cascades generally wait 5 minutes from the escalated alert
 
             # Apply Custom P1-High Overrides (Can override the Cascade timer)
             if target_tier == "p1-high":
