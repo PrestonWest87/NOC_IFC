@@ -295,10 +295,10 @@ class EnterpriseAIOpsEngine:
             site_record = db.query(MonitoredLocation).filter(MonitoredLocation.name == site_name).first()
             
             if site_record:
-                # --- NEW: MAINTENANCE AUTO-CLEAR LOGIC ---
-                # Check if the site is under maintenance and the ETR has passed
+                # --- MAINTENANCE AUTO-CLEAR LOGIC ---
                 if site_record.under_maintenance and site_record.maintenance_etr:
-                    if datetime.utcnow() > site_record.maintenance_etr:
+                    # FIX: Compare the dates to ensure the maintenance lasts through the target day
+                    if datetime.utcnow().date() > site_record.maintenance_etr.date():
                         site_record.under_maintenance = False
                         site_record.maintenance_etr = None
                         site_record.maintenance_reason = None
