@@ -328,11 +328,25 @@ class EnterpriseAIOpsEngine:
                                 if p0_domain in ["POWER_SUPPLIES", "PRIMARY_INTERNET"]: cause = f"Direct Kinetic Impact: Severe Weather ({h.hazard_type}) caused physical infrastructure failure."
                                 break
 
-        if data.get('max_alert_level', 3) == 1:
+        if data.get('max_alert_level', 99) == 1:
             score += 50
             evidence_log.append("Policy Override: Native Alert Level 1 detected.")
 
-        priority = "P1 - CRITICAL" if score >= 80 else "P2 - HIGH" if score >= 50 else "P3 - MODERATE"
+        # --- NEW: STRICT NATIVE SLA MAPPING ---
+        max_level = data.get('max_alert_level', 99)
+        if max_level == 99: 
+            max_level = 3  # Fallback to P3 if no alerts contained a level
+
+        sla_map = {
+            1: ("P1 - CRITICAL", "15 Minutes"),
+            2: ("P2 - HIGH", "1 Hour"),
+            3: ("P3 - MODERATE", "4 Hours"),
+            4: ("P4 - LOW", "24 Hours"),
+            5: ("P5 - PLANNING", "Best Effort")
+        }
+        
+        base_priority, sla_time = sla_map.get(max_level, ("P3 - MODERATE", "4 Hours"))
+        priority = f"{base_priority} (SLA: {sla_time})"
         
         # Safely calculate cascade seconds using latest_alert
         latest = data.get('latest_alert')
@@ -346,6 +360,7 @@ class EnterpriseAIOpsEngine:
         return cause, min(score, 100), priority, evidence_log, blast_radius, p0.node_name, cascade_str
 
     def analyze_and_cluster(self, active_alerts):
+        import re # Ensure regex is imported at the top of the file or here
         incidents = {}
         for alert in active_alerts:
             p = alert.raw_payload if isinstance(alert.raw_payload, dict) else {}
@@ -363,12 +378,11 @@ class EnterpriseAIOpsEngine:
                     },
                     'domains_affected': set(), 
                     'dependency_chain': [],
-                    # NEW: Explicitly initialize arrays to prevent KeyErrors
                     'avg_loss': [],
                     'avg_cpu': [],
                     'ips': [],
-                    'max_alert_level': 3,
-                    'latest_alert': alert # Start with first alert found
+                    'max_alert_level': 99, # FIX: Initialize high so min() works correctly for all levels
+                    'latest_alert': alert
                 }
             
             incidents[site_name]['alerts'].append(alert)
@@ -389,10 +403,13 @@ class EnterpriseAIOpsEngine:
             if alert.ip_address and alert.ip_address != "Unknown":
                 incidents[site_name]['ips'].append(alert.ip_address)
                 
-            # Extract Alert Level safely
-            al = cp.get('Alert_Level') or p.get('severity')
+            # FIX: Robustly extract the alert level, even if formatted as "P1" or "Level 2"
+            al = p.get('Normalized_Alert_Level') or cp.get('Alert_Level') or p.get('severity')
             if al:
-                try: incidents[site_name]['max_alert_level'] = min(incidents[site_name]['max_alert_level'], int(al))
+                try: 
+                    match = re.search(r'\d+', str(al))
+                    if match:
+                        incidents[site_name]['max_alert_level'] = min(incidents[site_name]['max_alert_level'], int(match.group()))
                 except (ValueError, TypeError): pass
 
         for site, cluster in incidents.items():
