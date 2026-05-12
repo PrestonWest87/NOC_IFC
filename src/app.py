@@ -2090,6 +2090,10 @@ elif page == "AIOps RCA":
                                 active_bgp=bgp, 
                                 fleet_events=fleet_events
                             )
+
+                            if any("Maintenance Override" in log for log in e):
+                                svc.get_cached_locations.clear()
+                                st.rerun()
                             
                             with st.container(border=True):
                                     st.markdown(f"### {p} | Site: {site}")
