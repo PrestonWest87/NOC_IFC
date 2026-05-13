@@ -1975,6 +1975,9 @@ elif page == "AIOps RCA":
                     st.session_state.last_map_selection = None
                 if "investigating_sites" not in st.session_state:
                     st.session_state.investigating_sites = set()
+                # Memory lock for the dialog
+                if "target_edit_site" not in st.session_state:
+                    st.session_state.target_edit_site = None
 
                 # Fetch data first
                 alerts, events, grid = svc.get_aiops_dashboard_data()
@@ -1989,12 +1992,15 @@ elif page == "AIOps RCA":
                     from streamlit_autorefresh import st_autorefresh
                     st_autorefresh(interval=5000, limit=100000, key="aiops_continuous_poll")
                 
-                # --- DYNAMIC THEATER MODE CSS ---
+                # --- DYNAMIC THEATER MODE CSS & DIALOG FIX ---
                 base_css = """
                     <style>
                     div[data-testid="stToggle"] { margin-bottom: -15px !important; }
                     hr { margin-top: 10px !important; }
                     button[title="View fullscreen"] { display: none !important; } 
+                    
+                    /* CRITICAL FIX: Hide the native Dialog 'X' to force usage of our Cancel button */
+                    div[data-testid="stDialog"] button[aria-label="Close"] { display: none !important; }
                     </style>
                 """
                 if theater_mode:
@@ -2021,7 +2027,6 @@ elif page == "AIOps RCA":
                     c_l, c_s = st.columns([3, 1])
                     with c_s:
                         st.subheader("Event Log")
-                        # Scrollable container prevents the log from stretching the page height
                         with st.container(height=650, border=False):
                             for e in events:
                                 local_time = e.timestamp.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ)
@@ -2099,12 +2104,16 @@ elif page == "AIOps RCA":
                             if hasattr(svc.get_cached_locations, 'clear'):
                                 svc.get_cached_locations.clear()
                             
-                            st.session_state.last_map_selection = None 
+                            # Wipe memory on exit to allow re-clicking the same dot
+                            st.session_state.target_edit_site = None 
+                            st.session_state.last_map_selection = None
                             st.success("Status Updated!")
                             time.sleep(0.5)
                             st.rerun()
                             
                         if cd2.button("Cancel", width="stretch", key=f"dia_cancel_{site_name}"):
+                            # Wipe memory on exit to allow re-clicking the same dot
+                            st.session_state.target_edit_site = None
                             st.session_state.last_map_selection = None
                             st.rerun()
 
@@ -2180,16 +2189,19 @@ elif page == "AIOps RCA":
                     )
                     
                     # --- BULLETPROOF EVENT HANDLING ---
-                    # We check for a valid selection but we NEVER clear memory on an empty event.
-                    # This prevents the 5s refresh from wiping out the dialog state.
                     if chart_event and hasattr(chart_event, 'selection') and isinstance(chart_event.selection.objects, dict):
                         selected_objects = chart_event.selection.objects.get("base_sites", [])
                         if selected_objects:
                             clicked_site = selected_objects[0].get("name")
-                            # ONLY pop the dialog if they just clicked a NEW dot
                             if clicked_site != st.session_state.last_map_selection:
                                 st.session_state.last_map_selection = clicked_site
-                                site_control_dialog(clicked_site)
+                                st.session_state.target_edit_site = clicked_site
+                                st.rerun()
+                    
+                    # --- UNCONDITIONAL DIALOG TRIGGER ---
+                    # Because we use `target_edit_site`, the dialog perfectly survives the 5s refresh.
+                    if st.session_state.target_edit_site:
+                        site_control_dialog(st.session_state.target_edit_site)
                     
                     # --- CORRELATION WRAPPER ---
                     if not theater_mode:
