@@ -2099,11 +2099,13 @@ elif page == "AIOps RCA":
                             if hasattr(svc.get_cached_locations, 'clear'):
                                 svc.get_cached_locations.clear()
                             
+                            st.session_state.last_map_selection = None 
                             st.success("Status Updated!")
                             time.sleep(0.5)
                             st.rerun()
                             
                         if cd2.button("Cancel", width="stretch", key=f"dia_cancel_{site_name}"):
+                            st.session_state.last_map_selection = None
                             st.rerun()
 
                     # --- CUSTOM PYDECK MAP ENGINE ---
@@ -2120,7 +2122,6 @@ elif page == "AIOps RCA":
                         
                         show_pulse = False
                         
-                        # NEW COLOR LOGIC: Dispatched AND Investigating are Yellow
                         if is_down:
                             if is_no_dispatch:
                                 color = [0, 123, 255, 200]  # Blue
@@ -2140,7 +2141,6 @@ elif page == "AIOps RCA":
                         else:
                             color = [40, 167, 69, 200]  # Green
                             status_text = "Operational / Clear"
-                            # Cleanup memory if site recovers
                             if l.name in st.session_state.investigating_sites:
                                 st.session_state.investigating_sites.discard(l.name)
                             
@@ -2179,21 +2179,19 @@ elif page == "AIOps RCA":
                         key="aiops_main_map"
                     )
                     
-                    # --- X BUTTON FIX: Strict Change-Only Invocation ---
-                    if chart_event and hasattr(chart_event, 'selection') and chart_event.selection.objects:
+                    # --- BULLETPROOF EVENT HANDLING ---
+                    # We check for a valid selection but we NEVER clear memory on an empty event.
+                    # This prevents the 5s refresh from wiping out the dialog state.
+                    if chart_event and hasattr(chart_event, 'selection') and isinstance(chart_event.selection.objects, dict):
                         selected_objects = chart_event.selection.objects.get("base_sites", [])
                         if selected_objects:
                             clicked_site = selected_objects[0].get("name")
-                            # ONLY pop the dialog if they just clicked a new dot
+                            # ONLY pop the dialog if they just clicked a NEW dot
                             if clicked_site != st.session_state.last_map_selection:
                                 st.session_state.last_map_selection = clicked_site
                                 site_control_dialog(clicked_site)
-                        else:
-                            st.session_state.last_map_selection = None
-                    else:
-                        st.session_state.last_map_selection = None
                     
-                    # --- CORRELATION WRAPPER MOVED HERE ---
+                    # --- CORRELATION WRAPPER ---
                     if not theater_mode:
                         st.markdown("<br>", unsafe_allow_html=True)
                         st.subheader("Correlation")
