@@ -2221,9 +2221,16 @@ if "Tab: AIOps RCA -> Active Board" in st.session_state.allowed_actions:
                                                         svc.set_site_maintenance(site, True, m_etr, m_rsn)
                                                     st.success("Status details saved!")
                                                     time.sleep(0.5); safe_rerun()
-                                    else:
-                                        st.info("Site not registered in Facilities database; status cannot be tracked.")
+                                        else:
+                                            st.info("Site not registered in Facilities database; status cannot be tracked.")
+            
+            # --- END OF ACTIVE BOARD TAB ---
             ai_idx += 1
+            
+        if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions:
+            with ai_tabs[ai_idx]:
+                st.subheader("Predictive Analytics & Chronic Degradation")
+                st.markdown("Analyzes historical telemetry to identify degrading hardware and unstable infrastructure *before* catastrophic failure.")
     
         if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions:
             with ai_tabs[ai_idx]:
