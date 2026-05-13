@@ -1949,35 +1949,14 @@ elif page == "Threat Hunting & IOCs":
             th_idx += 1
 
 # ================= 4. AIOps RCA =================
-elif page == "AIOps RCA":
-    st.title("AIOps Root Cause Analysis")
-    st.caption("Live correlation of non-uniform monitoring alerts with Regional Intelligence.")
-    
-    from src.aiops_engine import EnterpriseAIOpsEngine
-    ai_engine = EnterpriseAIOpsEngine(svc.SessionLocal())
-    
-    ai_tab_names = []
-    
-    if "Tab: AIOps RCA -> Active Board" in st.session_state.allowed_actions: ai_tab_names.append("Active Board")
-    if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions: ai_tab_names.append("Patterns")
-    if "Tab: AIOps RCA -> Global Correlation" in st.session_state.allowed_actions: ai_tab_names.append("Global")
-    
-    if not ai_tab_names: 
-        st.warning("No permission to view tabs in this module.")
-    else:
-        ai_tabs = st.tabs(ai_tab_names)
-        ai_idx = 0
-        
-        if "Tab: AIOps RCA -> Active Board" in st.session_state.allowed_actions:
+if "Tab: AIOps RCA -> Active Board" in st.session_state.allowed_actions:
             with ai_tabs[ai_idx]:
                 
-                # --- STATE MANAGEMENT FOR DIALOG & POLLING ---
+                # --- STATE MANAGEMENT FOR DIALOG ---
                 if "target_edit_site" not in st.session_state:
                     st.session_state.target_edit_site = None
                 if "last_map_selection" not in st.session_state:
                     st.session_state.last_map_selection = None
-                if "poll_resume_count" not in st.session_state:
-                    st.session_state.poll_resume_count = 0
 
                 # Fetch data first
                 alerts, events, grid = svc.get_aiops_dashboard_data()
@@ -1985,33 +1964,41 @@ elif page == "AIOps RCA":
                 # --- NEW TOP CONTROLS ---
                 ctrl_1, ctrl_2 = st.columns([1, 3])
                 live_polling = ctrl_1.toggle("Live 5s Polling", value=True, key="aiops_live_poll")
-                
-                # The Theater Mode Toggle
                 theater_mode = ctrl_2.toggle("🗺️ Focus Map (Theater Mode)", value=False, key="aiops_theater")
                 
-                # INTELLIGENT POLLING
-                if live_polling and not st.session_state.target_edit_site:
+                # INTELLIGENT POLLING: Continuous background refreshing (no longer paused)
+                if live_polling:
                     from streamlit_autorefresh import st_autorefresh
-                    st_autorefresh(interval=5000, limit=100000, key=f"aiops_poll_{st.session_state.poll_resume_count}")
+                    st_autorefresh(interval=5000, limit=100000, key="aiops_continuous_poll")
                 
-                st.markdown("""
+                # --- DYNAMIC THEATER MODE CSS ---
+                base_css = """
                     <style>
                     div[data-testid="stToggle"] { margin-bottom: -15px !important; }
                     hr { margin-top: 10px !important; }
                     button[title="View fullscreen"] { display: none !important; } 
                     </style>
-                """, unsafe_allow_html=True)
+                """
+                if theater_mode:
+                    base_css += """
+                    <style>
+                    /* Hide App Title, Caption, and Tabs Header */
+                    h1 { display: none !important; }
+                    div[data-testid="caption"] { display: none !important; }
+                    div[role="tablist"] { display: none !important; }
+                    /* Stretch the Map */
+                    [data-testid="stDeckGlJsonChart"] { height: 85vh !important; }
+                    /* Push content up to remove blank space */
+                    .block-container { padding-top: 2rem !important; }
+                    </style>
+                    """
+                
+                st.markdown(base_css, unsafe_allow_html=True)
                 st.divider()
                 
-                # --- THEATER MODE LAYOUT LOGIC ---
+                # --- LAYOUT LOGIC ---
                 if theater_mode:
                     c_l = st.container()
-                    # Stretch the map vertically to 85% of viewport
-                    st.markdown("""
-                        <style>
-                        [data-testid="stDeckGlJsonChart"] { height: 85vh !important; }
-                        </style>
-                    """, unsafe_allow_html=True)
                 else:
                     c_l, c_s = st.columns([3, 1])
                     with c_s:
@@ -2026,16 +2013,6 @@ elif page == "AIOps RCA":
                 with c_l:
                     if not theater_mode:
                         st.subheader("Overlays")
-                    
-                    # Pause warning
-                    if st.session_state.target_edit_site:
-                        c_warn1, c_warn2 = st.columns([4, 1])
-                        c_warn1.warning(f" **Editing {st.session_state.target_edit_site}**. Live polling is temporarily paused.")
-                        if c_warn2.button("Clear & Resume", width="stretch"):
-                            st.session_state.target_edit_site = None
-                            st.session_state.last_map_selection = None
-                            st.session_state.poll_resume_count += 1
-                            st.rerun()
 
                     locs = svc.get_cached_locations()
                     if st.session_state.allowed_site_types != "ALL":
@@ -2070,15 +2047,18 @@ elif page == "AIOps RCA":
                         curr_state = "No Dispatch Needed" if is_maint else "Investigate/Dispatch"
                         
                         st.markdown(f"### {site_name}")
-                        new_stat = st.radio("Status", ["Investigate/Dispatch", "No Dispatch Needed"], 
-                                              index=["Investigate/Dispatch", "No Dispatch Needed"].index(curr_state))
                         
-                        new_disp = st.checkbox("Ticket Dispatched", value=is_disp)
+                        # Added Keys to ALL inputs so they survive the 5s refresh
+                        new_stat = st.radio("Status", ["Investigate/Dispatch", "No Dispatch Needed"], 
+                                              index=["Investigate/Dispatch", "No Dispatch Needed"].index(curr_state),
+                                              key=f"dia_stat_{site_name}")
+                        
+                        new_disp = st.checkbox("Ticket Dispatched", value=is_disp, key=f"dia_disp_{site_name}")
                                               
                         if new_stat == "No Dispatch Needed":
                             etr_val = site_record.maintenance_etr.date() if site_record and getattr(site_record, 'maintenance_etr', None) else datetime.today().date()
-                            m_etr = st.date_input("Estimated Time of Restoration (ETR)", value=etr_val)
-                            m_rsn = st.text_area("Reason / Comments", value=(site_record.maintenance_reason if site_record else ""))
+                            m_etr = st.date_input("Estimated Time of Restoration (ETR)", value=etr_val, key=f"dia_etr_{site_name}")
+                            m_rsn = st.text_area("Reason / Comments", value=(site_record.maintenance_reason if site_record else ""), key=f"dia_rsn_{site_name}")
                         else:
                             m_etr = None
                             m_rsn = ""
@@ -2086,7 +2066,7 @@ elif page == "AIOps RCA":
                         st.divider()
                         cd1, cd2 = st.columns(2)
                         
-                        if cd1.button("Save Changes", type="primary", width="stretch"):
+                        if cd1.button("Save Changes", type="primary", width="stretch", key=f"dia_save_{site_name}"):
                             if site_alerts: 
                                 svc.set_cluster_dispatch([a.id for a in site_alerts], new_disp)
                                 
@@ -2095,19 +2075,16 @@ elif page == "AIOps RCA":
                             elif new_stat == "No Dispatch Needed":
                                 if site_record: svc.set_site_maintenance(site_name, True, m_etr, m_rsn)
                             
-                            # FORCE CACHE CLEAR TO DROP PULSE IMMEDIATELY
                             if hasattr(svc.get_cached_locations, 'clear'):
                                 svc.get_cached_locations.clear()
                             
                             st.session_state.target_edit_site = None 
-                            st.session_state.poll_resume_count += 1
                             st.success("Status Updated!")
                             time.sleep(0.5)
                             st.rerun()
                             
-                        if cd2.button("Cancel", width="stretch"):
+                        if cd2.button("Cancel", width="stretch", key=f"dia_cancel_{site_name}"):
                             st.session_state.target_edit_site = None
-                            st.session_state.poll_resume_count += 1
                             st.rerun()
 
                     # --- CUSTOM PYDECK MAP ENGINE ---
@@ -2155,7 +2132,6 @@ elif page == "AIOps RCA":
                         )
                     ]
                     
-                    # FIX: ALWAYS APPEND PULSE LAYER TO CLEAR GHOSTS
                     pulse_df = df_map[df_map['show_pulse'] == True]
                     layers.append(pdk.Layer(
                         "ScatterplotLayer",
@@ -2189,10 +2165,9 @@ elif page == "AIOps RCA":
                     if st.session_state.target_edit_site:
                         site_control_dialog(st.session_state.target_edit_site)
                     
-                # --- CORRELATION WRAPPER: Hide entirely if in Theater Mode ---
-                if theater_mode:
-                    st.info("🗺️ **Theater Mode Active.** Toggle 'Focus Map' off to view RCA Correlation data and Event Log.")
-                else:
+                # --- CORRELATION WRAPPER ---
+                # Entirely hidden when Theater Mode is active
+                if not theater_mode:
                     st.subheader("Correlation")
                     if not alerts: st.success("Grid Operational.")
                     else:
@@ -2313,7 +2288,6 @@ elif page == "AIOps RCA":
                                         else:
                                             st.info("Site not registered in Facilities database; status cannot be tracked.")
             ai_idx += 1
-
         if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions:
             with ai_tabs[ai_idx]:
                 st.subheader("Predictive Analytics & Chronic Degradation")
