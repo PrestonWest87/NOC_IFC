@@ -1979,7 +1979,7 @@ elif page == "AIOps RCA":
                 if "poll_resume_count" not in st.session_state:
                     st.session_state.poll_resume_count = 0
 
-                # Fetch data first so columns can be established at the top
+                # Fetch data first
                 alerts, events, grid = svc.get_aiops_dashboard_data()
                 
                 # --- NEW TOP CONTROLS ---
@@ -1987,14 +1987,13 @@ elif page == "AIOps RCA":
                 live_polling = ctrl_1.toggle("Live 5s Polling", value=True, key="aiops_live_poll")
                 
                 # The Theater Mode Toggle
-                theater_mode = ctrl_2.toggle("🗺️ Focus Map (Theater Mode)", value=False, key="aiops_theater", help="Expands the map to fill the screen without breaking popup interactions.")
+                theater_mode = ctrl_2.toggle("🗺️ Focus Map (Theater Mode)", value=False, key="aiops_theater")
                 
-                # INTELLIGENT POLLING: High limit to prevent silent death, dynamic key to force remount
+                # INTELLIGENT POLLING
                 if live_polling and not st.session_state.target_edit_site:
                     from streamlit_autorefresh import st_autorefresh
                     st_autorefresh(interval=5000, limit=100000, key=f"aiops_poll_{st.session_state.poll_resume_count}")
                 
-                # Hide the broken native fullscreen button and fix spacing
                 st.markdown("""
                     <style>
                     div[data-testid="stToggle"] { margin-bottom: -15px !important; }
@@ -2007,15 +2006,14 @@ elif page == "AIOps RCA":
                 # --- THEATER MODE LAYOUT LOGIC ---
                 if theater_mode:
                     c_l = st.container()
-                    # Stretch the map vertically
+                    # Stretch the map vertically to 85% of viewport
                     st.markdown("""
                         <style>
-                        [data-testid="stDeckGlJsonChart"] { height: 75vh !important; }
+                        [data-testid="stDeckGlJsonChart"] { height: 85vh !important; }
                         </style>
                     """, unsafe_allow_html=True)
                 else:
                     c_l, c_s = st.columns([3, 1])
-                    
                     with c_s:
                         st.subheader("Event Log")
                         for e in events:
@@ -2025,11 +2023,11 @@ elif page == "AIOps RCA":
                             clean_msg = clean_msg.replace('?', '').strip()
                             st.caption(f"{time_str} | {clean_msg}")
                 
-                # Everything below this remains the exact same as before!
                 with c_l:
-                    st.subheader("Overlays")
+                    if not theater_mode:
+                        st.subheader("Overlays")
                     
-                    # Pause warning if they are currently editing a site
+                    # Pause warning
                     if st.session_state.target_edit_site:
                         c_warn1, c_warn2 = st.columns([4, 1])
                         c_warn1.warning(f" **Editing {st.session_state.target_edit_site}**. Live polling is temporarily paused.")
@@ -2049,7 +2047,6 @@ elif page == "AIOps RCA":
                         start_t = black_ops["dean_start"]
                         elapsed = time.time() - start_t
                         num_fake_reds = int(elapsed // 30) 
-                        
                         if locs and num_fake_reds >= len(locs):
                             black_ops["dean_target"] = None
                             st.toast("Operation: Dean complete. Grid reverted to normal.")
@@ -2076,7 +2073,6 @@ elif page == "AIOps RCA":
                         new_stat = st.radio("Status", ["Investigate/Dispatch", "No Dispatch Needed"], 
                                               index=["Investigate/Dispatch", "No Dispatch Needed"].index(curr_state))
                         
-                        # Added actual dispatch tracking checkbox
                         new_disp = st.checkbox("Ticket Dispatched", value=is_disp)
                                               
                         if new_stat == "No Dispatch Needed":
@@ -2091,16 +2087,17 @@ elif page == "AIOps RCA":
                         cd1, cd2 = st.columns(2)
                         
                         if cd1.button("Save Changes", type="primary", width="stretch"):
-                            
-                            # Handle dispatch status independently
                             if site_alerts: 
                                 svc.set_cluster_dispatch([a.id for a in site_alerts], new_disp)
                                 
-                            # Handle maintenance status
                             if new_stat == "Investigate/Dispatch":
                                 if site_record: svc.set_site_maintenance(site_name, False, None, "")
                             elif new_stat == "No Dispatch Needed":
                                 if site_record: svc.set_site_maintenance(site_name, True, m_etr, m_rsn)
+                            
+                            # FORCE CACHE CLEAR TO DROP PULSE IMMEDIATELY
+                            if hasattr(svc.get_cached_locations, 'clear'):
+                                svc.get_cached_locations.clear()
                             
                             st.session_state.target_edit_site = None 
                             st.session_state.poll_resume_count += 1
@@ -2113,7 +2110,7 @@ elif page == "AIOps RCA":
                             st.session_state.poll_resume_count += 1
                             st.rerun()
 
-                   # --- CUSTOM PYDECK MAP ENGINE ---
+                    # --- CUSTOM PYDECK MAP ENGINE ---
                     map_data = []
                     active_alert_sites = set(a.mapped_location for a in alerts)
                     
@@ -2158,14 +2155,14 @@ elif page == "AIOps RCA":
                         )
                     ]
                     
+                    # FIX: ALWAYS APPEND PULSE LAYER TO CLEAR GHOSTS
                     pulse_df = df_map[df_map['show_pulse'] == True]
-                    if not pulse_df.empty:
-                        layers.append(pdk.Layer(
-                            "ScatterplotLayer",
-                            id="pulse_layer", 
-                            data=pulse_df, get_position='[lon, lat]',
-                            get_fill_color=[220, 53, 69, 40], get_radius=20000, pickable=False
-                        ))
+                    layers.append(pdk.Layer(
+                        "ScatterplotLayer",
+                        id="pulse_layer", 
+                        data=pulse_df, get_position='[lon, lat]',
+                        get_fill_color=[220, 53, 69, 40], get_radius=20000, pickable=False
+                    ))
                         
                     view_state = pdk.ViewState(latitude=34.8, longitude=-92.2, zoom=6)
                     
@@ -2176,26 +2173,26 @@ elif page == "AIOps RCA":
                         key="aiops_main_map"
                     )
                     
-                    # --- Safe Event Extraction with Memory Lock ---
                     if chart_event and hasattr(chart_event, 'selection') and chart_event.selection.objects:
                         selected_objects = chart_event.selection.objects.get("base_sites", [])
                         if selected_objects:
                             clicked_site = selected_objects[0].get("name")
-                            # Only trigger if they clicked a NEW site
                             if clicked_site != st.session_state.last_map_selection:
                                 st.session_state.last_map_selection = clicked_site
                                 st.session_state.target_edit_site = clicked_site
                                 st.rerun()
                         else:
-                            # Clears memory if user clicks empty map space
                             st.session_state.last_map_selection = None
                     else:
                         st.session_state.last_map_selection = None
 
-                    # Trigger dialog unconditionally if a site is locked in session state
                     if st.session_state.target_edit_site:
                         site_control_dialog(st.session_state.target_edit_site)
                     
+                # --- CORRELATION WRAPPER: Hide entirely if in Theater Mode ---
+                if theater_mode:
+                    st.info("🗺️ **Theater Mode Active.** Toggle 'Focus Map' off to view RCA Correlation data and Event Log.")
+                else:
                     st.subheader("Correlation")
                     if not alerts: st.success("Grid Operational.")
                     else:
@@ -2231,7 +2228,8 @@ elif page == "AIOps RCA":
                             )
 
                             if any("Maintenance Override" in log for log in e):
-                                svc.get_cached_locations.clear()
+                                if hasattr(svc.get_cached_locations, 'clear'):
+                                    svc.get_cached_locations.clear()
                                 st.rerun()
                             
                             with st.container(border=True):
@@ -2279,7 +2277,6 @@ elif page == "AIOps RCA":
                                             svc.acknowledge_cluster([a.id for a in data['alerts']])
                                             safe_rerun()
                                             
-                                    # --- TOC / NOC UNIFIED STATUS CONTROLS ---
                                     if can_manage_maint or can_dispatch:
                                         if site_record:
                                             with st.expander(f"Status Controls: {site}"):
@@ -2291,7 +2288,6 @@ elif page == "AIOps RCA":
                                                 m_stat = st.selectbox("Site Status", ["Investigate/Dispatch", "No Dispatch Needed"], 
                                                                       index=["Investigate/Dispatch", "No Dispatch Needed"].index(curr_state), key=f"ms_{site}")
                                                 
-                                                # Added actual dispatch tracking checkbox
                                                 m_disp = st.checkbox("Ticket Dispatched", value=is_disp, key=f"mdisp_{site}")
                                                 
                                                 if m_stat == "No Dispatch Needed":
@@ -2302,14 +2298,15 @@ elif page == "AIOps RCA":
                                                     m_etr = None; m_rsn = ""
                                                 
                                                 if st.button("Save Status Update", key=f"msave_{site}", type="primary", width="stretch"):
-                                                    # Save dispatch status
                                                     svc.set_cluster_dispatch([a.id for a in data['alerts']], m_disp)
                                                     
-                                                    # Save maintenance status
                                                     if m_stat == "Investigate/Dispatch":
                                                         svc.set_site_maintenance(site, False, None, "")
                                                     elif m_stat == "No Dispatch Needed":
                                                         svc.set_site_maintenance(site, True, m_etr, m_rsn)
+                                                    
+                                                    if hasattr(svc.get_cached_locations, 'clear'):
+                                                        svc.get_cached_locations.clear()
                                                         
                                                     st.success("Status details saved!")
                                                     time.sleep(0.5); safe_rerun()
