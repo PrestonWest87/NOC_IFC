@@ -1976,6 +1976,8 @@ elif page == "AIOps RCA":
                     st.session_state.target_edit_site = None
                 if "last_map_selection" not in st.session_state:
                     st.session_state.last_map_selection = None
+                if "poll_resume_count" not in st.session_state:
+                    st.session_state.poll_resume_count = 0
 
                 # Fetch data first so columns can be established at the top
                 alerts, events, grid = svc.get_aiops_dashboard_data()
@@ -1993,10 +1995,10 @@ elif page == "AIOps RCA":
                     st.subheader("Event Log")
                     live_polling = st.toggle("Live 5s Polling", value=True, key="aiops_live_poll")
                     
-                    # INTELLIGENT POLLING: Only run if no dialog is open
+                    # INTELLIGENT POLLING: High limit to prevent silent death, dynamic key to force remount
                     if live_polling and not st.session_state.target_edit_site:
                         from streamlit_autorefresh import st_autorefresh
-                        st_autorefresh(interval=5000, key="aiops_5sec_refresh")
+                        st_autorefresh(interval=5000, limit=100000, key=f"aiops_poll_{st.session_state.poll_resume_count}")
                         
                     st.divider()
                     
@@ -2016,7 +2018,7 @@ elif page == "AIOps RCA":
                         c_warn1.warning(f" **Editing {st.session_state.target_edit_site}**. Live polling is temporarily paused.")
                         if c_warn2.button("Clear & Resume", width="stretch"):
                             st.session_state.target_edit_site = None
-                            st.session_state.last_map_selection = None
+                            st.session_state.poll_resume_count += 1
                             st.rerun()
 
                     locs = svc.get_cached_locations()
@@ -2053,8 +2055,8 @@ elif page == "AIOps RCA":
                         curr_state = "No Dispatch Needed" if is_maint else ("Dispatched" if is_disp else "Action Required")
                         
                         st.markdown(f"### {site_name}")
-                        new_stat = st.radio("Status", ["Action Required", "Dispatched", "No Dispatch Needed"], 
-                                              index=["Action Required", "Dispatched", "No Dispatch Needed"].index(curr_state))
+                        new_stat = st.radio("Status", ["Dispatched", "No Dispatch Needed"], 
+                                              index=["Dispatched", "No Dispatch Needed"].index(curr_state))
                                               
                         if new_stat == "No Dispatch Needed":
                             etr_val = site_record.maintenance_etr.date() if site_record and getattr(site_record, 'maintenance_etr', None) else datetime.today().date()
@@ -2079,12 +2081,14 @@ elif page == "AIOps RCA":
                                 if site_record: svc.set_site_maintenance(site_name, True, m_etr, m_rsn)
                             
                             st.session_state.target_edit_site = None 
+                            st.session_state.poll_resume_count += 1
                             st.success("Status Updated!")
                             time.sleep(0.5)
                             st.rerun()
                             
                         if cd2.button("Cancel", width="stretch"):
                             st.session_state.target_edit_site = None
+                            st.session_state.poll_resume_count += 1
                             st.rerun()
 
                     # --- CUSTOM PYDECK MAP ENGINE ---
@@ -2124,7 +2128,7 @@ elif page == "AIOps RCA":
                     layers = [
                         pdk.Layer(
                             "ScatterplotLayer",
-                            id="base_sites",  # <--- CRITICAL FIX: Named ID required for selections
+                            id="base_sites", 
                             data=df_map, get_position='[lon, lat]',
                             get_fill_color='color', get_radius=6000,
                             pickable=True, stroked=True,
@@ -2150,7 +2154,7 @@ elif page == "AIOps RCA":
                         key="aiops_main_map"
                     )
                     
-                    # --- CRITICAL FIX: Safe Event Extraction with Memory Lock ---
+                    # --- Safe Event Extraction with Memory Lock ---
                     if chart_event and hasattr(chart_event, 'selection') and chart_event.selection.objects:
                         selected_objects = chart_event.selection.objects.get("base_sites", [])
                         if selected_objects:
@@ -2261,8 +2265,8 @@ elif page == "AIOps RCA":
                                                 
                                                 curr_state = "No Dispatch Needed" if is_maint else ("Dispatched" if is_disp else "Action Required")
                                                 
-                                                m_stat = st.selectbox("Site Status", ["Action Required", "Dispatched", "No Dispatch Needed"], 
-                                                                      index=["Action Required", "Dispatched", "No Dispatch Needed"].index(curr_state), key=f"ms_{site}")
+                                                m_stat = st.selectbox("Site Status", ["Investigate/Dispatch", "No Dispatch Needed"], 
+                                                                      index=["Investigate/Dispatch", "No Dispatch Needed"].index(curr_state), key=f"ms_{site}")
                                                 
                                                 if m_stat == "No Dispatch Needed":
                                                     etr_val = site_record.maintenance_etr.date() if getattr(site_record, 'maintenance_etr', None) else datetime.today().date()
@@ -2272,11 +2276,8 @@ elif page == "AIOps RCA":
                                                     m_etr = None; m_rsn = ""
                                                 
                                                 if st.button("Save Status Update", key=f"msave_{site}", type="primary", width="stretch"):
-                                                    if m_stat == "Dispatched":
+                                                    if m_stat == "Investigate/Dispatch":
                                                         svc.set_cluster_dispatch([a.id for a in data['alerts']], True)
-                                                        svc.set_site_maintenance(site, False, None, "")
-                                                    elif m_stat == "Action Required":
-                                                        svc.set_cluster_dispatch([a.id for a in data['alerts']], False)
                                                         svc.set_site_maintenance(site, False, None, "")
                                                     elif m_stat == "No Dispatch Needed":
                                                         svc.set_cluster_dispatch([a.id for a in data['alerts']], False)
