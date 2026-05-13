@@ -2068,11 +2068,11 @@ elif page == "AIOps RCA":
                                 
                                 # Added Keys to ALL inputs so they survive the 5s refresh
                                 new_stat = st.radio("Status", ["Investigate/Dispatch", "No Dispatch Needed"], 
-                                                      index=["Investigate/Dispatch", "No Dispatch Needed"].index(curr_state),
-                                                      key=f"dia_stat_{site_name}")
+                                                        index=["Investigate/Dispatch", "No Dispatch Needed"].index(curr_state),
+                                                        key=f"dia_stat_{site_name}")
                                 
                                 new_disp = st.checkbox("Ticket Dispatched", value=is_disp, key=f"dia_disp_{site_name}")
-                                                      
+                                                        
                                 if new_stat == "No Dispatch Needed":
                                     etr_val = site_record.maintenance_etr.date() if site_record and getattr(site_record, 'maintenance_etr', None) else datetime.today().date()
                                     m_etr = st.date_input("Estimated Time of Restoration (ETR)", value=etr_val, key=f"dia_etr_{site_name}")
@@ -2279,7 +2279,7 @@ elif page == "AIOps RCA":
                                                         curr_state = "No Dispatch Needed" if is_maint else "Investigate/Dispatch"
                                                         
                                                         m_stat = st.selectbox("Site Status", ["Investigate/Dispatch", "No Dispatch Needed"], 
-                                                                              index=["Investigate/Dispatch", "No Dispatch Needed"].index(curr_state), key=f"ms_{site}")
+                                                                                index=["Investigate/Dispatch", "No Dispatch Needed"].index(curr_state), key=f"ms_{site}")
                                                         
                                                         m_disp = st.checkbox("Ticket Dispatched", value=is_disp, key=f"mdisp_{site}")
                                                         
@@ -2306,50 +2306,50 @@ elif page == "AIOps RCA":
                                                 else:
                                                     st.info("Site not registered in Facilities database; status cannot be tracked.")
                     ai_idx += 1
-                if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions:
-                    with ai_tabs[ai_idx]:
-                        st.subheader("Predictive Analytics & Chronic Degradation")
-                        st.markdown("Analyzes historical telemetry to identify degrading hardware and unstable infrastructure *before* catastrophic failure.")
+        if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions:
+            with ai_tabs[ai_idx]:
+                st.subheader("Predictive Analytics & Chronic Degradation")
+                st.markdown("Analyzes historical telemetry to identify degrading hardware and unstable infrastructure *before* catastrophic failure.")
+                
+                is_analytics_cooling = check_cooldown("ai_analytics", 60)
+                if st.button("Processing..." if is_analytics_cooling else "Run Deep Analysis", type="primary", width="stretch", disabled=is_analytics_cooling):
+                    apply_cooldown("ai_analytics")
+                    with st.spinner("Crunching historical telemetry and calculating failure probabilities..."):
+                        f, v, r = ai_engine.generate_chronic_insights()
                         
-                        is_analytics_cooling = check_cooldown("ai_analytics", 60)
-                        if st.button("Processing..." if is_analytics_cooling else "Run Deep Analysis", type="primary", width="stretch", disabled=is_analytics_cooling):
-                            apply_cooldown("ai_analytics")
-                            with st.spinner("Crunching historical telemetry and calculating failure probabilities..."):
-                                f, v, r = ai_engine.generate_chronic_insights()
+                        if f is None or (isinstance(f, pd.DataFrame) and f.empty):
+                            st.success("No chronic degradation patterns detected in the current telemetry window.")
+                        else:
+                            st.divider()
+                            col_f, col_v = st.columns(2)
+                            
+                            with col_f:
+                                st.markdown("###  Top Offending Nodes")
+                                st.caption("Specific devices exhibiting high frequency of state-flapping.")
+                                st.dataframe(f, width="stretch", hide_index=True)
                                 
-                                if f is None or (isinstance(f, pd.DataFrame) and f.empty):
-                                    st.success("No chronic degradation patterns detected in the current telemetry window.")
+                            with col_v:
+                                st.markdown("###  Infrastructure Hotspots")
+                                st.caption("Sites or regions experiencing chronic instability.")
+                                if v is not None and not (isinstance(v, pd.DataFrame) and v.empty):
+                                    st.dataframe(v, width="stretch", hide_index=True)
                                 else:
-                                    st.divider()
-                                    col_f, col_v = st.columns(2)
+                                    st.info("Insufficient data for site heatmapping.")
                                     
-                                    with col_f:
-                                        st.markdown("###  Top Offending Nodes")
-                                        st.caption("Specific devices exhibiting high frequency of state-flapping.")
-                                        st.dataframe(f, width="stretch", hide_index=True)
-                                        
-                                    with col_v:
-                                        st.markdown("###  Infrastructure Hotspots")
-                                        st.caption("Sites or regions experiencing chronic instability.")
-                                        if v is not None and not (isinstance(v, pd.DataFrame) and v.empty):
-                                            st.dataframe(v, width="stretch", hide_index=True)
-                                        else:
-                                            st.info("Insufficient data for site heatmapping.")
-                                            
-                                    st.divider()
-                                    st.markdown("###  AI Predictive Maintenance Forecast")
-                                    with st.container(border=True):
-                                        if r is not None:
-                                            if isinstance(r, str):
-                                                st.markdown(r)
-                                            elif isinstance(r, pd.DataFrame):
-                                                st.dataframe(r, width="stretch", hide_index=True)
-                                            elif isinstance(r, list):
-                                                for item in r: st.markdown(f"- {item}")
-                                        else:
-                                            st.info("System is nominal. No preventative actions recommended at this time.")
-                    ai_idx += 1
-            
+                            st.divider()
+                            st.markdown("###  AI Predictive Maintenance Forecast")
+                            with st.container(border=True):
+                                if r is not None:
+                                    if isinstance(r, str):
+                                        st.markdown(r)
+                                    elif isinstance(r, pd.DataFrame):
+                                        st.dataframe(r, width="stretch", hide_index=True)
+                                    elif isinstance(r, list):
+                                        for item in r: st.markdown(f"- {item}")
+                                else:
+                                    st.info("System is nominal. No preventative actions recommended at this time.")
+            ai_idx += 1
+                
         if "Tab: AIOps RCA -> Global Correlation" in st.session_state.allowed_actions:
             with ai_tabs[ai_idx]:
                 st.subheader("Deterministic Global Correlation Engine")
