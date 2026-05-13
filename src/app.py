@@ -2227,83 +2227,82 @@ if "Tab: AIOps RCA -> Active Board" in st.session_state.allowed_actions:
             # --- END OF ACTIVE BOARD TAB ---
             ai_idx += 1
             
-        if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions:
-            with ai_tabs[ai_idx]:
-                st.subheader("Predictive Analytics & Chronic Degradation")
-                st.markdown("Analyzes historical telemetry to identify degrading hardware and unstable infrastructure *before* catastrophic failure.")
-    
-        if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions:
-            with ai_tabs[ai_idx]:
-                st.subheader("Predictive Analytics & Chronic Degradation")
-                st.markdown("Analyzes historical telemetry to identify degrading hardware and unstable infrastructure *before* catastrophic failure.")
-                
-                is_analytics_cooling = check_cooldown("ai_analytics", 60)
-                if st.button("Processing..." if is_analytics_cooling else "Run Deep Analysis", type="primary", width="stretch", disabled=is_analytics_cooling):
-                    apply_cooldown("ai_analytics")
-                    with st.spinner("Crunching historical telemetry and calculating failure probabilities..."):
-                        f, v, r = ai_engine.generate_chronic_insights()
-                        
-                        if f is None or (isinstance(f, pd.DataFrame) and f.empty):
-                            st.success("No chronic degradation patterns detected in the current telemetry window.")
-                        else:
-                            st.divider()
-                            col_f, col_v = st.columns(2)
-                            
-                            with col_f:
-                                st.markdown("###  Top Offending Nodes")
-                                st.caption("Specific devices exhibiting high frequency of state-flapping.")
-                                st.dataframe(f, width="stretch", hide_index=True)
-                                
-                            with col_v:
-                                st.markdown("###  Infrastructure Hotspots")
-                                st.caption("Sites or regions experiencing chronic instability.")
-                                if v is not None and not (isinstance(v, pd.DataFrame) and v.empty):
-                                    st.dataframe(v, width="stretch", hide_index=True)
-                                else:
-                                    st.info("Insufficient data for site heatmapping.")
-                                    
-                            st.divider()
-                            st.markdown("###  AI Predictive Maintenance Forecast")
-                            with st.container(border=True):
-                                if r is not None:
-                                    if isinstance(r, str):
-                                        st.markdown(r)
-                                    elif isinstance(r, pd.DataFrame):
-                                        st.dataframe(r, width="stretch", hide_index=True)
-                                    elif isinstance(r, list):
-                                        for item in r: st.markdown(f"- {item}")
-                                else:
-                                    st.info("System is nominal. No preventative actions recommended at this time.")
-            ai_idx += 1
-            
-        if "Tab: AIOps RCA -> Global Correlation" in st.session_state.allowed_actions:
-            with ai_tabs[ai_idx]:
-                st.subheader("Deterministic Global Correlation Engine")
-                st.markdown("Calculates causation graphs based on geospatial math and telemetry overlays across all domains.")
-                
-                c_glob1, c_glob2 = st.columns([3, 1])
-                
-                is_global_rca_cooling = check_cooldown("global_rca", 60)
-                if c_glob2.button("Calculating..." if is_global_rca_cooling else "Run Global Correlation", type="primary", width="stretch", disabled=is_global_rca_cooling):
-                    apply_cooldown("global_rca")
-                    with st.spinner("Calculating Multi-Domain Causal Links..."):
-                        report = svc.generate_global_sitrep(sys_config)
-                        st.session_state.last_global_rca = report
+if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions:
+    with ai_tabs[ai_idx]:
+        st.subheader("Predictive Analytics & Chronic Degradation")
+        st.markdown("Analyzes historical telemetry to identify degrading hardware and unstable infrastructure *before* catastrophic failure.")
 
-                if "last_global_rca" in st.session_state:
+if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions:
+    with ai_tabs[ai_idx]:
+        st.subheader("Predictive Analytics & Chronic Degradation")
+        st.markdown("Analyzes historical telemetry to identify degrading hardware and unstable infrastructure *before* catastrophic failure.")
+        
+        is_analytics_cooling = check_cooldown("ai_analytics", 60)
+        if st.button("Processing..." if is_analytics_cooling else "Run Deep Analysis", type="primary", width="stretch", disabled=is_analytics_cooling):
+            apply_cooldown("ai_analytics")
+            with st.spinner("Crunching historical telemetry and calculating failure probabilities..."):
+                f, v, r = ai_engine.generate_chronic_insights()
+                
+                if f is None or (isinstance(f, pd.DataFrame) and f.empty):
+                    st.success("No chronic degradation patterns detected in the current telemetry window.")
+                else:
                     st.divider()
-                    with st.container(border=True):
-                        st.markdown(st.session_state.last_global_rca)
+                    col_f, col_v = st.columns(2)
                     
-                    c_em1, c_em2 = st.columns([1, 4])
-                    if c_em1.button("Broadcast SitRep", width="stretch"):
-                        from src.mailer import send_alert_email
-                        with st.spinner("Transmitting via SMTP..."):
-                            success, msg = send_alert_email("URGENT: Multi-Domain Global SitRep", st.session_state.last_global_rca)
-                            if success: st.success(msg)
-                            else: st.error(msg)
-            ai_idx += 1
+                    with col_f:
+                        st.markdown("###  Top Offending Nodes")
+                        st.caption("Specific devices exhibiting high frequency of state-flapping.")
+                        st.dataframe(f, width="stretch", hide_index=True)
+                        
+                    with col_v:
+                        st.markdown("###  Infrastructure Hotspots")
+                        st.caption("Sites or regions experiencing chronic instability.")
+                        if v is not None and not (isinstance(v, pd.DataFrame) and v.empty):
+                            st.dataframe(v, width="stretch", hide_index=True)
+                        else:
+                            st.info("Insufficient data for site heatmapping.")
+                            
+                    st.divider()
+                    st.markdown("###  AI Predictive Maintenance Forecast")
+                    with st.container(border=True):
+                        if r is not None:
+                            if isinstance(r, str):
+                                st.markdown(r)
+                            elif isinstance(r, pd.DataFrame):
+                                st.dataframe(r, width="stretch", hide_index=True)
+                            elif isinstance(r, list):
+                                for item in r: st.markdown(f"- {item}")
+                        else:
+                            st.info("System is nominal. No preventative actions recommended at this time.")
+    ai_idx += 1
+    
+if "Tab: AIOps RCA -> Global Correlation" in st.session_state.allowed_actions:
+    with ai_tabs[ai_idx]:
+        st.subheader("Deterministic Global Correlation Engine")
+        st.markdown("Calculates causation graphs based on geospatial math and telemetry overlays across all domains.")
+        
+        c_glob1, c_glob2 = st.columns([3, 1])
+        
+        is_global_rca_cooling = check_cooldown("global_rca", 60)
+        if c_glob2.button("Calculating..." if is_global_rca_cooling else "Run Global Correlation", type="primary", width="stretch", disabled=is_global_rca_cooling):
+            apply_cooldown("global_rca")
+            with st.spinner("Calculating Multi-Domain Causal Links..."):
+                report = svc.generate_global_sitrep(sys_config)
+                st.session_state.last_global_rca = report
 
+        if "last_global_rca" in st.session_state:
+            st.divider()
+            with st.container(border=True):
+                st.markdown(st.session_state.last_global_rca)
+            
+            c_em1, c_em2 = st.columns([1, 4])
+            if c_em1.button("Broadcast SitRep", width="stretch"):
+                from src.mailer import send_alert_email
+                with st.spinner("Transmitting via SMTP..."):
+                    success, msg = send_alert_email("URGENT: Multi-Domain Global SitRep", st.session_state.last_global_rca)
+                    if success: st.success(msg)
+                    else: st.error(msg)
+    ai_idx += 1
 # ================= NEW: SHIFT LOGBOOK =================
 elif page == "Shift Logbook":
     st.title("NOC Running Shift Log & Calendar")
