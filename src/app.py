@@ -2117,7 +2117,7 @@ elif page == "AIOps RCA":
                             chart_event = st.pydeck_chart(
                                 pdk.Deck(layers=layers, initial_view_state=view_state, tooltip={"text": "{name}\nStatus: {status}"}),
                                 on_select="rerun",
-                                selection_mode="single_object"
+                                selection_mode="single-object"
                             )
                             
                             if chart_event and chart_event.selection.objects:
