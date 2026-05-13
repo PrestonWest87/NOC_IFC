@@ -1991,19 +1991,15 @@ elif page == "AIOps RCA":
                     from streamlit_autorefresh import st_autorefresh
                     st_autorefresh(interval=5000, limit=100000, key="aiops_continuous_poll")
                 
-                # --- DYNAMIC THEATER MODE CSS & DIALOG FIX ---
+                # --- DYNAMIC THEATER MODE CSS ---
                 base_css = """
                     <style>
                     div[data-testid="stToggle"] { margin-bottom: -15px !important; }
                     hr { margin-top: 10px !important; }
                     button[title="View fullscreen"] { display: none !important; } 
                     
-                    /* Hide the native Dialog 'X' */
+                    /* Hide the native Dialog 'X' to prevent zombie states. Use Cancel/Save buttons instead. */
                     div[data-testid="stDialog"] button[aria-label="Close"] { display: none !important; }
-                    
-                    /* CRITICAL FIX: Make the modal backdrop click-through so outside clicks hit the map! */
-                    div[data-testid="stModal"] { pointer-events: none !important; }
-                    div[data-testid="stDialog"] { pointer-events: auto !important; }
                     </style>
                 """
                 if theater_mode:
@@ -2108,21 +2104,20 @@ elif page == "AIOps RCA":
                                 svc.get_cached_locations.clear()
                             
                             st.session_state.target_edit_site = None 
-                            st.session_state.last_map_selection = None
+                            # We deliberately leave last_map_selection alone so the popup doesn't instantly reappear
                             st.success("Status Updated!")
                             time.sleep(0.5)
                             st.rerun()
                             
                         if cd2.button("Cancel", width="stretch", key=f"dia_cancel_{site_name}"):
                             st.session_state.target_edit_site = None
-                            st.session_state.last_map_selection = None
+                            # We deliberately leave last_map_selection alone so the popup doesn't instantly reappear
                             st.rerun()
 
                     # --- CUSTOM PYDECK MAP ENGINE ---
                     map_data = []
                     active_alert_sites = set(a.mapped_location for a in alerts)
                     
-                    # Track coordinates for Anti-Overlap Jitter
                     seen_coords = {}
                     
                     for l in locs:
@@ -2157,12 +2152,10 @@ elif page == "AIOps RCA":
                             if l.name in st.session_state.investigating_sites:
                                 st.session_state.investigating_sites.discard(l.name)
                                 
-                        # --- JITTER ALGORITHM (Prevents dots from hiding under each other) ---
                         coord_key = f"{l.lat}_{l.lon}"
                         if coord_key in seen_coords:
                             seen_coords[coord_key] += 1
                             offset = seen_coords[coord_key]
-                            # Offsets the dot diagonally by ~1.3km for each overlap
                             adj_lat = l.lat + (0.012 * offset)
                             adj_lon = l.lon + (0.012 * offset)
                         else:
@@ -2182,7 +2175,7 @@ elif page == "AIOps RCA":
                             "ScatterplotLayer",
                             id="base_sites", 
                             data=df_map, get_position='[lon, lat]',
-                            get_fill_color='color', get_radius=3000, # Made dots smaller
+                            get_fill_color='color', get_radius=3000, 
                             pickable=True, stroked=True,
                             get_line_color=[255,255,255,255], line_width_min_pixels=1
                         )
@@ -2193,7 +2186,7 @@ elif page == "AIOps RCA":
                         "ScatterplotLayer",
                         id="pulse_layer", 
                         data=pulse_df, get_position='[lon, lat]',
-                        get_fill_color=[220, 53, 69, 40], get_radius=12000, pickable=False # Made pulse smaller
+                        get_fill_color=[220, 53, 69, 40], get_radius=12000, pickable=False 
                     ))
                         
                     view_state = pdk.ViewState(latitude=34.8, longitude=-92.2, zoom=6)
@@ -2205,21 +2198,23 @@ elif page == "AIOps RCA":
                         key="aiops_main_map"
                     )
                     
-                    # --- BULLETPROOF EVENT HANDLING ---
-                    if chart_event and hasattr(chart_event, 'selection') and isinstance(chart_event.selection.objects, dict):
-                        selected_objects = chart_event.selection.objects.get("base_sites", [])
-                        if selected_objects:
-                            clicked_site = selected_objects[0].get("name")
-                            if clicked_site != st.session_state.last_map_selection:
-                                st.session_state.last_map_selection = clicked_site
-                                st.session_state.target_edit_site = clicked_site
-                                st.rerun()
-                        else:
-                            # User clicked empty space or through the dialog backdrop. Clear memory cleanly.
-                            if st.session_state.target_edit_site is not None or st.session_state.last_map_selection is not None:
-                                st.session_state.target_edit_site = None
-                                st.session_state.last_map_selection = None
-                                st.rerun()
+                    # --- MAP CLICK INTERCEPTION ---
+                    if chart_event and hasattr(chart_event, 'selection'):
+                        objects = getattr(chart_event.selection, 'objects', {})
+                        if isinstance(objects, dict):
+                            selected_objects = objects.get("base_sites", [])
+                            if selected_objects:
+                                clicked_site = selected_objects[0].get("name")
+                                # Trigger dialog ONLY if they clicked a newly selected dot
+                                if clicked_site != st.session_state.last_map_selection:
+                                    st.session_state.last_map_selection = clicked_site
+                                    st.session_state.target_edit_site = clicked_site
+                                    st.rerun()
+                            else:
+                                # User clicked empty space on the map. Clear memory so dots can be clicked again.
+                                if st.session_state.last_map_selection is not None:
+                                    st.session_state.last_map_selection = None
+                                    st.rerun()
                     
                     # --- UNCONDITIONAL DIALOG TRIGGER ---
                     if st.session_state.target_edit_site:
