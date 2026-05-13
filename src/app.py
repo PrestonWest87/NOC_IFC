@@ -1974,6 +1974,8 @@ elif page == "AIOps RCA":
                 # --- STATE MANAGEMENT FOR DIALOG & POLLING ---
                 if "target_edit_site" not in st.session_state:
                     st.session_state.target_edit_site = None
+                if "last_map_selection" not in st.session_state:
+                    st.session_state.last_map_selection = None
 
                 # Fetch data first so columns can be established at the top
                 alerts, events, grid = svc.get_aiops_dashboard_data()
@@ -2014,6 +2016,7 @@ elif page == "AIOps RCA":
                         c_warn1.warning(f" **Editing {st.session_state.target_edit_site}**. Live polling is temporarily paused.")
                         if c_warn2.button("Clear & Resume", width="stretch"):
                             st.session_state.target_edit_site = None
+                            st.session_state.last_map_selection = None
                             st.rerun()
 
                     locs = svc.get_cached_locations()
@@ -2075,13 +2078,13 @@ elif page == "AIOps RCA":
                                 if site_alerts: svc.set_cluster_dispatch([a.id for a in site_alerts], False)
                                 if site_record: svc.set_site_maintenance(site_name, True, m_etr, m_rsn)
                             
-                            st.session_state.target_edit_site = None # Clear the lock
+                            st.session_state.target_edit_site = None 
                             st.success("Status Updated!")
                             time.sleep(0.5)
                             st.rerun()
                             
                         if cd2.button("Cancel", width="stretch"):
-                            st.session_state.target_edit_site = None # Clear the lock
+                            st.session_state.target_edit_site = None
                             st.rerun()
 
                     # --- CUSTOM PYDECK MAP ENGINE ---
@@ -2096,7 +2099,6 @@ elif page == "AIOps RCA":
                         
                         show_pulse = False
                         
-                        # COLOR LOGIC EXACTLY AS REQUESTED
                         if is_down:
                             if is_no_dispatch:
                                 color = [0, 123, 255, 200]  # Blue
@@ -2107,13 +2109,13 @@ elif page == "AIOps RCA":
                             else:
                                 color = [220, 53, 69, 200]  # Red
                                 status_text = "Down (Action Required)"
-                                show_pulse = True # Blast radius only active here
+                                show_pulse = True 
                         else:
                             color = [40, 167, 69, 200]  # Green
                             status_text = "Operational / Clear"
                             
                         map_data.append({
-                            "id": l.name, "name": l.name, "lat": l.lat, "lon": l.lon,
+                            "name": l.name, "lat": l.lat, "lon": l.lon,
                             "color": color, "status": status_text, "show_pulse": show_pulse
                         })
                         
@@ -2122,6 +2124,7 @@ elif page == "AIOps RCA":
                     layers = [
                         pdk.Layer(
                             "ScatterplotLayer",
+                            id="base_sites",  # <--- CRITICAL FIX: Named ID required for selections
                             data=df_map, get_position='[lon, lat]',
                             get_fill_color='color', get_radius=6000,
                             pickable=True, stroked=True,
@@ -2133,6 +2136,7 @@ elif page == "AIOps RCA":
                     if not pulse_df.empty:
                         layers.append(pdk.Layer(
                             "ScatterplotLayer",
+                            id="pulse_layer", 
                             data=pulse_df, get_position='[lon, lat]',
                             get_fill_color=[220, 53, 69, 40], get_radius=20000, pickable=False
                         ))
@@ -2146,12 +2150,21 @@ elif page == "AIOps RCA":
                         key="aiops_main_map"
                     )
                     
-                    # Intercept map clicks and store in session state to protect from polling
-                    if chart_event and chart_event.selection.objects:
-                        clicked_site = chart_event.selection.objects[0].get("name")
-                        if clicked_site and clicked_site != st.session_state.target_edit_site:
-                            st.session_state.target_edit_site = clicked_site
-                            st.rerun()
+                    # --- CRITICAL FIX: Safe Event Extraction with Memory Lock ---
+                    if chart_event and hasattr(chart_event, 'selection') and chart_event.selection.objects:
+                        selected_objects = chart_event.selection.objects.get("base_sites", [])
+                        if selected_objects:
+                            clicked_site = selected_objects[0].get("name")
+                            # Only trigger if they clicked a NEW site
+                            if clicked_site != st.session_state.last_map_selection:
+                                st.session_state.last_map_selection = clicked_site
+                                st.session_state.target_edit_site = clicked_site
+                                st.rerun()
+                        else:
+                            # Clears memory if user clicks empty map space
+                            st.session_state.last_map_selection = None
+                    else:
+                        st.session_state.last_map_selection = None
 
                     # Trigger dialog unconditionally if a site is locked in session state
                     if st.session_state.target_edit_site:
@@ -2202,7 +2215,6 @@ elif page == "AIOps RCA":
                                     if p0: st.error(f"**Patient Zero (Suspected Origin Node):** {p0}")
                                     else: st.info("**Patient Zero:** Indeterminate (Simultaneous Failure)")
                                         
-                                    # --- CHECK NO DISPATCH NEEDED / DISPATCHED STATUS ---
                                     site_record = next((l for l in locs if l.name == site), None)
                                     if site_record and getattr(site_record, 'under_maintenance', False):
                                         etr_str = site_record.maintenance_etr.strftime('%Y-%m-%d') if site_record.maintenance_etr else "Unknown"
@@ -2241,7 +2253,6 @@ elif page == "AIOps RCA":
                                             svc.acknowledge_cluster([a.id for a in data['alerts']])
                                             safe_rerun()
                                             
-                                    # --- TOC / NOC UNIFIED STATUS CONTROLS ---
                                     if can_manage_maint or can_dispatch:
                                         if site_record:
                                             with st.expander(f"Status Controls: {site}"):
@@ -2275,11 +2286,6 @@ elif page == "AIOps RCA":
                                         else:
                                             st.info("Site not registered in Facilities database; status cannot be tracked.")
             ai_idx += 1
-                    
-        if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions:
-            with ai_tabs[ai_idx]:
-                st.subheader("Predictive Analytics & Chronic Degradation")
-                st.markdown("Analyzes historical telemetry to identify degrading hardware and unstable infrastructure *before* catastrophic failure.")
 
         if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions:
             with ai_tabs[ai_idx]:
