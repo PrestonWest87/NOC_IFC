@@ -1970,11 +1970,11 @@ elif page == "AIOps RCA":
         if "Tab: AIOps RCA -> Active Board" in st.session_state.allowed_actions:
             with ai_tabs[ai_idx]:
                 
-                # --- STATE MANAGEMENT FOR DIALOG ---
-                if "target_edit_site" not in st.session_state:
-                    st.session_state.target_edit_site = None
+                # --- STATE MANAGEMENT FOR DIALOG & COLORS ---
                 if "last_map_selection" not in st.session_state:
                     st.session_state.last_map_selection = None
+                if "investigating_sites" not in st.session_state:
+                    st.session_state.investigating_sites = set()
 
                 # Fetch data first
                 alerts, events, grid = svc.get_aiops_dashboard_data()
@@ -1984,7 +1984,7 @@ elif page == "AIOps RCA":
                 live_polling = ctrl_1.toggle("Live 5s Polling", value=True, key="aiops_live_poll")
                 theater_mode = ctrl_2.toggle("🗺️ Focus Map (Theater Mode)", value=False, key="aiops_theater")
                 
-                # INTELLIGENT POLLING: Continuous background refreshing (no longer paused)
+                # INTELLIGENT POLLING: Continuous background refreshing
                 if live_polling:
                     from streamlit_autorefresh import st_autorefresh
                     st_autorefresh(interval=5000, limit=100000, key="aiops_continuous_poll")
@@ -2090,20 +2090,20 @@ elif page == "AIOps RCA":
                                 svc.set_cluster_dispatch([a.id for a in site_alerts], new_disp)
                                 
                             if new_stat == "Investigate/Dispatch":
+                                st.session_state.investigating_sites.add(site_name)
                                 if site_record: svc.set_site_maintenance(site_name, False, None, "")
                             elif new_stat == "No Dispatch Needed":
+                                st.session_state.investigating_sites.discard(site_name)
                                 if site_record: svc.set_site_maintenance(site_name, True, m_etr, m_rsn)
                             
                             if hasattr(svc.get_cached_locations, 'clear'):
                                 svc.get_cached_locations.clear()
                             
-                            st.session_state.target_edit_site = None 
                             st.success("Status Updated!")
                             time.sleep(0.5)
                             st.rerun()
                             
                         if cd2.button("Cancel", width="stretch", key=f"dia_cancel_{site_name}"):
-                            st.session_state.target_edit_site = None
                             st.rerun()
 
                     # --- CUSTOM PYDECK MAP ENGINE ---
@@ -2113,11 +2113,14 @@ elif page == "AIOps RCA":
                     for l in locs:
                         is_down = l.name in active_alert_sites
                         is_no_dispatch = getattr(l, 'under_maintenance', False)
+                        is_investigating = l.name in st.session_state.investigating_sites
+                        
                         site_alerts = [a for a in alerts if a.mapped_location == l.name]
                         is_dispatched = any(getattr(a, 'is_dispatched', False) for a in site_alerts)
                         
                         show_pulse = False
                         
+                        # NEW COLOR LOGIC: Dispatched AND Investigating are Yellow
                         if is_down:
                             if is_no_dispatch:
                                 color = [0, 123, 255, 200]  # Blue
@@ -2125,13 +2128,21 @@ elif page == "AIOps RCA":
                             elif is_dispatched:
                                 color = [255, 193, 7, 200]  # Yellow
                                 status_text = "Down (Ticket Dispatched)"
+                                show_pulse = False
+                            elif is_investigating:
+                                color = [255, 193, 7, 200]  # Yellow
+                                status_text = "Down (Investigating/Pending Dispatch)"
+                                show_pulse = False
                             else:
                                 color = [220, 53, 69, 200]  # Red
-                                status_text = "Down (Investigate/Dispatch)"
+                                status_text = "Down (Action Required)"
                                 show_pulse = True 
                         else:
                             color = [40, 167, 69, 200]  # Green
                             status_text = "Operational / Clear"
+                            # Cleanup memory if site recovers
+                            if l.name in st.session_state.investigating_sites:
+                                st.session_state.investigating_sites.discard(l.name)
                             
                         map_data.append({
                             "name": l.name, "lat": l.lat, "lon": l.lon,
@@ -2168,24 +2179,21 @@ elif page == "AIOps RCA":
                         key="aiops_main_map"
                     )
                     
+                    # --- X BUTTON FIX: Strict Change-Only Invocation ---
                     if chart_event and hasattr(chart_event, 'selection') and chart_event.selection.objects:
                         selected_objects = chart_event.selection.objects.get("base_sites", [])
                         if selected_objects:
                             clicked_site = selected_objects[0].get("name")
+                            # ONLY pop the dialog if they just clicked a new dot
                             if clicked_site != st.session_state.last_map_selection:
                                 st.session_state.last_map_selection = clicked_site
-                                st.session_state.target_edit_site = clicked_site
-                                st.rerun()
+                                site_control_dialog(clicked_site)
                         else:
                             st.session_state.last_map_selection = None
                     else:
                         st.session_state.last_map_selection = None
-
-                    if st.session_state.target_edit_site:
-                        site_control_dialog(st.session_state.target_edit_site)
                     
                     # --- CORRELATION WRAPPER MOVED HERE ---
-                    # Now positioned securely inside the main map column (c_l)
                     if not theater_mode:
                         st.markdown("<br>", unsafe_allow_html=True)
                         st.subheader("Correlation")
@@ -2296,8 +2304,10 @@ elif page == "AIOps RCA":
                                                         svc.set_cluster_dispatch([a.id for a in data['alerts']], m_disp)
                                                         
                                                         if m_stat == "Investigate/Dispatch":
+                                                            st.session_state.investigating_sites.add(site)
                                                             svc.set_site_maintenance(site, False, None, "")
                                                         elif m_stat == "No Dispatch Needed":
+                                                            st.session_state.investigating_sites.discard(site)
                                                             svc.set_site_maintenance(site, True, m_etr, m_rsn)
                                                         
                                                         if hasattr(svc.get_cached_locations, 'clear'):
@@ -2308,6 +2318,7 @@ elif page == "AIOps RCA":
                                             else:
                                                 st.info("Site not registered in Facilities database; status cannot be tracked.")
             ai_idx += 1
+            
         if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions:
             with ai_tabs[ai_idx]:
                 st.subheader("Predictive Analytics & Chronic Degradation")
