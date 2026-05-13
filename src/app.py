@@ -2221,8 +2221,8 @@ if "Tab: AIOps RCA -> Active Board" in st.session_state.allowed_actions:
                                                         svc.set_site_maintenance(site, True, m_etr, m_rsn)
                                                     st.success("Status details saved!")
                                                     time.sleep(0.5); safe_rerun()
-                                        else:
-                                            st.info("Site not registered in Facilities database; status cannot be tracked.")
+                                    else:
+                                        st.info("Site not registered in Facilities database; status cannot be tracked.")
             ai_idx += 1
     
         if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions:
