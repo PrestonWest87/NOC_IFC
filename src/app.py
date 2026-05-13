@@ -1975,7 +1975,6 @@ elif page == "AIOps RCA":
                     st.session_state.last_map_selection = None
                 if "investigating_sites" not in st.session_state:
                     st.session_state.investigating_sites = set()
-                # Memory lock for the dialog
                 if "target_edit_site" not in st.session_state:
                     st.session_state.target_edit_site = None
 
@@ -1992,14 +1991,14 @@ elif page == "AIOps RCA":
                     from streamlit_autorefresh import st_autorefresh
                     st_autorefresh(interval=5000, limit=100000, key="aiops_continuous_poll")
                 
-                # --- DYNAMIC THEATER MODE CSS & DIALOG FIX ---
+                # --- DYNAMIC THEATER MODE CSS ---
                 base_css = """
                     <style>
                     div[data-testid="stToggle"] { margin-bottom: -15px !important; }
                     hr { margin-top: 10px !important; }
                     button[title="View fullscreen"] { display: none !important; } 
                     
-                    /* CRITICAL FIX: Hide the native Dialog 'X' to force usage of our Cancel button */
+                    /* Hide the native Dialog 'X' to prevent zombie states. Use Cancel button instead. */
                     div[data-testid="stDialog"] button[aria-label="Close"] { display: none !important; }
                     </style>
                 """
@@ -2104,17 +2103,15 @@ elif page == "AIOps RCA":
                             if hasattr(svc.get_cached_locations, 'clear'):
                                 svc.get_cached_locations.clear()
                             
-                            # Wipe memory on exit to allow re-clicking the same dot
                             st.session_state.target_edit_site = None 
-                            st.session_state.last_map_selection = None
+                            # INTENTIONALLY NOT CLEARING last_map_selection HERE
                             st.success("Status Updated!")
                             time.sleep(0.5)
                             st.rerun()
                             
                         if cd2.button("Cancel", width="stretch", key=f"dia_cancel_{site_name}"):
-                            # Wipe memory on exit to allow re-clicking the same dot
                             st.session_state.target_edit_site = None
-                            st.session_state.last_map_selection = None
+                            # INTENTIONALLY NOT CLEARING last_map_selection HERE
                             st.rerun()
 
                     # --- CUSTOM PYDECK MAP ENGINE ---
@@ -2188,18 +2185,21 @@ elif page == "AIOps RCA":
                         key="aiops_main_map"
                     )
                     
-                    # --- BULLETPROOF EVENT HANDLING ---
+                    # --- MAP CLICK INTERCEPTION ---
                     if chart_event and hasattr(chart_event, 'selection') and isinstance(chart_event.selection.objects, dict):
                         selected_objects = chart_event.selection.objects.get("base_sites", [])
                         if selected_objects:
                             clicked_site = selected_objects[0].get("name")
+                            # Trigger dialog ONLY if they clicked a newly selected dot
                             if clicked_site != st.session_state.last_map_selection:
                                 st.session_state.last_map_selection = clicked_site
                                 st.session_state.target_edit_site = clicked_site
                                 st.rerun()
+                        else:
+                            # User clicked empty space. Clear memory so dots can be clicked again.
+                            st.session_state.last_map_selection = None
                     
                     # --- UNCONDITIONAL DIALOG TRIGGER ---
-                    # Because we use `target_edit_site`, the dialog perfectly survives the 5s refresh.
                     if st.session_state.target_edit_site:
                         site_control_dialog(st.session_state.target_edit_site)
                     
