@@ -2052,11 +2052,14 @@ elif page == "AIOps RCA":
                         is_maint = getattr(site_record, 'under_maintenance', False) if site_record else False
                         is_disp = any(getattr(a, 'is_dispatched', False) for a in site_alerts)
                         
-                        curr_state = "No Dispatch Needed" if is_maint else ("Dispatched" if is_disp else "Action Required")
+                        curr_state = "No Dispatch Needed" if is_maint else "Investigate/Dispatch"
                         
                         st.markdown(f"### {site_name}")
-                        new_stat = st.radio("Status", ["Dispatched", "No Dispatch Needed"], 
-                                              index=["Dispatched", "No Dispatch Needed"].index(curr_state))
+                        new_stat = st.radio("Status", ["Investigate/Dispatch", "No Dispatch Needed"], 
+                                              index=["Investigate/Dispatch", "No Dispatch Needed"].index(curr_state))
+                        
+                        # Added actual dispatch tracking checkbox
+                        new_disp = st.checkbox("Ticket Dispatched", value=is_disp)
                                               
                         if new_stat == "No Dispatch Needed":
                             etr_val = site_record.maintenance_etr.date() if site_record and getattr(site_record, 'maintenance_etr', None) else datetime.today().date()
@@ -2070,14 +2073,15 @@ elif page == "AIOps RCA":
                         cd1, cd2 = st.columns(2)
                         
                         if cd1.button("Save Changes", type="primary", width="stretch"):
-                            if new_stat == "Dispatched":
-                                if site_alerts: svc.set_cluster_dispatch([a.id for a in site_alerts], True)
-                                if site_record: svc.set_site_maintenance(site_name, False, None, "")
-                            elif new_stat == "Action Required":
-                                if site_alerts: svc.set_cluster_dispatch([a.id for a in site_alerts], False)
+                            
+                            # Handle dispatch status independently
+                            if site_alerts: 
+                                svc.set_cluster_dispatch([a.id for a in site_alerts], new_disp)
+                                
+                            # Handle maintenance status
+                            if new_stat == "Investigate/Dispatch":
                                 if site_record: svc.set_site_maintenance(site_name, False, None, "")
                             elif new_stat == "No Dispatch Needed":
-                                if site_alerts: svc.set_cluster_dispatch([a.id for a in site_alerts], False)
                                 if site_record: svc.set_site_maintenance(site_name, True, m_etr, m_rsn)
                             
                             st.session_state.target_edit_site = None 
@@ -2091,7 +2095,7 @@ elif page == "AIOps RCA":
                             st.session_state.poll_resume_count += 1
                             st.rerun()
 
-                    # --- CUSTOM PYDECK MAP ENGINE ---
+                   # --- CUSTOM PYDECK MAP ENGINE ---
                     map_data = []
                     active_alert_sites = set(a.mapped_location for a in alerts)
                     
@@ -2109,10 +2113,10 @@ elif page == "AIOps RCA":
                                 status_text = "Down (No Dispatch Needed)"
                             elif is_dispatched:
                                 color = [255, 193, 7, 200]  # Yellow
-                                status_text = "Down (Dispatched)"
+                                status_text = "Down (Ticket Dispatched)"
                             else:
                                 color = [220, 53, 69, 200]  # Red
-                                status_text = "Down (Action Required)"
+                                status_text = "Down (Investigate/Dispatch)"
                                 show_pulse = True 
                         else:
                             color = [40, 167, 69, 200]  # Green
@@ -2257,16 +2261,20 @@ elif page == "AIOps RCA":
                                             svc.acknowledge_cluster([a.id for a in data['alerts']])
                                             safe_rerun()
                                             
+                                    # --- TOC / NOC UNIFIED STATUS CONTROLS ---
                                     if can_manage_maint or can_dispatch:
                                         if site_record:
                                             with st.expander(f"Status Controls: {site}"):
                                                 is_maint = getattr(site_record, 'under_maintenance', False)
                                                 is_disp = any(getattr(a, 'is_dispatched', False) for a in data['alerts'])
                                                 
-                                                curr_state = "No Dispatch Needed" if is_maint else ("Dispatched" if is_disp else "Action Required")
+                                                curr_state = "No Dispatch Needed" if is_maint else "Investigate/Dispatch"
                                                 
                                                 m_stat = st.selectbox("Site Status", ["Investigate/Dispatch", "No Dispatch Needed"], 
                                                                       index=["Investigate/Dispatch", "No Dispatch Needed"].index(curr_state), key=f"ms_{site}")
+                                                
+                                                # Added actual dispatch tracking checkbox
+                                                m_disp = st.checkbox("Ticket Dispatched", value=is_disp, key=f"mdisp_{site}")
                                                 
                                                 if m_stat == "No Dispatch Needed":
                                                     etr_val = site_record.maintenance_etr.date() if getattr(site_record, 'maintenance_etr', None) else datetime.today().date()
@@ -2276,12 +2284,15 @@ elif page == "AIOps RCA":
                                                     m_etr = None; m_rsn = ""
                                                 
                                                 if st.button("Save Status Update", key=f"msave_{site}", type="primary", width="stretch"):
+                                                    # Save dispatch status
+                                                    svc.set_cluster_dispatch([a.id for a in data['alerts']], m_disp)
+                                                    
+                                                    # Save maintenance status
                                                     if m_stat == "Investigate/Dispatch":
-                                                        svc.set_cluster_dispatch([a.id for a in data['alerts']], True)
                                                         svc.set_site_maintenance(site, False, None, "")
                                                     elif m_stat == "No Dispatch Needed":
-                                                        svc.set_cluster_dispatch([a.id for a in data['alerts']], False)
                                                         svc.set_site_maintenance(site, True, m_etr, m_rsn)
+                                                        
                                                     st.success("Status details saved!")
                                                     time.sleep(0.5); safe_rerun()
                                         else:
