@@ -1982,33 +1982,50 @@ elif page == "AIOps RCA":
                 # Fetch data first so columns can be established at the top
                 alerts, events, grid = svc.get_aiops_dashboard_data()
                 
-                c_l, c_s = st.columns([3, 1])
+                # --- NEW TOP CONTROLS ---
+                ctrl_1, ctrl_2 = st.columns([1, 3])
+                live_polling = ctrl_1.toggle("Live 5s Polling", value=True, key="aiops_live_poll")
                 
-                with c_s:
+                # The Theater Mode Toggle
+                theater_mode = ctrl_2.toggle("🗺️ Focus Map (Theater Mode)", value=False, key="aiops_theater", help="Expands the map to fill the screen without breaking popup interactions.")
+                
+                # INTELLIGENT POLLING: High limit to prevent silent death, dynamic key to force remount
+                if live_polling and not st.session_state.target_edit_site:
+                    from streamlit_autorefresh import st_autorefresh
+                    st_autorefresh(interval=5000, limit=100000, key=f"aiops_poll_{st.session_state.poll_resume_count}")
+                
+                # Hide the broken native fullscreen button and fix spacing
+                st.markdown("""
+                    <style>
+                    div[data-testid="stToggle"] { margin-bottom: -15px !important; }
+                    hr { margin-top: 10px !important; }
+                    button[title="View fullscreen"] { display: none !important; } 
+                    </style>
+                """, unsafe_allow_html=True)
+                st.divider()
+                
+                # --- THEATER MODE LAYOUT LOGIC ---
+                if theater_mode:
+                    c_l = st.container()
+                    # Stretch the map vertically
                     st.markdown("""
                         <style>
-                        div[data-testid="stToggle"] { margin-bottom: -25px !important; }
-                        hr { margin-top: 10px !important; }
+                        [data-testid="stDeckGlJsonChart"] { height: 75vh !important; }
                         </style>
                     """, unsafe_allow_html=True)
+                else:
+                    c_l, c_s = st.columns([3, 1])
                     
-                    st.subheader("Event Log")
-                    live_polling = st.toggle("Live 5s Polling", value=True, key="aiops_live_poll")
-                    
-                    # INTELLIGENT POLLING: High limit to prevent silent death, dynamic key to force remount
-                    if live_polling and not st.session_state.target_edit_site:
-                        from streamlit_autorefresh import st_autorefresh
-                        st_autorefresh(interval=5000, limit=100000, key=f"aiops_poll_{st.session_state.poll_resume_count}")
-                        
-                    st.divider()
-                    
-                    for e in events:
-                        local_time = e.timestamp.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ)
-                        time_str = local_time.strftime('%I:%M %p')
-                        clean_msg = re.sub(r'[\U00010000-\U0010ffff]', '', e.message)
-                        clean_msg = clean_msg.replace('?', '').strip()
-                        st.caption(f"{time_str} | {clean_msg}")
+                    with c_s:
+                        st.subheader("Event Log")
+                        for e in events:
+                            local_time = e.timestamp.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ)
+                            time_str = local_time.strftime('%I:%M %p')
+                            clean_msg = re.sub(r'[\U00010000-\U0010ffff]', '', e.message)
+                            clean_msg = clean_msg.replace('?', '').strip()
+                            st.caption(f"{time_str} | {clean_msg}")
                 
+                # Everything below this remains the exact same as before!
                 with c_l:
                     st.subheader("Overlays")
                     
@@ -2018,6 +2035,7 @@ elif page == "AIOps RCA":
                         c_warn1.warning(f" **Editing {st.session_state.target_edit_site}**. Live polling is temporarily paused.")
                         if c_warn2.button("Clear & Resume", width="stretch"):
                             st.session_state.target_edit_site = None
+                            st.session_state.last_map_selection = None
                             st.session_state.poll_resume_count += 1
                             st.rerun()
 
