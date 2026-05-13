@@ -268,7 +268,7 @@ def job_tiered_alert_escalation():
     - Ignores daytime alerts.
     - Determines the highest priority alert for a site (handling Cascades inherently).
     - Injects District info into tickets/notifications.
-    - Separated dispatch paths: Ticket, Notification, and Onpage.
+    - Separated dispatch paths: Ticket (Remedyforce), Notification (NOC), and Onpage (ITNetwork vs NOC).
     """
     from src.database import SessionLocal, SolarWindsAlert, MonitoredLocation, RegionalHazard, CloudOutage, BgpAnomaly
     from src.mailer import send_alert_email
@@ -277,6 +277,7 @@ def job_tiered_alert_escalation():
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
     import re
+    import os
 
     now_utc = datetime.utcnow()
     local_tz = ZoneInfo("America/Chicago")
@@ -294,16 +295,15 @@ def job_tiered_alert_escalation():
     cutoff_time = now_utc - timedelta(hours=12)
     
     # --- 2. EMAIL DISPATCH DESTINATIONS ---
-    TICKET_EMAIL = "remedyforceworkflow@aecc.com" 
-    NOTIFY_EMAIL = "noc@aecc.com"
-    ONPAGE_EMAIL = "noc@aecc.com"
-    
-    # Custom Overrides for P1-High
-    SPECIAL_FIBER_TICKET_EMAIL = "noc@aecc.com" # <--- UPDATE THIS
-    OTHER_P1_TICKET_EMAIL = "noc.aecc.com"          # <--- UPDATE THIS
+    TICKET_EMAIL = os.environ["REMEDYFORCE_TICKET_EMAIL"]
+    NOTIFY_EMAIL = os.environ["NOC_NOTIFY_EMAIL"]
+    NOC_ONPAGE_EMAIL = os.environ["NOC_ONPAGE_EMAIL"]
+    ITNETWORK_ONPAGE_EMAIL = os.environ["ITNETWORK_ONPAGE_EMAIL"] # <--- UPDATE THIS TO REAL DISTRO
 
+    # --- UPDATED SLA DICTIONARY ---
+    # Note: P1-High wait changed to 0 for immediate onpage per requirements.
     PRIORITY_RULES = {
-        "p1-high": {"wait": 15,  "sla": "1 Hour",   "weight": 70, "requires_onpage": True,  "cooldown": 1},
+        "p1-high": {"wait": 0,   "sla": "1 Hour",   "weight": 70, "requires_onpage": True,  "cooldown": 1},
         "p1-low":  {"wait": 45,  "sla": "4 Hours",  "weight": 60, "requires_onpage": True,  "cooldown": 1},
         "p2-high": {"wait": 30,  "sla": "2.5 Hours","weight": 50, "requires_onpage": False, "cooldown": 5},
         "p2-low":  {"wait": 45,  "sla": "4 Hours",  "weight": 40, "requires_onpage": False, "cooldown": 5},
@@ -387,7 +387,6 @@ def job_tiered_alert_escalation():
             )
 
             # -> DETERMINE TARGET ALERT (Handles Standard vs Cascade elegantly)
-            # Default to the earliest alert (Standard Logic)
             target_alert = undispatched_alerts[0]
             target_tier = get_tier(target_alert)
             is_cascade = False
@@ -410,7 +409,8 @@ def job_tiered_alert_escalation():
                 if duration_active >= timedelta(minutes=30):
                     if not is_node_on_cooldown(target_alert.node_name, cooldown_hours=5):
                         log(f"[DISPATCHING] Unknown priority alert for {site}", "SYSTEM")
-                        t_body = f"*** REQUIRES MANAGEMENT DIRECTION ***\nUnmapped Priority: {target_alert.event_type}\n\n"
+                        t_body = "Automated Comms Outage\n*** REQUIRES MANAGEMENT DIRECTION ***\n"
+                        t_body += f"Unmapped Priority: {target_alert.event_type}\n\n"
                         t_body += generate_rca_ticket_text(site, data, "UNKNOWN", p0_name or "Unknown", cause)
                         t_ok, _ = send_alert_email(f"UNDOCUMENTED ALERT: {target_alert.node_name}", t_body, TICKET_EMAIL, is_html=False)
                         n_ok, _ = send_alert_email(f"UNDOCUMENTED ALERT (NOTIFY): {target_alert.node_name}", t_body, NOTIFY_EMAIL, is_html=False)
@@ -427,28 +427,16 @@ def job_tiered_alert_escalation():
             db_loc_type = getattr(loc, 'location_type', getattr(loc, 'type', '')).lower() if loc else ''
             cp_loc_type = str(cp.get('Location_Type') or cp.get('LocationType') or '').lower()
             district = str(cp.get('District') or data.get('site_metadata', {}).get('district') or 'Unknown')
+            
+            # Determine if Statewide Fiber (SWF) device
+            is_swf_device = "swf" in target_alert.node_name.lower() or any(x in db_loc_type or x in cp_loc_type for x in ["fiber hut", "fiber cabinet"])
 
             # --- 6. ROUTING & TIMER LOGIC MATRIX ---
             wait_minutes = rules["wait"]
             is_onpage = rules.get("requires_onpage", False)
-            current_ticket_email = TICKET_EMAIL
             
             if is_cascade:
-                wait_minutes = 0 # Cascades generally wait 5 minutes from the escalated alert
-
-            # Apply Custom P1-High Overrides (Can override the Cascade timer)
-            if target_tier == "p1-high":
-                is_fiber = any(x in db_loc_type or x in cp_loc_type for x in ["fiber hut", "fiber cabinet"])
-                is_swf = "swf" in target_alert.node_name.lower()
-                
-                if is_fiber and is_swf:
-                    wait_minutes = 0  
-                    current_ticket_email = SPECIAL_FIBER_TICKET_EMAIL
-                    log(f"[ROUTING] {site} identified as SWF Fiber. Wait time = 0. Routing to Special Fiber queue.", "SYSTEM")
-                else:
-                    wait_minutes = 2  
-                    current_ticket_email = OTHER_P1_TICKET_EMAIL
-                    log(f"[ROUTING] {site} identified as Standard P1-High. Wait time = 2. Routing to Other P1 queue.", "SYSTEM")
+                wait_minutes = 0 # Cascades generally wait 0 minutes from the escalated alert
 
             # --- 7. DISPATCH EVALUATION ---
             if duration_active >= timedelta(minutes=wait_minutes):
@@ -464,18 +452,19 @@ def job_tiered_alert_escalation():
                 prefix = "AFTER-HOURS SITE ESCALATION / CASCADE" if is_cascade else "AFTER-HOURS TICKET"
                 
                 base_body = f"Priority: {target_tier.upper()}\n"
-                base_body += f"District: {district.title()}\n" # <--- DISTRICT ADDED HERE FOR TICKETS & NOTIFICATIONS
+                base_body += f"District: {district.title()}\n" 
                 base_body += f"Target SLA: {rules['sla']}\n"
                 if target_tier == "p2-high": base_body += "Requirement: Positive Handoff (No ONPAGE)\n"
                 base_body += "\n" + generate_rca_ticket_text(site, data, target_tier.upper(), p0_name or "Unknown", cause)
 
                 dispatch_success = False
 
-                # -> A. SEND STANDARD TICKET
+                # -> A. SEND STANDARD TICKET (ALWAYS GOES TO REMEDYFORCE)
+                ticket_body = f"Automated Comms Outage\n*** {prefix} ***\n" + base_body
                 t_success, t_msg = send_alert_email(
                     f"{'CASCADE ' if is_cascade else ''}TICKET: {target_tier.upper()} Incident at {site}", 
-                    f"*** {prefix} ***\n" + base_body, 
-                    recipient_override=current_ticket_email, is_html=False
+                    ticket_body, 
+                    recipient_override=TICKET_EMAIL, is_html=False
                 )
                 if t_success: dispatch_success = True
                 else: log(f"[TICKET FAILED] SMTP Error for {site}: {t_msg}", "SYSTEM")
@@ -489,17 +478,24 @@ def job_tiered_alert_escalation():
                 if n_success: dispatch_success = True
                 else: log(f"[NOTIFY FAILED] SMTP Error for {site}: {n_msg}", "SYSTEM")
 
-                # -> C. SEND ONPAGE
+                # -> C. SEND SMART ONPAGE (NOC vs IT NETWORK)
                 if is_onpage:
+                    if is_swf_device:
+                        target_onpage_email = NOC_ONPAGE_EMAIL
+                        onpage_title = "NOC"
+                    else:
+                        target_onpage_email = ITNETWORK_ONPAGE_EMAIL
+                        onpage_title = "ITNETWORK"
+
                     o_success, o_msg = send_alert_email(
-                        f"URGENT ONPAGE {'CASCADE ' if is_cascade else ''}: {target_tier.upper()} Incident at {site}", 
-                        f"*** URGENT ONPAGE {'ESCALATION ' if is_cascade else ''}***\n" + base_body, 
-                        recipient_override=ONPAGE_EMAIL, is_html=False
+                        f"URGENT {onpage_title} ONPAGE {'CASCADE ' if is_cascade else ''}: {target_tier.upper()} Incident at {site}", 
+                        f"*** URGENT {onpage_title} ONPAGE {'ESCALATION ' if is_cascade else ''}***\n" + base_body, 
+                        recipient_override=target_onpage_email, is_html=False
                     )
                     if o_success: 
                         dispatch_success = True
-                        if loc: loc.last_escalation_dispatch = now_utc # Apply the 2-Hour Cooldown
-                    else: log(f"[ONPAGE FAILED] SMTP Error for {site}: {o_msg}", "SYSTEM")
+                        if loc: loc.last_escalation_dispatch = now_utc # Apply the 1-Hour Site Cooldown
+                    else: log(f"[{onpage_title} ONPAGE FAILED] SMTP Error for {site}: {o_msg}", "SYSTEM")
                 
                 # -> MUTE CLUSTER ON SUCCESS
                 if dispatch_success:
