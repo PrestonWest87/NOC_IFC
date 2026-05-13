@@ -1949,25 +1949,7 @@ elif page == "Threat Hunting & IOCs":
             th_idx += 1
 
 # ================= 4. AIOps RCA =================
-elif page == "AIOps RCA":
-    st.title("AIOps Root Cause Analysis")
-    st.caption("Live correlation of non-uniform monitoring alerts with Regional Intelligence.")
-    
-    from src.aiops_engine import EnterpriseAIOpsEngine
-    ai_engine = EnterpriseAIOpsEngine(svc.SessionLocal())
-    
-    ai_tab_names = []
-    
-    if "Tab: AIOps RCA -> Active Board" in st.session_state.allowed_actions: ai_tab_names.append("Active Board")
-    if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions: ai_tab_names.append("Patterns")
-    if "Tab: AIOps RCA -> Global Correlation" in st.session_state.allowed_actions: ai_tab_names.append("Global")
-    
-    if not ai_tab_names: st.warning("No permission to view tabs in this module.")
-    else:
-        ai_tabs = st.tabs(ai_tab_names)
-        ai_idx = 0
-        
-        if "Tab: AIOps RCA -> Active Board" in st.session_state.allowed_actions:
+if "Tab: AIOps RCA -> Active Board" in st.session_state.allowed_actions:
             with ai_tabs[ai_idx]:
                 
                 # Fetch data first so columns can be established at the top
@@ -1976,28 +1958,20 @@ elif page == "AIOps RCA":
                 c_l, c_s = st.columns([3, 1])
                 
                 with c_s:
-                    # 1. Inject CSS to kill the dead space below the toggle and above the divider
                     st.markdown("""
                         <style>
-                        div[data-testid="stToggle"] {
-                            margin-bottom: -25px !important;
-                        }
-                        hr {
-                            margin-top: 10px !important;
-                        }
+                        div[data-testid="stToggle"] { margin-bottom: -25px !important; }
+                        hr { margin-top: 10px !important; }
                         </style>
                     """, unsafe_allow_html=True)
                     
                     st.subheader("Event Log")
-                    
-                    # 2. Toggle gets its own full line now, no squishing
                     live_polling = st.toggle("Live 5s Polling", value=True, key="aiops_live_poll")
                     
                     if live_polling:
                         from streamlit_autorefresh import st_autorefresh
                         st_autorefresh(interval=5000, key="aiops_5sec_refresh")
                         
-                    # 3. Divider sits cleanly right below
                     st.divider()
                     
                     for e in events:
@@ -2013,15 +1987,12 @@ elif page == "AIOps RCA":
                     if st.session_state.allowed_site_types != "ALL":
                         locs = [l for l in locs if l.loc_type in st.session_state.allowed_site_types]
                         allowed_loc_names = {l.name for l in locs}
-                        # Automatically hide alerts for sites the user is not allowed to monitor
                         alerts = [a for a in alerts if a.mapped_location in allowed_loc_names]
 
-                    # --- UNDOCUMENTED TROLLING MECHANISM (OPERATION: DEAN) ---
-                    # Only inject the fake alerts if the person viewing the map is the chosen target
                     if black_ops["dean_target"] == st.session_state.current_user:
                         start_t = black_ops["dean_start"]
                         elapsed = time.time() - start_t
-                        num_fake_reds = int(elapsed // 30) # 1 new site turns red every 30 seconds
+                        num_fake_reds = int(elapsed // 30) 
                         
                         if locs and num_fake_reds >= len(locs):
                             black_ops["dean_target"] = None
@@ -2030,21 +2001,110 @@ elif page == "AIOps RCA":
                             import random
                             rng = random.Random(int(start_t)) 
                             fake_locs = rng.sample(locs, min(num_fake_reds, len(locs)))
-                            
                             class FakeAlert:
                                 def __init__(self, name): self.mapped_location = name
-                                
-                            for fl in fake_locs:
-                                alerts.append(FakeAlert(fl.name))
-                    # ---------------------------------------------------------
+                            for fl in fake_locs: alerts.append(FakeAlert(fl.name))
 
-                    layers, view_state = svc.build_aiops_map_layers(alerts, locs)
+                    # --- NEW: MAP DOT INTERACTION DIALOG ---
+                    @st.dialog("Manage Site Status")
+                    def site_control_dialog(site_name):
+                        site_record = next((l for l in locs if l.name == site_name), None)
+                        site_alerts = [a for a in alerts if a.mapped_location == site_name]
+                        
+                        is_maint = getattr(site_record, 'under_maintenance', False) if site_record else False
+                        is_disp = any(getattr(a, 'is_dispatched', False) for a in site_alerts)
+                        
+                        curr_state = "No Dispatch Needed" if is_maint else ("Dispatched" if is_disp else "Action Required")
+                        
+                        st.markdown(f"### {site_name}")
+                        new_stat = st.radio("Status", ["Action Required", "Dispatched", "No Dispatch Needed"], 
+                                              index=["Action Required", "Dispatched", "No Dispatch Needed"].index(curr_state))
+                                              
+                        if new_stat == "No Dispatch Needed":
+                            etr_val = site_record.maintenance_etr.date() if site_record and getattr(site_record, 'maintenance_etr', None) else datetime.today().date()
+                            m_etr = st.date_input("Estimated Time of Restoration (ETR)", value=etr_val)
+                            m_rsn = st.text_area("Reason / Comments", value=(site_record.maintenance_reason if site_record else ""))
+                        else:
+                            m_etr = None
+                            m_rsn = ""
+                            
+                        if st.button("Save Changes", type="primary", width="stretch"):
+                            if new_stat == "Dispatched":
+                                if site_alerts: svc.set_cluster_dispatch([a.id for a in site_alerts], True)
+                                if site_record: svc.set_site_maintenance(site_name, False, None, "")
+                            elif new_stat == "Action Required":
+                                if site_alerts: svc.set_cluster_dispatch([a.id for a in site_alerts], False)
+                                if site_record: svc.set_site_maintenance(site_name, False, None, "")
+                            elif new_stat == "No Dispatch Needed":
+                                if site_alerts: svc.set_cluster_dispatch([a.id for a in site_alerts], False)
+                                if site_record: svc.set_site_maintenance(site_name, True, m_etr, m_rsn)
+                            st.success("Status Updated!")
+                            time.sleep(0.5)
+                            st.rerun()
 
-                    st.pydeck_chart(pdk.Deck(
-                        layers=layers, 
-                        initial_view_state=view_state, 
-                        tooltip={"text": "{name}"}
-                    ))
+                    # --- NEW: CUSTOM PYDECK MAP ENGINE ---
+                    map_data = []
+                    active_alert_sites = set(a.mapped_location for a in alerts)
+                    
+                    for l in locs:
+                        is_down = l.name in active_alert_sites
+                        is_no_dispatch = getattr(l, 'under_maintenance', False)
+                        site_alerts = [a for a in alerts if a.mapped_location == l.name]
+                        is_dispatched = any(getattr(a, 'is_dispatched', False) for a in site_alerts)
+                        
+                        show_pulse = False
+                        if is_down:
+                            if is_no_dispatch:
+                                color = [0, 123, 255, 200]  # Blue
+                                status_text = "Down (No Dispatch Needed)"
+                            elif is_dispatched:
+                                color = [255, 193, 7, 200]  # Yellow
+                                status_text = "Down (Dispatched)"
+                            else:
+                                color = [220, 53, 69, 200]  # Red
+                                status_text = "Down (Action Required)"
+                                show_pulse = True
+                        else:
+                            color = [40, 167, 69, 200]  # Green
+                            status_text = "Operational / Clear"
+                            
+                        map_data.append({
+                            "name": l.name, "lat": l.lat, "lon": l.lon,
+                            "color": color, "status": status_text, "show_pulse": show_pulse
+                        })
+                        
+                    df_map = pd.DataFrame(map_data)
+                    
+                    layers = [
+                        pdk.Layer(
+                            "ScatterplotLayer",
+                            data=df_map, get_position='[lon, lat]',
+                            get_fill_color='color', get_radius=6000,
+                            pickable=True, stroked=True,
+                            get_line_color=[255,255,255,255], line_width_min_pixels=1
+                        )
+                    ]
+                    
+                    pulse_df = df_map[df_map['show_pulse'] == True]
+                    if not pulse_df.empty:
+                        layers.append(pdk.Layer(
+                            "ScatterplotLayer",
+                            data=pulse_df, get_position='[lon, lat]',
+                            get_fill_color=[220, 53, 69, 40], get_radius=20000, pickable=False
+                        ))
+                        
+                    view_state = pdk.ViewState(latitude=34.8, longitude=-92.2, zoom=6)
+                    
+                    # Render map and catch click events
+                    chart_event = st.pydeck_chart(
+                        pdk.Deck(layers=layers, initial_view_state=view_state, tooltip={"text": "{name}\nStatus: {status}"}),
+                        on_select="rerun",
+                        selection_mode="single_object"
+                    )
+                    
+                    if chart_event and chart_event.selection.objects:
+                        clicked_site = chart_event.selection.objects[0]
+                        site_control_dialog(clicked_site["name"])
                     
                     st.subheader("Correlation")
                     if not alerts: st.success("Grid Operational.")
@@ -2056,17 +2116,12 @@ elif page == "AIOps RCA":
                             bgp = dbtmp.query(BgpAnomaly).filter_by(is_resolved=False).all()
                             raw_alerts = dbtmp.query(SolarWindsAlert).filter(SolarWindsAlert.is_correlated == False, SolarWindsAlert.status != 'Resolved').all()
                             
-                        # NEW: Apply RBAC filtering to raw_alerts before passing to the correlation engine
                         if st.session_state.allowed_site_types != "ALL":
                             raw_alerts = [a for a in raw_alerts if a.mapped_location in allowed_loc_names]
                             
-                        # 1. Cluster the alerts as usual
                         incidents = ai_engine.analyze_and_cluster(raw_alerts)
-                        
-                        # --- NEW: 2. Detect Massive Provider/Fleet Outages ---
                         fleet_events = ai_engine.identify_fleet_outages(incidents, threshold=5)
                         
-                        # --- NEW: 3. Render the Global Warning Banner ---
                         if fleet_events:
                             for event in fleet_events:
                                 st.markdown(f"""
@@ -2079,16 +2134,10 @@ elif page == "AIOps RCA":
                                 </div>
                                 """, unsafe_allow_html=True)
                                 
-                        # 4. Process individual site cards
                         for site, data in incidents.items():
-                            # --- NEW: 5. Pass fleet_events into the RCA calculator ---
                             c, cf, p, e, b, p0, cs = ai_engine.calculate_root_cause(
-                                site_name=site, 
-                                data=data, 
-                                active_weather=wea, 
-                                active_cloud=cld, 
-                                active_bgp=bgp, 
-                                fleet_events=fleet_events
+                                site_name=site, data=data, active_weather=wea, 
+                                active_cloud=cld, active_bgp=bgp, fleet_events=fleet_events
                             )
 
                             if any("Maintenance Override" in log for log in e):
@@ -2102,48 +2151,31 @@ elif page == "AIOps RCA":
                                     if p0: st.error(f"**Patient Zero (Suspected Origin Node):** {p0}")
                                     else: st.info("**Patient Zero:** Indeterminate (Simultaneous Failure)")
                                         
-                                    # --- CHECK MAINTENANCE STATUS ---
+                                    # --- CHECK NO DISPATCH NEEDED / DISPATCHED STATUS ---
                                     site_record = next((l for l in locs if l.name == site), None)
                                     if site_record and getattr(site_record, 'under_maintenance', False):
                                         etr_str = site_record.maintenance_etr.strftime('%Y-%m-%d') if site_record.maintenance_etr else "Unknown"
                                         rsn_str = site_record.maintenance_reason or "No reason provided."
-                                        st.warning(f" **SITE UNDER MAINTENANCE** (ETR: {etr_str})\n\n**Reason:** {rsn_str}")
+                                        st.info(f" **NO DISPATCH NEEDED** (ETR: {etr_str})\n\n**Comments:** {rsn_str}")
+                                    elif any(getattr(a, 'is_dispatched', False) for a in data['alerts']):
+                                        st.warning(" **TICKET DISPATCHED**")
                                         
                                     can_dispatch = "Action: Dispatch RCA Tickets" in st.session_state.allowed_actions
                                     can_manage_maint = "Action: Manage Site Maintenance" in st.session_state.allowed_actions
                                     
-                                    # --- NEW: RBAC DISPATCHED CHECKBOX ---
-                                    is_dispatched = any(getattr(a, 'is_dispatched', False) for a in data['alerts'])
-                                    if can_dispatch:
-                                        new_dispatch = st.checkbox("Ticket Dispatched", value=is_dispatched, key=f"disp_{site}")
-                                        if new_dispatch != is_dispatched:
-                                            svc.set_cluster_dispatch([a.id for a in data['alerts']], new_dispatch)
-                                            st.rerun()
-                                    else:
-                                        if is_dispatched:
-                                            st.success("Ticket Dispatched")
-                                    
-                                    # --- NOC TICKET DISPATCH CONTROLS ---
                                     if can_dispatch:
                                         with st.expander(f"Draft & Dispatch Ticket for {site}"):
                                             clean_p = p.replace("??", "").replace("??", "").replace("??", "").replace("??", "").replace("??", "").strip()
                                             clean_c = c.replace("??", "").replace("???", "").replace("?", "").replace("??", "").replace("??", "").strip()
                                             clean_p0 = p0 if p0 else "Indeterminate (Simultaneous Failure)"
                                             
-                                            # 1. Fetch District from the local facility cache or fallback to the live SolarWinds alert metadata
                                             district_name = getattr(site_record, 'district', None)
-                                            if not district_name:
-                                                district_name = data.get('site_metadata', {}).get('district', 'Unknown')
+                                            if not district_name: district_name = data.get('site_metadata', {}).get('district', 'Unknown')
                                             
-                                            # 2. Generate the base ticket text via services
                                             ticket_text = svc.generate_rca_ticket_text(site, data, clean_p, clean_p0, clean_c)
-                                            
-                                            # 3. Inject the District dynamically at the top of the ticket body for the UI
-                                            if "District:" not in ticket_text:
-                                                ticket_text = f"District: {district_name}\n{ticket_text}"
+                                            if "District:" not in ticket_text: ticket_text = f"District: {district_name}\n{ticket_text}"
                                             
                                             ticket_body = st.text_area("Ticket Notes / RCA Summary", value=ticket_text, height=350, key=f"t_body_{site}")
-                                            
                                             fixed_recipients = "remedyforceworkflow@aecc.com, noc@aecc.com"
                                             st.info(f"Ticket will be automatically dispatched to: **{fixed_recipients}**")
                                             
@@ -2158,27 +2190,41 @@ elif page == "AIOps RCA":
                                             svc.acknowledge_cluster([a.id for a in data['alerts']])
                                             safe_rerun()
                                             
-                                    # --- TOC / NOC MAINTENANCE CONTROLS ---
-                                    if can_manage_maint:
+                                    # --- TOC / NOC UNIFIED STATUS CONTROLS ---
+                                    if can_manage_maint or can_dispatch:
                                         if site_record:
-                                            with st.expander(f"Maintenance Controls: {site}"):
-                                                is_under_maint = getattr(site_record, 'under_maintenance', False)
-                                                m_stat = st.selectbox("Maintenance Status", ["Active Maintenance", "No Maintenance"], index=0 if is_under_maint else 1, key=f"ms_{site}")
+                                            with st.expander(f"Status Controls: {site}"):
+                                                is_maint = getattr(site_record, 'under_maintenance', False)
+                                                is_disp = any(getattr(a, 'is_dispatched', False) for a in data['alerts'])
                                                 
-                                                # Default ETR to today if none exists
-                                                etr_val = site_record.maintenance_etr.date() if getattr(site_record, 'maintenance_etr', None) else datetime.today().date()
-                                                m_etr = st.date_input("Estimated Time of Restoration (ETR)", value=etr_val, key=f"metr_{site}")
+                                                curr_state = "No Dispatch Needed" if is_maint else ("Dispatched" if is_disp else "Action Required")
                                                 
-                                                m_rsn = st.text_area("Reason / Explanation", value=site_record.maintenance_reason or "", key=f"mrsn_{site}")
+                                                m_stat = st.selectbox("Site Status", ["Action Required", "Dispatched", "No Dispatch Needed"], 
+                                                                      index=["Action Required", "Dispatched", "No Dispatch Needed"].index(curr_state), key=f"ms_{site}")
                                                 
-                                                if st.button("Save Maintenance Update", key=f"msave_{site}", type="primary", width="stretch"):
-                                                    svc.set_site_maintenance(site, m_stat == "Active Maintenance", m_etr, m_rsn)
-                                                    st.success("Maintenance details saved!")
-                                                    time.sleep(0.5)
-                                                    safe_rerun()
+                                                if m_stat == "No Dispatch Needed":
+                                                    etr_val = site_record.maintenance_etr.date() if getattr(site_record, 'maintenance_etr', None) else datetime.today().date()
+                                                    m_etr = st.date_input("Estimated Time of Restoration (ETR)", value=etr_val, key=f"metr_{site}")
+                                                    m_rsn = st.text_area("Reason / Comments", value=site_record.maintenance_reason or "", key=f"mrsn_{site}")
+                                                else:
+                                                    m_etr = None; m_rsn = ""
+                                                
+                                                if st.button("Save Status Update", key=f"msave_{site}", type="primary", width="stretch"):
+                                                    if m_stat == "Dispatched":
+                                                        svc.set_cluster_dispatch([a.id for a in data['alerts']], True)
+                                                        svc.set_site_maintenance(site, False, None, "")
+                                                    elif m_stat == "Action Required":
+                                                        svc.set_cluster_dispatch([a.id for a in data['alerts']], False)
+                                                        svc.set_site_maintenance(site, False, None, "")
+                                                    elif m_stat == "No Dispatch Needed":
+                                                        svc.set_cluster_dispatch([a.id for a in data['alerts']], False)
+                                                        svc.set_site_maintenance(site, True, m_etr, m_rsn)
+                                                    st.success("Status details saved!")
+                                                    time.sleep(0.5); safe_rerun()
                                         else:
-                                            st.info("Site not registered in Facilities database; maintenance cannot be tracked.")
+                                            st.info("Site not registered in Facilities database; status cannot be tracked.")
             ai_idx += 1
+    
         if "Tab: AIOps RCA -> Predictive Analytics" in st.session_state.allowed_actions:
             with ai_tabs[ai_idx]:
                 st.subheader("Predictive Analytics & Chronic Degradation")
