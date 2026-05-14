@@ -1977,14 +1977,36 @@ elif page == "AIOps RCA":
                     st.session_state.investigating_sites = set()
                 if "target_edit_site" not in st.session_state:
                     st.session_state.target_edit_site = None
+                # NEW: State tracking for AIOps browser notifications
+                if "notified_aiops" not in st.session_state:
+                    st.session_state.notified_aiops = set()
 
                 # Fetch data first
                 alerts, events, grid = svc.get_aiops_dashboard_data()
                 
                 # --- NEW TOP CONTROLS ---
-                ctrl_1, ctrl_2 = st.columns([1, 3])
+                ctrl_1, ctrl_2, ctrl_3 = st.columns([1, 2, 1])
                 live_polling = ctrl_1.toggle("Live 5s Polling", value=True, key="aiops_live_poll")
                 theater_mode = ctrl_2.toggle("🗺️ Focus Map (Theater Mode)", value=False, key="aiops_theater")
+                
+                # NEW: Notification Enablement Button
+                with ctrl_3:
+                    st.components.v1.html("""
+                        <div style="text-align: right;">
+                            <button onclick="requestPerms()" style="padding: 5px 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-family: sans-serif; font-size: 0.9em;"> Enable Browser Alerts</button>
+                        </div>
+                        <script>
+                            function requestPerms() {
+                                let notifObj = window.Notification;
+                                try { if (window.parent && window.parent.Notification) notifObj = window.parent.Notification; } catch(e) {}
+                                if (notifObj && notifObj.permission !== "denied") {
+                                    notifObj.requestPermission().then(p => {
+                                        if (p === "granted") new notifObj("AIOps RCA", {body: "Browser alerts enabled for this session!"});
+                                    });
+                                }
+                            }
+                        </script>
+                    """, height=35)
                 
                 # INTELLIGENT POLLING: Continuous background refreshing
                 if live_polling:
@@ -2119,6 +2141,7 @@ elif page == "AIOps RCA":
                     active_alert_sites = set(a.mapped_location for a in alerts)
                     
                     seen_coords = {}
+                    new_aiops_notifications = []
                     
                     for l in locs:
                         is_down = l.name in active_alert_sites
@@ -2127,6 +2150,10 @@ elif page == "AIOps RCA":
                         
                         site_alerts = [a for a in alerts if a.mapped_location == l.name]
                         is_dispatched = any(getattr(a, 'is_dispatched', False) for a in site_alerts)
+                        
+                        # NEW: Find the earliest failure time to log Patient Zero timestamp
+                        valid_times = [a.received_at for a in site_alerts if getattr(a, 'received_at', None)]
+                        earliest_time = min(valid_times) if valid_times else None
                         
                         show_pulse = False
                         
@@ -2146,6 +2173,18 @@ elif page == "AIOps RCA":
                                 color = [220, 53, 69, 200]  # Red
                                 status_text = "Down (Action Required)"
                                 show_pulse = True 
+                                
+                            # NEW: Append Down Since timestamp to the Pydeck tooltip string
+                            if earliest_time:
+                                local_t = earliest_time.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ)
+                                status_text += f"\nDown Since: {local_t.strftime('%m/%d %I:%M %p')}"
+                                
+                            # NEW: Check if we need to fire a browser notification for this specific event
+                            notif_key = f"aiops_{l.name}_{earliest_time}"
+                            if notif_key not in st.session_state.notified_aiops:
+                                new_aiops_notifications.append({"site": l.name, "status": status_text.split('\n')[0]})
+                                st.session_state.notified_aiops.add(notif_key)
+                                
                         else:
                             color = [40, 167, 69, 200]  # Green
                             status_text = "Operational / Clear"
@@ -2168,8 +2207,29 @@ elif page == "AIOps RCA":
                             "color": color, "status": status_text, "show_pulse": show_pulse
                         })
                         
+                    # NEW: Trigger HTML5 Notification API for new outages
+                    if new_aiops_notifications:
+                        js_notifications = ""
+                        for idx, na in enumerate(new_aiops_notifications):
+                            title = f"AIOps Alert: {na['site']} Offline"
+                            body = f"{na['status']}"
+                            # Offset timeouts so they don't fire exactly on top of each other
+                            js_notifications += f'setTimeout(() => {{new Notification("{title}", {{body: "{body}"}}); }}, {idx * 1000});\n'
+                            
+                        js_wrapper = f"""
+                        <script>
+                            let notifObj = window.Notification;
+                            try {{ if (window.parent && window.parent.Notification) notifObj = window.parent.Notification; }} catch(e) {{}}
+                            
+                            if (notifObj && notifObj.permission === "granted") {{
+                                {js_notifications.replace('new Notification', 'new notifObj')}
+                            }}
+                        </script>
+                        """
+                        st.components.v1.html(js_wrapper, height=0, width=0)
+                        
                     df_map = pd.DataFrame(map_data)
-                    
+                                            
                     layers = [
                         pdk.Layer(
                             "ScatterplotLayer",
