@@ -181,12 +181,6 @@ def check_earthquake_proximity(equake_data, distance_miles=50):
                         'lon': eq_lon
                     })
         
-        if new_alerts:
-            recipients = get_alert_recipients()
-            if recipients:
-                body = build_eq_alert_email_body(new_alerts)
-                send_alert(recipients, f"NOC Alert: Earthquake Proximity Warning", body)
-                log_print(f"[ALERT] Earthquake alert sent for {len(new_alerts)} site proximities")
 
 def fetch_regional_hazards():
     """Main wrapper for infrastructure telemetry."""
