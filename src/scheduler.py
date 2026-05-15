@@ -386,8 +386,8 @@ def job_tiered_alert_escalation():
             # -> SITE-LEVEL ONPAGE MUTE (PREVENTS MAJOR OUTAGE FLOODING)
             # Only applies if we are actually doing onpages (After-Hours)
             alert_is_day = is_business_hours(undispatched_alerts[0].received_at)
-            if not alert_is_day and loc and getattr(loc, 'last_escalation_dispatch', None):
-                time_since_onpage = now_utc - loc.last_escalation_dispatch
+            if not alert_is_day and loc and getattr(loc, 'last_escalation_ticket', None):
+                time_since_onpage = now_utc - loc.last_escalation_ticket
                 if time_since_onpage < timedelta(hours=1):
                     log(f"[SITE MUTED] Suppressed alerts for {site}. Site recently ONPAGED.", "SYSTEM")
                     for a in undispatched_alerts: a.is_ticketed = True
@@ -468,7 +468,7 @@ def job_tiered_alert_escalation():
                 # Check flapping node cooldown
                 if is_node_on_cooldown(target_alert.node_name, rules["cooldown"]):
                     log(f"[NODE FLAPPING] Muted cluster for {site} (Node {target_alert.node_name} is on cooldown).", "SYSTEM")
-                    for a in undispatched_alerts: a.is_dispatched = True
+                    for a in undispatched_alerts: a.is_ticketed = True
                     db.commit()
                     continue
                     
@@ -524,13 +524,13 @@ def job_tiered_alert_escalation():
                             )
                             if o_success: 
                                 dispatch_success = True
-                                if loc: loc.last_escalation_dispatch = now_utc # Apply the 1-Hour Site Cooldown
+                                if loc: loc.last_escalation_ticket = now_utc
                             else: log(f"[{onpage_title} ONPAGE FAILED] SMTP Error for {site}: {o_msg}", "SYSTEM")
                 
                 # -> MUTE CLUSTER ON SUCCESS
                 if dispatch_success:
-                    log(f"[SUCCESS] Fully Dispatched {target_tier.upper()} cluster for {site}", "SYSTEM")
-                    for a in undispatched_alerts: a.is_dispatched = True
+                    log(f"[SUCCESS] Fully Ticketed {target_tier.upper()} cluster for {site}", "SYSTEM")
+                    for a in undispatched_alerts: a.is_ticketed = True
                     db.commit()
 
 # =====================================================================
