@@ -278,6 +278,10 @@ def job_tiered_alert_escalation():
     import re
     import os
 
+    # Optional: If you are running this natively in Python (not Docker) and need Python to parse the .env file directly:
+    # from dotenv import load_dotenv
+    # load_dotenv()
+
     now_utc = datetime.utcnow()
     local_tz = ZoneInfo("America/Chicago")
     
@@ -289,11 +293,16 @@ def job_tiered_alert_escalation():
     log("[SYSTEM] 24/7 RCA Ticketing & Escalation Manager Active...", "SYSTEM")
     cutoff_time = now_utc - timedelta(hours=12)
     
-    # --- 1. EMAIL DISPATCH DESTINATIONS ---
-    TICKET_EMAIL = os.environ["REMEDYFORCE_TICKET_EMAIL"]
-    NOTIFY_EMAIL = os.environ["NOC_NOTIFY_EMAIL"]
-    NOC_ONPAGE_EMAIL = os.environ["NOC_ONPAGE_EMAIL"]
-    ITNETWORK_ONPAGE_EMAIL = os.environ["ITNETWORK_ONPAGE_EMAIL"] # <--- UPDATE THIS TO REAL DISTRO
+    # --- 1. EMAIL DISPATCH DESTINATIONS (Strict .env Pull) ---
+    TICKET_EMAIL = os.environ.get("REMEDYFORCE_TICKET_EMAIL")
+    NOTIFY_EMAIL = os.environ.get("NOC_NOTIFY_EMAIL")
+    NOC_ONPAGE_EMAIL = os.environ.get("NOC_ONPAGE_EMAIL")
+    ITNETWORK_ONPAGE_EMAIL = os.environ.get("ITNETWORK_ONPAGE_EMAIL")
+    
+    # Safety Check: Prevent thread crash if .env variables are missing
+    if not TICKET_EMAIL:
+        log("[ERROR] REMEDYFORCE_TICKET_EMAIL missing from environment. Check your .env file. Aborting run.", "SYSTEM")
+        return
 
     # --- 2. DUAL SLA DICTIONARIES ---
     AFTER_HOURS_RULES = {
@@ -426,7 +435,7 @@ def job_tiered_alert_escalation():
                         t_ok, _ = send_alert_email(f"UNDOCUMENTED ALERT: {target_alert.node_name}", t_body, TICKET_EMAIL, is_html=False)
                         
                         n_ok = False
-                        if not alert_is_day:
+                        if not alert_is_day and NOTIFY_EMAIL:
                             n_ok, _ = send_alert_email(f"UNDOCUMENTED ALERT (NOTIFY): {target_alert.node_name}", t_body, NOTIFY_EMAIL, is_html=False)
                         
                         if t_ok or n_ok:
@@ -489,13 +498,14 @@ def job_tiered_alert_escalation():
                 if not alert_is_day:
                     
                     # -> B. SEND NOTIFICATION
-                    n_success, n_msg = send_alert_email(
-                        f"NOC NOTIFICATION {'(CASCADE) ' if is_cascade else ''}: {target_tier.upper()} Incident at {site}", 
-                        f"*** NOC NOTIFICATION {'ESCALATION ' if is_cascade else ''}***\n" + base_body, 
-                        recipient_override=NOTIFY_EMAIL, is_html=False
-                    )
-                    if n_success: dispatch_success = True
-                    else: log(f"[NOTIFY FAILED] SMTP Error for {site}: {n_msg}", "SYSTEM")
+                    if NOTIFY_EMAIL:
+                        n_success, n_msg = send_alert_email(
+                            f"NOC NOTIFICATION {'(CASCADE) ' if is_cascade else ''}: {target_tier.upper()} Incident at {site}", 
+                            f"*** NOC NOTIFICATION {'ESCALATION ' if is_cascade else ''}***\n" + base_body, 
+                            recipient_override=NOTIFY_EMAIL, is_html=False
+                        )
+                        if n_success: dispatch_success = True
+                        else: log(f"[NOTIFY FAILED] SMTP Error for {site}: {n_msg}", "SYSTEM")
 
                     # -> C. SEND SMART ONPAGE (NOC vs IT NETWORK)
                     if is_onpage:
@@ -506,22 +516,22 @@ def job_tiered_alert_escalation():
                             target_onpage_email = ITNETWORK_ONPAGE_EMAIL
                             onpage_title = "ITNETWORK"
 
-                        o_success, o_msg = send_alert_email(
-                            f"URGENT {onpage_title} ONPAGE {'CASCADE ' if is_cascade else ''}: {target_tier.upper()} Incident at {site}", 
-                            f"*** URGENT {onpage_title} ONPAGE {'ESCALATION ' if is_cascade else ''}***\n" + base_body, 
-                            recipient_override=target_onpage_email, is_html=False
-                        )
-                        if o_success: 
-                            dispatch_success = True
-                            if loc: loc.last_escalation_dispatch = now_utc # Apply the 1-Hour Site Cooldown
-                        else: log(f"[{onpage_title} ONPAGE FAILED] SMTP Error for {site}: {o_msg}", "SYSTEM")
+                        if target_onpage_email:
+                            o_success, o_msg = send_alert_email(
+                                f"URGENT {onpage_title} ONPAGE {'CASCADE ' if is_cascade else ''}: {target_tier.upper()} Incident at {site}", 
+                                f"*** URGENT {onpage_title} ONPAGE {'ESCALATION ' if is_cascade else ''}***\n" + base_body, 
+                                recipient_override=target_onpage_email, is_html=False
+                            )
+                            if o_success: 
+                                dispatch_success = True
+                                if loc: loc.last_escalation_dispatch = now_utc # Apply the 1-Hour Site Cooldown
+                            else: log(f"[{onpage_title} ONPAGE FAILED] SMTP Error for {site}: {o_msg}", "SYSTEM")
                 
                 # -> MUTE CLUSTER ON SUCCESS
                 if dispatch_success:
                     log(f"[SUCCESS] Fully Dispatched {target_tier.upper()} cluster for {site}", "SYSTEM")
                     for a in undispatched_alerts: a.is_dispatched = True
                     db.commit()
-
 
 # =====================================================================
 # 2. GARBAGE COLLECTION & MAINTENANCE
