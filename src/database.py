@@ -339,6 +339,12 @@ class MonitoredLocation(Base):
     under_maintenance = Column(Boolean, default=False)
     maintenance_etr = Column(DateTime, nullable=True)
     maintenance_reason = Column(Text, nullable=True)
+    
+    # Tracking for Ticketing (Automated via AIOps)
+    last_auto_ticket = Column(DateTime, nullable=True)
+    last_escalation_ticket = Column(DateTime, nullable=True)
+    
+    # Tracking for Dispatching (Manual/Remedyforce)
     last_auto_dispatch = Column(DateTime, nullable=True)
     last_escalation_dispatch = Column(DateTime, nullable=True)
 
@@ -419,6 +425,46 @@ def init_db():
             conn.execute(text("ALTER TABLE system_config ADD COLUMN baseline_override_phys FLOAT DEFAULT 0.0"))
     except Exception:
         pass # Columns already exist
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE solarwinds_alerts ADD COLUMN is_ticketed BOOLEAN DEFAULT 0"))
+    except Exception:
+        pass
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE solarwinds_alerts ADD COLUMN is_dispatched BOOLEAN DEFAULT 0"))
+    except Exception:
+        pass
+
+
+    # ---------------------------------------------------------
+    # SILENT MIGRATIONS: MONITORED LOCATIONS
+    # ---------------------------------------------------------
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN last_auto_ticket DATETIME"))
+    except Exception: 
+        pass
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN last_escalation_ticket DATETIME"))
+    except Exception: 
+        pass
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN last_auto_dispatch DATETIME"))
+    except Exception: 
+        pass
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN last_escalation_dispatch DATETIME"))
+    except Exception: 
+        pass
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
