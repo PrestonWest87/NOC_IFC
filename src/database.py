@@ -311,6 +311,7 @@ class SolarWindsAlert(Base):
     received_at = Column(DateTime, default=datetime.utcnow, index=True)
     resolved_at = Column(DateTime, nullable=True, index=True)
     is_dispatched = Column(Boolean, default=False, index=True)
+    is_ticketed = Column(Boolean, default=False, index=True)
     is_correlated = Column(Boolean, default=False, index=True)
     ai_root_cause = Column(Text, nullable=True)
     device_type = Column(String, default="Unknown", index=True)
@@ -382,6 +383,12 @@ def init_db():
     # --- SILENT MIGRATION FIX ---
     # Manually adds columns if they don't exist in the live SQLite file yet
 
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE solarwinds_alerts ADD COLUMN is_ticketed BOOLEAN DEFAULT 0"))
+    except Exception:
+        pass
+        
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE roles ADD COLUMN allowed_site_types JSON"))
