@@ -348,7 +348,7 @@ def job_tiered_alert_escalation():
             cooldown_cutoff = now_utc - timedelta(hours=cooldown_hours)
             return db.query(SolarWindsAlert).filter(
                 SolarWindsAlert.node_name == node_name,
-                SolarWindsAlert.is_dispatched == True,
+                SolarWindsAlert.is_ticketed == True,
                 SolarWindsAlert.received_at >= cooldown_cutoff
             ).first() is not None
 
@@ -376,7 +376,7 @@ def job_tiered_alert_escalation():
         # --- 4. SITE EVALUATION LOOP ---
         for site, data in incidents.items():
             alerts = data.get('alerts', [])
-            undispatched_alerts = [a for a in alerts if not a.is_dispatched]
+            undispatched_alerts = [a for a in alerts if not a.is_ticketed]
             
             if not undispatched_alerts:
                 continue
@@ -390,7 +390,7 @@ def job_tiered_alert_escalation():
                 time_since_onpage = now_utc - loc.last_escalation_dispatch
                 if time_since_onpage < timedelta(hours=1):
                     log(f"[SITE MUTED] Suppressed alerts for {site}. Site recently ONPAGED.", "SYSTEM")
-                    for a in undispatched_alerts: a.is_dispatched = True
+                    for a in undispatched_alerts: a.is_ticketed = True
                     db.commit()
                     continue
 
@@ -439,7 +439,7 @@ def job_tiered_alert_escalation():
                             n_ok, _ = send_alert_email(f"UNDOCUMENTED ALERT (NOTIFY): {target_alert.node_name}", t_body, NOTIFY_EMAIL, is_html=False)
                         
                         if t_ok or n_ok:
-                            for a in undispatched_alerts: a.is_dispatched = True
+                            for a in undispatched_alerts: a.is_ticketed = True
                             db.commit()
                 continue
 
