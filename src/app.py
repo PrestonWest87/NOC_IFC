@@ -2115,31 +2115,27 @@ elif page == "AIOps RCA":
                         st.divider()
                         cd1, cd2 = st.columns(2)
                     
-                    if cd1.button("Save Changes", type="primary", width="stretch", key=f"dia_save_{site_name}"):
-                        if site_alerts: 
-                            svc.set_cluster_dispatch([a.id for a in site_alerts], new_disp)
-                        
-                        # --- UPDATE THESE CALLS TO ALWAYS PASS m_rsn ---
-                        if new_stat == "Investigate/Dispatch":
-                            st.session_state.investigating_sites.add(site_name)
-                            # Pass m_rsn as the reason, set maintenance to False (is_maint)
-                            if site_record: svc.set_site_maintenance(site_name, False, None, m_rsn, modified_by=st.session_state.current_user)
-                        elif new_stat == "No Dispatch Needed":
-                            st.session_state.investigating_sites.discard(site_name)
-                            if site_record: svc.set_site_maintenance(site_name, True, m_etr, m_rsn, modified_by=st.session_state.current_user)
+                        if cd1.button("Save Changes", type="primary", width="stretch", key=f"dia_save_{site_name}"):
+                            if site_alerts: 
+                                svc.set_cluster_dispatch([a.id for a in site_alerts], new_disp)
+                                
+                            if new_stat == "Investigate/Dispatch":
+                                st.session_state.investigating_sites.add(site_name)
+                                if site_record: svc.set_site_maintenance(site_name, False, None, m_rsn, modified_by=st.session_state.current_user)
+                            elif new_stat == "No Dispatch Needed":
+                                st.session_state.investigating_sites.discard(site_name)
+                                if site_record: svc.set_site_maintenance(site_name, True, m_etr, m_rsn, modified_by=st.session_state.current_user)
                             
                             if hasattr(svc.get_cached_locations, 'clear'):
                                 svc.get_cached_locations.clear()
                             
                             st.session_state.target_edit_site = None 
-                            # We deliberately leave last_map_selection alone so the popup doesn't instantly reappear
                             st.success("Status Updated!")
                             time.sleep(0.5)
                             st.rerun()
                             
                         if cd2.button("Cancel", width="stretch", key=f"dia_cancel_{site_name}"):
                             st.session_state.target_edit_site = None
-                            # We deliberately leave last_map_selection alone so the popup doesn't instantly reappear
                             st.rerun()
 
                     # --- CUSTOM PYDECK MAP ENGINE ---
