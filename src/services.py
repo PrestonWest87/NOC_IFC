@@ -184,7 +184,7 @@ def save_shift_log(analyst, role, shift_period, content, custom_date=None):
         db.commit()
         return True
 
-def set_site_maintenance(site_name, is_maint, etr_date, reason):
+def set_site_maintenance(site_name, is_maint, etr_date, reason, modified_by=None):
     from src.database import SessionLocal, MonitoredLocation
     from datetime import datetime
     with SessionLocal() as db:
@@ -193,6 +193,11 @@ def set_site_maintenance(site_name, is_maint, etr_date, reason):
             loc.under_maintenance = is_maint
             loc.maintenance_etr = datetime.combine(etr_date, datetime.min.time()) if etr_date else None
             loc.maintenance_reason = reason
+
+            if modified_by:
+                loc.status_modified_by = modified_by
+                loc.status_modified_at = datetime.utcnow()
+            
             db.commit()
     get_cached_locations.clear()
 
