@@ -339,14 +339,12 @@ class MonitoredLocation(Base):
     under_maintenance = Column(Boolean, default=False)
     maintenance_etr = Column(DateTime, nullable=True)
     maintenance_reason = Column(Text, nullable=True)
-    
-    # Tracking for Ticketing (Automated via AIOps)
     last_auto_ticket = Column(DateTime, nullable=True)
-    last_escalation_ticket = Column(DateTime, nullable=True)
-    
-    # Tracking for Dispatching (Manual/Remedyforce)
+    last_escalation_ticket = Column(DateTime, nullable=True)   
     last_auto_dispatch = Column(DateTime, nullable=True)
     last_escalation_dispatch = Column(DateTime, nullable=True)
+    status_modified_by = Column(String, nullable=True)
+    status_modified_at = Column(DateTime, nullable=True)
 
 class CrimeIncident(Base):
     __tablename__ = "crime_incidents"
@@ -523,6 +521,13 @@ def init_db():
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN last_escalation_dispatch DATETIME"))
+    except Exception: 
+        pass
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN status_modified_by VARCHAR"))
+            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN status_modified_at DATETIME"))
     except Exception: 
         pass
     
