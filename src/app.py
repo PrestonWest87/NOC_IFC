@@ -2093,6 +2093,14 @@ elif page == "AIOps RCA":
                         curr_state = "No Dispatch Needed" if is_maint else "Investigate/Dispatch"
                         
                         st.markdown(f"### {site_name}")
+
+                        if site_record and getattr(site_record, 'status_modified_by', None):
+                            mod_time = format_local_time(site_record.status_modified_at) if getattr(site_record, 'status_modified_at', None) else "Unknown Time"
+                            st.caption(f"Last modified by: **{site_record.status_modified_by}** at {mod_time}")
+                        
+                        new_stat = st.radio("Status", ["Investigate/Dispatch", "No Dispatch Needed"], 
+                                              index=["Investigate/Dispatch", "No Dispatch Needed"].index(curr_state),
+                                              key=f"dia_stat_{site_name}")
                         
                         new_stat = st.radio("Status", ["Investigate/Dispatch", "No Dispatch Needed"], 
                                               index=["Investigate/Dispatch", "No Dispatch Needed"].index(curr_state),
@@ -2117,10 +2125,10 @@ elif page == "AIOps RCA":
                                 
                             if new_stat == "Investigate/Dispatch":
                                 st.session_state.investigating_sites.add(site_name)
-                                if site_record: svc.set_site_maintenance(site_name, False, None, "")
+                                if site_record: svc.set_site_maintenance(site_name, False, None, "", modified_by=st.session_state.current_user)
                             elif new_stat == "No Dispatch Needed":
                                 st.session_state.investigating_sites.discard(site_name)
-                                if site_record: svc.set_site_maintenance(site_name, True, m_etr, m_rsn)
+                                if site_record: svc.set_site_maintenance(site_name, True, m_etr, m_rsn, modified_by=st.session_state.current_user)
                             
                             if hasattr(svc.get_cached_locations, 'clear'):
                                 svc.get_cached_locations.clear()
@@ -2392,10 +2400,10 @@ elif page == "AIOps RCA":
                                                         
                                                         if m_stat == "Investigate/Dispatch":
                                                             st.session_state.investigating_sites.add(site)
-                                                            svc.set_site_maintenance(site, False, None, "")
+                                                            svc.set_site_maintenance(site, False, None, "", modified_by=st.session_state.current_user)
                                                         elif m_stat == "No Dispatch Needed":
                                                             st.session_state.investigating_sites.discard(site)
-                                                            svc.set_site_maintenance(site, True, m_etr, m_rsn)
+                                                            svc.set_site_maintenance(site, True, m_etr, m_rsn, modified_by=st.session_state.current_user)
                                                         
                                                         if hasattr(svc.get_cached_locations, 'clear'):
                                                             svc.get_cached_locations.clear()
