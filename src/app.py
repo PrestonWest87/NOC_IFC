@@ -2102,10 +2102,6 @@ elif page == "AIOps RCA":
                                               index=["Investigate/Dispatch", "No Dispatch Needed"].index(curr_state),
                                               key=f"dia_stat_{site_name}")
                         
-                        new_stat = st.radio("Status", ["Investigate/Dispatch", "No Dispatch Needed"], 
-                                              index=["Investigate/Dispatch", "No Dispatch Needed"].index(curr_state),
-                                              key=f"dia_stat_{site_name}")
-                        
                         new_disp = st.checkbox("Ticket Dispatched", value=is_disp, key=f"dia_disp_{site_name}")
                                               
                         if new_stat == "No Dispatch Needed":
