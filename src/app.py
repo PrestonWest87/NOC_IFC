@@ -2120,10 +2120,10 @@ elif page == "AIOps RCA":
                                 svc.set_cluster_dispatch([a.id for a in site_alerts], new_disp)
                                 
                             if new_stat == "Investigate/Dispatch":
-                                st.session_state.investigating_sites.add(site_name)
+                                global_investigating.add(site_name) # Changed from st.session_state.investigating_sites
                                 if site_record: svc.set_site_maintenance(site_name, False, None, m_rsn, modified_by=st.session_state.current_user)
                             elif new_stat == "No Dispatch Needed":
-                                st.session_state.investigating_sites.discard(site_name)
+                                global_investigating.discard(site_name) # Changed from st.session_state.investigating_sites
                                 if site_record: svc.set_site_maintenance(site_name, True, m_etr, m_rsn, modified_by=st.session_state.current_user)
                             
                             if hasattr(svc.get_cached_locations, 'clear'):
@@ -2392,10 +2392,10 @@ elif page == "AIOps RCA":
                                                         svc.set_cluster_dispatch([a.id for a in data['alerts']], m_disp)
                                                         
                                                         if m_stat == "Investigate/Dispatch":
-                                                            st.session_state.investigating_sites.add(site)
+                                                            global_investigating.add(site) # Changed from st.session_state.investigating_sites
                                                             svc.set_site_maintenance(site, False, None, m_rsn, modified_by=st.session_state.current_user)
                                                         elif m_stat == "No Dispatch Needed":
-                                                            st.session_state.investigating_sites.discard(site)
+                                                            global_investigating.discard(site) # Changed from st.session_state.investigating_sites
                                                             svc.set_site_maintenance(site, True, m_etr, m_rsn, modified_by=st.session_state.current_user)
                                                         
                                                         if hasattr(svc.get_cached_locations, 'clear'):
