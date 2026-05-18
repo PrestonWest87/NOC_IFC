@@ -2101,33 +2101,35 @@ elif page == "AIOps RCA":
                             mod_time = format_local_time(site_record.status_modified_at) if getattr(site_record, 'status_modified_at', None) else "Unknown Time"
                             st.caption(f"Last modified by: **{site_record.status_modified_by}** at {mod_time}")
                         
-                        new_stat = st.radio("Status", ["Investigate/Dispatch", "No Dispatch Needed"], 
-                                              index=["Investigate/Dispatch", "No Dispatch Needed"].index(curr_state),
-                                              key=f"dia_stat_{site_name}")
+                        # Inside @st.dialog("Manage Site Status")
+                    # ...
+                    new_stat = st.radio("Status", ["Investigate/Dispatch", "No Dispatch Needed"], 
+                                          index=["Investigate/Dispatch", "No Dispatch Needed"].index(curr_state),
+                                          key=f"dia_stat_{site_name}")
+                    
+                    new_disp = st.checkbox("Ticket Dispatched", value=is_disp, key=f"dia_disp_{site_name}")
+                    
+                    # --- MOVE THESE OUT OF THE IF-BLOCK ---
+                    etr_val = site_record.maintenance_etr.date() if site_record and getattr(site_record, 'maintenance_etr', None) else datetime.today().date()
+                    m_etr = st.date_input("Estimated Time of Restoration (ETR)", value=etr_val, key=f"dia_etr_{site_name}")
+                    m_rsn = st.text_area("Reason / Comments", value=(site_record.maintenance_reason if site_record else ""), key=f"dia_rsn_{site_name}")
+                    # ---------------------------------------
+                    
+                    st.divider()
+                    cd1, cd2 = st.columns(2)
+                    
+                    if cd1.button("Save Changes", type="primary", width="stretch", key=f"dia_save_{site_name}"):
+                        if site_alerts: 
+                            svc.set_cluster_dispatch([a.id for a in site_alerts], new_disp)
                         
-                        new_disp = st.checkbox("Ticket Dispatched", value=is_disp, key=f"dia_disp_{site_name}")
-                                              
-                        if new_stat == "No Dispatch Needed":
-                            etr_val = site_record.maintenance_etr.date() if site_record and getattr(site_record, 'maintenance_etr', None) else datetime.today().date()
-                            m_etr = st.date_input("Estimated Time of Restoration (ETR)", value=etr_val, key=f"dia_etr_{site_name}")
-                            m_rsn = st.text_area("Reason / Comments", value=(site_record.maintenance_reason if site_record else ""), key=f"dia_rsn_{site_name}")
-                        else:
-                            m_etr = None
-                            m_rsn = ""
-                            
-                        st.divider()
-                        cd1, cd2 = st.columns(2)
-                        
-                        if cd1.button("Save Changes", type="primary", width="stretch", key=f"dia_save_{site_name}"):
-                            if site_alerts: 
-                                svc.set_cluster_dispatch([a.id for a in site_alerts], new_disp)
-                                
-                            if new_stat == "Investigate/Dispatch":
-                                global_investigating.add(site_name)  # <-- CHANGED
-                                if site_record: svc.set_site_maintenance(site_name, False, None, "", modified_by=st.session_state.current_user)
-                            elif new_stat == "No Dispatch Needed":
-                                global_investigating.discard(site_name)  # <-- CHANGED
-                                if site_record: svc.set_site_maintenance(site_name, True, m_etr, m_rsn, modified_by=st.session_state.current_user)
+                        # --- UPDATE THESE CALLS TO ALWAYS PASS m_rsn ---
+                        if new_stat == "Investigate/Dispatch":
+                            st.session_state.investigating_sites.add(site_name)
+                            # Pass m_rsn as the reason, set maintenance to False (is_maint)
+                            if site_record: svc.set_site_maintenance(site_name, False, None, m_rsn, modified_by=st.session_state.current_user)
+                        elif new_stat == "No Dispatch Needed":
+                            st.session_state.investigating_sites.discard(site_name)
+                            if site_record: svc.set_site_maintenance(site_name, True, m_etr, m_rsn, modified_by=st.session_state.current_user)
                             
                             if hasattr(svc.get_cached_locations, 'clear'):
                                 svc.get_cached_locations.clear()
@@ -2387,21 +2389,20 @@ elif page == "AIOps RCA":
                                                     
                                                     m_disp = st.checkbox("Ticket Dispatched", value=is_disp, key=f"mdisp_{site}")
                                                     
-                                                    if m_stat == "No Dispatch Needed":
-                                                        etr_val = site_record.maintenance_etr.date() if getattr(site_record, 'maintenance_etr', None) else datetime.today().date()
-                                                        m_etr = st.date_input("Estimated Time of Restoration (ETR)", value=etr_val, key=f"metr_{site}")
-                                                        m_rsn = st.text_area("Reason / Comments", value=site_record.maintenance_reason or "", key=f"mrsn_{site}")
-                                                    else:
-                                                        m_etr = None; m_rsn = ""
+                                                    # --- MOVE OUTSIDE IF-BLOCK ---
+                                                    etr_val = site_record.maintenance_etr.date() if getattr(site_record, 'maintenance_etr', None) else datetime.today().date()
+                                                    m_etr = st.date_input("ETR", value=etr_val, key=f"metr_{site}")
+                                                    m_rsn = st.text_area("Reason / Comments", value=site_record.maintenance_reason or "", key=f"mrsn_{site}")
+                                                    # -----------------------------
                                                     
                                                     if st.button("Save Status Update", key=f"msave_{site}", type="primary", width="stretch"):
                                                         svc.set_cluster_dispatch([a.id for a in data['alerts']], m_disp)
                                                         
                                                         if m_stat == "Investigate/Dispatch":
-                                                            global_investigating.add(site) # <-- CHANGED
-                                                            svc.set_site_maintenance(site, False, None, "", modified_by=st.session_state.current_user)
+                                                            st.session_state.investigating_sites.add(site)
+                                                            svc.set_site_maintenance(site, False, None, m_rsn, modified_by=st.session_state.current_user)
                                                         elif m_stat == "No Dispatch Needed":
-                                                            global_investigating.discard(site) # <-- CHANGED
+                                                            st.session_state.investigating_sites.discard(site)
                                                             svc.set_site_maintenance(site, True, m_etr, m_rsn, modified_by=st.session_state.current_user)
                                                         
                                                         if hasattr(svc.get_cached_locations, 'clear'):
