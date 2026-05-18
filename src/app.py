@@ -1970,16 +1970,19 @@ elif page == "AIOps RCA":
         if "Tab: AIOps RCA -> Active Board" in st.session_state.allowed_actions:
             with ai_tabs[ai_idx]:
                 
-                # --- STATE MANAGEMENT FOR DIALOG & COLORS ---
+               # --- STATE MANAGEMENT FOR DIALOG & COLORS ---
                 if "last_map_selection" not in st.session_state:
                     st.session_state.last_map_selection = None
-                if "investigating_sites" not in st.session_state:
-                    st.session_state.investigating_sites = set()
                 if "target_edit_site" not in st.session_state:
                     st.session_state.target_edit_site = None
-                # NEW: State tracking for AIOps browser notifications
                 if "notified_aiops" not in st.session_state:
                     st.session_state.notified_aiops = set()
+                    
+                # NEW: Global Server-Wide Memory for Investigating Sites
+                @st.cache_resource
+                def get_global_investigations():
+                    return set()
+                global_investigating = get_global_investigations()
 
                 # Fetch data first
                 alerts, events, grid = svc.get_aiops_dashboard_data()
@@ -2120,10 +2123,10 @@ elif page == "AIOps RCA":
                                 svc.set_cluster_dispatch([a.id for a in site_alerts], new_disp)
                                 
                             if new_stat == "Investigate/Dispatch":
-                                st.session_state.investigating_sites.add(site_name)
+                                global_investigating.add(site_name)  # <-- CHANGED
                                 if site_record: svc.set_site_maintenance(site_name, False, None, "", modified_by=st.session_state.current_user)
                             elif new_stat == "No Dispatch Needed":
-                                st.session_state.investigating_sites.discard(site_name)
+                                global_investigating.discard(site_name)  # <-- CHANGED
                                 if site_record: svc.set_site_maintenance(site_name, True, m_etr, m_rsn, modified_by=st.session_state.current_user)
                             
                             if hasattr(svc.get_cached_locations, 'clear'):
@@ -2150,7 +2153,7 @@ elif page == "AIOps RCA":
                     for l in locs:
                         is_down = l.name in active_alert_sites
                         is_no_dispatch = getattr(l, 'under_maintenance', False)
-                        is_investigating = l.name in st.session_state.investigating_sites
+                        is_investigating = l.name in global_investigating
                         
                         site_alerts = [a for a in alerts if a.mapped_location == l.name]
                         is_dispatched = any(getattr(a, 'is_dispatched', False) for a in site_alerts)
@@ -2170,7 +2173,7 @@ elif page == "AIOps RCA":
                                 status_text = "Down (Ticket Dispatched)"
                                 show_pulse = False
                             elif is_investigating:
-                                color = [255, 193, 7, 200]  # Yellow
+                                color = [255, 165, 0, 200]
                                 status_text = "Down (Investigating/Pending Dispatch)"
                                 show_pulse = False
                             else:
@@ -2192,8 +2195,8 @@ elif page == "AIOps RCA":
                         else:
                             color = [40, 167, 69, 200]  # Green
                             status_text = "Operational / Clear"
-                            if l.name in st.session_state.investigating_sites:
-                                st.session_state.investigating_sites.discard(l.name)
+                            if l.name in global_investigating:
+                                global_investigating.discard(l.name)
                                 
                         coord_key = f"{l.lat}_{l.lon}"
                         if coord_key in seen_coords:
@@ -2395,10 +2398,10 @@ elif page == "AIOps RCA":
                                                         svc.set_cluster_dispatch([a.id for a in data['alerts']], m_disp)
                                                         
                                                         if m_stat == "Investigate/Dispatch":
-                                                            st.session_state.investigating_sites.add(site)
+                                                            global_investigating.add(site) # <-- CHANGED
                                                             svc.set_site_maintenance(site, False, None, "", modified_by=st.session_state.current_user)
                                                         elif m_stat == "No Dispatch Needed":
-                                                            st.session_state.investigating_sites.discard(site)
+                                                            global_investigating.discard(site) # <-- CHANGED
                                                             svc.set_site_maintenance(site, True, m_etr, m_rsn, modified_by=st.session_state.current_user)
                                                         
                                                         if hasattr(svc.get_cached_locations, 'clear'):
