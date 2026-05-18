@@ -2110,10 +2110,10 @@ elif page == "AIOps RCA":
                             new_disp = st.checkbox("Ticket Dispatched", value=is_disp, key=f"dia_disp_{site_name}")
                             
                             # --- MOVE THESE OUT OF THE IF-BLOCK ---
-                            etr_val = site_record.maintenance_etr.date() if site_record and getattr(site_record, 'maintenance_etr', None) else datetime.today().date()
-                            m_etr = st.date_input("Estimated Time of Restoration (ETR)", value=etr_val, key=f"dia_etr_{site_name}")
-                            m_rsn = st.text_area("Reason / Comments", value=(site_record.maintenance_reason if site_record else ""), key=f"dia_rsn_{site_name}")
-                            # ---------------------------------------
+                    etr_val = site_record.maintenance_etr.date() if site_record and getattr(site_record, 'maintenance_etr', None) else datetime.today().date()
+                    m_etr = st.date_input("Estimated Time of Restoration (ETR)", value=etr_val, key=f"dia_etr_{site_name}")
+                    m_rsn = st.text_area("Reason / Comments", value=(site_record.maintenance_reason if site_record else ""), key=f"dia_rsn_{site_name}")
+                    # ---------------------------------------
                     
                     st.divider()
                     cd1, cd2 = st.columns(2)
