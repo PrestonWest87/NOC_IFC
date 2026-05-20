@@ -2356,7 +2356,7 @@ elif page == "AIOps RCA":
                                                 if "District:" not in ticket_text: ticket_text = f"District: {district_name}\n{ticket_text}"
                                                 
                                                 ticket_body = st.text_area("Ticket Notes / RCA Summary", value=ticket_text, height=350, key=f"t_body_{site}")
-                                                fixed_recipients = st.session_state.get("ticket_recipients", os.getenv("TICKET_RECIPIENTS", "ticket-dispatch@localhost"))
+                                                fixed_recipients = st.session_state.get("ticket_recipients", ", ".join(filter(None, [os.environ.get("REMEDYFORCE_TICKET_EMAIL"), os.environ.get("NOC_NOTIFY_EMAIL")]))) or "ticket-dispatch@localhost"
                                                 st.info(f"Ticket will be automatically dispatched to: **{fixed_recipients}**")
                                                 
                                                 if st.button("Dispatch Ticket", key=f"t_send_{site}", width='stretch'):
