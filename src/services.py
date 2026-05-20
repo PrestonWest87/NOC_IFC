@@ -206,7 +206,7 @@ def set_site_maintenance(site_name, is_maint, etr_date, reason, modified_by=None
 def get_nws_forecast(lat, lon):
     """Fetches the 7-day forecast for a specific coordinate using the NWS API."""
     headers = {
-        "User-Agent": "NOC_IFC_Weather_Module (noc@aecc.com)" # NWS requires a User-Agent
+        "User-Agent": "NOC_IFC_Weather_Module (noc-fusion@localhost)" # NWS requires a User-Agent
     }
     try:
         # Step 1: Get the gridpoints URL
@@ -507,7 +507,7 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
 
         # --- 2. PROCESS PHYSICAL ---
         pure_phys_articles = []
-        ar_keywords = ["arkansas", "little rock", "pulaski", "benton", "entergy", "aecc", "cooperative"]
+        ar_keywords = ["arkansas", "little rock", "pulaski", "benton", "entergy", "cooperative"]
         threat_keywords = ["terror", "attack", "grid", "substation", "sabotage", "vandalism", "infrastructure", "transformer", "sniper", "shoot", "explosive"]
         seen_phys_titles = set()
         
