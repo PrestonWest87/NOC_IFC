@@ -4,6 +4,7 @@ import time
 import uuid
 import re
 import json
+import os
 from streamlit_cookies_controller import CookieController
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -2355,7 +2356,7 @@ elif page == "AIOps RCA":
                                                 if "District:" not in ticket_text: ticket_text = f"District: {district_name}\n{ticket_text}"
                                                 
                                                 ticket_body = st.text_area("Ticket Notes / RCA Summary", value=ticket_text, height=350, key=f"t_body_{site}")
-                                                fixed_recipients = st.session_state.get("ticket_recipients", "ticket-dispatch@localhost")
+                                                fixed_recipients = st.session_state.get("ticket_recipients", os.getenv("TICKET_RECIPIENTS", "ticket-dispatch@localhost"))
                                                 st.info(f"Ticket will be automatically dispatched to: **{fixed_recipients}**")
                                                 
                                                 if st.button("Dispatch Ticket", key=f"t_send_{site}", width='stretch'):

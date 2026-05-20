@@ -4,6 +4,7 @@ import bcrypt
 import uuid
 import re
 import json
+import os
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from shapely.geometry import Point, shape
@@ -206,7 +207,7 @@ def set_site_maintenance(site_name, is_maint, etr_date, reason, modified_by=None
 def get_nws_forecast(lat, lon):
     """Fetches the 7-day forecast for a specific coordinate using the NWS API."""
     headers = {
-        "User-Agent": "NOC_IFC_Weather_Module (noc-fusion@localhost)" # NWS requires a User-Agent
+        "User-Agent": f"NOC_IFC_Weather_Module ({os.getenv('NOC_CONTACT_EMAIL', 'noc-fusion@localhost')})" # NWS requires a User-Agent
     }
     try:
         # Step 1: Get the gridpoints URL
