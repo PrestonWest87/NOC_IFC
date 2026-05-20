@@ -31,7 +31,7 @@ A robust set of background workers automates the collection of multi-domain inte
 Data is processed through a tiered architecture combining determinism with generative AI.
 
 * **Categorizer (`categorizer.py`)**: Uses pre-compiled regex pipelines to instantly route intelligence into Cyber, Physical/Weather, or Geopolitics operational buckets.
-* **Threat Hunter (`threat_hunter.py`)**: Refangs sanitized data and extracts structured IOCs (IPv4, Domains, SHA256 hashes, MITRE ATT&CK techniques) while filtering out false positives like internal IP spaces.
+* **IOC Extractor (`ioc_extractor.py`)**: A class-based `EnterpriseIOCExtractor` engine that refangs sanitized data and extracts structured IOCs (IPv4, Domains, SHA256 hashes, MITRE ATT&CK techniques, crypto wallets, cloud API keys) with contextual awareness and strict fidelity filtering.
 * **Hybrid Scoring Logic (`logic.py`)**: Assigns threat scores using a two-pronged approach. It takes the maximum value between deterministic keyword matching and a probabilistic ML model.
 * **ML Pipeline (`train_model.py`)**: A Human-in-the-Loop reinforcement engine that builds a Scikit-Learn TF-IDF and Naive Bayes model based on analysts accepting or dismissing specific articles.
 * **AIOps Engine (`aiops_engine.py`)**: Clusters alerts by site to calculate root cause. It evaluates blast radius, cascade duration, and physical/environmental contexts to dispatch detailed ITSM tickets. It also uncovers chronic hardware degradation patterns.

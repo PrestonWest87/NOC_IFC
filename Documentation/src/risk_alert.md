@@ -4,17 +4,13 @@
 
 The `src/risk_alert.py` module is the **Risk Level Change Alert Engine** for the NOC Intelligence Fusion Center. It monitors risk tier transitions (GREEN→BLUE→YELLOW→ORANGE→RED) and sends automated email notifications to configured recipients when levels increase.
 
-Key features:
-- **Tier-based detection:** Compares current risk against stored previous levels
-- **Cooldown logic:** Prevents alert storms with 4-hour minimum interval
-- **SMTP integration:** Configurable email relay via database settings
-- **Dual tracking:** Monitors both Global (OSINT) and Internal (Asset) risk independently
+It also handles **Earthquake Proximity Alerts**, triggered by seismic events within 50 miles of monitored facilities.
 
 ---
 
 ## 2. Risk Tier Hierarchy
 
-```python
+```
 RISK_TIER_ORDER = ["GREEN", "BLUE", "YELLOW", "ORANGE", "RED"]
 ```
 
@@ -31,118 +27,37 @@ RISK_TIER_ORDER = ["GREEN", "BLUE", "YELLOW", "ORANGE", "RED"]
 ## 3. Core Functions
 
 ### `get_tier_level(risk: str) -> int`
-
-**Purpose:** Converts risk tier name to numeric level.
-
-**Parameters:**
-- `risk` (str): Tier name (e.g., "GREEN", "YELLOW")
-
-**Returns:**
-- Integer 0-4, or -1 if invalid
-
----
+Converts risk tier name to numeric level (0-4), returns -1 for invalid input.
 
 ### `is_increase(from_level: str, to_level: str) -> bool`
-
-**Purpose:** Checks if `to_level` represents an increase over `from_level`.
-
-**Parameters:**
-- `from_level` (str): Previous tier
-- `to_level` (str): Current tier
-
-**Returns:** `True` if numeric level increased, `False` otherwise
-
----
+Returns `True` if `to_level` represents a tier increase over `from_level`.
 
 ### `get_alert_recipients() -> list`
+Loads comma-separated email addresses from `RISK_ALERT_RECIPIENTS` environment variable.
 
-**Purpose:** Loads alert recipients from environment variable.
-
-**Returns:** List of email addresses from `RISK_ALERT_RECIPIENTS` (comma-separated)
-
----
-
-### `get_smtp_config()`
-
-**Purpose:** Fetches SMTP configuration from `SystemConfig` database record.
-
-**Returns:** `SystemConfig` object or `None`
-
----
+### `get_smtp_config() -> SystemConfig`
+Fetches SMTP configuration from `SystemConfig` database record.
 
 ### `should_send_alert() -> bool`
+Checks if 4-hour cooldown period has elapsed since last alert.
 
-**Purpose:** Checks if 4-hour cooldown period has elapsed since last alert.
+### `update_last_alert_time() -> None`
+Records current Central time as last alert timestamp in database.
 
-**Returns:** `True` if eligible to send, `False` if in cooldown
+### `update_tracked_risks(global_risk, internal_risk) -> None`
+Persists current risk levels to database for future comparison.
 
----
+### `build_alert_email_body(global_change, internal_change, current_global, current_internal) -> str`
+Constructs plain-text email body with change details for risk level transitions.
 
-### `update_last_alert_time()`
+### `send_alert(recipients, subject, body) -> tuple`
+Sends email via configured SMTP server with TLS support. Returns `(success: bool, message: str)`.
 
-**Purpose:** Records current UTC time as last alert timestamp in database.
+### `check_and_alert(global_risk, internal_risk) -> None`
+Main entry point. Compares current risk levels against stored previous levels and sends alert if any increased. Checks cooldown eligibility before sending.
 
----
-
-### `update_tracked_risks(global_risk: str = None, internal_risk: str = None)`
-
-**Purpose:** Persists current risk levels to database for future comparison.
-
-**Parameters:**
-- `global_risk` (str, optional): New global risk tier
-- `internal_risk` (str, optional): New internal risk tier
-
----
-
-### `build_alert_email_body(...) -> str`
-
-**Purpose:** Constructs plain-text email body with change details.
-
-**Parameters:**
-- `global_change` (tuple, optional): (previous, current) tuple
-- `internal_change` (tuple, optional): (previous, current) tuple
-- `current_global` (str, optional): Current global tier
-- `current_internal` (str, optional): Current internal tier
-
-**Returns:** Formatted plain-text email body
-
----
-
-### `send_alert(recipients: list, subject: str, body: str)`
-
-**Purpose:** Sends email via configured SMTP server.
-
-**Parameters:**
-- `recipients` (list): Email addresses
-- `subject` (str): Email subject line
-- `body` (str): Email body
-
-**Returns:** (success: bool, message: str)
-
-**SMTP Flow:**
-1. Connects to `smtp_server:smtp_port`
-2. Starts TLS if credentials provided
-3. Authenticates and sends
-4. Logs out and closes
-
----
-
-### `check_and_alert(global_risk: str = None, internal_risk: str = None)`
-
-**Purpose:** Main entry point for risk alerting.
-
-**Parameters:**
-- `global_risk` (str, optional): New global risk tier
-- `internal_risk` (str, optional): New internal risk tier
-
-**Logic Flow:**
-1. Load previous risk levels from database
-2. Detect increases (GLOBAL, INTERNAL, or BOTH)
-3. Check cooldown eligibility
-4. Load recipients from environment
-5. Build and send email
-6. Update last alert timestamp
-7. Persist new risk levels
+### `build_eq_alert_email_body(alerts) -> str`
+Constructs plain-text email body for earthquake proximity alerts. Lists each affected site with distance, magnitude, location, depth, and time.
 
 ---
 
@@ -157,8 +72,8 @@ RISK_TIER_ORDER = ["GREEN", "BLUE", "YELLOW", "ORANGE", "RED"]
 
 ### Database Configuration (SystemConfig)
 
-| Field | Source |
-|-------|--------|
+| Field | Purpose |
+|-------|---------|
 | `smtp_enabled` | Boolean enable flag |
 | `smtp_server` | SMTP hostname |
 | `smtp_port` | SMTP port |
@@ -175,37 +90,13 @@ RISK_TIER_ORDER = ["GREEN", "BLUE", "YELLOW", "ORANGE", "RED"]
 
 | Job | Interval | Function |
 |-----|----------|----------|
-| Risk Alert Check | After unified brief | `check_and_alert()` |
+| Risk Alert Check | After unified brief | `check_and_alert(global_risk=...)` |
+| Risk Alert Check | After internal risk | `check_and_alert(internal_risk=...)` |
+| Earthquake Alert | Every 2 min | `check_earthquake_proximity()` via infra_worker |
 
 ---
 
-## 6. Usage Examples
-
-### Basic Alert Check
-
-```python
-from src.risk_alert import check_and_alert
-
-# After risk calculation completes
-check_and_alert(global_risk="YELLOW", internal_risk="GREEN")
-```
-
-### Manual Email Send
-
-```python
-from src.risk_alert import send_alert, get_alert_recipients
-
-recipients = get_alert_recipients()
-success, msg = send_alert(
-    recipients,
-    "Test Alert",
-    "This is a test from NOC IFC"
-)
-```
-
----
-
-## 7. API Citations
+## 6. API Citations
 
 - **Python smtplib:** https://docs.python.org/3/library/smtplib.html
 - **email.mime:** https://docs.python.org/3/library/email.mime.html

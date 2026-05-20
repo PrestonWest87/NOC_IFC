@@ -58,9 +58,11 @@ RISK_ALERT_RECIPIENTS=email1,email2              # For risk alerts
 | Crime Fetch | 3 min |
 | Regional Hazards | 2 min |
 | Cloud Outages | 5 min |
+| Telemetry Sync | 5 min |
+| Alert Escalation | 1 min |
 | CISA KEV | 6 hours |
-| Internal Risk | 6 hours |
-| Unified Brief | 2 hours |
+| Internal Risk | 1 hour |
+| Unified Brief | 30 min |
 | DB Maintenance | 60 min |
 | ML Retrain | Sunday 02:00 |
 

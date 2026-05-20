@@ -2,87 +2,101 @@
 
 ## 1. Executive Overview
 
-The `src/infra_worker.py` module serves as the **Physical Infrastructure & Environmental Telemetry Engine** for the Intelligence Fusion Center. Unlike traditional IT monitoring tools that focus purely on digital packet loss, this worker actively monitors the physical world. 
+The `src/infra_worker.py` module serves as the **Physical Infrastructure & Environmental Telemetry Engine** for the Intelligence Fusion Center. It ingests live meteorological data from government APIs, utilizes advanced geospatial mathematics via the `shapely` library, and monitors seismic activity via USGS.
 
-It ingests live meteorological data from government APIs and utilizes advanced geospatial mathematics (via the `shapely` library) to calculate deterministic intersections between active severe weather polygons and the exact latitude/longitude coordinates of tracked NOC facilities. This provides the AIOps engine with the localized environmental context needed to diagnose physical layer failures (e.g., fiber cuts from tornadoes, VSAT rain fade).
+It has been expanded to ingest **USGS Earthquake Data** and cache all raw GeoJSON geometry (SPC outlooks, NWS alerts, USGS quakes) into the database for instant UI rendering.
 
 ---
 
 ## 2. Core Data Sources & Upstream APIs
 
-The worker relies on authoritative, high-availability feeds from the National Oceanic and Atmospheric Administration (NOAA) and the National Weather Service (NWS).
-
 ### 2.1 Storm Prediction Center (SPC) Convective Outlooks
-* **Endpoint:** `https://www.spc.noaa.gov/products/outlook/day1otlk_cat.lyr.geojson`
-* **Format:** GeoJSON
-* **Purpose:** Provides macro-level, day-of risk polygons for severe thunderstorms and tornadoes across the continental United States.
+| Feed | Endpoint | Purpose |
+|------|----------|---------|
+| Day 1 | `day1otlk_cat.nolyr.geojson` | Current day severe thunderstorm/tornado risk |
+| Day 2 | `day2otlk_cat.nolyr.geojson` | +24 hour forecast |
+| Day 3 | `day3otlk_cat.nolyr.geojson` | +48 hour forecast |
 
 ### 2.2 NWS Active Warnings API
-* **Endpoint:** `https://api.weather.gov/alerts/active?area=AR,OK,MS,MO`
-* **Format:** Custom NWS JSON (CAP - Common Alerting Protocol)
-* **Purpose:** Provides hyper-local, active warnings (e.g., Flash Flood Warnings, Tornado Warnings) specifically filtered to the organization's primary operational footprint (Arkansas, Oklahoma, Mississippi, Missouri).
+- **Endpoint:** `https://api.weather.gov/alerts/active?area={area_str}`
+- **Primary Region:** Arkansas (`AR`)
+- **Out-of-State Region:** Oklahoma, Mississippi, Missouri (`OK,MS,MO`)
+
+### 2.3 USGS Earthquake API
+- **Endpoint:** `https://earthquake.usgs.gov/fdsnws/event/1/query`
+- **Parameters:** Magnitude >= 2.0, 7-day lookback, geofenced to Arkansas region bounds
 
 ---
 
-## 3. Geospatial Processing Engine: `fetch_spc_outlooks(session)`
+## 3. Geospatial Processing Engine
 
-This function acts as the spatial intersection calculator. It is computationally intense, bridging static IT asset management with dynamic weather tracking.
+### `fetch_spc_outlooks()`
+Downloads Day 1, Day 2, and Day 3 SPC convective outlook GeoJSON and caches each to the `GeoJsonCache` table via `save_geojson_to_db()`.
 
-### 3.1 Data Preparation & Compilation
-1.  **GeoJSON Ingestion:** Downloads the latest SPC Day 1 outlook and extracts the `features` array.
-2.  **Risk Hierarchy:** Establishes a numerical weighting system (`risk_levels`) to evaluate overlapping polygons (e.g., HIGH=6, TSTM=1). This ensures that if a site sits on the border of a "Slight" and "Enhanced" risk zone, the engine appropriately inherits the higher "Enhanced" threat model.
-3.  **Polygon Pre-compilation:** Iterates through the GeoJSON features and converts the raw coordinate arrays into formal `shapely.geometry.shape()` polygon objects, storing them in memory for rapid iteration.
+### `fetch_nws_alerts_for_region(area_str, feed_name)`
+1. Queries NWS API for active alerts
+2. Saves raw GeoJSON to `GeoJsonCache` for UI rendering
+3. Parses features into `RegionalHazard` records with upsert logic (UUID fallback for missing NWS IDs)
 
-### 3.2 The Intersection Algorithm (Point-in-Polygon)
-1.  **Location Retrieval:** Queries the `MonitoredLocation` database table to retrieve the specific latitude and longitude of every tracked site.
-2.  **Spatial Math (`shapely`):** For each site, it creates a Shapely `Point(lon, lat)`. *Note: Shapely strictly requires coordinates in (Longitude, Latitude) order, unlike standard mapping formats.*
-3.  **Overlap Detection:** It evaluates `point.within(poly)` against every pre-compiled SPC polygon.
-4.  **Database Update:** If an intersection is detected and the risk level exceeds the site's current recorded baseline, it updates the `current_spc_risk` property for that specific `MonitoredLocation` and commits the changes to the database.
+### `save_geojson_to_db(session, feed_name, data)`
+Upserts GeoJSON cache into the database for instant UI map rendering without re-fetching external APIs.
 
 ---
 
-## 4. Regional Threat Ingestion: `fetch_nws_warnings(session)`
+## 4. Seismic Monitoring
 
-This function manages the active, tactical threat board by tracking immediate hazards (e.g., "Tornado Warning issued for Pulaski County").
+### `fetch_usgs_earthquakes(area_key, feed_name)`
+Queries USGS for earthquakes >= 2.0 magnitude within the last 7 days, geofenced to predefined USGS bounds for Arkansas (`ar`) and out-of-state (`oos`) regions. Caches results to `GeoJsonCache`.
 
-### 4.1 Ingestion & Idempotency logic
-1.  **Payload Extraction:** Hits the NWS API and parses the JSON response.
-2.  **UUID Fallback:** Attempts to extract the official NWS `id` for the hazard. If the NWS API fails to provide one, it generates a `uuid.uuid4()` to ensure database constraints are met.
-3.  **Upsert Mechanism:** * **Check:** Queries the `RegionalHazard` table for an existing `hazard_id`.
-    * **Update:** If the warning is already tracked, it simply updates the `updated_at` timestamp, preventing database bloat.
-    * **Insert:** If it is a newly issued warning, it instantiates a new `RegionalHazard` object, extracting the `event` (Hazard Type), `severity`, `headline` (Title), and `areaDesc` (Location).
+### `check_earthquake_proximity(equake_data, distance_miles=50)`
+Cross-references earthquake epicenters against all monitored NOC facility locations. If a quake >= 2.5 magnitude is within 50 miles of a facility, triggers an alert via `risk_alert.send_alert()` using `build_eq_alert_email_body()`.
+
+### `haversine_distance(lat1, lon1, lat2, lon2)`
+Calculates great-circle distance in miles between two lat/lon points.
 
 ---
 
-## 5. System Integration & Lifecycle
+## 5. System Integration
 
 ### `fetch_regional_hazards()`
-This is the master wrapper function that initializes the database session (`SessionLocal`), executes both the tactical (NWS) and macro (SPC) environmental sweeps, and safely closes the database connection in a `finally` block to prevent memory/connection leaks.
-
-### Macro-Architecture Context
-Within the IFC ecosystem, this telemetry data is consumed by:
-* **The UI (Regional Grid Tab):** In `app.py`, the `MonitoredLocation` records are plotted onto the PyDeck 3D map. The `current_spc_risk` dynamically alters the color and status of the NOC sites on the dashboard.
-* **The AIOps Engine (`aiops_engine.py`):** When a SolarWinds node goes down, the engine queries the `RegionalHazard` table. If the failed node's mapped location overlaps with an active environmental hazard, the AI natively correlates the outage to "Severe Weather Hazards" rather than an internal misconfiguration.
+Master wrapper that executes the full pipeline:
+1. Fetch SPC Day 1-3 outlooks
+2. Fetch NWS alerts for Arkansas
+3. Fetch NWS alerts for out-of-state region
+4. Fetch USGS earthquakes for Arkansas
+5. Fetch USGS earthquakes for out-of-state
+6. Check earthquake proximity to monitored sites
+7. Run garbage collection
 
 ---
 
 ## 6. Complete Function Reference
 
 | Function | Signature | Purpose |
-|----------|----------|---------|
-| `log_print` | `(msg) -> None` | Debug logging |
-| `save_geojson_to_db` | `(session, feed_name, data) -> None` | Save GeoJSON to cache |
-| `fetch_spc_outlooks` | `() -> int` | Fetch SPC convective outlooks |
-| `fetch_nws_alerts_for_region` | `(area_str, feed_name) -> int` | Fetch NWS alerts |
-| `fetch_regional_hazards` | `() -> int` | Master wrapper function |
+|----------|-----------|---------|
+| `log_print` | `(msg) -> None` | Timestamped logging to stdout |
+| `save_geojson_to_db` | `(session, feed_name, data) -> None` | Upsert GeoJSON to cache |
+| `fetch_spc_outlooks` | `() -> None` | Fetch Day 1-3 SPC convective outlooks |
+| `fetch_nws_alerts_for_region` | `(area_str, feed_name) -> None` | Fetch NWS alerts for region |
+| `fetch_usgs_earthquakes` | `(area_key, feed_name) -> None` | Fetch USGS earthquake data |
+| `haversine_distance` | `(lat1, lon1, lat2, lon2) -> float` | Distance in miles |
+| `check_earthquake_proximity` | `(equake_data, distance_miles) -> None` | Earthquake proximity alerting |
+| `fetch_regional_hazards` | `() -> None` | Master wrapper function |
+
+### Constants
+
+| Constant | Type | Description |
+|----------|------|-------------|
+| `USGS_BOUNDS` | `dict` | `ar` and `oos` geographic bounds |
+| `CENTRAL_TZ` | `ZoneInfo` | America/Chicago timezone |
 
 ---
 
 ## 7. API Citations
 
 | API / Service | Purpose | Documentation |
-|---------------|---------|-------------|
+|---------------|---------|---------------|
 | NWS API | Weather alerts | https://www.weather.gov/api/ |
 | SPC | Storm predictions | https://www.spc.noaa.gov/ |
-| Shapely | Geospatial geometry | https://shapely.readthedocs.io/ |
+| USGS | Earthquakes | https://earthquake.usgs.gov/ |
 | Requests | HTTP client | https://docs.python-requests.org/ |

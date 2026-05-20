@@ -2,107 +2,125 @@
 
 ## 1. Executive Overview
 
-The `src/llm.py` module acts as the Cognitive Processing Hub of the Intelligence Fusion Center (IFC). In its latest architectural iteration, this module has been heavily refactored to optimize for Local Edge Compute and GPU Memory constraints, such as running open-weights models via LM Studio, Ollama, or vLLM.
+The `src/llm.py` module acts as the **Cognitive Processing Hub** of the Intelligence Fusion Center (IFC). It provides LLM integration for unified brief generation, daily reports, executive summaries, SIEM triage, and shift log synthesis.
 
-To prevent massive context-window overflows, CUDA Out-Of-Memory crashes, and severe UI latency, the engine implements aggressive text truncation, dynamic chunk resizing, universal Map-Reduce pipelines, and extended timeout tolerances for local inference speeds. It has been recently expanded to support the new **Internal Asset Risk Matrix**, **Unified Risk Briefs**, and the **AI Shift Logbook**.
-
----
-
-## 2. Core Architecture: Compute & Context Optimization
-
-Standard LLM API calls are highly sequential and prone to context bloat. The updated engine introduces several utilities to strictly manage the data payload sent to the LLM and handle the latency inherent to local hosting.
-
-### 2.1 Universal API Gateway: `call_llm(messages, config, temperature)`
-* **Extended Latency Tolerance:** The `requests.post` timeout has been explicitly increased to 120 seconds to accommodate the slower generation speeds of locally hosted LLMs without crashing the application thread.
-* **Built-In Error Surfacing:** Catches `Timeout` and `ConnectionError` exceptions, returning formatted network error strings directly to the UI rather than throwing backend Python exceptions.
-
-### 2.2 Context Management Utilities
-* **`chunk_list(data, size)`:** A helper generator that chunks lists to prevent LLM context-window overflows.
-* **`truncate_text(text, max_chars)`:** Aggressively trims long article summaries down to a predefined character limit, which defaults to 300 characters. This prevents the LLM context window from overflowing when batching multiple intelligence articles together.
-
-### 2.3 The Universal Pipeline: `_map_reduce_summarize(...)`
-A newly abstracted, universal Map-Reduce pipeline designed to safely process large arrays of database objects without triggering context limits or timeouts.
-* **Tier 1 (Map Phase):** Takes a large array of database items, chunks them into small micro-batches (defaulting to 6 items), and runs a "Map Prompt" with a strict temperature of 0.1 against each chunk to extract core facts.
-* **Tier 2 (Reduce Phase):** If multiple batches were processed, it concatenates the resulting summaries and runs a final "Reduce Prompt" with a slightly higher variance (temperature 0.2) to synthesize a single, cohesive narrative.
-* **Fault Tolerance:** Automatically ignores chunks that return network error strings during the Map phase, allowing the Reduce phase to continue with the successful batches rather than failing the entire pipeline.
+The engine implements aggressive text truncation, dynamic chunk resizing, universal Map-Reduce pipelines, and extended timeout tolerances for local inference speeds. Supports OpenAI-compatible APIs and local LLM deployments (Ollama, LM Studio).
 
 ---
 
-## 3. High-Velocity Tactical Intelligence & Executive Briefs
+## 2. Core Architecture: Map-Reduce Engine
 
-### 3.1 Unified BLUF Generation: `generate_bluf(article, session)`
-The generation of the "Bottom Line Up Front" (BLUF) prioritizes self-attention and contextual accuracy using a single unified prompt.
-* **Architecture:** Uses a single context-aware call to preserve self-attention, rather than splitting prompts concurrently.
-* **Strict Output Structuring:** Forces the LLM to output exactly four concise bullet points: Core Event, Impact Radius, Technical Details, and Actionable Posture. It executes with a strict temperature of 0.1 to avoid conversational filler.
+### `call_llm(messages, config, temperature)`
+Universal API caller with:
+- **120-second timeout** for local LLM inference speeds
+- **Error surfacing** returning formatted network error strings (Timeout, ConnectionError)
 
-### 3.2 Dynamic Scoring Report: `generate_dynamic_scoring_report(session, intel)`
-Generates an expansive, boardroom-ready intelligence brief summarizing 48-hour Cyber/CVE data and 24-hour perimeter crimes.
-* **Algorithmic Guardrails:** Explicitly commands the LLM *not* to calculate scores, reference the CIS formula, or attempt mathematical justifications, preventing AI hallucination.
-* **Narrative Synthesis:** Weaves the extracted telemetry into a cohesive narrative mapped directly to the system's current `unified_risk` posture (e.g., BLUE, YELLOW, RED).
+### `chunk_list(data, size)`
+Generator that chunks lists to prevent LLM context-window overflow.
 
-### 3.3 Unified Risk Brief: `generate_unified_risk_brief(session, global_intel, latest_internal)`
-**[NEW]** Synthesizes multi-domain threats into a single macroscopic narrative.
-* **Functionality:** Takes the external global OSINT telemetry and merges it with the localized `InternalRiskSnapshot` (Hardware/Software vulnerabilities).
-* **Output:** Generates a highly polished executive narrative comparing the active threat landscape directly against the organization's current internal asset attack surface.
+### `truncate_text(text, max_chars=300)`
+Aggressively trims text to save local GPU VRAM/context window during Map phases.
 
-### 3.4 Weather & Hazard Analytics: `generate_executive_weather_brief(analytics, p1_count, sys_config)`
-* **Functionality:** Synthesizes a meteorological intelligence report specifically highlighting active Regional Hazards. Focuses on the operational districts most impacted and any critical (Priority 1) infrastructure exposures.
-
----
-
-## 4. Strategic & Analytical Pipelines (Tuned Chunking)
-
-All strategic reporting functions have had their chunk sizes and ingestion limits aggressively tuned to accommodate the throughput of local models and prevent hallucination due to context dilution.
-
-* **`cross_reference_cves`:** Chunks Known Exploited Vulnerabilities (KEVs) into batches of 8. It executes a strict scan (temperature 0.0) against the internal `sys_config.tech_stack` during the Map phase, reducing matches into a Master Alert.
-* **`build_custom_intel_report`:** Utilizes a chunk limit of 3 and sets text truncation to 600 characters. This ensures exhaustive extraction of technical details, IOCs, and targeted systems during the Map phase without losing intelligence.
-* **`generate_aggregated_shift_summary(session, valid_logs, agg_period, agg_target_role)`:** **[NEW]** A two-tier Map-Reduce pipeline that digests high volumes of `ShiftLogEntry` records. It is explicitly scoped to the requested `agg_target_role` (e.g., "admin", "analyst") and extracts critical incidents into a polished Markdown handoff document for the specified weekly or monthly timeframe.
+### `_map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size)`
+Universal Map-Reduce pipeline:
+- **Tier 1 (Map):** Chunks items, runs strict fact extraction (temperature 0.1)
+- **Tier 2 (Reduce):** Concatenates batch summaries, runs narrative synthesis (temperature 0.2)
+- **Fault Tolerance:** Ignores chunks returning network errors
 
 ---
 
-## 5. Automated Scheduled Reporting
+## 3. Tactical Intelligence Functions
 
-### 5.1 Shift Context: `generate_rolling_summary(session)`
-* **Temporal Scoping:** Generates a cohesive executive narrative scoped strictly to the last 6 hours.
-* **Native String Compression:** Because the 6-hour volume is relatively small, this function bypasses the Map-Reduce pipeline. It natively gathers up to 10 top-scoring cyber articles, 10 hazards, and 10 cloud outages, appending them into a single context string. This is passed to a Master Editor prompt (temperature 0.2) to weave a fast-paced 2-paragraph summary.
+### `generate_bluf(article, session)`
+Generates a 4-point Bottom Line Up Front using a single unified prompt to preserve self-attention: Core Event, Impact Radius, Technical Details, Actionable Posture.
 
-### 5.2 Master SitRep: `generate_daily_fusion_report(session)`
-* **Architecture:** Routes entirely through the `_map_reduce_summarize` pipeline across four distinct infrastructure domains.
-* **Execution:** Iterates over the previous day's telemetry. Each domain executes its own Map-Reduce pipeline with tuned chunk sizes: Cyber (chunk 6), Vulnerabilities (chunk 8), Infrastructure Hazards (chunk 6), and Cloud Services (chunk 5).
-* **Master Editor & Fallback:** The four resulting domain summaries are concatenated and sent to a final Senior Director prompt for narrative smoothing and Markdown formatting. If the Master Editor fails or times out, the function falls back to a hardcoded string concatenation, guaranteeing the daily report is consistently generated regardless of LLM stability.
+### `generate_rolling_summary(session)`
+Scoped to the last 6 hours. Natively gathers top-scoring cyber articles, hazards, and cloud outages from separate database queries. Single-pass Master Editor prompt generates a 2-paragraph executive summary with a bolded "Grid Status" assessment.
+
+### `analyze_cascading_impacts(articles, session)`
+Multi-Tier synthesis identifying converging threats between disparate intelligence feeds (e.g., severe weather overlapping with cyber vulnerabilities).
 
 ---
 
-## 6. Complete Function Reference
+## 4. Executive Briefing Functions
 
-### 6.1 Configuration Functions
+### `generate_unified_risk_brief(session, global_intel, internal_snapshot)`
+Generates an exhaustive, boardroom-ready Unified Risk Brief in a single fast pass using pre-calculated matrices:
+1. Extracts pre-calculated `hw_data_json` and `sw_data_json` from `InternalRiskSnapshot`
+2. Formats top 10 hardware/software exposures with OSINT match counts
+3. Compiles macro threat posture with global and internal risk levels
+4. Single-pass LLM execution generating 5-section Markdown brief (Executive Summary, Internal Attack Surface, Global Threat Landscape, Physical & Perimeter Security, Strategic Recommendations)
+
+### `generate_dynamic_scoring_report(session, intel)`
+Generates an expansive Executive Intelligence Brief without calculating or justifying scores. Uses Map-Reduce for cyber intelligence, then a Master Editor to weave a cohesive narrative.
+
+### `generate_executive_weather_brief(analytics, p1_count, sys_config)`
+2-paragraph Executive Weather Briefing focusing on district-level impacts and critical infrastructure exposures.
+
+---
+
+## 5. CVE & SIEM Integration
+
+### `cross_reference_cves(cves, session)`
+Chunks KEVs in batches of 8, cross-references against internal `tech_stack`, and reduces matches into a unified Security Alert. Returns "CLEAR" if no matches found.
+
+### `generate_siem_triage_summary(session, flat_results)`
+Reviews extracted SIEM telemetry (capped at 30 results) and produces a boardroom-ready Executive Summary with correlated IOCs.
+
+### `generate_elastic_dsl(session, nl_query)`
+Translates natural language to valid Elasticsearch JSON query DSL. Strips markdown formatting from LLM responses.
+
+---
+
+## 6. Reporting & Shift Log Functions
+
+### `generate_daily_fusion_report(session)`
+Four-domain Map-Reduce pipeline spanning Cyber, Vulnerabilities, Infrastructure, and Cloud. Each domain runs its own Map-Reduce with tuned chunk sizes. A Master Editor prompt weaves the four summaries into a single cohesive Daily Fusion Report with Markdown formatting. Falls back to hardcoded concatenation if the Master Editor fails.
+
+### `generate_aggregated_shift_summary(session, logs, timeframe_label, target_role)`
+Two-tier Map-Reduce pipeline for shift log volumes. First pass digests logs into an incident digest (chunk size 20), then a Master Editor produces a structured 3-section executive summary scoped to the requested role and timeframe.
+
+### `generate_briefing(articles, session)`
+Multi-Tier synthesis compressing a large article feed into a tight 2-paragraph situational briefing.
+
+### `generate_feed_overview(articles, focus_prompt, session)`
+Macro-level overview using Map-Reduce with a configurable focus prompt.
+
+### `build_custom_intel_report(articles, objective, session)`
+Exhaustive, multi-article technical intelligence report using chunk size 3 and 600-character truncation for deep extraction.
+
+---
+
+## 7. Complete Function Reference
+
+### Configuration Functions
 
 | Function | Signature | Purpose |
-|----------|----------|---------|
-| `get_llm_config` | `(session) -> dict` | Get LLM configuration from database |
+|----------|-----------|---------|
+| `get_llm_config` | `(session) -> SystemConfig` | Get LLM configuration from database |
 
-### 6.2 Core LLM Functions
+### Core LLM Functions
 
 | Function | Signature | Purpose |
-|----------|----------|---------|
+|----------|-----------|---------|
 | `call_llm` | `(messages, config, temperature) -> str` | Universal API caller with timeout handling |
 | `chunk_list` | `(data, size) -> generator` | Chunk list for context management |
 | `truncate_text` | `(text, max_chars) -> str` | Truncate text to limit |
 | `_map_reduce_summarize` | `(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size) -> str` | Universal Map-Reduce pipeline |
 
-### 6.3 BLUF & Analysis Functions
+### BLUF & Analysis Functions
 
 | Function | Signature | Purpose |
-|----------|----------|---------|
+|----------|-----------|---------|
 | `generate_bluf` | `(article, session) -> str` | Bottom Line Up Front for article |
 | `analyze_cascading_impacts` | `(articles, session) -> str` | Multi-tier impact analysis |
 | `generate_unified_risk_brief` | `(session, global_intel, internal_snapshot) -> str` | Unified risk brief |
 | `generate_aggregated_shift_summary` | `(session, logs, timeframe_label, target_role) -> str` | Shift log summary |
 
-### 6.4 Reporting Functions
+### Reporting Functions
 
 | Function | Signature | Purpose |
-|----------|----------|---------|
+|----------|-----------|---------|
 | `generate_briefing` | `(articles, session) -> str` | Multi-article briefing |
 | `cross_reference_cves` | `(cves, session) -> str` | CVE cross-reference |
 | `generate_feed_overview` | `(articles, focus_prompt, session) -> str` | Feed overview |
@@ -111,25 +129,25 @@ All strategic reporting functions have had their chunk sizes and ingestion limit
 | `generate_rolling_summary` | `(session) -> str` | 6-hour rolling summary |
 | `generate_dynamic_scoring_report` | `(session, intel) -> str` | Boardroom-ready report |
 
-### 6.5 SIEM Functions
+### SIEM Functions
 
 | Function | Signature | Purpose |
-|----------|----------|---------|
+|----------|-----------|---------|
 | `generate_siem_triage_summary` | `(session, flat_results) -> str` | SIEM alert summary |
 | `generate_elastic_dsl` | `(session, nl_query) -> str` | Natural language to DSL |
 
-### 6.6 Daily Functions
+### Daily Functions
 
 | Function | Signature | Purpose |
-|----------|----------|---------|
-| `generate_daily_fusion_report` | `(session) -> str` | Daily fusion report with Map-Reduce |
+|----------|-----------|---------|
+| `generate_daily_fusion_report` | `(session) -> tuple` | Daily fusion report with Map-Reduce |
 
 ---
 
-## 7. API Citations
+## 8. API Citations
 
 | API / Service | Purpose | Documentation |
-|---------------|---------|-------------|
+|---------------|---------|---------------|
 | Requests | HTTP client | https://docs.python-requests.org/ |
 | Ollama | Local LLM | https://github.com/ollama/ollama |
 | LM Studio | Local LLM | https://lmstudio.ai/ |

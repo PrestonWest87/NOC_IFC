@@ -1,23 +1,45 @@
-# 🌐 NOC Intelligence Fusion Center
+# NOC Intelligence Fusion Center — Enterprise Operations Platform
 
-An enterprise-grade, AI-powered intelligence aggregator and Heads-Up Display (HUD) built for Network Operations Centers. This platform ingests real-time telemetry from hundreds of RSS feeds, CISA vulnerabilities, 18+ global cloud infrastructure providers, regional utility grids, global BGP routing tables, **geofenced local law enforcement CAD APIs**, and **internal hardware/software asset inventories**. 
+## Executive Summary
 
-It utilizes a highly optimized hybrid intelligence engine—combining Scikit-Learn Machine Learning for threat scoring, pre-compiled Regex for **Term-Hit Density** triage, strict deterministic algorithms for causal correlation, and edge-optimized LLMs for automated Map-Reduce synthesis—to cut through alert fatigue and deliver actionable intelligence.
+The NOC Intelligence Fusion Center (IFC) is an enterprise-grade, AI-powered intelligence aggregation and situational awareness platform purpose-built for Network Operations Centers. It delivers real-time fusion of cyber threat intelligence, physical infrastructure telemetry, geospatial hazard data, and internal asset risk posture into a unified operational picture.
 
----
-
-## 🏗️ Core Architecture
-
-* **Frontend (`web`):** Streamlit (Python) running interactive, zero-scroll dashboards with context-aware real-time asynchronous polling, dynamic cookie-persistent UI theming, and an integrated UI Debouncing/Cooldown Engine to protect backend resources.
-* **Service-Oriented Architecture (SOA):** A strict Data Access Layer (`services.py`) that completely decouples the Streamlit UI from SQLAlchemy ORM models, utilizing detached `DotDict` patterns and aggressive RAM caching to prevent detached instance crashes and database locking.
-* **Background Orchestration (`worker`):** A headless daemon driving a Master Scheduler that bypasses Python's GIL using a Hybrid Concurrency Model (Asynchronous I/O combined with Multiprocessing via `ProcessPoolExecutor`).
-* **Ingestion Gateway (`webhook`):** A dedicated FastAPI asynchronous listener hosting REST APIs to receive, parse, and normalize live ITSM telemetry (e.g., SolarWinds) without blocking the UI.
-* **Database (`database.py`):** Defaults to a lightweight SQLite database pushed to the limit via low-level C-library pragmas (Write-Ahead Logging, in-memory temp stores, and memory-mapped files) for extreme edge-compute concurrency.
-* **Synthesis & Broadcast (`llm.py`):** A universal LLM abstraction layer heavily tuned for Local Edge Compute (Ollama, LM Studio) utilizing adaptive chunking, strict temperature controls, and Map-Reduce pipelines to prevent VRAM context-window overflows.
+The platform employs a **microservices-style container topology** with three isolated services (Web UI, Background Worker, Webhook Gateway) sharing a common SQLite or PostgreSQL database. It features a **24/7 Tiered Alert Escalation Engine** with business-hours-aware SLA routing, automated ITSM ticketing, and smart on-call paging.
 
 ---
 
-## 🖥️ Modules & Functional Capabilities (UI Deep Dive)
+## Enterprise Architecture
+
+### Service Topology
+
+| Service | Role | Port | Entrypoint |
+|---------|------|------|------------|
+| **Web** | Streamlit Presentation Layer | 8501 | `src/app.py` |
+| **Worker** | Background Orchestration Daemon | None | `src/scheduler.py` |
+| **Webhook** | FastAPI Ingestion Gateway | 8100 | `src/webhook_listener.py` |
+
+### Data Access Layer (SOA)
+A strict Service-Oriented Architecture decouples the Streamlit UI from SQLAlchemy ORM models via `src/services.py`. All database transactions return detached `DotDict` objects to prevent `DetachedInstanceError` crashes during rapid UI auto-refreshes. Aggressive TTL-based RAM caching (5s to 24h) protects backend resources.
+
+### Concurrency Model
+- **Asynchronous I/O** (`aiohttp`): High-latency network requests (RSS, NWS, CAD APIs) execute concurrently without blocking
+- **Threaded Execution**: All scheduled jobs run in daemon threads to prevent slow APIs from blocking the master schedule loop
+
+### Database
+- **Default:** Lightweight SQLite with WAL mode, 16MB cache, in-memory temp stores, 256MB memory-mapped I/O
+- **Enterprise:** PostgreSQL via `DATABASE_URL` environment variable
+- **Concurrency:** `check_same_thread=False` with 30-second connection timeout for multi-container access
+
+### 24/7 Alert Escalation Engine
+The scheduler runs a tiered escalation manager every 60 seconds with:
+- **Day Shift (Mon-Fri 0600-2000 CST):** P1 immediate, P2-P5 with 10-minute hold. Ticketing only, no onpage.
+- **After Hours:** Full escalation path with P1 immediate onpage, tiered wait timers, and smart alert routing
+- **Dispatch Channels:** Remedyforce ticketing, NOC notifications, NOC onpage (SWF devices), IT Network onpage
+- **Protection:** Flapping node cooldowns, site-level muting, cascade detection
+
+---
+
+## Modules & Functional Capabilities
 
 The application routes operators between 8 distinct operational modules based on their assigned Role-Based Access Control (RBAC) permissions.
 
@@ -26,7 +48,7 @@ High-level strategic views aggregating telemetry across all domains.
 * **Operational Dashboard:** Displays 24-hour KPIs. Houses auto-rotating panels for "Threat Triage" (Pinned/Live intel), "Infrastructure Status" (Active Cloud Outages, CVEs, Hazards), and an "AI Analysis" panel featuring an LLM-powered rolling summary and AI Security Auditor.
 * **Global Risk (Executive Matrix):** Evaluates live unified threat posture (Cyber + Physical) against a 14-Day Baseline Deviation Trend utilizing the MS-ISAC/CIS Alert Framework (GREEN to RED). 
 * **Internal Risk (Asset Posture):** Tracks the organization's hardware and software footprint against active OSINT threats, producing a localized risk score and highlighting critical asset exposures via historical trend lines.
-* **Unified Brief:** Displays an autonomous Map-Reduce narrative that merges the Global OSINT Threat with the Internal Asset Risk Matrix into a single macroscopic brief (auto-updates every 2 hours).
+* **Unified Brief:** Displays an autonomous Map-Reduce narrative that merges the Global OSINT Threat with the Internal Asset Risk Matrix into a single macroscopic brief (auto-updates every 30 minutes).
 
 ### 2. 📡 Threat Telemetry
 The primary ingestion view for global and perimeter open-source intelligence.
