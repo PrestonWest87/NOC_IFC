@@ -431,7 +431,7 @@ def get_recent_crimes(max_distance=None, grid_only=False, hours_back=168):
 def force_fetch_crime_data():
     """Triggers the crime worker logic manually from the UI."""
     try:
-        from src.crime_worker import fetch_live_crimes
+        from src.workers.crime_worker import fetch_live_crimes
         fetch_live_crimes()
         dispatch_perimeter_crime_alerts() # <-- ADD THIS LINE
         return True
@@ -1175,7 +1175,7 @@ def generate_outlook_html_report(intel):
 def send_executive_report(recipient_email, intel, sys_config):
     try:
         html_body = generate_outlook_html_report(intel)
-        from src.mailer import send_alert_email
+        from src.utils.mailer import send_alert_email
         success, msg = send_alert_email(
             subject=f"Grid Threat Intelligence Update - Posture: {intel['unified_risk']}", 
             body=html_body, recipient_override=recipient_email, is_html=True
@@ -1369,7 +1369,7 @@ def dispatch_perimeter_crime_alerts():
                 f"Map: {gmaps_link}"
             )
             
-            from src.mailer import send_alert_email
+            from src.utils.mailer import send_alert_email
             success, msg = send_alert_email(
                 subject=f"Crime Alert: {crime.distance_miles}mi",
                 body=sms_body,
@@ -1799,7 +1799,7 @@ def save_alias(alias_id, new_mapped_name):
 def generate_global_sitrep(sys_config_dict):
     """Generates the Global Correlation SitRep using the Enterprise AIOps Engine."""
     from src.database import RegionalHazard, CloudOutage, BgpAnomaly, SolarWindsAlert
-    from src.aiops_engine import EnterpriseAIOpsEngine
+    from src.services.aiops_engine import EnterpriseAIOpsEngine
     
     with SessionLocal() as db:
         # FIX 1: Capture ALL active alerts, not just strings matching 'Down'
@@ -1841,7 +1841,7 @@ def generate_global_sitrep(sys_config_dict):
 
         # AI Summary Generator
         if sys_config_dict and sys_config_dict.get('is_active'):
-            from src.llm import call_llm
+            from src.utils.llm import call_llm
             sys_prompt = "You are an elite NOC AIOps Engine. Summarize the following deterministic IT SitRep into a technical 2-sentence executive summary. Do not use pleasantries."
             ai_summary = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": report}], sys_config_dict, temperature=0.1)
 
@@ -2000,7 +2000,7 @@ def restore_backup_data(data):
     return added
 
 def recategorize_all_articles():
-    from src.categorizer import categorize_text
+    from src.services.categorizer import categorize_text
     with SessionLocal() as db:
         # Fetch ALL articles, not just "General"
         arts = db.query(Article).all()

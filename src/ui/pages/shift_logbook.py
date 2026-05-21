@@ -63,7 +63,7 @@ def render_shift_logbook():
         st.caption("Pulls active outages and automatically calculates the duration of the event.")
         if st.button("Auto-Draft Active Outages", width="stretch"):
             alerts, events, grid = svc.get_aiops_dashboard_data()
-            from src.aiops_engine import EnterpriseAIOpsEngine
+            from src.services.aiops_engine import EnterpriseAIOpsEngine
             ai_engine = EnterpriseAIOpsEngine(svc.SessionLocal)
 
             if not alerts:

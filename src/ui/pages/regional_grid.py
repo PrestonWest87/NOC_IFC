@@ -23,7 +23,7 @@ def render_regional_grid():
     if col_sync2.button("Syncing..." if is_infra_cooling else "Sync Regional Telemetry", disabled=not perms["can_sync"] or is_infra_cooling, key="tt_sync_infra", width="stretch"):
         apply_cooldown("sync_infra")
         with st.spinner("Pulling Radar & Calculating Geospatial Intersections..."):
-            from src.infra_worker import fetch_regional_hazards
+            from src.workers.infra_worker import fetch_regional_hazards
             fetch_regional_hazards()
             time.sleep(1)
             svc.get_cached_geojson.clear()
@@ -289,7 +289,7 @@ def render_regional_grid():
                                         <p style='color: #495057; line-height: 1.5;'>{custom_notes.replace(chr(10), '<br>') if custom_notes else 'None provided.'}</p>
                                     </div>
                                     """
-                                    from src.mailer import send_alert_email
+                                    from src.utils.mailer import send_alert_email
                                     success, msg = send_alert_email("Executive Weather & Infrastructure SitRep", html_body, recipient_override=target_email, is_html=True)
                                     if success:
                                         st.success(f"Report dispatched to {target_email}")
@@ -348,7 +348,7 @@ def render_regional_grid():
                         else:
                             with st.spinner("Compiling HTML and transmitting..."):
                                 html_safe = svc.generate_hazard_sitrep_html(analytics_df)
-                                from src.mailer import send_alert_email
+                                from src.utils.mailer import send_alert_email
                                 success, msg = send_alert_email("URGENT: Active Severe Weather Impacting Operations", html_safe, recipient_override=sitrep_recipients, is_html=True)
                                 if success:
                                     st.success("Executive HTML SitRep successfully transmitted!")

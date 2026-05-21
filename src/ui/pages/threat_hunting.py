@@ -115,7 +115,7 @@ def render_threat_hunting():
                     c_sync, c_space = st.columns([1, 4])
                     if c_sync.button("Sync Local Cache", width='stretch', type="primary", key="sync_es_cache"):
                         with st.spinner("Polling Elastic Stack..."):
-                            from src.elastic_worker import sync_elastic_telemetry, purge_stale_elastic_data
+                            from src.workers.elastic_worker import sync_elastic_telemetry, purge_stale_elastic_data
                             sync_elastic_telemetry(hours_back=24)
                             purge_stale_elastic_data(hours_to_keep=72)
                             st.rerun()
@@ -153,7 +153,7 @@ def render_threat_hunting():
 
                     if st.button("Execute Live Hunt", type="primary", use_container_width=True):
                         with st.spinner("Executing query against cluster..."):
-                            from src.elastic_worker import execute_live_query
+                            from src.workers.elastic_worker import execute_live_query
 
                             if hunt_term:
                                 query_body = {"query": {"query_string": {"query": f"*{hunt_term}*"}}, "sort": [{"@timestamp": {"order": "desc", "unmapped_type": "boolean"}}]}

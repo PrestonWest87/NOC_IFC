@@ -96,7 +96,7 @@ def render_threat_telemetry():
                 if st.button("Syncing..." if is_kev_cooling else "Sync CISA KEV", disabled=not perms["can_sync"] or is_kev_cooling, width="stretch"):
                     apply_cooldown("sync_kev")
                     with st.spinner("Fetching CISA Database..."):
-                        from src.cve_worker import fetch_cisa_kev;
+                        from src.workers.cve_worker import fetch_cisa_kev;
                         fetch_cisa_kev();
                         safe_rerun()
                 for cve in svc.get_cves(limit=50, days_back=30):
@@ -110,7 +110,7 @@ def render_threat_telemetry():
                 if st.button("Syncing..." if is_cloud_cooling else "Sync Cloud Status", disabled=not perms["can_sync"] or is_cloud_cooling, width="stretch"):
                     apply_cooldown("sync_cloud")
                     with st.spinner("Pulling data from Global Providers..."):
-                        from src.cloud_worker import fetch_cloud_outages;
+                        from src.workers.cloud_worker import fetch_cloud_outages;
                         fetch_cloud_outages();
                         safe_rerun()
 

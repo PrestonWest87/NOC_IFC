@@ -267,7 +267,7 @@ def render_global_dashboards():
         if c_score_btn.button("Generating..." if is_scoring_cooling else "Generate Scoring Rationale", disabled=not perms["can_trigger_ai"] or is_scoring_cooling, width="stretch", type="primary"):
             apply_cooldown("ai_scoring_report")
             with st.spinner("Analyzing threat weights and compiling expansive scoring rationale..."):
-                from src.llm import generate_dynamic_scoring_report
+                from src.utils.llm import generate_dynamic_scoring_report
                 with svc.SessionLocal() as session:
                     rep = generate_dynamic_scoring_report(session, intel)
                 st.session_state.scored_overview = rep
@@ -289,8 +289,8 @@ def render_global_dashboards():
         if col_btn.button("Send AI Scoring Report", width='stretch', type="primary", disabled=not perms["can_dispatch_report"]):
             if target_email:
                 with st.spinner("Generating AI Analysis and Transmitting..."):
-                    from src.llm import generate_dynamic_scoring_report
-                    from src.mailer import send_alert_email
+                    from src.utils.llm import generate_dynamic_scoring_report
+                    from src.utils.mailer import send_alert_email
 
                     rep = st.session_state.get("scored_overview")
                     if not rep or st.session_state.get("scored_overview_risk") != intel['unified_risk']:
@@ -557,7 +557,7 @@ def render_global_dashboards():
                             global_risk=current_global,
                             internal_risk=current_internal
                         )
-                        from src.mailer import send_alert_email
+                        from src.utils.mailer import send_alert_email
                         success, msg = send_alert_email("Executive Unified Risk Brief", formatted_html, recipient_override=ub_recipients, is_html=True)
                         if success:
                             st.success("Brief successfully transmitted!")

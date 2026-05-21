@@ -19,7 +19,7 @@ def render_aiops_rca():
     st.title("AIOps Root Cause Analysis")
     st.caption("Live correlation of non-uniform monitoring alerts with Regional Intelligence.")
 
-    from src.aiops_engine import EnterpriseAIOpsEngine
+    from src.services.aiops_engine import EnterpriseAIOpsEngine
     ai_engine = EnterpriseAIOpsEngine(svc.SessionLocal)
 
     ai_tab_names = []
@@ -175,7 +175,7 @@ def render_aiops_rca():
                                         st.info(f"Ticket will be automatically dispatched to: **{fixed_recipients}**")
 
                                         if st.button("Dispatch Ticket", key=f"t_send_{site}", width='stretch'):
-                                            from src.mailer import send_alert_email
+                                            from src.utils.mailer import send_alert_email
                                             with st.spinner("Dispatching to RemedyForce & NOC..."):
                                                 success, msg = send_alert_email(f"URGENT: {clean_p} Incident at {site}", ticket_body, fixed_recipients, is_html=False)
                                                 if success:
@@ -272,7 +272,7 @@ def render_aiops_rca():
 
                     c_em1, c_em2 = st.columns([1, 4])
                     if c_em1.button("Broadcast SitRep", width="stretch"):
-                        from src.mailer import send_alert_email
+                        from src.utils.mailer import send_alert_email
                         with st.spinner("Transmitting via SMTP..."):
                             success, msg = send_alert_email("URGENT: Multi-Domain Global SitRep", st.session_state.last_global_rca)
                             if success:
