@@ -1,3 +1,6 @@
+import logging
+
+logger = logging.getLogger(__name__)
 import pandas as pd
 import requests
 import bcrypt
@@ -103,31 +106,30 @@ def get_ar_counties_mapping():
                 ar_counties[name] = f["geometry"]
         return ar_counties
     except Exception as e:
-        print(f"Error fetching county GeoJSON: {e}")
+        logger.error("Error fetching county GeoJSON: %s", e)
         return {}
 
 @st.cache_data(ttl=86400, max_entries=1)
 def get_regional_counties_mapping():
-    """Fetches official US County boundaries for the operational region using FIPS codes."""
+    """Fetches and caches all US county boundaries keyed by 5-digit FIPS code."""
     try:
         url = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json"
         data = requests.get(url, timeout=10).json()
-        regional_counties = {}
-        # FIPS: AR(05), LA(22), MO(29), MS(28), OK(40), TN(47), TX(48)
-        target_states = ["05", "22", "29", "28", "40", "47", "48"]
+        counties = {}
         for f in data.get("features", []):
-            state_fips = f.get("properties", {}).get("STATE")
-            if state_fips in target_states:
-                fips = f.get("id")
-                name = f["properties"].get("NAME", "")
-                regional_counties[fips] = {
-                    "name": name, 
-                    "state_fips": state_fips, 
-                    "geometry": f["geometry"]
-                }
-        return regional_counties
+            props = f.get("properties", {})
+            state_fips = props.get("STATE", "")
+            county_fips = props.get("COUNTY", "")
+            fips = state_fips + county_fips
+            name = props.get("NAME", "").lower()
+            counties[fips] = {
+                "state_fips": state_fips,
+                "geometry": f["geometry"],
+                "name": name,
+            }
+        return counties
     except Exception as e:
-        print(f"Error fetching county GeoJSON: {e}")
+        logger.error("Error fetching county GeoJSON: %s", e)
         return {}
 
 def get_all_site_types():
@@ -219,7 +221,7 @@ def get_nws_forecast(lat, lon):
         periods = forecast_res.json().get("properties", {}).get("periods", [])
         return periods
     except Exception as e:
-        print(f"NWS Forecast Error for {lat},{lon}: {e}")
+        logger.error("NWS Forecast Error for %s, %s: %s", lat, lon, e)
         return None
 
 
@@ -263,12 +265,15 @@ def get_filtered_notification_alerts(username, ar_data, oos_data, locs):
                 if not geom: continue
                 try:
                     poly = shape(geom)
+                    poly_bounds = poly.bounds  # (minx, miny, maxx, maxy)
                     intersects = False
                     for l in locs:
+                        if not (poly_bounds[0] <= l.lon <= poly_bounds[2] and poly_bounds[1] <= l.lat <= poly_bounds[3]):
+                            continue
                         pt = Point(l.lon, l.lat)
                         if poly.intersects(pt):
                             intersects = True
-                            break # We only need one facility to intersect to justify tracking it
+                            break
                             
                     if intersects:
                         valid_alerts.append({
@@ -373,8 +378,9 @@ def change_status(art_id, new_feedback):
         a = db.query(Article).filter_by(id=art_id).first()
         if a:
             if a.human_feedback == 0 and new_feedback in [1, 2] and a.keywords_found:
+                existing = {k.word: k for k in db.query(Keyword).filter(Keyword.word.in_(a.keywords_found)).all()}
                 for kw in a.keywords_found:
-                    kdb = db.query(Keyword).filter_by(word=kw).first()
+                    kdb = existing.get(kw)
                     if kdb:
                         if new_feedback == 2: kdb.weight += 1
                         elif new_feedback == 1: kdb.weight = max(1, kdb.weight - 1)
@@ -430,7 +436,7 @@ def force_fetch_crime_data():
         dispatch_perimeter_crime_alerts() # <-- ADD THIS LINE
         return True
     except Exception as e:
-        print(f"Manual fetch failed: {e}")
+        logger.error("Manual fetch failed: %s", e)
         return False
 
 def get_historical_threat_scores(days=14):
@@ -464,8 +470,13 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     sys_config = get_cached_config()
     history = get_historical_threat_scores(14)
     
-    baseline_cyber = float(sys_config.baseline_override_cyber) if sys_config and sys_config.get('baseline_override_cyber', 0.0) > 0 else max(sum(h.cyber_points for h in history) / len(history), 20.0) if history else 20.0
-    baseline_phys = float(sys_config.baseline_override_phys) if sys_config and sys_config.get('baseline_override_phys', 0.0) > 0 else max(sum(h.physical_points for h in history) / len(history), 25.0) if history else 25.0
+    if history:
+        avg_cyber = sum(h.cyber_points for h in history) / len(history)
+        avg_phys = sum(h.physical_points for h in history) / len(history)
+    else:
+        avg_cyber = avg_phys = 0.0
+    baseline_cyber = float(sys_config.baseline_override_cyber) if sys_config and sys_config.get('baseline_override_cyber', 0.0) > 0 else max(avg_cyber, 20.0) if history else 20.0
+    baseline_phys = float(sys_config.baseline_override_phys) if sys_config and sys_config.get('baseline_override_phys', 0.0) > 0 else max(avg_phys, 25.0) if history else 25.0
 
     with SessionLocal() as db:
         t48 = datetime.utcnow() - timedelta(hours=48)
@@ -539,11 +550,15 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     sys_counter = sys_config.get('sys_countermeasures', 3) if sys_config else 3
     net_counter = sys_config.get('net_countermeasures', 3) if sys_config else 3
     
-    kev_count = len([a for a in ics_advisories if a['is_kev']])
-    critical_ics_count = len([a for a in ics_advisories if a['is_critical']])
-    apt_count = sum(1 for a in pure_cyber_articles if getattr(a, 'is_apt_related', False))
-    ran_count = sum(1 for a in pure_cyber_articles if getattr(a, 'is_ransomware', False))
-    util_count = sum(1 for a in pure_cyber_articles if getattr(a, 'is_utility_related', False))
+    kev_count = critical_ics_count = 0
+    for a in ics_advisories:
+        if a['is_kev']: kev_count += 1
+        if a['is_critical']: critical_ics_count += 1
+    apt_count = ran_count = util_count = 0
+    for a in pure_cyber_articles:
+        if getattr(a, 'is_apt_related', False): apt_count += 1
+        if getattr(a, 'is_ransomware', False): ran_count += 1
+        if getattr(a, 'is_utility_related', False): util_count += 1
     cve_count = len(recent_cves)
     
     if kev_count > 0:
@@ -823,47 +838,50 @@ def calculate_internal_cis_score(db_session):
         })
 
     # ==========================================
-    # PHASE 3: O(1) BATCH CORRELATION SCAN
+    # PHASE 3: REVERSE-INDEXED BATCH CORRELATION SCAN
     # ==========================================
     
-    # 1. SCAN ARTICLES
+    # Build reverse index: trigger token -> [asset_map]
+    trigger_to_assets = {}
+    for asset_map in all_assets:
+        trigger_to_assets.setdefault(asset_map['trigger'], []).append(asset_map)
+    
+    # 1. SCAN ARTICLES (O(C * avg_triggers_per_article) instead of O(C * A))
     for art in article_index:
-        for asset_map in all_assets:
-            if asset_map['trigger'] not in art['word_set']: continue
-                
-            collision_regex = ACRONYM_COLLISIONS.get(asset_map['raw_name'])
-            if collision_regex and collision_regex.search(art['text']): continue
+        for trigger in art['word_set'].intersection(trigger_to_assets.keys()):
+            for asset_map in trigger_to_assets[trigger]:
+                collision_regex = ACRONYM_COLLISIONS.get(asset_map['raw_name'])
+                if collision_regex and collision_regex.search(art['text']): continue
 
-            for pat in asset_map['exact']:
-                if pat.search(art['text']):
-                    asset_map['matches'].append({"title": art['obj'].title, "is_critical": art['is_critical']})
-                    break 
+                for pat in asset_map['exact']:
+                    if pat.search(art['text']):
+                        asset_map['matches'].append({"title": art['obj'].title, "is_critical": art['is_critical']})
+                        break 
 
     # 2. SCAN CVE DATABASE
     for cve in cve_index:
-        for asset_map in all_assets:
-            if asset_map['trigger'] not in cve['word_set'] and asset_map['trigger'] not in cve['vendor']:
-                continue
+        candidate_triggers = cve['word_set']
+        if cve['vendor']:
+            candidate_triggers = candidate_triggers | {cve['vendor']}
+        
+        for trigger in candidate_triggers.intersection(trigger_to_assets.keys()):
+            for asset_map in trigger_to_assets[trigger]:
+                if asset_map['is_hw']:
+                    hw = asset_map['obj']
+                    hw_vendor = str(hw.os_vendor or "").lower()
+                    hw_name = str(hw.operating_system or hw.os_product or "").lower()
+                    
+                    if (hw_vendor and hw_vendor in cve['vendor']) and (hw_name and hw_name in cve['product']):
+                        asset_map['matches'].append({"title": f"CISA KEV: {cve['obj'].cve_id}", "is_critical": True})
+                        continue
 
-            matched = False
-            
-            if asset_map['is_hw']:
-                hw = asset_map['obj']
-                hw_vendor = str(hw.os_vendor or "").lower()
-                hw_name = str(hw.operating_system or hw.os_product or "").lower()
-                
-                if (hw_vendor and hw_vendor in cve['vendor']) and (hw_name and hw_name in cve['product']):
-                    asset_map['matches'].append({"title": f"CISA KEV: {cve['obj'].cve_id}", "is_critical": True})
-                    continue
+                collision_regex = ACRONYM_COLLISIONS.get(asset_map['raw_name'])
+                if collision_regex and collision_regex.search(cve['text']): continue
 
-            collision_regex = ACRONYM_COLLISIONS.get(asset_map['raw_name'])
-            if collision_regex and collision_regex.search(cve['text']): continue
-
-            for pat in asset_map['exact']:
-                if pat.search(cve['text']):
-                    asset_map['matches'].append({"title": f"CISA KEV: {cve['obj'].cve_id}", "is_critical": True})
-                    matched = True
-                    break
+                for pat in asset_map['exact']:
+                    if pat.search(cve['text']):
+                        asset_map['matches'].append({"title": f"CISA KEV: {cve['obj'].cve_id}", "is_critical": True})
+                        break
 
     # ==========================================
     # PHASE 4: POSTURE RECONSTRUCTION
@@ -1692,7 +1710,7 @@ def update_locations(edited_df):
 
 def nuke_crime_data():
     """Wipes all records from Little Rock crime table."""
-    from src.database import CrimeIncident, JmsCrimeIncident
+    from src.database import CrimeIncident
     with SessionLocal() as db:
         try:
             # Delete rows from both tables and combine the count
@@ -2099,7 +2117,7 @@ def build_aiops_map_layers(alerts, locs):
     view_state = pdk.ViewState(latitude=34.8, longitude=-92.2, zoom=6.0, pitch=0)
     return layers, view_state
 
-@st.cache_data(ttl=150, max_entries=2)
+@st.cache_data(ttl=120)
 def _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, selected_events_tuple, map_df):
     """Heavy Math Engine: Parses JSON, builds Shapely objects, and calculates all intersections ONCE."""
     import pandas as pd

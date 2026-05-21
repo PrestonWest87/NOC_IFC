@@ -13,6 +13,7 @@ import time
 import schedule
 import feedparser
 import sys
+import logging
 import asyncio
 import aiohttp
 import threading
@@ -20,32 +21,30 @@ import gc
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 from src.services import generate_and_save_internal_risk_snapshot
 
-# Expanded imports
 from src.database import (
-    SessionLocal, Article, FeedSource, RegionalHazard, CloudOutage, 
-    ExtractedIOC, engine, init_db, SolarWindsAlert, BgpAnomaly, 
+    SessionLocal, Article, FeedSource, RegionalHazard, CloudOutage,
+    ExtractedIOC, engine, init_db, SolarWindsAlert, BgpAnomaly,
     CveItem, RegionalOutage, CrimeIncident
 )
 
-from src.cve_worker import fetch_cisa_kev
-from src.infra_worker import fetch_regional_hazards
-from src.cloud_worker import fetch_cloud_outages
-from src.telemetry_worker import run_telemetry_sync
-from src.train_model import train  
-from src.crime_worker import fetch_live_crimes
+from src.workers.cve_worker import fetch_cisa_kev
+from src.workers.infra_worker import fetch_regional_hazards
+from src.workers.cloud_worker import fetch_cloud_outages
+from src.workers.telemetry_worker import run_telemetry_sync
+from src.train_model import train
+from src.workers.crime_worker import fetch_live_crimes
 init_db()
 
+logger = logging.getLogger(__name__)
+
 def log(message, source="SYSTEM"):
-    """Print timestamped log messages to stdout for Docker log capture."""
-    local_time = datetime.now(ZoneInfo("America/Chicago")).strftime('%H:%M:%S')
-    print(f"[{local_time}] [{source.upper()}] {message}")
-    sys.stdout.flush()
+    """Log timestamped messages formatted for Docker log capture."""
+    logger.info("[%s] %s", source.upper(), message)
 
 # --- PRE-LOAD SCORER FOR EFFICIENCY ---
-from src.logic import get_scorer
+from src.services.logic import get_scorer
 log("Pre-loading NLP Scorer into memory...", "SYSTEM")
 _global_scorer = get_scorer()
 
@@ -84,8 +83,8 @@ async def fetch_all_feeds_chunked(feed_data, chunk_size=5):
 
 def parse_and_score_feed(f_name, content, known_links):
     """Parse RSS feed content and score articles for relevance."""
-    from src.ioc_extractor import ioc_engine
-    from src.categorizer import categorize_text
+    from src.services.ioc_extractor import ioc_engine
+    from src.services.categorizer import categorize_text
     
     ALERT_THRESHOLD = 45
         
@@ -216,7 +215,7 @@ def job_unified_brief():
     """Auto-generates the Unified Risk Brief every 2 hours."""
     log("[AI] Generating Executive Unified Risk Brief...", "SYSTEM")
     try:
-        from src.llm import generate_unified_risk_brief
+        from src.utils.llm import generate_unified_risk_brief
         from src.services import get_executive_grid_intel, get_recent_crimes, save_global_config
         from src.database import InternalRiskSnapshot, RegionalHazard
 
@@ -241,7 +240,7 @@ def job_unified_brief():
             log("[OK] Unified Risk Brief generated and saved.", "SYSTEM")
 
             # Check for global risk increase and send alert if needed
-            from src.risk_alert import check_and_alert
+            from src.utils.risk_alert import check_and_alert
             check_and_alert(global_risk=global_intel.get('unified_risk'), internal_risk=None)
     except Exception as e:
         log(f"[ERROR] Unified Brief Error: {e}", "SYSTEM")
@@ -256,7 +255,7 @@ def job_internal_risk():
 
         # Check for internal risk increase and send alert if needed
         if cis_data:
-            from src.risk_alert import check_and_alert
+            from src.utils.risk_alert import check_and_alert
             check_and_alert(global_risk=None, internal_risk=cis_data.get('risk_level'))
     except Exception as e:
         log(f"[ERROR] Internal Risk Error: {e}", "SYSTEM")
@@ -342,7 +341,10 @@ def run_threaded(job_func, *args, **kwargs):
     job_thread.start()
 
 if __name__ == "__main__":
-    from src.report_worker import start_report_scheduler
+    from src.core.config import setup_logging
+    setup_logging()
+
+    from src.workers.report_worker import start_report_scheduler
     
     # 1. Start the Automated Email Reporter
     threading.Thread(target=start_report_scheduler, daemon=True).start()

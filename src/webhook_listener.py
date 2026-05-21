@@ -1,16 +1,19 @@
 import re
 import json
+import logging
 import uvicorn
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from datetime import datetime
 
 from src.database import SessionLocal, init_db, SolarWindsAlert, TimelineEvent
 
+logger = logging.getLogger(__name__)
+
 init_db()
 app = FastAPI(title="NOC Fusion Enterprise Gateway")
 
 def log(msg):
-    print(f"[{datetime.utcnow().strftime('%H:%M:%S')}] [WEBHOOK] {msg}")
+    logger.info("[WEBHOOK] %s", msg)
 
 def classify_device(text_corpus: str, node_type_hint: str = None) -> str:
     if node_type_hint and node_type_hint.lower() not in ["unknown", "", "none"]:
@@ -116,4 +119,6 @@ async def receive_alert(request: Request, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail="Internal Gateway Error")
 
 if __name__ == "__main__":
+    from src.core.config import setup_logging
+    setup_logging()
     uvicorn.run(app, host="0.0.0.0", port=8100)
