@@ -2164,18 +2164,26 @@ elif page == "AIOps RCA":
                             if is_no_dispatch:
                                 color = [0, 123, 255, 200]  # Blue
                                 status_text = "Down (No Dispatch Needed)"
+                                priority = 1 # Force draw order
+                                radius_size = 2500
                             elif is_dispatched:
                                 color = [255, 193, 7, 200]  # Yellow
                                 status_text = "Down (Ticket Dispatched)"
                                 show_pulse = False
+                                priority = 2
+                                radius_size = 3000
                             elif is_investigating:
-                                color = [255, 165, 0, 200]
+                                color = [255, 165, 0, 200]  # Orange
                                 status_text = "Down (Investigating/Pending Dispatch)"
                                 show_pulse = False
+                                priority = 3
+                                radius_size = 3500
                             else:
                                 color = [220, 53, 69, 200]  # Red
                                 status_text = "Down (Action Required)"
                                 show_pulse = True 
+                                priority = 4
+                                radius_size = 4000
                                 
                             # NEW: Append Down Since timestamp to the Pydeck tooltip string
                             if earliest_time:
@@ -2191,6 +2199,9 @@ elif page == "AIOps RCA":
                         else:
                             color = [40, 167, 69, 200]  # Green
                             status_text = "Operational / Clear"
+                            priority = 0 # Green on bottom layer
+                            radius_size = 2000
+                            
                             if l.name in global_investigating:
                                 global_investigating.discard(l.name)
                                 
@@ -2207,7 +2218,8 @@ elif page == "AIOps RCA":
                             
                         map_data.append({
                             "name": l.name, "lat": adj_lat, "lon": adj_lon,
-                            "color": color, "status": status_text, "show_pulse": show_pulse
+                            "color": color, "status": status_text, "show_pulse": show_pulse,
+                            "priority": priority, "radius": radius_size
                         })
                         
                     # NEW: Trigger HTML5 Notification API for new outages
@@ -2232,13 +2244,18 @@ elif page == "AIOps RCA":
                         st.components.v1.html(js_wrapper, height=0, width=0)
                         
                     df_map = pd.DataFrame(map_data)
+                    # Sort so priority 0 (Green) renders first, allowing Reds/Yellows to sit on top cleanly
+                    df_map = df_map.sort_values("priority", ascending=True).reset_index(drop=True)
                                             
                     layers = [
                         pdk.Layer(
                             "ScatterplotLayer",
                             id="base_sites", 
                             data=df_map, get_position='[lon, lat]',
-                            get_fill_color='color', get_radius=3000, 
+                            get_fill_color='color', 
+                            get_radius='radius', 
+                            radius_min_pixels=4,  # Keeps dots somewhat visible when fully zoomed out
+                            radius_max_pixels=15, # Ensures dots shrink down relative to viewport when zoomed in
                             pickable=True, stroked=True,
                             get_line_color=[255,255,255,255], line_width_min_pixels=1
                         )
@@ -2249,7 +2266,10 @@ elif page == "AIOps RCA":
                         "ScatterplotLayer",
                         id="pulse_layer", 
                         data=pulse_df, get_position='[lon, lat]',
-                        get_fill_color=[220, 53, 69, 40], get_radius=12000, pickable=False 
+                        get_fill_color=[220, 53, 69, 40], 
+                        get_radius=12000, 
+                        radius_max_pixels=45, # Limit pulse blast radius on deep zoom
+                        pickable=False 
                     ))
                         
                     view_state = pdk.ViewState(latitude=34.8, longitude=-92.2, zoom=6)
@@ -2366,10 +2386,10 @@ elif page == "AIOps RCA":
                                                         if success: st.success("Ticket Dispatched successfully!")
                                                         else: st.error(f"SMTP Error: {msg}")
 
-                                            if st.button(f"Acknowledge Incident & Clear Board ({site})", key=f"ack_{site}", width="stretch"): 
-                                                svc.acknowledge_cluster([a.id for a in data['alerts']])
-                                                safe_rerun()
-                                                
+                                        if st.button(f"Acknowledge Incident & Clear Board ({site})", key=f"ack_{site}", width="stretch"): 
+                                            svc.acknowledge_cluster([a.id for a in data['alerts']])
+                                            safe_rerun()
+                                            
                                         if can_manage_maint or can_dispatch:
                                             if site_record:
                                                 with st.expander(f"Status Controls: {site}"):
