@@ -7,7 +7,6 @@ from src.database import SessionLocal, CloudOutage
 # Massively expanded list based on standard service-provider-status-links
 CLOUD_FEEDS = {
     "AWS": "https://status.aws.amazon.com/rss/all.rss",
-    "Google Cloud": "https://status.cloud.google.com/en/feed.atom",
     "Azure": "https://azurestatuscdn.azureedge.net/en-us/status/feed/",
     "Cisco Umbrella": "https://status.umbrella.com/history.rss",
     "Cisco Webex": "https://status.webex.com/history.rss",
