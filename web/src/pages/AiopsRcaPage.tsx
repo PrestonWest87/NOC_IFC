@@ -3,7 +3,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../utils/api";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer } from "@deck.gl/layers";
+import { Map } from "react-map-gl/maplibre";
 import type { MapViewState } from "@deck.gl/core";
+import "maplibre-gl/dist/maplibre-gl.css";
 import {
   Activity, AlertTriangle, Radio, BarChart3, Globe,
   Play, Send, CheckCircle, Wrench, ChevronDown, ChevronUp,
@@ -385,7 +387,9 @@ export function AiopsRcaPage() {
               <div style={{ position: "absolute", top: 8, left: 10, zIndex: 10, fontSize: "0.8rem", fontWeight: 600, color: "var(--text-secondary)", background: "var(--bg-card)", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-sm)" }}>
                 Overlays
               </div>
-              <DeckGL layers={mapLayers} initialViewState={INITIAL_VIEW} controller={true} style={{ height: "100%" }} />
+              <DeckGL layers={mapLayers} initialViewState={INITIAL_VIEW} controller={true} style={{ height: "100%" }}>
+                <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
+              </DeckGL>
             </div>
 
             <div style={{ ...card, height: "420px", overflow: "auto", display: "flex", flexDirection: "column" }}>

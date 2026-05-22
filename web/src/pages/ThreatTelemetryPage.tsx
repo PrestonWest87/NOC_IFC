@@ -1,6 +1,8 @@
 import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import DeckGL from "@deck.gl/react";
+import { Map } from "react-map-gl/maplibre";
+import "maplibre-gl/dist/maplibre-gl.css";
 import { ScatterplotLayer } from "@deck.gl/layers";
 import type { MapViewState } from "@deck.gl/core";
 import {
@@ -841,7 +843,9 @@ export function ThreatTelemetryPage() {
                   initialViewState={crimeMapViewState}
                   controller={true}
                   style={{ height: "100%" }}
-                />
+                >
+                  <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
+                </DeckGL>
               </div>
 
               <hr style={s.divider} />

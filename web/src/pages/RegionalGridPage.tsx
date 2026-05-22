@@ -3,7 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import api from "../utils/api";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer, GeoJsonLayer, BitmapLayer } from "@deck.gl/layers";
+import { Map as MapLibreMap } from "react-map-gl/maplibre";
 import type { MapViewState } from "@deck.gl/core";
+import "maplibre-gl/dist/maplibre-gl.css";
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip as ReTooltip,
   ResponsiveContainer, CartesianGrid, Legend
@@ -753,7 +755,9 @@ function GeospatialTab({
                     onViewStateChange={({ viewState: vs }: any) => onViewStateChange(vs)}
                     controller={true}
                     style={{ height: "100%", width: "100%" }}
-                  />
+                  >
+                    <MapLibreMap mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
+                  </DeckGL>
                 </div>
                 <div style={{ flex: 1, padding: "0.5rem", background: "var(--bg-secondary)", display: "flex", flexDirection: "column" }}>
                   <h5 style={{ margin: "0 0 0.5rem", color: "var(--text-primary)", fontSize: "0.85rem" }}>Precipitation Loop</h5>
@@ -771,7 +775,9 @@ function GeospatialTab({
                 onViewStateChange={({ viewState: vs }: any) => onViewStateChange(vs)}
                 controller={true}
                 style={{ height: "100%", width: "100%" }}
-              />
+              >
+                <MapLibreMap mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
+              </DeckGL>
             )}
           </div>
         </div>
@@ -1568,7 +1574,9 @@ function SpcOutlookTabs({ geojson }: { geojson: any }) {
             initialViewState={spcView}
             controller={true}
             style={{ height: "100%", width: "100%" }}
-          />
+          >
+            <MapLibreMap mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
+          </DeckGL>
         </div>
       )}
     </div>

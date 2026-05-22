@@ -1,7 +1,9 @@
 import { useMemo } from "react";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer } from "@deck.gl/layers";
+import { Map } from "react-map-gl/maplibre";
 import type { MapViewState } from "@deck.gl/core";
+import "maplibre-gl/dist/maplibre-gl.css";
 
 interface Site {
   name: string;
@@ -13,6 +15,7 @@ interface Site {
 interface AIOpsMapProps {
   sites: Site[];
   viewState?: MapViewState;
+  height?: string;
 }
 
 const INITIAL_VIEW: MapViewState = {
@@ -22,7 +25,9 @@ const INITIAL_VIEW: MapViewState = {
   pitch: 0,
 };
 
-export function AIOpsMap({ sites, viewState = INITIAL_VIEW }: AIOpsMapProps) {
+const DARK_MATTER = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+
+export function AIOpsMap({ sites, viewState = INITIAL_VIEW, height = "100%" }: AIOpsMapProps) {
   const layers = useMemo(() => {
     const siteData = sites.map((s) => ({
       name: s.name,
@@ -45,6 +50,8 @@ export function AIOpsMap({ sites, viewState = INITIAL_VIEW }: AIOpsMapProps) {
         getFillColor: (d) => d.color,
         getRadius: 1800,
         pickable: true,
+        radiusMinPixels: 4,
+        radiusMaxPixels: 20,
       }),
       ...(alertData.length > 0
         ? [
@@ -54,11 +61,18 @@ export function AIOpsMap({ sites, viewState = INITIAL_VIEW }: AIOpsMapProps) {
               getPosition: (d) => d.position,
               getFillColor: [255, 0, 0, 40],
               getRadius: (d) => d.radius,
+              radiusMinPixels: 8,
+              radiusMaxPixels: 100,
             }),
           ]
         : []),
     ];
   }, [sites]);
 
-  return <DeckGL layers={layers} initialViewState={viewState} controller={true} />;
+  return (
+    <DeckGL layers={layers} initialViewState={viewState} controller={true}
+      style={{ height, width: "100%", position: "relative" }}>
+      <Map mapStyle={DARK_MATTER} />
+    </DeckGL>
+  );
 }
