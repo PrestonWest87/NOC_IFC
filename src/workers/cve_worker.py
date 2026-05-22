@@ -10,7 +10,6 @@ def fetch_cisa_kev():
     import logging
     logger = logging.getLogger(__name__)
     logger.info("Fetching latest CISA KEV catalog...")
-    session = SessionLocal()
 
     try:
         response = requests.get(CISA_KEV_URL, timeout=30)
@@ -20,34 +19,32 @@ def fetch_cisa_kev():
         vulnerabilities = data.get('vulnerabilities', [])
         added_count = 0
 
-        for vuln in vulnerabilities:
-            cve_id = vuln.get('cveID')
-            exists = session.query(CveItem).filter_by(cve_id=cve_id).first()
-            if not exists:
-                date_added_str = vuln.get('dateAdded')
-                date_added = datetime.strptime(date_added_str, '%Y-%m-%d') if date_added_str else datetime.utcnow()
+        with SessionLocal() as session:
+            for vuln in vulnerabilities:
+                cve_id = vuln.get('cveID')
+                exists = session.query(CveItem).filter_by(cve_id=cve_id).first()
+                if not exists:
+                    date_added_str = vuln.get('dateAdded')
+                    date_added = datetime.strptime(date_added_str, '%Y-%m-%d') if date_added_str else datetime.utcnow()
 
-                new_cve = CveItem(
-                    cve_id=cve_id,
-                    vendor=vuln.get('vendorProject', 'Unknown'),
-                    product=vuln.get('product', 'Unknown'),
-                    vulnerability_name=vuln.get('vulnerabilityName', 'Unknown'),
-                    date_added=date_added,
-                    description=vuln.get('shortDescription', ''),
-                    required_action=vuln.get('requiredAction', ''),
-                    due_date=vuln.get('dueDate', '')
-                )
-                session.add(new_cve)
-                added_count += 1
+                    new_cve = CveItem(
+                        cve_id=cve_id,
+                        vendor=vuln.get('vendorProject', 'Unknown'),
+                        product=vuln.get('product', 'Unknown'),
+                        vulnerability_name=vuln.get('vulnerabilityName', 'Unknown'),
+                        date_added=date_added,
+                        description=vuln.get('shortDescription', ''),
+                        required_action=vuln.get('requiredAction', ''),
+                        due_date=vuln.get('dueDate', '')
+                    )
+                    session.add(new_cve)
+                    added_count += 1
 
-        session.commit()
-        logger.info(f"Success! Added {added_count} new exploited vulnerabilities.")
+            session.commit()
+            logger.info(f"Success! Added {added_count} new exploited vulnerabilities.")
 
     except Exception as e:
         logger.error(f"Failed to fetch or parse KEV data: {e}")
-        session.rollback()
-    finally:
-        session.close()
 
 
 if __name__ == "__main__":

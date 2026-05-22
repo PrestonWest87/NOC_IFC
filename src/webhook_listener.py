@@ -5,7 +5,8 @@ import uvicorn
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from datetime import datetime
 
-from src.database import SessionLocal, init_db, SolarWindsAlert, TimelineEvent
+from src.core.db import SessionLocal, init_db
+from src.models.schema import SolarWindsAlert, TimelineEvent
 
 logger = logging.getLogger(__name__)
 

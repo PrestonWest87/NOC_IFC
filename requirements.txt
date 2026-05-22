@@ -1,4 +1,3 @@
-streamlit
 psycopg2-binary
 sqlalchemy
 feedparser
@@ -11,15 +10,14 @@ joblib
 requests
 openai
 google-generativeai
-streamlit-autorefresh
 bcrypt==4.1.2
-streamlit-cookies-controller==0.0.3
 aiohttp
 aiofiles
 shapely
 fastapi
-uvicorn
+uvicorn[standard]
+pydantic-settings
 rapidfuzz
-pydeck
-plotly==5.18.0
 elasticsearch>=8.0.0,<9.0.0
+streamlit
+streamlit-autorefresh

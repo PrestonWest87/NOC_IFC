@@ -99,7 +99,6 @@ def fetch_cloud_outages():
     import logging
     logger = logging.getLogger(__name__)
     logger.info(f"Fetching status feeds from {len(CLOUD_FEEDS)} providers...")
-    session = SessionLocal()
     added_count = 0
     resolved_count = 0
     filtered_count = 0
@@ -108,78 +107,79 @@ def fetch_cloud_outages():
     try:
         recent_cutoff = datetime.utcnow() - timedelta(days=7)
 
-        for provider, url in CLOUD_FEEDS.items():
-            try:
-                response = requests.get(url, timeout=10)
-                if response.status_code != 200:
-                    raise Exception(f"HTTP {response.status_code}")
+        with SessionLocal() as session:
+            for provider, url in CLOUD_FEEDS.items():
+                try:
+                    response = requests.get(url, timeout=10)
+                    if response.status_code != 200:
+                        raise Exception(f"HTTP {response.status_code}")
 
-                feed = feedparser.parse(response.content)
+                    feed = feedparser.parse(response.content)
 
-                for entry in feed.entries[:15]:
-                    published_tuple = entry.get('published_parsed')
-                    if published_tuple:
-                        updated_at = datetime(*published_tuple[:6])
-                    else:
-                        updated_at = datetime.utcnow()
+                    for entry in feed.entries[:15]:
+                        published_tuple = entry.get('published_parsed')
+                        if published_tuple:
+                            updated_at = datetime(*published_tuple[:6])
+                        else:
+                            updated_at = datetime.utcnow()
 
-                    if updated_at < recent_cutoff:
-                        continue
+                        if updated_at < recent_cutoff:
+                            continue
 
-                    title = entry.get('title', 'Unknown Alert')
-                    link = entry.get('link', '')
-                    description = entry.get('summary', entry.get('description', ''))
+                        title = entry.get('title', 'Unknown Alert')
+                        link = entry.get('link', '')
+                        description = entry.get('summary', entry.get('description', ''))
 
-                    if is_future_maintenance(title, description):
-                        filtered_count += 1
-                        continue
+                        if is_future_maintenance(title, description):
+                            filtered_count += 1
+                            continue
 
-                    if is_foreign_region(title + " " + description):
-                        filtered_count += 1
-                        continue
+                        if is_foreign_region(title + " " + description):
+                            filtered_count += 1
+                            continue
 
-                    text_to_check = (title + " " + description).upper()
-                    resolved_keywords = ["[RESOLVED]", "RESOLVED", "OPERATIONAL", "COMPLETED", "MITIGATED"]
-                    is_resolved = any(kw in text_to_check for kw in resolved_keywords)
+                        text_to_check = (title + " " + description).upper()
+                        resolved_keywords = ["[RESOLVED]", "RESOLVED", "OPERATIONAL", "COMPLETED", "MITIGATED"]
+                        is_resolved = any(kw in text_to_check for kw in resolved_keywords)
 
-                    base_service = extract_service_name(provider, title)
-                    us_impact = extract_us_regions(title + " " + description)
-                    region_tag = f" [{', '.join(us_impact)}]" if us_impact else ""
-                    final_service_name = f"{base_service}{region_tag}"
+                        base_service = extract_service_name(provider, title)
+                        us_impact = extract_us_regions(title + " " + description)
+                        region_tag = f" [{', '.join(us_impact)}]" if us_impact else ""
+                        final_service_name = f"{base_service}{region_tag}"
 
-                    exists = session.query(CloudOutage).filter_by(
-                        provider=provider,
-                        title=title,
-                        updated_at=updated_at
-                    ).first()
-
-                    if not exists:
-                        new_outage = CloudOutage(
+                        exists = session.query(CloudOutage).filter_by(
                             provider=provider,
-                            service=final_service_name,
                             title=title,
-                            description=description,
-                            link=link,
-                            is_resolved=is_resolved,
                             updated_at=updated_at
-                        )
-                        session.add(new_outage)
-                        added_count += 1
-                    else:
-                        if is_resolved and not exists.is_resolved:
-                            exists.is_resolved = True
-                            exists.updated_at = updated_at
-                            resolved_count += 1
+                        ).first()
 
-            except Exception as e:
-                failed_providers.append(provider)
-                logger.warning(f"Skipping {provider} due to timeout/error: {e}")
-                continue
+                        if not exists:
+                            new_outage = CloudOutage(
+                                provider=provider,
+                                service=final_service_name,
+                                title=title,
+                                description=description,
+                                link=link,
+                                is_resolved=is_resolved,
+                                updated_at=updated_at
+                            )
+                            session.add(new_outage)
+                            added_count += 1
+                        else:
+                            if is_resolved and not exists.is_resolved:
+                                exists.is_resolved = True
+                                exists.updated_at = updated_at
+                                resolved_count += 1
 
-        purge_cutoff = datetime.utcnow() - timedelta(days=3)
-        session.query(CloudOutage).filter(CloudOutage.is_resolved == True, CloudOutage.updated_at < purge_cutoff).delete()
+                except Exception as e:
+                    failed_providers.append(provider)
+                    logger.warning(f"Skipping {provider} due to timeout/error: {e}")
+                    continue
 
-        session.commit()
+            purge_cutoff = datetime.utcnow() - timedelta(days=3)
+            session.query(CloudOutage).filter(CloudOutage.is_resolved == True, CloudOutage.updated_at < purge_cutoff).delete()
+
+            session.commit()
 
         summary = f"Added {added_count} new alerts. Marked {resolved_count} resolved. Filtered {filtered_count} future/foreign noise events."
         if failed_providers:
@@ -188,9 +188,6 @@ def fetch_cloud_outages():
 
     except Exception as e:
         logger.error(f"Critical failure in cloud worker: {e}")
-        session.rollback()
-    finally:
-        session.close()
 
 
 if __name__ == "__main__":

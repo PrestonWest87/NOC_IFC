@@ -192,16 +192,17 @@ class EnterpriseAIOpsEngine:
 
         cloud_hit = False
         if active_cloud and not fleet_hit:
+            cloud_providers_lower = {c.provider.lower() for c in active_cloud}
             for alert in data.get('alerts', []):
+                node_name_lower = alert.node_name.lower()
                 payload_str = str(alert.raw_payload).lower() if alert.raw_payload else ""
-                for c in active_cloud:
-                    if c.provider.lower() in alert.node_name.lower() or c.provider.lower() in payload_str:
-                        cause = f"Upstream Cloud Dependency Failure ({c.provider})"
-                        score += 85
-                        evidence_log.append(f"Cloud Correlation: Node relies on {c.provider}, which is currently experiencing a known outage.")
-                        cloud_hit = True
-                        break
-                if cloud_hit: break
+                matched = next((cp for cp in cloud_providers_lower if cp in node_name_lower or cp in payload_str), None)
+                if matched:
+                    cause = f"Upstream Cloud Dependency Failure ({matched})"
+                    score += 85
+                    evidence_log.append(f"Cloud Correlation: Node relies on {matched}, which is currently experiencing a known outage.")
+                    cloud_hit = True
+                    break
 
         bgp_hit = False
         if active_bgp and not cloud_hit and not fleet_hit:

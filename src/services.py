@@ -10,7 +10,6 @@ import json
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from shapely.geometry import Point, shape
-import streamlit as st
 # Import your DB setup and models
 from src.database import (
     SessionLocal, Article, FeedSource, Keyword, SystemConfig, CveItem,
@@ -20,6 +19,43 @@ from src.database import (
 )
 
 LOCAL_TZ = ZoneInfo("America/Chicago")
+
+
+class TTLCache:
+    """Simple TTL cache to replace Streamlit's @st.cache_data."""
+    def __init__(self, ttl: int = 300, max_entries: int = 128):
+        self.ttl = ttl
+        self.max_entries = max_entries
+        self._store: dict = {}
+        self._timestamps: dict = {}
+
+    def __call__(self, func):
+        def wrapper(*args, **kwargs):
+            key = str(args) + str(sorted(kwargs.items()))
+            now = datetime.utcnow().timestamp()
+            if key in self._store and (now - self._timestamps.get(key, 0)) < self.ttl:
+                return self._store[key]
+            result = func(*args, **kwargs)
+            if len(self._store) >= self.max_entries:
+                oldest = min(self._timestamps, key=self._timestamps.get)
+                del self._store[oldest]
+                del self._timestamps[oldest]
+            self._store[key] = result
+            self._timestamps[key] = now
+            return result
+        return wrapper
+
+    def clear(self):
+        self._store.clear()
+        self._timestamps.clear()
+
+
+def sanitize_text(text: str) -> str:
+    """Strip supplementary Unicode planes and unwanted characters from text."""
+    text = re.sub(r'[\U00010000-\U0010ffff]', '', text)
+    text = text.replace('?', '').strip()
+    return text
+
 
 # ==========================================
 # 0. CORE UTILITIES & CACHED MAPPERS
@@ -54,7 +90,7 @@ def format_central(dt):
         dt = dt.replace(tzinfo=ZoneInfo("UTC"))
     return dt.astimezone(LOCAL_TZ).strftime('%Y-%m-%d %H:%M:%S')
 
-@st.cache_data(ttl=300)
+@TTLCache(ttl=300)
 def get_cached_config():
     with SessionLocal() as db:
         config = db.query(SystemConfig).first()
@@ -62,12 +98,12 @@ def get_cached_config():
             config = SystemConfig(); db.add(config); db.commit(); db.refresh(config)
         return to_dotdict(config)
 
-@st.cache_data(ttl=600, max_entries=1)
+@TTLCache(ttl=600, max_entries=1)
 def get_cached_locations():
     with SessionLocal() as db:
         return to_dotdict_list(db.query(MonitoredLocation).all())
 
-@st.cache_data(ttl=120, max_entries=1)
+@TTLCache(ttl=120, max_entries=1)
 def get_cached_geojson():
     spc_d1, spc_d2, spc_d3, ar, oos = None, None, None, None, None
     usgs_ar, usgs_oos = None, None
@@ -93,7 +129,7 @@ def get_cached_geojson():
         
     return spc_d1, spc_d2, spc_d3, ar, oos, usgs_ar, usgs_oos
 
-@st.cache_data(ttl=86400, max_entries=1)
+@TTLCache(ttl=86400, max_entries=1)
 def get_ar_counties_mapping():
     """Fetches and caches the official US County boundaries, filtering for Arkansas (FIPS 05)."""
     try:
@@ -109,7 +145,7 @@ def get_ar_counties_mapping():
         logger.error("Error fetching county GeoJSON: %s", e)
         return {}
 
-@st.cache_data(ttl=86400, max_entries=1)
+@TTLCache(ttl=86400, max_entries=1)
 def get_regional_counties_mapping():
     """Fetches and caches all US county boundaries keyed by 5-digit FIPS code."""
     try:
@@ -199,7 +235,7 @@ def set_site_maintenance(site_name, is_maint, etr_date, reason):
     get_cached_locations.clear()
 
 
-@st.cache_data(ttl=3600) # Cache forecasts for 1 hour to prevent rate limiting
+@TTLCache(ttl=3600) # Cache forecasts for 1 hour to prevent rate limiting
 def get_nws_forecast(lat, lon):
     """Fetches the 7-day forecast for a specific coordinate using the NWS API."""
     headers = {
@@ -343,7 +379,7 @@ def logout_user(username):
 # 2. OPERATIONAL DASHBOARD & ARTICLE ACTIONS
 # ==========================================
 
-@st.cache_data(ttl=60)
+@TTLCache(ttl=60)
 def get_dashboard_metrics():
     with SessionLocal() as db:
         t = datetime.utcnow() - timedelta(days=1)
@@ -1013,15 +1049,12 @@ import re
 def generate_unified_brief_email_html(report_time, markdown_content, global_risk=None, internal_risk=None):
     # 1. Grab actual risk levels from the database (or accept them as arguments)
     if not global_risk or not internal_risk:
-        session = SessionLocal()
-        try:
+        with SessionLocal() as session:
             config = session.query(SystemConfig).first()
             if not global_risk:
                 global_risk = (config.last_global_risk or "UNKNOWN").upper()
             if not internal_risk:
                 internal_risk = (config.last_internal_risk or "UNKNOWN").upper()
-        finally:
-            session.close()
     else:
         global_risk = global_risk.upper()
         internal_risk = internal_risk.upper()
@@ -1289,7 +1322,7 @@ def set_user_weather_prefs(username, alerts):
             db.add(UserWeatherPreference(username=username, alert_type=alert))
         db.commit()
 
-@st.cache_data(ttl=900, max_entries=1)
+@TTLCache(ttl=900, max_entries=1)
 def get_active_wildfires():
     try:
         url = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Incident_Locations/FeatureServer/0/query"
@@ -1328,14 +1361,14 @@ def get_active_wildfires():
 def dispatch_perimeter_crime_alerts():
     """Checks for un-dispatched high severity crimes within 0.4 miles and sends an SMS-friendly alert."""
     from src.database import SessionLocal, CrimeIncident
-    import os
+    from src.core.config import CRIME_ALERT_SMS, CRIME_ALERT_EMAIL
     from zoneinfo import ZoneInfo
-    
+
     # Reads the recipient(s) from your .env file. Supports comma-separated lists!
-    alert_sms = os.getenv("CRIME_ALERT_SMS")
+    alert_sms = CRIME_ALERT_SMS
     if not alert_sms:
         # Fallback to the old env var
-        alert_sms = os.getenv("CRIME_ALERT_EMAIL")
+        alert_sms = CRIME_ALERT_EMAIL
         if not alert_sms:
             return False, "CRIME_ALERT_SMS not set in environment variables."
             
@@ -1765,7 +1798,9 @@ def get_aiops_dashboard_data():
         alerts = db.query(SolarWindsAlert).filter(SolarWindsAlert.status != 'Resolved', SolarWindsAlert.is_correlated == False).all()
         events = db.query(TimelineEvent).order_by(TimelineEvent.timestamp.desc()).limit(50).all()
         grid = db.query(RegionalOutage).filter_by(is_resolved=False).all()
-        # Removed aliases from the return
+        # Sanitize event messages at the data layer (not in UI loops)
+        for e in events:
+            e.message = sanitize_text(e.message)
         return to_dotdict_list(alerts), to_dotdict_list(events), to_dotdict_list(grid)
 
 def clear_timeline_events():
@@ -1850,6 +1885,8 @@ def generate_global_sitrep(sys_config_dict):
 
         return report
 def generate_rca_ticket_text(site, data, priority, patient_zero, root_cause):
+    priority = sanitize_text(priority)
+    root_cause = sanitize_text(root_cause)
     pz_obj = data.get('patient_zero')
     trigger_time = pz_obj.received_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ).strftime('%m/%d/%Y %I:%M %p %Z') if pz_obj and pz_obj.received_at else "Unknown Time"
     
@@ -1888,7 +1925,7 @@ def save_custom_report(title, author, content):
 # 9. SETTINGS & ADMINISTRATION
 # ==========================================
 
-@st.cache_data(ttl=300)
+@TTLCache(ttl=300)
 def get_all_roles():
     with SessionLocal() as db:
         return to_dotdict_list(db.query(Role).all())
@@ -2095,12 +2132,13 @@ def build_aiops_map_layers(alerts, locs):
     """Builds the PyDeck layers and view state for the AIOps RCA board."""
     import pydeck as pdk
     import pandas as pd
+    from collections import Counter
     
     map_data, alert_pulses = [], []
-    alert_mapped = [a.mapped_location for a in alerts]
+    alert_counts = Counter(a.mapped_location for a in alerts)
     
     for l in locs:
-        c = alert_mapped.count(l.name)
+        c = alert_counts.get(l.name, 0)
         map_data.append({
             "name": l.name, "lat": l.lat, "lon": l.lon, 
             "color": [255, 0, 0, 200] if c > 0 else [0, 255, 0, 160]
@@ -2117,7 +2155,7 @@ def build_aiops_map_layers(alerts, locs):
     view_state = pdk.ViewState(latitude=34.8, longitude=-92.2, zoom=6.0, pitch=0)
     return layers, view_state
 
-@st.cache_data(ttl=120)
+@TTLCache(ttl=120)
 def _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, selected_events_tuple, map_df):
     """Heavy Math Engine: Parses JSON, builds Shapely objects, and calculates all intersections ONCE."""
     import pandas as pd

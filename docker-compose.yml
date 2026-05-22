@@ -1,16 +1,20 @@
 services:
-  web:
-    build: .
-    command: streamlit run src/app.py --server.port=8501 --server.address=0.0.0.0
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8101 --reload
     ports:
-      - "8501:8501"
+      - "8101:8101"
     env_file: .env
     volumes:
       - ./src:/app/src
       - ./data:/app/data
 
   worker:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     command: python -u src/scheduler.py
     env_file: .env
     volumes:
@@ -22,7 +26,9 @@ services:
           memory: 1G
 
   webhook:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     command: python -u src/webhook_listener.py
     ports:
       - "8100:8100"
@@ -30,3 +36,28 @@ services:
     volumes:
       - ./src:/app/src
       - ./data:/app/data
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8101
+    depends_on:
+      - api
+
+  web-dev:
+    profiles: ["dev"]
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://api:8101
+    depends_on:
+      - api
+    volumes:
+      - ./web:/app

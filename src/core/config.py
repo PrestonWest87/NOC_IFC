@@ -1,25 +1,32 @@
-import os
 import sys
 import logging
+from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Database
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////app/data/noc_fusion.db").strip().strip('"').strip("'")
-if not DATABASE_URL.startswith("sqlite"):
-    DATABASE_URL = "sqlite:////app/data/noc_fusion.db"
 
-# Elastic
-ELASTIC_URL = os.getenv("ELASTIC_URL", "https://localhost:9200")
-ELASTIC_API_KEY = os.getenv("ELASTIC_API_KEY", "your_read_only_api_key")
+class Settings(BaseSettings):
+    database_url: str = "sqlite:////app/data/noc_fusion.db"
+    elastic_url: str = "https://localhost:9200"
+    elastic_api_key: str = "your_read_only_api_key"
+    crime_alert_sms: str | None = None
+    crime_alert_email: str | None = None
+    risk_alert_recipients: str = ""
 
-# Crime alerts
-CRIME_ALERT_SMS = os.getenv("CRIME_ALERT_SMS")
-CRIME_ALERT_EMAIL = os.getenv("CRIME_ALERT_EMAIL")
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
 
-# Risk alert recipients
-RISK_ALERT_RECIPIENTS = os.getenv("RISK_ALERT_RECIPIENTS", "")
+
+settings = Settings()
+
+DATABASE_URL = settings.database_url
+ELASTIC_URL = settings.elastic_url
+ELASTIC_API_KEY = settings.elastic_api_key
+CRIME_ALERT_SMS = settings.crime_alert_sms
+CRIME_ALERT_EMAIL = settings.crime_alert_email
+RISK_ALERT_RECIPIENTS = settings.risk_alert_recipients
 
 
 def setup_logging(level=logging.INFO):
