@@ -47,7 +47,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "0.25rem 0" }}>
-          {navItems.map((item) => (
+          {navItems.filter(item => {
+            if (!user?.allowed_pages) return true;
+            return user.allowed_pages.includes(item.label);
+          }).map((item) => (
             <a key={item.href} href={`#${item.href}`}
               style={{
                 display: "flex", alignItems: "center", gap: "0.6rem",

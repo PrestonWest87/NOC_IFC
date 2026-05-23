@@ -336,6 +336,45 @@ def get_filtered_notification_alerts(username, ar_data, oos_data, locs):
 # 1. AUTHENTICATION & USER PROFILE
 # ==========================================
 
+def get_role_permissions(role_name):
+    """Return allowed_pages, allowed_actions, allowed_site_types for a role.
+    Admin users always get full access regardless of DB state."""
+    if role_name == "admin":
+        return {
+            "allowed_pages": [
+                "Global Dashboards", "Threat Telemetry", "Regional Grid",
+                "Threat Hunting & IOCs", "AIOps RCA", "Shift Logbook",
+                "Reporting & Briefings", "Settings & Admin"
+            ],
+            "allowed_actions": [
+                "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score",
+                "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
+                "Action: Submit Shift Log", "Action: Dispatch RCA Tickets", "Action: Manage Site Maintenance",
+                "Tab: Dashboards -> Operational", "Tab: Dashboards -> Global Risk", "Tab: Dashboards -> Internal Risk",
+                "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV",
+                "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",
+                "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash",
+                "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", "Tab: Regional Grid -> Atmos Weather",
+                "Tab: Threat Hunting -> Global IOC Matrix", "Tab: Threat Hunting -> Deep Hunt Builder", "Tab: Reporting -> Elastic SIEM Report",
+                "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
+                "Tab: Shift Log -> Active Shift", "Tab: Shift Log -> History",
+                "Tab: Reporting -> Daily Fusion", "Tab: Reporting -> Report Builder", "Tab: Reporting -> Shared Library",
+                "Tab: Settings -> Facility Locations", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training",
+                "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
+            ],
+            "allowed_site_types": ["NOC", "SOC", "Data Center", "Field Office", "HQ", "Remote Site", "Cloud"],
+        }
+    with SessionLocal() as db:
+        role = db.query(Role).filter(Role.name == role_name).first()
+        if role:
+            return {
+                "allowed_pages": role.allowed_pages or [],
+                "allowed_actions": role.allowed_actions or [],
+                "allowed_site_types": role.allowed_site_types or [],
+            }
+    return {"allowed_pages": [], "allowed_actions": [], "allowed_site_types": []}
+
+
 def authenticate_user(username, password):
     with SessionLocal() as db:
         user = db.query(User).filter(User.username == username).first()
@@ -343,12 +382,23 @@ def authenticate_user(username, password):
             new_token = str(uuid.uuid4())
             user.session_token = new_token
             db.commit()
-            return to_dotdict(user), new_token
+            u = to_dotdict(user)
+            perms = get_role_permissions(u.role or "analyst")
+            u.allowed_pages = perms["allowed_pages"]
+            u.allowed_actions = perms["allowed_actions"]
+            u.allowed_site_types = perms["allowed_site_types"]
+            return u, new_token
         return None, None
 
 def get_user_by_token(token):
     with SessionLocal() as db:
-        return to_dotdict(db.query(User).filter(User.session_token == token).first())
+        u = to_dotdict(db.query(User).filter(User.session_token == token).first())
+        if u:
+            perms = get_role_permissions(u.role or "analyst")
+            u.allowed_pages = perms["allowed_pages"]
+            u.allowed_actions = perms["allowed_actions"]
+            u.allowed_site_types = perms["allowed_site_types"]
+        return u
 
 def get_user_by_username(username):
     with SessionLocal() as db:
@@ -1937,7 +1987,8 @@ def create_role(name, allowed_pages, allowed_actions, allowed_site_types=None):
         if db.query(Role).filter(Role.name == name).first(): return False
         db.add(Role(name=name, allowed_pages=allowed_pages, allowed_actions=allowed_actions, allowed_site_types=allowed_site_types))
         db.commit()
-        return True
+    get_all_roles.clear()
+    return True
 
 def update_role(name, allowed_pages, allowed_actions, allowed_site_types=None):
     if allowed_site_types is None: allowed_site_types = []
@@ -1946,6 +1997,7 @@ def update_role(name, allowed_pages, allowed_actions, allowed_site_types=None):
         if role:
             role.allowed_pages, role.allowed_actions, role.allowed_site_types = allowed_pages, allowed_actions, allowed_site_types
             db.commit()
+            get_all_roles.clear()
             return True
         return False
 

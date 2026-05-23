@@ -9,6 +9,9 @@ interface User {
   contact_info?: string;
   default_shift?: string;
   role?: string;
+  allowed_pages?: string[];
+  allowed_actions?: string[];
+  allowed_site_types?: string[];
 }
 
 interface AuthContextType {
