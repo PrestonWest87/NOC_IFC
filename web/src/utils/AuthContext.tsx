@@ -2,9 +2,12 @@ import { createContext, useContext, useState, useCallback, type ReactNode } from
 import api from "./api";
 
 interface User {
+  id?: number;
   username: string;
   full_name?: string;
   job_title?: string;
+  contact_info?: string;
+  default_shift?: string;
   role?: string;
 }
 

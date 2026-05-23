@@ -354,13 +354,14 @@ def get_user_by_username(username):
     with SessionLocal() as db:
         return to_dotdict(db.query(User).filter(User.username == username).first())
 
-def update_user_profile(username, full_name, job_title, contact_info, old_pwd, new_pwd):
+def update_user_profile(username, full_name, job_title, contact_info, old_pwd, new_pwd, default_shift=""):
     with SessionLocal() as db:
         u = db.query(User).filter(User.username == username).first()
         if not u: return False, "User not found."
         u.full_name = full_name
         u.job_title = job_title
         u.contact_info = contact_info
+        u.default_shift = default_shift
         if new_pwd:
             if bcrypt.checkpw(old_pwd.encode('utf-8'), u.password_hash.encode('utf-8')):
                 u.password_hash = bcrypt.hashpw(new_pwd.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -1948,10 +1949,10 @@ def update_role(name, allowed_pages, allowed_actions, allowed_site_types=None):
             return True
         return False
 
-def create_user(username, password, role):
+def create_user(username, password, role, full_name=""):
     with SessionLocal() as db:
         if db.query(User).filter(User.username == username).first(): return False
-        db.add(User(username=username, password_hash=bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'), role=role))
+        db.add(User(username=username, password_hash=bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'), role=role, full_name=full_name))
         db.commit()
         return True
 

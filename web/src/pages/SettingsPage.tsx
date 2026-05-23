@@ -1,14 +1,41 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../utils/api";
+import { useAuth } from "../utils/AuthContext";
 import {
   Trash2, Upload, Download, RefreshCw, AlertTriangle, Save,
   UserPlus, Key, Shield, Settings as SettingsIcon, Database, FileJson,
   Rss, Cpu, Brain, Mail, Users, HardDrive, Skull, Server, Globe,
-  FileSpreadsheet, Plus, Eye, EyeOff, X
+  FileSpreadsheet, Plus, Eye, EyeOff, X, User
 } from "lucide-react";
 
+const ALL_PAGES = [
+  "Global Dashboards", "Threat Telemetry", "Regional Grid",
+  "Threat Hunting & IOCs", "AIOps RCA", "Shift Logbook",
+  "Reporting & Briefings", "Settings & Admin",
+];
+
+const ALL_ACTIONS = [
+  "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score",
+  "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
+  "Action: Submit Shift Log", "Action: Dispatch RCA Tickets", "Action: Manage Site Maintenance",
+  "Tab: Dashboards -> Operational", "Tab: Dashboards -> Global Risk", "Tab: Dashboards -> Internal Risk",
+  "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV",
+  "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",
+  "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash",
+  "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", "Tab: Regional Grid -> Atmos Weather",
+  "Tab: Threat Hunting -> Global IOC Matrix", "Tab: Threat Hunting -> Deep Hunt Builder", "Tab: Reporting -> Elastic SIEM Report",
+  "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
+  "Tab: Shift Log -> Active Shift", "Tab: Shift Log -> History",
+  "Tab: Reporting -> Daily Fusion", "Tab: Reporting -> Report Builder", "Tab: Reporting -> Shared Library",
+  "Tab: Settings -> Facility Locations", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training",
+  "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone",
+];
+
+const ALL_SITE_TYPES = ["NOC", "SOC", "Data Center", "Field Office", "HQ", "Remote Site", "Cloud"];
+
 const TABS = [
+  { id: "profile", label: "Profile", icon: User },
   { id: "facilities", label: "Facilities", icon: Globe },
   { id: "assets", label: "Internal Assets", icon: Server },
   { id: "rss", label: "RSS Sources", icon: Rss },
@@ -100,8 +127,9 @@ function SectionTitle({ text }: { text: string }) {
 }
 
 export function SettingsPage() {
-  const [tab, setTab] = useState("facilities");
+  const [tab, setTab] = useState("profile");
   const queryClient = useQueryClient();
+  const { user: currentUser } = useAuth();
 
   const { data: config, isLoading: configLoading } = useQuery({
     queryKey: ["settings-config"],
@@ -152,6 +180,7 @@ export function SettingsPage() {
         ))}
       </div>
 
+      {tab === "profile" && <ProfileTab user={currentUser} />}
       {tab === "facilities" && <FacilitiesTab locations={locations} queryClient={queryClient} />}
       {tab === "assets" && <AssetsTab />}
       {tab === "rss" && <RssTab lists={lists} queryClient={queryClient} />}
@@ -165,6 +194,99 @@ export function SettingsPage() {
 }
 
 /* ============================
+   0. PROFILE TAB
+   ============================ */
+function ProfileTab({ user }: { user: any }) {
+  const [fullName, setFullName] = useState(user?.full_name || "");
+  const [jobTitle, setJobTitle] = useState(user?.job_title || "");
+  const [contactInfo, setContactInfo] = useState(user?.contact_info || "");
+  const [defaultShift, setDefaultShift] = useState(user?.default_shift || "No Shift");
+  const [oldPwd, setOldPwd] = useState("");
+  const [newPwd, setNewPwd] = useState("");
+  const [showPwd, setShowPwd] = useState(false);
+
+  const updateProfile = useMutation({
+    mutationFn: (data: any) => api.post("/auth/update-profile", data, { params: { username: user?.username } }),
+    onSuccess: () => {
+      alert("Profile updated!");
+      setOldPwd("");
+      setNewPwd("");
+    },
+    onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
+  });
+
+  const handleSave = () => {
+    updateProfile.mutate({
+      full_name: fullName,
+      job_title: jobTitle,
+      contact_info: contactInfo,
+      default_shift: defaultShift,
+      old_password: oldPwd,
+      new_password: newPwd,
+    });
+  };
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
+      <Card title="Personal Information" icon={User}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+          <div>
+            <SectionTitle text="Username" />
+            <input style={{ ...inputStyle, opacity: 0.6 }} value={user?.username || ""} disabled />
+          </div>
+          <div>
+            <SectionTitle text="Full Name" />
+            <input style={inputStyle} value={fullName} onChange={e => setFullName(e.target.value)} />
+          </div>
+          <div>
+            <SectionTitle text="Job Title" />
+            <input style={inputStyle} value={jobTitle} onChange={e => setJobTitle(e.target.value)} placeholder="e.g. Network Operations Analyst" />
+          </div>
+          <div>
+            <SectionTitle text="Contact Info" />
+            <input style={inputStyle} value={contactInfo} onChange={e => setContactInfo(e.target.value)} placeholder="e.g. NOC Desk / phone / email" />
+          </div>
+          <div>
+            <SectionTitle text="Default Shift" />
+            <select style={inputStyle} value={defaultShift} onChange={e => setDefaultShift(e.target.value)}>
+              {["No Shift", "Day", "Swing", "Night", "Rotating"].map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+      </Card>
+
+      <Card title="Change Password" icon={Key}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+          <div>
+            <SectionTitle text="Current Password" />
+            <div style={{ position: "relative" }}>
+              <input style={inputStyle} type={showPwd ? "text" : "password"} value={oldPwd} onChange={e => setOldPwd(e.target.value)} />
+              <span onClick={() => setShowPwd(p => !p)} style={{ position: "absolute", right: 8, top: 8, cursor: "pointer", color: "var(--text-muted)" }}>
+                {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
+              </span>
+            </div>
+          </div>
+          <div>
+            <SectionTitle text="New Password" />
+            <input style={inputStyle} type={showPwd ? "text" : "password"} value={newPwd} onChange={e => setNewPwd(e.target.value)} />
+          </div>
+          <div style={{ marginTop: "0.4rem" }}>
+            <SectionTitle text="Role" />
+            <input style={{ ...inputStyle, opacity: 0.6 }} value={user?.role || ""} disabled />
+          </div>
+        </div>
+      </Card>
+
+      <div style={{ gridColumn: "1 / -1" }}>
+        <button onClick={handleSave} disabled={updateProfile.isPending} style={btn("var(--accent-blue)")}>
+          <Save size={14} /> {updateProfile.isPending ? "Saving..." : "Save Profile"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ============================
    1. FACILITIES TAB
    ============================ */
 function FacilitiesTab({ locations, queryClient }: { locations: any; queryClient: any }) {
@@ -172,10 +294,10 @@ function FacilitiesTab({ locations, queryClient }: { locations: any; queryClient
   const [editData, setEditData] = useState<any[]>([]);
 
   const importMutation = useMutation({
-    mutationFn: (file: File) => {
-      const form = new FormData();
-      form.append("file", file);
-      return api.post("/admin/location/import", form);
+    mutationFn: async (file: File) => {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      return api.post("/admin/location/import", data);
     },
     onSuccess: () => {
       alert("Locations imported.");
@@ -368,11 +490,7 @@ function RssTab({ lists, queryClient }: { lists: any; queryClient: any }) {
 
   const kwBulk = useMutation({
     mutationFn: (text: string) => {
-      const pairs = text.split("\n").filter(Boolean).map(line => {
-        const [word, weight] = line.split(",").map(s => s.trim());
-        return { word, weight: weight ? Number(weight) : 1 };
-      });
-      return api.post("/admin/keywords/bulk", pairs);
+      return api.post("/admin/keywords/bulk", null, { params: { raw_text: text } });
     },
     onSuccess: () => { alert("Keywords added."); setKwText(""); queryClient.invalidateQueries({ queryKey: ["admin-lists"] }); },
     onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
@@ -380,11 +498,7 @@ function RssTab({ lists, queryClient }: { lists: any; queryClient: any }) {
 
   const feedBulk = useMutation({
     mutationFn: (text: string) => {
-      const pairs = text.split("\n").filter(Boolean).map(line => {
-        const [url, name] = line.split(",").map(s => s.trim());
-        return { url, name };
-      });
-      return api.post("/admin/feeds/bulk", pairs);
+      return api.post("/admin/feeds/bulk", null, { params: { raw_text: text } });
     },
     onSuccess: () => { alert("Feeds added."); setFeedText(""); queryClient.invalidateQueries({ queryKey: ["admin-lists"] }); },
     onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
@@ -633,10 +747,36 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation }: { config: any;
 /* ============================
    6. USERS & ROLES TAB
    ============================ */
+function CheckboxGroup({ label, options, selected, onChange }: { label: string; options: string[]; selected: string[]; onChange: (v: string[]) => void }) {
+  const toggle = (opt: string) => {
+    onChange(selected.includes(opt) ? selected.filter(x => x !== opt) : [...selected, opt]);
+  };
+  return (
+    <div>
+      <SectionTitle text={label} />
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
+        {options.map(opt => (
+          <label key={opt} style={{
+            display: "inline-flex", alignItems: "center", gap: "0.25rem",
+            fontSize: "0.78rem", cursor: "pointer",
+            padding: "0.2rem 0.5rem", borderRadius: "var(--radius-sm)",
+            background: selected.includes(opt) ? "var(--accent-blue)" : "var(--bg-tertiary)",
+            color: selected.includes(opt) ? "#fff" : "var(--text-secondary)",
+            border: `1px solid ${selected.includes(opt) ? "var(--accent-blue)" : "var(--border-primary)"}`,
+          }}>
+            <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} style={{ display: "none" }} />
+            {opt}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function UsersRolesTab({ roles, users, queryClient }: { roles: any; users: any; queryClient: any }) {
   const [newUser, setNewUser] = useState({ username: "", password: "", full_name: "", role: "viewer" });
   const [roleChange, setRoleChange] = useState({ username: "", new_role: "viewer" });
-  const [newRole, setNewRole] = useState({ name: "", allowed_pages: "", allowed_actions: "" });
+  const [newRole, setNewRole] = useState({ name: "", allowed_pages: [] as string[], allowed_actions: [] as string[], allowed_site_types: [] as string[] });
   const [editRole, setEditRole] = useState<any>(null);
   const [resetPw, setResetPw] = useState({ username: "", new_password: "" });
 
@@ -654,12 +794,12 @@ function UsersRolesTab({ roles, users, queryClient }: { roles: any; users: any; 
 
   const createRole = useMutation({
     mutationFn: (data: any) => api.post("/admin/roles", data),
-    onSuccess: () => { alert("Role created."); setNewRole({ name: "", allowed_pages: "", allowed_actions: "" }); queryClient.invalidateQueries({ queryKey: ["admin-roles"] }); },
+    onSuccess: () => { alert("Role created."); setNewRole({ name: "", allowed_pages: [], allowed_actions: [], allowed_site_types: [] }); queryClient.invalidateQueries({ queryKey: ["admin-roles"] }); },
     onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
   });
 
   const editRoleMutation = useMutation({
-    mutationFn: (data: any) => api.put(`/admin/roles/${data.id}`, data),
+    mutationFn: (data: any) => api.put(`/admin/roles/${data.name}`, data),
     onSuccess: () => { alert("Role updated."); setEditRole(null); queryClient.invalidateQueries({ queryKey: ["admin-roles"] }); },
     onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
   });
@@ -705,11 +845,15 @@ function UsersRolesTab({ roles, users, queryClient }: { roles: any; users: any; 
       </Card>
 
       <Card title="Create Custom Role" icon={Users}>
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-          <input style={inputStyle} placeholder="Role name" value={newRole.name} onChange={e => setNewRole(p => ({ ...p, name: e.target.value }))} />
-          <input style={inputStyle} placeholder="Allowed pages (comma separated)" value={newRole.allowed_pages} onChange={e => setNewRole(p => ({ ...p, allowed_pages: e.target.value }))} />
-          <input style={inputStyle} placeholder="Allowed actions (comma separated)" value={newRole.allowed_actions} onChange={e => setNewRole(p => ({ ...p, allowed_actions: e.target.value }))} />
-          <button onClick={() => createRole.mutate({ ...newRole, allowed_pages: newRole.allowed_pages.split(",").map(s => s.trim()).filter(Boolean), allowed_actions: newRole.allowed_actions.split(",").map(s => s.trim()).filter(Boolean) })} disabled={createRole.isPending || !newRole.name} style={btn("var(--accent-green)")}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+          <div>
+            <SectionTitle text="Role Name" />
+            <input style={inputStyle} placeholder="e.g. senior-analyst" value={newRole.name} onChange={e => setNewRole(p => ({ ...p, name: e.target.value }))} />
+          </div>
+          <CheckboxGroup label="Allowed Pages" options={ALL_PAGES} selected={newRole.allowed_pages} onChange={v => setNewRole(p => ({ ...p, allowed_pages: v }))} />
+          <CheckboxGroup label="Allowed Actions" options={ALL_ACTIONS} selected={newRole.allowed_actions} onChange={v => setNewRole(p => ({ ...p, allowed_actions: v }))} />
+          <CheckboxGroup label="Allowed Site Types" options={ALL_SITE_TYPES} selected={newRole.allowed_site_types} onChange={v => setNewRole(p => ({ ...p, allowed_site_types: v }))} />
+          <button onClick={() => createRole.mutate(newRole)} disabled={createRole.isPending || !newRole.name} style={btn("var(--accent-green)")}>
             <Plus size={14} /> {createRole.isPending ? "Creating..." : "Create Role"}
           </button>
         </div>
@@ -717,20 +861,24 @@ function UsersRolesTab({ roles, users, queryClient }: { roles: any; users: any; 
 
       <Card title="Edit Existing Role" icon={SettingsIcon}>
         {Array.isArray(roles) && roles.length > 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
             <select style={inputStyle} value={editRole?.id || ""} onChange={e => {
-              const r = (roles as any[]).find((x: any) => x.id === Number(e.target.value));
-              setEditRole(r ? { ...r, allowed_pages: (r.allowed_pages || []).join(", "), allowed_actions: (r.allowed_actions || []).join(", ") } : null);
+              const r = (roles as any[]).find((x: any) => x.name === e.target.value);
+              setEditRole(r ? { ...r, allowed_pages: r.allowed_pages || [], allowed_actions: r.allowed_actions || [], allowed_site_types: r.allowed_site_types || [] } : null);
             }}>
               <option value="">Select role to edit...</option>
-              {roles.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              {roles.map((r: any) => <option key={r.name} value={r.name}>{r.name}</option>)}
             </select>
             {editRole && (
               <>
-                <input style={inputStyle} placeholder="Role name" value={editRole.name} onChange={e => setEditRole((p: any) => ({ ...p, name: e.target.value }))} />
-                <input style={inputStyle} placeholder="Allowed pages (comma separated)" value={editRole.allowed_pages} onChange={e => setEditRole((p: any) => ({ ...p, allowed_pages: e.target.value }))} />
-                <input style={inputStyle} placeholder="Allowed actions (comma separated)" value={editRole.allowed_actions} onChange={e => setEditRole((p: any) => ({ ...p, allowed_actions: e.target.value }))} />
-                <button onClick={() => editRoleMutation.mutate({ ...editRole, allowed_pages: editRole.allowed_pages.split(",").map((s: string) => s.trim()).filter(Boolean), allowed_actions: editRole.allowed_actions.split(",").map((s: string) => s.trim()).filter(Boolean) })} disabled={editRoleMutation.isPending} style={btn("var(--accent-yellow)")}>
+                <div>
+                  <SectionTitle text="Role Name" />
+                  <input style={inputStyle} value={editRole.name} onChange={e => setEditRole((p: any) => ({ ...p, name: e.target.value }))} />
+                </div>
+                <CheckboxGroup label="Allowed Pages" options={ALL_PAGES} selected={editRole.allowed_pages || []} onChange={v => setEditRole((p: any) => ({ ...p, allowed_pages: v }))} />
+                <CheckboxGroup label="Allowed Actions" options={ALL_ACTIONS} selected={editRole.allowed_actions || []} onChange={v => setEditRole((p: any) => ({ ...p, allowed_actions: v }))} />
+                <CheckboxGroup label="Allowed Site Types" options={ALL_SITE_TYPES} selected={editRole.allowed_site_types || []} onChange={v => setEditRole((p: any) => ({ ...p, allowed_site_types: v }))} />
+                <button onClick={() => editRoleMutation.mutate(editRole)} disabled={editRoleMutation.isPending} style={btn("var(--accent-yellow)")}>
                   <Save size={14} /> {editRoleMutation.isPending ? "Saving..." : "Update Role"}
                 </button>
               </>
@@ -787,10 +935,10 @@ function BackupRestoreTab() {
   };
 
   const restoreMutation = useMutation({
-    mutationFn: (file: File) => {
-      const form = new FormData();
-      form.append("file", file);
-      return api.post("/admin/restore", form);
+    mutationFn: async (file: File) => {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      return api.post("/admin/restore", data);
     },
     onSuccess: () => { alert("Restore completed."); queryClient.invalidateQueries(); },
     onError: (e: any) => alert("Restore error: " + (e.response?.data?.detail || e.message)),
@@ -842,7 +990,7 @@ function DangerZoneTab() {
   const nukeAlerts = useMutation({ mutationFn: () => api.post("/rca/nuke-alerts"), onSuccess: () => { alert("Alerts nuked."); queryClient.invalidateQueries(); }, onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)) });
 
   const delRec = useMutation({
-    mutationFn: ({ model_name, record_id }: any) => api.post("/admin/record", { model_name, record_id: Number(record_id) }),
+    mutationFn: ({ model_name, record_id }: any) => api.delete("/admin/record", { params: { model_name, record_id: Number(record_id) } }),
     onSuccess: () => { alert("Record deleted."); setDelRecord({ model_name: "", record_id: "" }); queryClient.invalidateQueries(); },
     onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
   });
