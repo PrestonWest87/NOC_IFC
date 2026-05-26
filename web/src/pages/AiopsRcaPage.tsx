@@ -153,22 +153,29 @@ export function AiopsRcaPage() {
   const rootCause = analysis?.root_cause ?? {};
   const chronicInsights = analysis?.chronic_insights ?? null;
 
+  const [investigatingSites, setInvestigatingSites] = useState<Set<string>>(new Set());
+
   const sites = useMemo(
     () => {
-      const mapped = (locations ?? []).map((l: any) => ({
-        name: l.name,
-        lat: l.lat,
-        lon: l.lon,
-        alert_count: alerts.filter((a: any) => a.mapped_location === l.name).length,
-        under_maintenance: l.under_maintenance ?? false,
-        maintenance_etr: l.maintenance_etr ?? null,
-        maintenance_reason: l.maintenance_reason ?? null,
-      }));
+      const mapped = (locations ?? []).map((l: any) => {
+        const siteAlerts = alerts.filter((a: any) => a.mapped_location === l.name);
+        return {
+          name: l.name,
+          lat: l.lat,
+          lon: l.lon,
+          alert_count: siteAlerts.length,
+          is_dispatched: siteAlerts.some((a: any) => a.is_dispatched),
+          under_maintenance: l.under_maintenance ?? false,
+          maintenance_etr: l.maintenance_etr ?? null,
+          maintenance_reason: l.maintenance_reason ?? null,
+        };
+      });
       mapped.push({
         name: "HQ - Campus",
         lat: 34.6755,
         lon: -92.3235,
         alert_count: 0,
+        is_dispatched: false,
         under_maintenance: false,
         maintenance_etr: null,
         maintenance_reason: null,
@@ -249,16 +256,64 @@ export function AiopsRcaPage() {
     [rootCause]
   );
 
-  const [selectedSitePopup, setSelectedSitePopup] = useState<{ name: string; lat: number; lon: number; alert_count: number; under_maintenance: boolean } | null>(null);
+  const [siteDialog, setSiteDialog] = useState<{
+    name: string; lat: number; lon: number; alert_count: number;
+    is_dispatched: boolean; under_maintenance: boolean;
+    maintenance_etr: string | null; maintenance_reason: string | null;
+  } | null>(null);
+  const [dialogDispatch, setDialogDispatch] = useState(false);
+  const [dialogStatus, setDialogStatus] = useState<string>("Investigate/Dispatch");
+  const [dialogEtr, setDialogEtr] = useState("");
+  const [dialogReason, setDialogReason] = useState("");
+
+  const openSiteDialog = useCallback((site: any) => {
+    setSiteDialog(site);
+    setDialogDispatch(site.is_dispatched);
+    const isMaint = site.under_maintenance;
+    setDialogStatus(isMaint ? "No Dispatch Needed" : "Investigate/Dispatch");
+    setDialogEtr(site.maintenance_etr ? site.maintenance_etr.split("T")[0] : new Date().toISOString().split("T")[0]);
+    setDialogReason(site.maintenance_reason ?? "");
+  }, []);
 
   const handleMapClick = useCallback((info: any) => {
     if (info.object && info.layer?.id === "sites") {
       const d = info.object;
-      setSelectedSitePopup({ name: d.name, lat: d.position[1], lon: d.position[0], alert_count: d.alert_count, under_maintenance: d.under_maintenance });
+      openSiteDialog(d);
     } else {
-      setSelectedSitePopup(null);
+      setSiteDialog(null);
     }
-  }, []);
+  }, [openSiteDialog]);
+
+  const handleSaveSiteDialog = useCallback(() => {
+    if (!siteDialog) return;
+    const { name } = siteDialog;
+    const clusterAlerts = alerts.filter((a: any) => a.mapped_location === name);
+    const alertIds = clusterAlerts.map((a: any) => a.id).filter(Boolean);
+
+    if (alertIds.length > 0) {
+      dispatchMutation.mutate({ alertIds, dispatched: dialogDispatch });
+    }
+
+    const isMaint = dialogStatus === "No Dispatch Needed";
+    if (isMaint) {
+      setInvestigatingSites((prev) => { const n = new Set(prev); n.delete(name); return n; });
+    } else {
+      setInvestigatingSites((prev) => { const n = new Set(prev); n.add(name); return n; });
+    }
+    const etrDate = isMaint ? dialogEtr : "";
+    const reason = dialogReason;
+    maintMutation.mutate({ site_name: name, is_maint: isMaint, etr: etrDate, reason });
+
+    setSiteDialog(null);
+  }, [siteDialog, dialogDispatch, dialogStatus, dialogEtr, dialogReason, alerts, dispatchMutation, maintMutation]);
+
+  useEffect(() => {
+    for (const s of sites) {
+      if (s.alert_count === 0 && investigatingSites.has(s.name)) {
+        setInvestigatingSites((prev) => { const n = new Set(prev); n.delete(s.name); return n; });
+      }
+    }
+  }, [sites, investigatingSites]);
 
   const handleRunDeepAnalysis = () => {
     setDeepAnalysisRun(true);
@@ -276,7 +331,7 @@ export function AiopsRcaPage() {
     const d = info.object;
     if (info.layer?.id === "sites") {
       return {
-        html: `<b>${d.name}</b><br/>Alerts: ${d.alert_count}<br/>Status: ${d.alert_count > 0 ? "⚠ Degraded" : "✓ Operational"}`,
+        html: `<b>${d.name}</b><br/>${d.status_text}`,
         style: { background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.78rem", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.5rem" },
       };
     }
@@ -284,41 +339,105 @@ export function AiopsRcaPage() {
   }, []);
 
   const mapLayers = useMemo(() => {
-    const pts = sites.map((s: any) => ({
-      name: s.name,
-      position: [s.lon, s.lat] as [number, number],
-      color: s.alert_count > 0 ? [255, 0, 0, 200] : [0, 255, 0, 160],
-      alert_count: s.alert_count,
-      under_maintenance: s.under_maintenance,
-    }));
-    const pulses = sites
-      .filter((s: any) => s.alert_count > 0)
-      .map((s: any) => ({
-        position: [s.lon, s.lat] as [number, number],
-        radius: 4000 + s.alert_count * 2500,
-      }));
-    return [
+    const seenCoords: Record<string, number> = {};
+    const pts: any[] = [];
+    const pulseData: any[] = [];
+
+    for (const s of sites) {
+      const isDown = s.alert_count > 0;
+      const isNoDispatch = s.under_maintenance;
+      const isDispatched = s.is_dispatched;
+      const isInvestigating = investigatingSites.has(s.name);
+
+      let color: [number, number, number, number];
+      let statusText: string;
+      let showPulse: boolean;
+      let radius: number;
+
+      if (!isDown) {
+        color = [40, 167, 69, 200];
+        statusText = "Operational / Clear";
+        showPulse = false;
+        radius = 2000;
+      } else if (isNoDispatch) {
+        color = [0, 123, 255, 200];
+        statusText = "Down (No Dispatch Needed)";
+        showPulse = false;
+        radius = 2500;
+      } else if (isDispatched) {
+        color = [255, 193, 7, 200];
+        statusText = "Down (Ticket Dispatched)";
+        showPulse = false;
+        radius = 3000;
+      } else if (isInvestigating) {
+        color = [255, 165, 0, 200];
+        statusText = "Down (Investigating/Pending Dispatch)";
+        showPulse = false;
+        radius = 3500;
+      } else {
+        color = [220, 53, 69, 200];
+        statusText = "Down (Action Required)";
+        showPulse = true;
+        radius = 4000;
+      }
+
+      const coordKey = `${s.lat}_${s.lon}`;
+      if (seenCoords[coordKey] !== undefined) {
+        seenCoords[coordKey] += 1;
+        const offset = seenCoords[coordKey];
+        pts.push({
+          name: s.name, position: [s.lon + 0.012 * offset, s.lat + 0.012 * offset] as [number, number],
+          color, alert_count: s.alert_count, under_maintenance: s.under_maintenance,
+          is_dispatched: s.is_dispatched, maintenance_etr: s.maintenance_etr,
+          maintenance_reason: s.maintenance_reason, status_text: statusText, radius,
+        });
+      } else {
+        seenCoords[coordKey] = 0;
+        pts.push({
+          name: s.name, position: [s.lon, s.lat] as [number, number],
+          color, alert_count: s.alert_count, under_maintenance: s.under_maintenance,
+          is_dispatched: s.is_dispatched, maintenance_etr: s.maintenance_etr,
+          maintenance_reason: s.maintenance_reason, status_text: statusText, radius,
+        });
+      }
+
+      if (showPulse) {
+        pulseData.push({ position: [s.lon, s.lat] as [number, number], radius: 12000 });
+      }
+    }
+
+    const baseLayers: any[] = [
       new ScatterplotLayer({
         id: "sites",
         data: pts,
         getPosition: (d: any) => d.position,
         getFillColor: (d: any) => d.color,
-        getRadius: 1800,
+        getRadius: (d: any) => d.radius,
+        radiusMinPixels: 4,
+        radiusMaxPixels: 15,
         pickable: true,
+        stroked: true,
+        getLineColor: [255, 255, 255, 255],
+        lineWidthMinPixels: 1,
       }),
-      ...(pulses.length > 0
-        ? [
-            new ScatterplotLayer({
-              id: "alert-pulses",
-              data: pulses,
-              getPosition: (d: any) => d.position,
-              getFillColor: [255, 0, 0, 40],
-              getRadius: (d: any) => d.radius,
-            }),
-          ]
-        : []),
     ];
-  }, [sites]);
+
+    if (pulseData.length > 0) {
+      baseLayers.push(
+        new ScatterplotLayer({
+          id: "alert-pulses",
+          data: pulseData,
+          getPosition: (d: any) => d.position,
+          getFillColor: [220, 53, 69, 40],
+          getRadius: (d: any) => d.radius,
+          radiusMaxPixels: 45,
+          pickable: false,
+        })
+      );
+    }
+
+    return baseLayers;
+  }, [sites, investigatingSites]);
 
   const chronOffNodes =
     chronicInsights && Array.isArray(chronicInsights[0])
@@ -440,25 +559,73 @@ export function AiopsRcaPage() {
                 getCursor={({ isDragging, isHovering }: any) => isDragging ? "grabbing" : isHovering ? "pointer" : "default"}
               >
                 <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json">
-                  {selectedSitePopup && (
+                  {siteDialog && (
                     <Popup
-                      latitude={selectedSitePopup.lat}
-                      longitude={selectedSitePopup.lon}
+                      latitude={siteDialog.lat}
+                      longitude={siteDialog.lon}
                       closeOnClick={false}
-                      onClose={() => setSelectedSitePopup(null)}
+                      onClose={() => setSiteDialog(null)}
                       style={{ zIndex: 20 }}
                     >
-                      <div style={{ fontSize: "0.82rem", lineHeight: 1.5, minWidth: 180 }}>
-                        <div style={{ fontWeight: 700, marginBottom: "0.3rem", fontSize: "0.9rem" }}>{selectedSitePopup.name}</div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
-                          <div><strong>Alerts:</strong> {selectedSitePopup.alert_count}</div>
-                          <div><strong>Status:</strong> {selectedSitePopup.alert_count > 0
-                            ? <span style={{ color: "var(--accent-red, #ef4444)", fontWeight: 600 }}>⚠ Degraded</span>
-                            : <span style={{ color: "var(--accent-green, #22c55e)", fontWeight: 600 }}>✓ Operational</span>}
-                          </div>
-                          {selectedSitePopup.under_maintenance && (
-                            <div><strong>Maintenance:</strong> <span style={{ color: "var(--accent-orange, #f59e0b)" }}>Active</span></div>
-                          )}
+                      <div style={{ fontSize: "0.82rem", lineHeight: 1.5, minWidth: 260 }}>
+                        <div style={{ fontWeight: 700, marginBottom: "0.5rem", fontSize: "0.9rem", borderBottom: "1px solid var(--border-primary)", paddingBottom: "0.3rem" }}>
+                          Manage Site Status — {siteDialog.name}
+                        </div>
+
+                        <div style={{ marginBottom: "0.5rem" }}>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Status</div>
+                          <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer", marginBottom: "0.2rem" }}>
+                            <input type="radio" name="site-status" value="Investigate/Dispatch"
+                              checked={dialogStatus === "Investigate/Dispatch"}
+                              onChange={(e) => setDialogStatus(e.target.value)}
+                              style={{ accentColor: "var(--accent-blue)" }}
+                            /> Investigate/Dispatch
+                          </label>
+                          <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
+                            <input type="radio" name="site-status" value="No Dispatch Needed"
+                              checked={dialogStatus === "No Dispatch Needed"}
+                              onChange={(e) => setDialogStatus(e.target.value)}
+                              style={{ accentColor: "var(--accent-blue)" }}
+                            /> No Dispatch Needed
+                          </label>
+                        </div>
+
+                        <div style={{ marginBottom: "0.5rem" }}>
+                          <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
+                            <input type="checkbox"
+                              checked={dialogDispatch}
+                              onChange={(e) => setDialogDispatch(e.target.checked)}
+                              style={{ accentColor: "var(--accent-blue)" }}
+                            /> Ticket Dispatched
+                          </label>
+                        </div>
+
+                        <div style={{ marginBottom: "0.4rem" }}>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.15rem" }}>ETR</div>
+                          <input type="date" value={dialogEtr}
+                            onChange={(e) => setDialogEtr(e.target.value)}
+                            style={{ width: "100%", boxSizing: "border-box", background: "var(--bg-input)", color: "var(--text-primary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.25rem 0.4rem", fontSize: "0.78rem" }}
+                          />
+                        </div>
+
+                        <div style={{ marginBottom: "0.5rem" }}>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.15rem" }}>Reason</div>
+                          <textarea value={dialogReason}
+                            onChange={(e) => setDialogReason(e.target.value)}
+                            rows={2}
+                            style={{ width: "100%", boxSizing: "border-box", background: "var(--bg-input)", color: "var(--text-primary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.25rem 0.4rem", fontSize: "0.78rem", resize: "vertical" }}
+                          />
+                        </div>
+
+                        <div style={{ display: "flex", gap: "0.4rem", justifyContent: "flex-end", borderTop: "1px solid var(--border-primary)", paddingTop: "0.4rem" }}>
+                          <button onClick={() => setSiteDialog(null)}
+                            style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer" }}>
+                            Cancel
+                          </button>
+                          <button onClick={handleSaveSiteDialog}
+                            style={{ background: "var(--accent-blue)", color: "#fff", border: "none", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 }}>
+                            Save Changes
+                          </button>
                         </div>
                       </div>
                     </Popup>
