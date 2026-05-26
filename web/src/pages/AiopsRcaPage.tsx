@@ -5,7 +5,7 @@ import { useAuth } from "../utils/AuthContext";
 import { getAllowedTabs } from "../utils/permissions";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer } from "@deck.gl/layers";
-import { Map } from "react-map-gl/maplibre";
+import { Map, Popup } from "react-map-gl/maplibre";
 import type { MapViewState } from "@deck.gl/core";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
@@ -249,6 +249,17 @@ export function AiopsRcaPage() {
     [rootCause]
   );
 
+  const [selectedSitePopup, setSelectedSitePopup] = useState<{ name: string; lat: number; lon: number; alert_count: number; under_maintenance: boolean } | null>(null);
+
+  const handleMapClick = useCallback((info: any) => {
+    if (info.object && info.layer?.id === "sites") {
+      const d = info.object;
+      setSelectedSitePopup({ name: d.name, lat: d.position[1], lon: d.position[0], alert_count: d.alert_count, under_maintenance: d.under_maintenance });
+    } else {
+      setSelectedSitePopup(null);
+    }
+  }, []);
+
   const handleRunDeepAnalysis = () => {
     setDeepAnalysisRun(true);
     refetchAnalysis().then(() => setDeepAnalysisRun(true));
@@ -278,6 +289,7 @@ export function AiopsRcaPage() {
       position: [s.lon, s.lat] as [number, number],
       color: s.alert_count > 0 ? [255, 0, 0, 200] : [0, 255, 0, 160],
       alert_count: s.alert_count,
+      under_maintenance: s.under_maintenance,
     }));
     const pulses = sites
       .filter((s: any) => s.alert_count > 0)
@@ -418,8 +430,40 @@ export function AiopsRcaPage() {
               <div style={{ position: "absolute", top: 8, left: 10, zIndex: 10, fontSize: "0.8rem", fontWeight: 600, color: "var(--text-secondary)", background: "var(--bg-card)", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-sm)" }}>
                 Overlays
               </div>
-              <DeckGL layers={mapLayers} initialViewState={INITIAL_VIEW} controller={true} style={{ height: "100%" }} getTooltip={mapTooltip}>
-                <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
+              <DeckGL
+                layers={mapLayers}
+                initialViewState={INITIAL_VIEW}
+                controller={true}
+                style={{ height: "100%" }}
+                getTooltip={mapTooltip}
+                onClick={handleMapClick}
+                getCursor={({ isDragging, isHovering }: any) => isDragging ? "grabbing" : isHovering ? "pointer" : "default"}
+              >
+                <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json">
+                  {selectedSitePopup && (
+                    <Popup
+                      latitude={selectedSitePopup.lat}
+                      longitude={selectedSitePopup.lon}
+                      closeOnClick={false}
+                      onClose={() => setSelectedSitePopup(null)}
+                      style={{ zIndex: 20 }}
+                    >
+                      <div style={{ fontSize: "0.82rem", lineHeight: 1.5, minWidth: 180 }}>
+                        <div style={{ fontWeight: 700, marginBottom: "0.3rem", fontSize: "0.9rem" }}>{selectedSitePopup.name}</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
+                          <div><strong>Alerts:</strong> {selectedSitePopup.alert_count}</div>
+                          <div><strong>Status:</strong> {selectedSitePopup.alert_count > 0
+                            ? <span style={{ color: "var(--accent-red, #ef4444)", fontWeight: 600 }}>⚠ Degraded</span>
+                            : <span style={{ color: "var(--accent-green, #22c55e)", fontWeight: 600 }}>✓ Operational</span>}
+                          </div>
+                          {selectedSitePopup.under_maintenance && (
+                            <div><strong>Maintenance:</strong> <span style={{ color: "var(--accent-orange, #f59e0b)" }}>Active</span></div>
+                          )}
+                        </div>
+                      </div>
+                    </Popup>
+                  )}
+                </Map>
               </DeckGL>
             </div>
 
