@@ -90,9 +90,7 @@ def sync_elastic_cache(hours_back: int = Query(24, ge=1)):
 @router.post("/generate-siem-triage")
 def generate_siem_triage(data: dict = Body({})):
     from src.utils.llm import generate_siem_triage_summary
-    from src.models.schema import SystemConfig
     from src.core.db import SessionLocal
-    with SessionLocal() as db:
-        config = db.query(SystemConfig).first()
-    summary = generate_siem_triage_summary(data.get("events", []), config)
+    with SessionLocal() as session:
+        summary = generate_siem_triage_summary(session, data.get("events", []))
     return {"summary": summary or "Unable to generate triage summary."}

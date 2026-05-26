@@ -623,6 +623,17 @@ function MlTab({ mlCounts }: { mlCounts: any }) {
 function AiSmtpTab({ config, configLoading, saveConfigMutation }: { config: any; configLoading: boolean; saveConfigMutation: any }) {
   const [form, setForm] = useState<any>(null);
   const [showKey, setShowKey] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const testConnectionMutation = useMutation({
+    mutationFn: () => api.post("/llm/test-connection", {
+      llm_endpoint: form?.llm_endpoint || "",
+      llm_api_key: form?.llm_api_key || "",
+      llm_model_name: form?.llm_model_name || "",
+    }),
+    onSuccess: (res) => setTestResult(res.data),
+    onError: (e: any) => setTestResult({ success: false, message: e.response?.data?.detail || e.message }),
+  });
 
   if (!configLoading && config && !form) {
     setForm({
@@ -677,10 +688,20 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation }: { config: any;
             <input style={inputStyle} value={form.tech_stack} onChange={e => upd("tech_stack", e.target.value)} placeholder="Python, FastAPI, React" />
           </div>
         </div>
-        <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.6rem", fontSize: "0.8rem", color: "var(--text-primary)", cursor: "pointer" }}>
-          <input type="checkbox" checked={form.is_active} onChange={e => upd("is_active", e.target.checked)} />
-          Enable AI
-        </label>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginTop: "0.6rem", flexWrap: "wrap" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem", color: "var(--text-primary)", cursor: "pointer" }}>
+            <input type="checkbox" checked={form.is_active} onChange={e => upd("is_active", e.target.checked)} />
+            Enable AI
+          </label>
+          <button onClick={() => { setTestResult(null); testConnectionMutation.mutate(); }} disabled={testConnectionMutation.isPending} style={btn("var(--accent-cyan)")}>
+            <RefreshCw size={14} /> {testConnectionMutation.isPending ? "Testing..." : "Test Connection"}
+          </button>
+          {testResult && (
+            <span style={{ fontSize: "0.78rem", color: testResult.success ? "var(--accent-green)" : "var(--accent-red)", fontWeight: 500 }}>
+              {testResult.success ? "OK" : "FAIL"} &mdash; {testResult.message}
+            </span>
+          )}
+        </div>
       </Card>
 
       <Card title="SMTP Broadcast" icon={Mail}>

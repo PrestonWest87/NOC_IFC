@@ -27,10 +27,6 @@ class GenerateCustomRequest(BaseModel):
 
 @router.get("/executive-intel")
 def get_executive_intel():
-    from src.models.schema import SystemConfig
-    from src.core.db import SessionLocal
-    with SessionLocal() as db:
-        config = db.query(SystemConfig).first()
     intel = svc.get_executive_grid_intel(0, [])
     return intel
 
