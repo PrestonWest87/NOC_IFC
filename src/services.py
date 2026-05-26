@@ -186,9 +186,8 @@ def set_cluster_dispatch(alert_ids, is_dispatched):
       
 def get_shift_logs(role_filter="All", start_date=None, end_date=None):
     with SessionLocal() as db:
-        query = db.query(ShiftLogEntry)
+        query = db.query(ShiftLogEntry).filter(ShiftLogEntry.is_deleted == False)
         
-        # If the filter is explicitly a role (e.g., 'analyst'), apply it. Otherwise, fetch all.
         if role_filter and role_filter != "All":
             query = query.filter(ShiftLogEntry.author_role == role_filter)
             
@@ -2121,17 +2120,19 @@ def trigger_scoring_rationale(intel_data: dict):
     logger.warning("trigger_scoring_rationale: generation failed: %s", (report or "None")[:200])
     return {"status": "error", "message": report or "Generation failed."}
 
-def trigger_shift_summary(role_filter: str = "All", timeframe_label: str = "Current Period"):
+def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning", timeframe_label: str = "Morning Shift", auto_append: bool = False):
     """Force-generate an aggregated shift summary from log entries."""
     from src.utils.llm import generate_aggregated_shift_summary
     from src.database import ShiftLogEntry
     logger = logging.getLogger(__name__)
-    logger.info("trigger_shift_summary: role=%s timeframe=%s", role_filter, timeframe_label)
+    logger.info("trigger_shift_summary: role=%s shift=%s timeframe=%s auto_append=%s", role_filter, shift_period, timeframe_label, auto_append)
 
     with SessionLocal() as session:
         query = session.query(ShiftLogEntry).filter(ShiftLogEntry.is_deleted == False)
         if role_filter != "All":
             query = query.filter(ShiftLogEntry.author_role == role_filter.lower())
+        if shift_period:
+            query = query.filter(ShiftLogEntry.shift_period == shift_period)
         logs = query.order_by(ShiftLogEntry.created_at.desc()).limit(200).all()
         logger.info("trigger_shift_summary: fetched %d logs", len(logs))
 
@@ -2139,6 +2140,14 @@ def trigger_shift_summary(role_filter: str = "All", timeframe_label: str = "Curr
 
     if summary and "[WARN]" not in summary and "Summary generation failed" not in summary:
         logger.info("trigger_shift_summary: success (len=%d)", len(summary))
+        if auto_append:
+            save_shift_log(
+                analyst="AI Shift Report",
+                role="system",
+                shift_period=shift_period,
+                content=f"**AUTO-GENERATED {timeframe_label.upper()} REPORT:**\n\n{summary}",
+            )
+            logger.info("trigger_shift_summary: auto-appended to shift log")
         return {"status": "ok", "summary": summary}
     logger.warning("trigger_shift_summary: generation failed: %s", (summary or "None")[:200])
     return {"status": "error", "message": summary or "Generation failed."}

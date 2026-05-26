@@ -126,6 +126,24 @@ function RiskBadge({ level }: { level: string }) {
   );
 }
 
+function FilterChip({ selected, onClick, label }: { selected: boolean; onClick: () => void; label: string }) {
+  return (
+    <button onClick={onClick} style={{
+      display: "inline-flex", alignItems: "center", gap: "0.35rem",
+      padding: "0.3rem 0.6rem", borderRadius: "var(--radius-sm)",
+      border: selected ? "1px solid var(--accent-blue)" : "1px solid var(--border-primary)",
+      background: selected ? "var(--shade-blue, rgba(59,130,246,0.15))" : "transparent",
+      color: selected ? "var(--accent-blue)" : "var(--text-secondary)",
+      fontSize: "0.78rem", cursor: "pointer", fontWeight: selected ? 600 : 400,
+      transition: "all 0.12s", whiteSpace: "nowrap",
+      lineHeight: 1.3,
+    }}>
+      {selected && <span style={{ fontSize: "0.6rem" }}>✓</span>}
+      {label}
+    </button>
+  );
+}
+
 function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.2rem 0" }}>
@@ -215,7 +233,7 @@ export function RegionalGridPage() {
 
   const { data: userPrefs } = useQuery({
     queryKey: ["regional-weather-prefs"],
-    queryFn: () => api.get("/regional/weather-prefs", { params: { username: sessionStorage.getItem("noc_user") || "" } }).then(r => r.data),
+    queryFn: () => api.get("/regional/weather-prefs", { params: { username: (() => { try { return JSON.parse(sessionStorage.getItem("noc_user") || "{}").username || ""; } catch { return ""; } })() } }).then(r => r.data),
   });
 
   // Derived data
@@ -503,7 +521,7 @@ export function RegionalGridPage() {
   const handleSaveWeatherPrefs = useCallback(async (prefs: string[]) => {
     try {
       await api.post("/regional/weather-prefs", null, {
-        params: { username: sessionStorage.getItem("noc_user") || "", alerts: prefs.join(",") },
+        params: { username: (() => { try { return JSON.parse(sessionStorage.getItem("noc_user") || "{}").username || ""; } catch { return ""; } })() || "", alerts: prefs.join(",") },
       });
       alert("Preferences saved!");
     } catch { /* ignore */ }
@@ -712,14 +730,11 @@ function GeospatialTab({
           {activeEventTypes.length === 0 ? (
             <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>No active hazards to filter.</div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", maxHeight: 150, overflow: "auto" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", maxHeight: 150, overflow: "auto", alignContent: "flex-start" }}>
               {activeEventTypes.map(ev => (
-                <label key={ev} style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem", color: "var(--text-secondary)", cursor: "pointer" }}>
-                  <input type="checkbox" checked={selectedEvents.includes(ev)} onChange={() => {
-                    setSelectedEvents(selectedEvents.includes(ev) ? selectedEvents.filter((e: string) => e !== ev) : [...selectedEvents, ev]);
-                  }} style={{ accentColor: "var(--accent-blue)" }} />
-                  {ev}
-                </label>
+                <FilterChip key={ev} selected={selectedEvents.includes(ev)} onClick={() => {
+                  setSelectedEvents(selectedEvents.includes(ev) ? selectedEvents.filter((e: string) => e !== ev) : [...selectedEvents, ev]);
+                }} label={ev} />
               ))}
             </div>
           )}
@@ -1389,14 +1404,11 @@ function AtmosTab({
           <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
             Select which NWS event types should trigger browser push notifications.
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem", maxHeight: 300, overflow: "auto" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", maxHeight: 300, overflow: "auto", alignContent: "flex-start" }}>
             {availableEvents.map(ev => (
-              <label key={ev} style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem", color: "var(--text-secondary)", cursor: "pointer" }}>
-                <input type="checkbox" checked={prefs.includes(ev)} onChange={() => {
-                  setPrefs(prev => prev.includes(ev) ? prev.filter(e => e !== ev) : [...prev, ev]);
-                }} style={{ accentColor: "var(--accent-blue)" }} />
-                {ev}
-              </label>
+              <FilterChip key={ev} selected={prefs.includes(ev)} onClick={() => {
+                setPrefs(prev => prev.includes(ev) ? prev.filter(e => e !== ev) : [...prev, ev]);
+              }} label={ev} />
             ))}
           </div>
           <button onClick={handleSave} style={{ ...BTN_PRIMARY, width: "100%", marginTop: "0.75rem" }}>

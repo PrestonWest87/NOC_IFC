@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
@@ -147,10 +147,18 @@ export function DashboardPage() {
   const [scoringOverview, setScoringOverview] = useState<string | null>(null);
   const [scoringOverviewRisk, setScoringOverviewRisk] = useState<string | null>(null);
   const [dispatchEmail, setDispatchEmail] = useState("");
+  const [ubEmail, setUbEmail] = useState("");
   const [forceRefreshKey, setForceRefreshKey] = useState(0);
   const rotateRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const queryClient = useQueryClient();
 
-  const refreshBriefingMut = useMutation({ mutationFn: () => api.post("/rca/sitrep", { action: "refresh_briefing" }) });
+  const refreshBriefingMut = useMutation({
+    mutationFn: () => api.post("/rca/sitrep", { action: "refresh_briefing" }),
+    onSuccess: () => {
+      setForceRefreshKey((k) => k + 1);
+      queryClient.invalidateQueries({ queryKey: ["sys-config"] });
+    },
+  });
   const securityAuditMut = useMutation({ mutationFn: () => api.post("/rca/sitrep", { action: "security_audit" }) });
   const generateScoringMut = useMutation({
     mutationFn: (intel: any) => api.post("/dashboard/generate-scoring-rationale", { intel }),
@@ -161,7 +169,10 @@ export function DashboardPage() {
   });
   const generateUnifiedBriefMut = useMutation({
     mutationFn: () => api.post("/dashboard/generate-unified-brief"),
-    onSuccess: () => { setForceRefreshKey((k) => k + 1); },
+    onSuccess: () => {
+      setForceRefreshKey((k) => k + 1);
+      queryClient.invalidateQueries({ queryKey: ["sys-config"] });
+    },
   });
   const generateInternalMut = useMutation({
     mutationFn: () => api.post("/dashboard/generate-internal-risk"),
@@ -223,9 +234,7 @@ export function DashboardPage() {
   });
 
   const handleForceRefreshBriefing = () => {
-    refreshBriefingMut.mutate(undefined, {
-      onSuccess: () => setForceRefreshKey((k) => k + 1),
-    });
+    refreshBriefingMut.mutate();
   };
 
   const handleSecurityAudit = () => {

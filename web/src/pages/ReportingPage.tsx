@@ -375,7 +375,12 @@ function CustomReportBuilder() {
             <input
               style={inputStyle}
               placeholder="Your name"
-              defaultValue={sessionStorage.getItem("noc_user") || ""}
+              defaultValue={(() => {
+                const stored = sessionStorage.getItem("noc_user");
+                if (!stored) return "";
+                try { const p = JSON.parse(stored); return p.full_name || p.username || ""; }
+                catch { return stored; }
+              })()}
               id="analyst-name"
             />
           </div>

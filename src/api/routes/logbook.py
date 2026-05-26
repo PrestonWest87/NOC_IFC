@@ -13,9 +13,13 @@ router = APIRouter(prefix="/api/v1/logbook", tags=["logbook"])
 
 
 @router.get("/entries")
-def entries(role_filter: str = Query("All"), start_date: str = None, end_date: str = None):
+def entries(role_filter: str = Query("All"), start_date: str = None, end_date: str = None, session_token: str = Query(None)):
     sd = datetime.fromisoformat(start_date) if start_date else None
     ed = datetime.fromisoformat(end_date) if end_date else None
+    if session_token:
+        user = svc.get_user_by_token(session_token)
+        if user and user.role != "admin":
+            role_filter = user.role
     return svc.get_shift_logs(role_filter, sd, ed)
 
 
@@ -26,7 +30,12 @@ def create_entry(
     shift_period: str = "Morning",
     content: str = "",
     custom_date: str = None,
+    session_token: str = Query(None),
 ):
+    if session_token:
+        user = svc.get_user_by_token(session_token)
+        if user and user.role != "admin":
+            role = user.role
     cd = datetime.fromisoformat(custom_date) if custom_date else None
     svc.save_shift_log(analyst, role, shift_period, content, cd)
     return {"status": "ok"}
@@ -47,7 +56,14 @@ def update_entry(entry_id: int, is_deleted: bool = None):
 @router.post("/generate-summary")
 def generate_shift_summary(data: dict[str, Any] = Body({})):
     role_filter = data.get("role_filter", "All")
-    timeframe_label = data.get("timeframe_label", "Current Period")
-    logger.info("POST /generate-summary role=%s timeframe=%s", role_filter, timeframe_label)
-    result = svc.trigger_shift_summary(role_filter=role_filter, timeframe_label=timeframe_label)
+    shift_period = data.get("shift_period", "Morning")
+    timeframe_label = data.get("timeframe_label", shift_period + " Shift")
+    auto_append = data.get("auto_append", False)
+    logger.info("POST /generate-summary role=%s shift=%s auto_append=%s", role_filter, shift_period, auto_append)
+    result = svc.trigger_shift_summary(
+        role_filter=role_filter,
+        shift_period=shift_period,
+        timeframe_label=timeframe_label,
+        auto_append=auto_append,
+    )
     return result

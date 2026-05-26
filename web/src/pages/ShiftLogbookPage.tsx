@@ -68,7 +68,7 @@ const modalContent: React.CSSProperties = {
 };
 
 export function ShiftLogbookPage() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const queryClient = useQueryClient();
 
   const [analyst, setAnalyst] = useState(user?.full_name ?? user?.username ?? "");
@@ -79,37 +79,59 @@ export function ShiftLogbookPage() {
 
   const [selectedEntry, setSelectedEntry] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
+  const todayStr = new Date().toISOString().split("T")[0];
+  const [dateFrom, setDateFrom] = useState(todayStr);
   const [dateTo, setDateTo] = useState("");
-  const [roleFilter, setRoleFilter] = useState("All");
+  const isAdmin = user?.role === "admin";
+  const userRole = user?.role ?? "analyst";
+  const [roleFilter, setRoleFilter] = useState(isAdmin ? "All" : userRole);
   const [logViewMode, setLogViewMode] = useState<"day" | "week">("day");
   const [weekOffset, setWeekOffset] = useState(0);
   const [selectedLogDate, setSelectedLogDate] = useState(new Date().toISOString().split("T")[0]);
-  const [summaryRole, setSummaryRole] = useState("All");
+  const [summaryRole, setSummaryRole] = useState(isAdmin ? "All" : userRole);
+  const [summaryShiftPeriod, setSummaryShiftPeriod] = useState("Morning");
   const [summaryResult, setSummaryResult] = useState<string | null>(null);
-
-  const isAdmin = user?.role === "admin";
 
   const generateSummaryMut = useMutation({
     mutationFn: () =>
       api.post("/logbook/generate-summary", {
         role_filter: summaryRole,
-        timeframe_label: "Current Period",
+        shift_period: summaryShiftPeriod,
+        timeframe_label: summaryShiftPeriod + " Shift",
+        auto_append: true,
       }),
     onSuccess: (res) => {
       const d = res.data;
-      if (d.status === "ok") setSummaryResult(d.summary);
-      else setSummaryResult(d.message || "Generation failed.");
+      if (d.status === "ok") {
+        setSummaryResult(d.summary);
+        queryClient.invalidateQueries({ queryKey: ["logbook"] });
+      } else {
+        setSummaryResult(d.message || "Generation failed.");
+      }
     },
     onError: (e: any) => {
       setSummaryResult("Error: " + (e.response?.data?.detail || e.message));
     },
   });
 
+  const { data: roles } = useQuery({
+    queryKey: ["logbook-roles"],
+    queryFn: () => api.get("/admin/roles").then((r) => r.data),
+    staleTime: 300000,
+  });
+  const roleOpts = Array.isArray(roles) ? roles.map((r: any) => r.name) : ["admin", "analyst"];
+
   const { data: entries, isLoading } = useQuery({
-    queryKey: ["logbook", roleFilter],
+    queryKey: ["logbook", roleFilter, dateFrom, dateTo],
     queryFn: () =>
-      api.get("/logbook/entries", { params: { role_filter: roleFilter } }).then((r) => r.data),
+      api.get("/logbook/entries", {
+        params: {
+          role_filter: roleFilter,
+          start_date: dateFrom || undefined,
+          end_date: dateTo || undefined,
+          session_token: token || undefined,
+        },
+      }).then((r) => r.data),
     refetchInterval: 30000,
   });
 
@@ -181,6 +203,7 @@ export function ShiftLogbookPage() {
       role: role || "analyst",
       shift_period: shiftPeriod,
       content: content.trim(),
+      session_token: token || undefined,
     };
     if (shiftPeriod === "No Shift" && customDate) {
       params.custom_date = customDate;
@@ -360,12 +383,14 @@ export function ShiftLogbookPage() {
                 </div>
                 <div>
                   <div style={label}>Role</div>
-                  <input
+                  <select
                     value={role}
                     onChange={(e) => setRole(e.target.value)}
-                    placeholder="analyst"
-                    style={inputBase}
-                  />
+                    disabled={!isAdmin}
+                    style={{ ...inputBase, opacity: isAdmin ? 1 : 0.6 }}
+                  >
+                    {roleOpts.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
                 </div>
               </div>
               <div style={{ marginBottom: "0.75rem" }}>
@@ -436,25 +461,32 @@ export function ShiftLogbookPage() {
             </form>
           </div>
 
-          {/* AI Shift Summary Card */}
+          {/* AI End of Shift Report Card */}
           <div style={{ ...card, marginTop: "1.25rem" }}>
             <h3 style={{ margin: "0 0 0.5rem", fontSize: "1rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
-              <FileText size={16} /> AI Shift Summary
+              <FileText size={16} /> End of Shift Report
             </h3>
             <p style={{ ...label, marginBottom: "0.5rem" }}>
-              Generate an automated executive summary of the current shift log entries.
+              Generate an automated end-of-shift report and append it to the running log.
             </p>
             <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", marginBottom: "0.5rem" }}>
               <select
-                value={summaryRole}
-                onChange={(e) => setSummaryRole(e.target.value)}
+                value={summaryShiftPeriod}
+                onChange={(e) => setSummaryShiftPeriod(e.target.value)}
                 style={{ ...inputBase, width: "auto", minWidth: "130px", flex: 1 }}
               >
+                <option value="Morning">Morning (06:00-14:30)</option>
+                <option value="Afternoon">Afternoon (14:30-22:00)</option>
+                <option value="Night">Night (22:00-06:00)</option>
+              </select>
+              <select
+                value={summaryRole}
+                onChange={(e) => setSummaryRole(e.target.value)}
+                disabled={!isAdmin}
+                style={{ ...inputBase, width: "auto", minWidth: "100px", flex: 1, opacity: isAdmin ? 1 : 0.6 }}
+              >
                 <option value="All">All Roles</option>
-                <option value="analyst">Analyst</option>
-                <option value="admin">Admin</option>
-                <option value="soc">SOC</option>
-                <option value="engineering">Engineering</option>
+                {roleOpts.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
               <button
                 onClick={() => generateSummaryMut.mutate()}
@@ -467,7 +499,7 @@ export function ShiftLogbookPage() {
                 }}
               >
                 {generateSummaryMut.isPending ? <Loader2 size={14} /> : <Zap size={14} />}
-                {generateSummaryMut.isPending ? "Generating..." : "Generate Summary"}
+                {generateSummaryMut.isPending ? "Generating..." : "Generate & Append Report"}
               </button>
             </div>
             {summaryResult && (
@@ -516,13 +548,11 @@ export function ShiftLogbookPage() {
               <select
                 value={roleFilter}
                 onChange={(e) => setRoleFilter(e.target.value)}
-                style={{ ...inputBase, width: "auto", minWidth: "100px" }}
+                disabled={!isAdmin}
+                style={{ ...inputBase, width: "auto", minWidth: "100px", opacity: isAdmin ? 1 : 0.6 }}
               >
                 <option value="All">All Roles</option>
-                <option value="analyst">Analyst</option>
-                <option value="admin">Admin</option>
-                <option value="soc">SOC</option>
-                <option value="engineering">Engineering</option>
+                {roleOpts.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
 
@@ -963,13 +993,11 @@ export function ShiftLogbookPage() {
                   <select
                     value={roleFilter}
                     onChange={(e) => setRoleFilter(e.target.value)}
-                    style={inputBase}
+                    disabled={!isAdmin}
+                    style={{ ...inputBase, opacity: isAdmin ? 1 : 0.6 }}
                   >
                     <option value="All">All</option>
-                    <option value="analyst">Analyst</option>
-                    <option value="admin">Admin</option>
-                    <option value="soc">SOC</option>
-                    <option value="engineering">Engineering</option>
+                    {roleOpts.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
                 <div style={{ flex: 1 }}>

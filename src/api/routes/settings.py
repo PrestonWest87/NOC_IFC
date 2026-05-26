@@ -25,6 +25,10 @@ def get_config(db: Session = Depends(get_db)):
         "monitored_asns": config.monitored_asns,
         "sys_countermeasures": config.sys_countermeasures,
         "net_countermeasures": config.net_countermeasures,
+        "unified_brief": config.unified_brief,
+        "unified_brief_time": config.unified_brief_time.isoformat() if config.unified_brief_time else None,
+        "rolling_summary": config.rolling_summary,
+        "rolling_summary_time": config.rolling_summary_time.isoformat() if config.rolling_summary_time else None,
     }
 
 
