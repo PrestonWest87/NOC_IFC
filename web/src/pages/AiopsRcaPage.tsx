@@ -154,8 +154,8 @@ export function AiopsRcaPage() {
   const chronicInsights = analysis?.chronic_insights ?? null;
 
   const sites = useMemo(
-    () =>
-      (locations ?? []).map((l: any) => ({
+    () => {
+      const mapped = (locations ?? []).map((l: any) => ({
         name: l.name,
         lat: l.lat,
         lon: l.lon,
@@ -163,7 +163,18 @@ export function AiopsRcaPage() {
         under_maintenance: l.under_maintenance ?? false,
         maintenance_etr: l.maintenance_etr ?? null,
         maintenance_reason: l.maintenance_reason ?? null,
-      })),
+      }));
+      mapped.push({
+        name: "HQ - Campus",
+        lat: 34.6755,
+        lon: -92.3235,
+        alert_count: 0,
+        under_maintenance: false,
+        maintenance_etr: null,
+        maintenance_reason: null,
+      });
+      return mapped;
+    },
     [locations, alerts]
   );
 
@@ -249,11 +260,24 @@ export function AiopsRcaPage() {
     });
   };
 
+  const mapTooltip = useCallback((info: any) => {
+    if (!info.object) return null;
+    const d = info.object;
+    if (info.layer?.id === "sites") {
+      return {
+        html: `<b>${d.name}</b><br/>Alerts: ${d.alert_count}<br/>Status: ${d.alert_count > 0 ? "⚠ Degraded" : "✓ Operational"}`,
+        style: { background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.78rem", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.5rem" },
+      };
+    }
+    return null;
+  }, []);
+
   const mapLayers = useMemo(() => {
     const pts = sites.map((s: any) => ({
       name: s.name,
       position: [s.lon, s.lat] as [number, number],
       color: s.alert_count > 0 ? [255, 0, 0, 200] : [0, 255, 0, 160],
+      alert_count: s.alert_count,
     }));
     const pulses = sites
       .filter((s: any) => s.alert_count > 0)
@@ -394,7 +418,7 @@ export function AiopsRcaPage() {
               <div style={{ position: "absolute", top: 8, left: 10, zIndex: 10, fontSize: "0.8rem", fontWeight: 600, color: "var(--text-secondary)", background: "var(--bg-card)", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-sm)" }}>
                 Overlays
               </div>
-              <DeckGL layers={mapLayers} initialViewState={INITIAL_VIEW} controller={true} style={{ height: "100%" }}>
+              <DeckGL layers={mapLayers} initialViewState={INITIAL_VIEW} controller={true} style={{ height: "100%" }} getTooltip={mapTooltip}>
                 <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
               </DeckGL>
             </div>

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useCallback } from "react";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer } from "@deck.gl/layers";
 import { Map } from "react-map-gl/maplibre";
@@ -28,11 +28,21 @@ const INITIAL_VIEW: MapViewState = {
 const DARK_MATTER = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 
 export function AIOpsMap({ sites, viewState = INITIAL_VIEW, height = "100%" }: AIOpsMapProps) {
+  const tooltip = useCallback((info: any) => {
+    if (!info.object || info.layer?.id !== "sites") return null;
+    const d = info.object;
+    return {
+      html: `<b>${d.name}</b><br/>Alerts: ${d.alert_count}<br/>Status: ${d.alert_count > 0 ? "⚠ Degraded" : "✓ Operational"}`,
+      style: { background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.78rem", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.5rem" },
+    };
+  }, []);
+
   const layers = useMemo(() => {
     const siteData = sites.map((s) => ({
       name: s.name,
       position: [s.lon, s.lat] as [number, number],
       color: s.alert_count > 0 ? [255, 0, 0, 200] : [0, 255, 0, 160],
+      alert_count: s.alert_count,
     }));
 
     const alertData = sites
@@ -71,7 +81,7 @@ export function AIOpsMap({ sites, viewState = INITIAL_VIEW, height = "100%" }: A
 
   return (
     <DeckGL layers={layers} initialViewState={viewState} controller={true}
-      style={{ height, width: "100%", position: "relative" }}>
+      style={{ height, width: "100%", position: "relative" }} getTooltip={tooltip}>
       <Map mapStyle={DARK_MATTER} />
     </DeckGL>
   );

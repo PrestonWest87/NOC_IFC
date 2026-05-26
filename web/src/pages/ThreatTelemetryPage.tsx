@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import DeckGL from "@deck.gl/react";
 import { Map } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { ScatterplotLayer } from "@deck.gl/layers";
+import { ScatterplotLayer, PolygonLayer } from "@deck.gl/layers";
 import type { MapViewState } from "@deck.gl/core";
 import {
   Bug, ShieldAlert, Cpu, Cloud, Shield, CloudSun, Globe, Bot, FileText,
@@ -409,6 +409,33 @@ export function ThreatTelemetryPage() {
 
   const HQ: [number, number] = [-92.3235, 34.6755];
 
+  const campusBoundary: [number, number][] = [
+    [-92.325885, 34.678235], [-92.326196, 34.675942], [-92.324565, 34.675888],
+    [-92.324636, 34.674884], [-92.32406120583306, 34.67474187702983],
+    [-92.3238084241607, 34.67452124894587], [-92.32373734260989, 34.674349128685705],
+    [-92.32376809344501, 34.673623615079805], [-92.32351586802497, 34.67332173763069],
+    [-92.3220985004393, 34.67324489899573], [-92.32198879648926, 34.673705411555176],
+    [-92.32118128553886, 34.673676198116304], [-92.32110794479303, 34.67493955311931],
+    [-92.32189171929349, 34.67527638012709], [-92.32180319236035, 34.67672422178229],
+    [-92.3216835943636, 34.678465279952555], [-92.32589779219425, 34.67833455896807],
+    [-92.325885, 34.678235],
+  ];
+
+  const crimeTooltip = useCallback((info: any) => {
+    if (!info.object) return null;
+    const d = info.object;
+    if (info.layer?.id === "crime-scatter") {
+      return {
+        html: `<b>${d.raw_title || "Incident"}</b><br/>
+${d.distance_miles != null ? `<b>Distance:</b> ${d.distance_miles.toFixed(1)} mi<br/>` : ""}
+${d.timestamp ? `<b>Time:</b> ${new Date(d.timestamp).toLocaleString()}<br/>` : ""}
+${d.category ? `<b>Category:</b> ${d.category}` : ""}`,
+        style: { background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.78rem", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.5rem" },
+      };
+    }
+    return null;
+  }, []);
+
   const crimeLayers = useMemo(() => {
     const base: any[] = [];
 
@@ -427,6 +454,7 @@ export function ThreatTelemetryPage() {
         raw_title: c.raw_title,
         timestamp: c.timestamp,
         distance_miles: c.distance_miles,
+        category: c.category,
       }));
     if (crimeData.length > 0) {
       base.push(
@@ -458,6 +486,7 @@ export function ThreatTelemetryPage() {
       );
     }
 
+    const radiusMeters = radiusFilter * 1609.34;
     base.push(
       new ScatterplotLayer({
         id: "hq-marker",
@@ -471,12 +500,22 @@ export function ThreatTelemetryPage() {
         radiusMinPixels: 6,
         radiusMaxPixels: 12,
       }),
+      new PolygonLayer({
+        id: "campus-boundary",
+        data: [{ polygon: campusBoundary }],
+        getPolygon: (d: any) => d.polygon,
+        getFillColor: [0, 255, 100, 30],
+        getLineColor: [0, 255, 100, 200],
+        lineWidthMinPixels: 2,
+        stroked: true,
+        filled: true,
+      }),
       new ScatterplotLayer({
-        id: "hq-ring",
-        data: [{ position: HQ, radius: radiusFilter * 1609.34 }],
+        id: "hq-radius",
+        data: [{ position: HQ, radius: radiusMeters }],
         getPosition: (d: any) => d.position,
-        getFillColor: [56, 189, 248, 15],
-        getLineColor: [56, 189, 248, 80],
+        getFillColor: [56, 189, 248, 12],
+        getLineColor: [56, 189, 248, 60],
         getRadius: (d: any) => d.radius,
         stroked: true,
         lineWidthMinPixels: 1,
@@ -884,6 +923,7 @@ export function ThreatTelemetryPage() {
                   initialViewState={crimeMapViewState}
                   controller={true}
                   style={{ height: "600px", width: "100%" }}
+                  getTooltip={crimeTooltip}
                 >
                   <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
                 </DeckGL>
