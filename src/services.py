@@ -2033,6 +2033,116 @@ def save_global_config(data):
         db.commit()
     get_cached_config.clear()
 
+def get_latest_internal_risk():
+    from src.database import InternalRiskSnapshot
+    with SessionLocal() as db:
+        snap = db.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
+        if not snap:
+            return None
+        return {
+            "id": snap.id,
+            "timestamp": snap.timestamp.isoformat() if snap.timestamp else None,
+            "score": snap.score,
+            "risk_level": snap.risk_level,
+            "total_assets": snap.total_assets,
+            "total_osint_hits": snap.total_osint_hits,
+            "critical_osint_hits": snap.critical_osint_hits,
+            "hw_data": json.loads(snap.hw_data_json) if snap.hw_data_json else [],
+            "sw_data": json.loads(snap.sw_data_json) if snap.sw_data_json else [],
+        }
+
+def get_internal_risk_history(days: int = 28):
+    from src.database import InternalRiskSnapshot
+    from datetime import timedelta
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    with SessionLocal() as db:
+        snaps = db.query(InternalRiskSnapshot).filter(InternalRiskSnapshot.timestamp >= cutoff).order_by(InternalRiskSnapshot.timestamp.asc()).all()
+        return [
+            {"timestamp": s.timestamp.isoformat() if s.timestamp else None, "score": s.score, "risk_level": s.risk_level}
+            for s in snaps
+        ]
+
+def trigger_unified_brief():
+    """Force-generate the unified risk brief (same logic as scheduler's job_unified_brief)."""
+    from src.utils.llm import generate_unified_risk_brief
+    from src.database import InternalRiskSnapshot, RegionalHazard
+    from src.services import get_executive_grid_intel, get_recent_crimes, save_global_config
+    logger = logging.getLogger(__name__)
+    logger.info("trigger_unified_brief: starting manual generation")
+
+    with SessionLocal() as session:
+        latest_internal = session.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
+        active_nws = session.query(RegionalHazard).count()
+    crime_data = get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
+    global_intel = get_executive_grid_intel(active_nws, crime_data)
+
+    with SessionLocal() as session:
+        brief_text = generate_unified_risk_brief(session, global_intel, latest_internal)
+
+    if brief_text and "AI is currently disabled" not in brief_text and "generate_unified_risk_brief" not in str(type(brief_text)):
+        save_global_config({"unified_brief": brief_text, "unified_brief_time": datetime.utcnow()})
+        logger.info("trigger_unified_brief: saved successfully (len=%d)", len(brief_text))
+        return {"status": "ok", "brief": brief_text}
+    logger.warning("trigger_unified_brief: generation failed or AI disabled")
+    return {"status": "error", "message": brief_text or "AI is disabled or generation failed."}
+
+def trigger_rolling_summary():
+    """Force-generate and save the rolling shift handover summary."""
+    from src.utils.llm import generate_rolling_summary
+    from src.services import save_global_config
+    logger = logging.getLogger(__name__)
+    logger.info("trigger_rolling_summary: starting manual generation")
+
+    with SessionLocal() as session:
+        summary = generate_rolling_summary(session)
+
+    if summary and "[WARN]" not in summary and "Generation failed" not in summary:
+        save_global_config({
+            "rolling_summary": summary,
+            "rolling_summary_time": datetime.utcnow()
+        })
+        logger.info("trigger_rolling_summary: saved successfully (len=%d)", len(summary))
+        return {"status": "ok", "summary": summary}
+    logger.warning("trigger_rolling_summary: generation failed")
+    return {"status": "error", "message": summary or "Generation failed."}
+
+def trigger_scoring_rationale(intel_data: dict):
+    """Force-generate the dynamic scoring report using provided intel."""
+    from src.utils.llm import generate_dynamic_scoring_report
+    logger = logging.getLogger(__name__)
+    logger.info("trigger_scoring_rationale: starting manual generation")
+
+    with SessionLocal() as session:
+        report = generate_dynamic_scoring_report(session, intel_data)
+
+    if report and "[WARN]" not in report and "Brief generation failed" not in report:
+        logger.info("trigger_scoring_rationale: success (len=%d)", len(report))
+        return {"status": "ok", "report": report}
+    logger.warning("trigger_scoring_rationale: generation failed: %s", (report or "None")[:200])
+    return {"status": "error", "message": report or "Generation failed."}
+
+def trigger_shift_summary(role_filter: str = "All", timeframe_label: str = "Current Period"):
+    """Force-generate an aggregated shift summary from log entries."""
+    from src.utils.llm import generate_aggregated_shift_summary
+    from src.database import ShiftLogEntry
+    logger = logging.getLogger(__name__)
+    logger.info("trigger_shift_summary: role=%s timeframe=%s", role_filter, timeframe_label)
+
+    with SessionLocal() as session:
+        query = session.query(ShiftLogEntry).filter(ShiftLogEntry.is_deleted == False)
+        if role_filter != "All":
+            query = query.filter(ShiftLogEntry.author_role == role_filter.lower())
+        logs = query.order_by(ShiftLogEntry.created_at.desc()).limit(200).all()
+        logger.info("trigger_shift_summary: fetched %d logs", len(logs))
+
+        summary = generate_aggregated_shift_summary(session, logs, timeframe_label, target_role=role_filter)
+
+    if summary and "[WARN]" not in summary and "Summary generation failed" not in summary:
+        logger.info("trigger_shift_summary: success (len=%d)", len(summary))
+        return {"status": "ok", "summary": summary}
+    logger.warning("trigger_shift_summary: generation failed: %s", (summary or "None")[:200])
+    return {"status": "error", "message": summary or "Generation failed."}
+
 def add_bulk_keywords(raw_text):
     with SessionLocal() as db:
         for line in raw_text.split('\n'):

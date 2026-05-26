@@ -85,8 +85,26 @@ export function ShiftLogbookPage() {
   const [logViewMode, setLogViewMode] = useState<"day" | "week">("day");
   const [weekOffset, setWeekOffset] = useState(0);
   const [selectedLogDate, setSelectedLogDate] = useState(new Date().toISOString().split("T")[0]);
+  const [summaryRole, setSummaryRole] = useState("All");
+  const [summaryResult, setSummaryResult] = useState<string | null>(null);
 
   const isAdmin = user?.role === "admin";
+
+  const generateSummaryMut = useMutation({
+    mutationFn: () =>
+      api.post("/logbook/generate-summary", {
+        role_filter: summaryRole,
+        timeframe_label: "Current Period",
+      }),
+    onSuccess: (res) => {
+      const d = res.data;
+      if (d.status === "ok") setSummaryResult(d.summary);
+      else setSummaryResult(d.message || "Generation failed.");
+    },
+    onError: (e: any) => {
+      setSummaryResult("Error: " + (e.response?.data?.detail || e.message));
+    },
+  });
 
   const { data: entries, isLoading } = useQuery({
     queryKey: ["logbook", roleFilter],
@@ -416,6 +434,52 @@ export function ShiftLogbookPage() {
                 {saveMutation.isPending ? "Saving..." : "Append to Running Log"}
               </button>
             </form>
+          </div>
+
+          {/* AI Shift Summary Card */}
+          <div style={{ ...card, marginTop: "1.25rem" }}>
+            <h3 style={{ margin: "0 0 0.5rem", fontSize: "1rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+              <FileText size={16} /> AI Shift Summary
+            </h3>
+            <p style={{ ...label, marginBottom: "0.5rem" }}>
+              Generate an automated executive summary of the current shift log entries.
+            </p>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+              <select
+                value={summaryRole}
+                onChange={(e) => setSummaryRole(e.target.value)}
+                style={{ ...inputBase, width: "auto", minWidth: "130px", flex: 1 }}
+              >
+                <option value="All">All Roles</option>
+                <option value="analyst">Analyst</option>
+                <option value="admin">Admin</option>
+                <option value="soc">SOC</option>
+                <option value="engineering">Engineering</option>
+              </select>
+              <button
+                onClick={() => generateSummaryMut.mutate()}
+                disabled={generateSummaryMut.isPending}
+                style={{
+                  ...btnBase, background: generateSummaryMut.isPending ? "var(--bg-tertiary)" : "var(--accent-cyan)",
+                  color: generateSummaryMut.isPending ? "var(--text-muted)" : "#fff",
+                  cursor: generateSummaryMut.isPending ? "not-allowed" : "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {generateSummaryMut.isPending ? <Loader2 size={14} /> : <Zap size={14} />}
+                {generateSummaryMut.isPending ? "Generating..." : "Generate Summary"}
+              </button>
+            </div>
+            {summaryResult && (
+              <div style={{
+                background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)",
+                padding: "0.75rem", fontSize: "0.78rem", color: "var(--text-primary)",
+                maxHeight: "300px", overflow: "auto", whiteSpace: "pre-wrap", lineHeight: 1.5,
+                marginTop: "0.5rem",
+              }}>
+                {summaryResult}
+              </div>
+            )}
           </div>
         </div>
 

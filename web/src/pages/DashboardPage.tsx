@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
@@ -7,7 +7,7 @@ import {
   Activity, AlertTriangle, Cloud, Globe, Shield, Cpu, HardDrive,
   RefreshCw, FileText, TrendingUp, Award, BarChart3,
   ExternalLink, ChevronDown, ChevronRight, Info, RotateCw, Send,
-  X, Check, Clock, MapPin, Server, Mail, Zap,
+  X, Check, Clock, MapPin, Server, Mail, Zap, Loader2,
 } from "lucide-react";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
@@ -147,9 +147,26 @@ export function DashboardPage() {
   const [scoringOverview, setScoringOverview] = useState<string | null>(null);
   const [scoringOverviewRisk, setScoringOverviewRisk] = useState<string | null>(null);
   const [dispatchEmail, setDispatchEmail] = useState("");
-  const [ubEmail, setUbEmail] = useState("");
   const [forceRefreshKey, setForceRefreshKey] = useState(0);
   const rotateRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const refreshBriefingMut = useMutation({ mutationFn: () => api.post("/rca/sitrep", { action: "refresh_briefing" }) });
+  const securityAuditMut = useMutation({ mutationFn: () => api.post("/rca/sitrep", { action: "security_audit" }) });
+  const generateScoringMut = useMutation({
+    mutationFn: (intel: any) => api.post("/dashboard/generate-scoring-rationale", { intel }),
+    onSuccess: (res) => {
+      const d = res.data;
+      if (d.status === "ok") { setScoringOverview(d.report); setScoringOverviewRisk(executiveIntel?.unified_risk); }
+    },
+  });
+  const generateUnifiedBriefMut = useMutation({
+    mutationFn: () => api.post("/dashboard/generate-unified-brief"),
+    onSuccess: () => { setForceRefreshKey((k) => k + 1); },
+  });
+  const generateInternalMut = useMutation({
+    mutationFn: () => api.post("/dashboard/generate-internal-risk"),
+    onSuccess: () => { refetchInternal(); },
+  });
 
   useEffect(() => {
     if (autoRotate && tab === 0) {
@@ -205,31 +222,19 @@ export function DashboardPage() {
     queryKey: ["sys-config"], queryFn: () => api.get("/settings/config").then((r) => r.data), refetchInterval: 120000,
   });
 
-  const handleForceRefreshBriefing = async () => {
-    try {
-      await api.post("/rca/sitrep", { action: "refresh_briefing" });
-      setForceRefreshKey((k) => k + 1);
-    } catch { /* ignore */ }
+  const handleForceRefreshBriefing = () => {
+    refreshBriefingMut.mutate(undefined, {
+      onSuccess: () => setForceRefreshKey((k) => k + 1),
+    });
   };
 
-  const handleSecurityAudit = async () => {
-    try {
-      await api.post("/rca/sitrep", { action: "security_audit" });
-    } catch { /* ignore */ }
+  const handleSecurityAudit = () => {
+    securityAuditMut.mutate();
   };
 
-  const handleGenerateScoring = async () => {
+  const handleGenerateScoring = () => {
     if (!executiveIntel) return;
-    try {
-      const { data } = await api.post("/rca/sitrep", {
-        action: "scoring_rationale", intel: executiveIntel,
-      });
-      setScoringOverview(data.report || "Analysis complete.");
-      setScoringOverviewRisk(executiveIntel.unified_risk);
-    } catch {
-      setScoringOverview("Threat weights analyzed. All telemetry correlated against CIS framework.");
-      setScoringOverviewRisk(executiveIntel.unified_risk);
-    }
+    generateScoringMut.mutate(executiveIntel);
   };
 
   const handleDispatchReport = async () => {
@@ -247,18 +252,12 @@ export function DashboardPage() {
     } catch { alert("Failed to dispatch report. Check SMTP settings."); }
   };
 
-  const handleGenerateInternal = async () => {
-    try {
-      await api.post("/dashboard/generate-internal-risk");
-      refetchInternal();
-    } catch { /* ignore */ }
+  const handleGenerateInternal = () => {
+    generateInternalMut.mutate();
   };
 
-  const handleGenerateUnifiedBrief = async () => {
-    try {
-      await api.post("/admin/config", { action: "generate_unified_brief" });
-      setForceRefreshKey((k) => k + 1);
-    } catch { /* ignore */ }
+  const handleGenerateUnifiedBrief = () => {
+    generateUnifiedBriefMut.mutate();
   };
 
   const handleBroadcastBrief = async () => {
@@ -438,13 +437,14 @@ export function DashboardPage() {
                   </span>
                   <button
                     onClick={handleForceRefreshBriefing}
+                    disabled={refreshBriefingMut.isPending}
                     style={{
                       padding: "0.35rem 0.75rem", border: "1px solid var(--accent-blue, #3b82f6)", borderRadius: "var(--radius-sm, 4px)",
-                      background: "transparent", color: "var(--accent-blue, #3b82f6)", cursor: "pointer", fontSize: "0.8rem",
-                      fontWeight: 500, display: "flex", alignItems: "center", gap: "0.3rem",
+                      background: "transparent", color: "var(--accent-blue, #3b82f6)", cursor: refreshBriefingMut.isPending ? "not-allowed" : "pointer", fontSize: "0.8rem",
+                      fontWeight: 500, display: "flex", alignItems: "center", gap: "0.3rem", opacity: refreshBriefingMut.isPending ? 0.6 : 1,
                     }}
                   >
-                    <RefreshCw size={14} /> Force Refresh Briefing
+                    {refreshBriefingMut.isPending ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} Force Refresh Briefing
                   </button>
                 </div>
                 <div
@@ -466,14 +466,16 @@ export function DashboardPage() {
                 </p>
                 <button
                   onClick={handleSecurityAudit}
+                  disabled={securityAuditMut.isPending}
                   style={{
                     padding: "0.5rem 1rem", border: "none", borderRadius: "var(--radius-sm, 4px)",
-                    background: "var(--accent-blue, #3b82f6)", color: "#fff", cursor: "pointer",
+                    background: "var(--accent-blue, #3b82f6)", color: "#fff", cursor: securityAuditMut.isPending ? "not-allowed" : "pointer",
                     fontWeight: 600, fontSize: "0.85rem", width: "100%",
                     display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem",
+                    opacity: securityAuditMut.isPending ? 0.6 : 1,
                   }}
                 >
-                  <Zap size={16} /> Scan Stack Against 30-Day KEVs
+                  {securityAuditMut.isPending ? <Loader2 size={16} className="spin" /> : <Zap size={16} />} Scan Stack Against 30-Day KEVs
                 </button>
               </div>
             </div>
@@ -686,15 +688,15 @@ export function DashboardPage() {
             </p>
             <button
               onClick={handleGenerateScoring}
-              disabled={!executiveIntel}
+              disabled={!executiveIntel || generateScoringMut.isPending}
               style={{
                 padding: "0.5rem 1rem", border: "none", borderRadius: "var(--radius-sm, 4px)",
-                background: "var(--accent-blue, #3b82f6)", color: "#fff", cursor: "pointer",
-                fontWeight: 600, fontSize: "0.85rem", opacity: executiveIntel ? 1 : 0.5,
+                background: "var(--accent-blue, #3b82f6)", color: "#fff", cursor: executiveIntel && !generateScoringMut.isPending ? "pointer" : "not-allowed",
+                fontWeight: 600, fontSize: "0.85rem", opacity: executiveIntel && !generateScoringMut.isPending ? 1 : 0.5,
                 display: "flex", alignItems: "center", gap: "0.4rem",
               }}
             >
-              <RotateCw size={16} /> Generate Scoring Rationale
+              {generateScoringMut.isPending ? <Loader2 size={16} className="spin" /> : <RotateCw size={16} />} Generate Scoring Rationale
             </button>
             {scoringOverview && (
               <div style={{ marginTop: "1rem" }}>
@@ -765,14 +767,16 @@ export function DashboardPage() {
             </div>
             <button
               onClick={handleGenerateInternal}
+              disabled={generateInternalMut.isPending}
               style={{
                 padding: "0.4rem 0.75rem", border: "1px solid var(--accent-blue, #3b82f6)",
                 borderRadius: "var(--radius-sm, 4px)", background: "transparent",
-                color: "var(--accent-blue, #3b82f6)", cursor: "pointer", fontSize: "0.8rem",
+                color: "var(--accent-blue, #3b82f6)", cursor: generateInternalMut.isPending ? "not-allowed" : "pointer", fontSize: "0.8rem",
                 fontWeight: 500, display: "flex", alignItems: "center", gap: "0.3rem",
+                opacity: generateInternalMut.isPending ? 0.6 : 1,
               }}
             >
-              <RotateCw size={14} /> Force Generate
+              {generateInternalMut.isPending ? <Loader2 size={14} className="spin" /> : <RotateCw size={14} />} Force Generate
             </button>
           </div>
 
@@ -786,12 +790,14 @@ export function DashboardPage() {
               </p>
               <button
                 onClick={handleGenerateInternal}
+                disabled={generateInternalMut.isPending}
                 style={{
                   marginTop: "0.5rem", padding: "0.5rem 1rem", border: "none", borderRadius: "var(--radius-sm, 4px)",
-                  background: "var(--accent-blue, #3b82f6)", color: "#fff", cursor: "pointer", fontWeight: 600,
+                  background: "var(--accent-blue, #3b82f6)", color: "#fff", cursor: generateInternalMut.isPending ? "not-allowed" : "pointer", fontWeight: 600,
+                  opacity: generateInternalMut.isPending ? 0.6 : 1,
                 }}
               >
-                Trigger Manual Calculation
+                {generateInternalMut.isPending ? <Loader2 size={14} className="spin" /> : null} Trigger Manual Calculation
               </button>
             </div>
           ) : (
@@ -923,14 +929,16 @@ export function DashboardPage() {
             </div>
             <button
               onClick={handleGenerateUnifiedBrief}
+              disabled={generateUnifiedBriefMut.isPending}
               style={{
                 padding: "0.4rem 0.75rem", border: "1px solid var(--accent-blue, #3b82f6)",
                 borderRadius: "var(--radius-sm, 4px)", background: "transparent",
-                color: "var(--accent-blue, #3b82f6)", cursor: "pointer", fontSize: "0.8rem",
+                color: "var(--accent-blue, #3b82f6)", cursor: generateUnifiedBriefMut.isPending ? "not-allowed" : "pointer", fontSize: "0.8rem",
                 fontWeight: 500, display: "flex", alignItems: "center", gap: "0.3rem",
+                opacity: generateUnifiedBriefMut.isPending ? 0.6 : 1,
               }}
             >
-              <RefreshCw size={14} /> Force Refresh Brief
+              {generateUnifiedBriefMut.isPending ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} Force Refresh Brief
             </button>
           </div>
 

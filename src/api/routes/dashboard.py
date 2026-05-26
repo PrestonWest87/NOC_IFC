@@ -1,5 +1,6 @@
 import logging
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Body
+from typing import Any
 
 from src import services as svc
 
@@ -33,6 +34,19 @@ def threat_trends(days: int = Query(14, ge=1, le=90)):
     return svc.get_historical_threat_scores(days=days)
 
 
+@router.get("/internal-risk")
+def internal_risk():
+    data = svc.get_latest_internal_risk()
+    if not data:
+        return {"status": "empty", "message": "No internal risk snapshot available yet."}
+    return data
+
+
+@router.get("/internal-risk/history")
+def internal_risk_history(days: int = Query(28, ge=1, le=365)):
+    return svc.get_internal_risk_history(days=days)
+
+
 @router.get("/executive-intel")
 def executive_intel():
     crimes = svc.get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
@@ -46,6 +60,28 @@ def executive_intel():
 @router.post("/generate-internal-risk")
 def generate_internal_risk():
     return svc.generate_and_save_internal_risk_snapshot()
+
+
+@router.post("/generate-unified-brief")
+def generate_unified_brief():
+    logger.info("POST /generate-unified-brief: manual trigger")
+    result = svc.trigger_unified_brief()
+    return result
+
+
+@router.post("/generate-rolling-summary")
+def generate_rolling_summary():
+    logger.info("POST /generate-rolling-summary: manual trigger")
+    result = svc.trigger_rolling_summary()
+    return result
+
+
+@router.post("/generate-scoring-rationale")
+def generate_scoring_rationale(data: dict[str, Any] = Body({})):
+    logger.info("POST /generate-scoring-rationale: manual trigger")
+    intel = data.get("intel", {})
+    result = svc.trigger_scoring_rationale(intel)
+    return result
 
 
 @router.post("/articles/toggle-pin")

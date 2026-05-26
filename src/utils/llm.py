@@ -10,7 +10,11 @@ logger = logging.getLogger(__name__)
 LOCAL_TZ = ZoneInfo("America/Chicago")
 
 def get_llm_config(session):
-    return session.query(SystemConfig).filter_by(is_active=True).first()
+    config = session.query(SystemConfig).filter_by(is_active=True).first()
+    logger.debug("get_llm_config: found=%s endpoint=%s model=%s", config is not None,
+                 config.llm_endpoint if config else 'N/A',
+                 config.llm_model_name if config else 'N/A')
+    return config
 
 def call_llm(messages, config, temperature=0.1):
     headers = {"Content-Type": "application/json"}
@@ -24,17 +28,23 @@ def call_llm(messages, config, temperature=0.1):
     }
 
     url = config.llm_endpoint.rstrip('/') + "/chat/completions"
+    logger.debug("call_llm: url=%s model=%s messages_count=%d", url, config.llm_model_name, len(messages))
 
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=120)
         response.raise_for_status()
-        return response.json()['choices'][0]['message']['content']
+        result = response.json()['choices'][0]['message']['content']
+        logger.debug("call_llm: success, response_length=%d", len(result))
+        return result
 
     except requests.exceptions.Timeout:
+        logger.error("call_llm: timeout after 120s to %s", url)
         return "[WARN] **AI NETWORK ERROR:** Request timed out after 120 seconds. Is the LLM online?"
     except requests.exceptions.ConnectionError:
+        logger.error("call_llm: connection refused to %s", url)
         return "[WARN] **AI NETWORK ERROR:** Connection Refused. Check your Endpoint URL."
     except Exception as e:
+        logger.error("call_llm: unexpected error: %s", str(e), exc_info=True)
         return f"[WARN] **AI SYSTEM ERROR:** {str(e)}"
 
 def chunk_list(data, size):
@@ -115,18 +125,24 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     from src.utils.llm import call_llm
 
     config = get_llm_config(session)
-    if not config: return "AI is currently disabled in settings."
+    logger.info("generate_unified_risk_brief: config_found=%s", config is not None)
+    if not config:
+        logger.warning("generate_unified_risk_brief: AI is disabled, skipping")
+        return "AI is currently disabled in settings."
 
     global_risk = global_intel.get('unified_risk', 'UNKNOWN')
     internal_risk = internal_snapshot.risk_level if internal_snapshot else 'NONE'
 
-    logger.debug("Global Risk Level: %s", global_risk)
-    logger.debug("Internal Risk Level: %s", internal_risk)
+    logger.info("generate_unified_risk_brief: global_risk=%s internal_risk=%s", global_risk, internal_risk)
+    logger.info("generate_unified_risk_brief: cyber_articles=%d phys_articles=%d crimes=%d",
+                len(global_intel.get('raw_cyber_articles', [])),
+                len(global_intel.get('raw_phys_articles', [])),
+                len(global_intel.get('recent_crimes', [])))
     if internal_snapshot:
         age = (datetime.utcnow() - internal_snapshot.timestamp).total_seconds() / 60
         logger.debug("Internal Snapshot Age: %.1f minutes", age)
     else:
-        logger.warning("No internal snapshot available")
+        logger.warning("generate_unified_risk_brief: No internal snapshot available")
 
     hw_data = json.loads(internal_snapshot.hw_data_json) if internal_snapshot and internal_snapshot.hw_data_json else []
     sw_data = json.loads(internal_snapshot.sw_data_json) if internal_snapshot and internal_snapshot.sw_data_json else []
@@ -191,28 +207,41 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     7. Do NOT use generic filler. Be highly specific using the exact asset names, threat references, and numbers provided. Use expansive, detailed paragraphs and bulleted lists where appropriate to ensure the report is dense with actionable intelligence.
     """
 
+    logger.info("generate_unified_risk_brief: calling LLM with master prompt")
     response = call_llm([
         {"role": "system", "content": master_sys_prompt},
         {"role": "user", "content": compiled_intel}
     ], config, temperature=0.3)
 
+    if response and "[WARN]" not in response:
+        logger.info("generate_unified_risk_brief: success, response_length=%d", len(response))
+    else:
+        logger.error("generate_unified_risk_brief: LLM returned error: %s", response[:200] if response else "None")
+
     return response.strip() if response else "Brief generation failed."
 
 def generate_aggregated_shift_summary(session, logs, timeframe_label, target_role="All"):
     config = get_llm_config(session)
-    if not config: return None
+    logger.info("generate_aggregated_shift_summary: config_found=%s logs_count=%d timeframe=%s role=%s",
+                config is not None, len(logs) if logs else 0, timeframe_label, target_role)
+    if not config:
+        logger.warning("generate_aggregated_shift_summary: AI is disabled")
+        return None
 
     if not logs:
+        logger.warning("generate_aggregated_shift_summary: no logs provided")
         return f"No logs available to generate a {timeframe_label} summary."
 
     map_p = f"You are analyzing logs for the '{target_role.upper()}' department. Extract the most critical incidents, outages, resolutions, and ongoing operational issues from these shift log entries. Ignore routine noise. Output concise bullet points."
     reduce_p = "Combine these batch extractions into a single, comprehensive incident digest, preserving all unique critical events and timelines."
 
+    logger.info("generate_aggregated_shift_summary: running map-reduce on %d logs (chunk_size=20)", len(logs))
     log_digest = _map_reduce_summarize(
         logs,
         lambda l: f"[{(l.created_at.replace(tzinfo=ZoneInfo('UTC')).astimezone(LOCAL_TZ) if l.created_at else 'Unknown')}] {l.analyst}: {l.content}",
         map_p, reduce_p, config, chunk_size=20
     )
+    logger.info("generate_aggregated_shift_summary: map-reduce digest_length=%d", len(log_digest) if log_digest else 0)
 
     master_sys_prompt = f"""You are a NOC Operations Manager for the {target_role.upper()} department.
     Write an Executive '{timeframe_label}' Shift Summary specifically detailing the operations of the {target_role.upper()} team based on the provided log digest.
@@ -230,10 +259,16 @@ def generate_aggregated_shift_summary(session, logs, timeframe_label, target_rol
 
     Be professional, highly readable, and authoritative. Do NOT hallucinate incidents not present in the digest."""
 
+    logger.info("generate_aggregated_shift_summary: calling final LLM for master summary")
     response = call_llm([
         {"role": "system", "content": master_sys_prompt},
         {"role": "user", "content": f"--- LOG DIGEST ---\n{log_digest}"}
     ], config, temperature=0.25)
+
+    if response and "[WARN]" not in response:
+        logger.info("generate_aggregated_shift_summary: success, response_length=%d", len(response))
+    else:
+        logger.error("generate_aggregated_shift_summary: LLM error: %s", response[:200] if response else "None")
 
     return response.strip() if response else "Summary generation failed."
 
@@ -354,13 +389,17 @@ def build_custom_intel_report(articles, objective, session):
 
 def generate_rolling_summary(session):
     config = get_llm_config(session)
-    if not config: return None
+    logger.info("generate_rolling_summary: config_found=%s", config is not None)
+    if not config:
+        logger.warning("generate_rolling_summary: AI is disabled")
+        return None
 
     six_hours_ago = datetime.utcnow() - timedelta(hours=6)
 
     arts = session.query(Article).filter(Article.published_date >= six_hours_ago, Article.score >= 50).order_by(Article.score.desc()).limit(10).all()
     hazards = session.query(RegionalHazard).filter(RegionalHazard.updated_at >= six_hours_ago).limit(10).all()
     clouds = session.query(CloudOutage).filter(CloudOutage.updated_at >= six_hours_ago).limit(10).all()
+    logger.info("generate_rolling_summary: articles=%d hazards=%d clouds=%d", len(arts), len(hazards), len(clouds))
 
     context = "--- CYBER THREATS ---\n"
     context += "\n".join([f"- {a.title}" for a in arts]) if arts else "None."
@@ -374,22 +413,34 @@ def generate_rolling_summary(session):
     Highlight any converging threats or severe degradations. Do NOT just list the items; weave them into an authoritative narrative.
     End with a single bolded sentence assessing the overall 'Grid Status' (e.g., **Grid Status: Nominal**, **Grid Status: Elevated Risk due to X**)."""
 
+    logger.info("generate_rolling_summary: calling LLM")
     response = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": context}], config, temperature=0.2)
+    if response and "[WARN]" not in response:
+        logger.info("generate_rolling_summary: success, response_length=%d", len(response))
+    else:
+        logger.error("generate_rolling_summary: LLM error: %s", response[:200] if response else "None")
     return response.strip() if response else "Generation failed."
 
 def generate_dynamic_scoring_report(session, intel):
     from datetime import datetime, timedelta
 
     config = get_llm_config(session)
-    if not config: return None
+    logger.info("generate_dynamic_scoring_report: config_found=%s", config is not None)
+    if not config:
+        logger.warning("generate_dynamic_scoring_report: AI is disabled")
+        return None
 
     t48 = datetime.utcnow() - timedelta(hours=48)
     arts = intel.get('raw_cyber_articles', []) + intel.get('raw_phys_articles', [])
     crimes = intel.get('recent_crimes', [])
+    logger.info("generate_dynamic_scoring_report: arts=%d crimes=%d unified_risk=%s",
+                len(arts), len(crimes), intel.get('unified_risk', 'UNKNOWN'))
 
     recent_cves = session.query(CveItem).filter(CveItem.date_added >= t48).limit(15).all()
+    logger.info("generate_dynamic_scoring_report: recent_cves=%d", len(recent_cves))
 
     if not arts and not crimes and not recent_cves:
+        logger.info("generate_dynamic_scoring_report: no intel to brief")
         return "No active intelligence to brief at this time."
 
     if arts:
@@ -427,11 +478,16 @@ def generate_dynamic_scoring_report(session, intel):
 
     Be expansive, professional, highly readable, and authoritative."""
 
+    logger.info("generate_dynamic_scoring_report: calling LLM with master prompt")
     response = call_llm([
         {"role": "system", "content": master_sys_prompt},
         {"role": "user", "content": compiled_intel}
     ], config, temperature=0.3)
 
+    if response and "[WARN]" not in response:
+        logger.info("generate_dynamic_scoring_report: success, response_length=%d", len(response))
+    else:
+        logger.error("generate_dynamic_scoring_report: LLM error: %s", response[:200] if response else "None")
     return response.strip() if response else "Brief generation failed."
 
 def generate_siem_triage_summary(session, flat_results):

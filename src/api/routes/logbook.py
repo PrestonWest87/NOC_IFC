@@ -1,9 +1,13 @@
+import logging
 from datetime import datetime
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Body
+from typing import Any
 
 from src import services as svc
 from src.core.db import SessionLocal
 from src.models.schema import ShiftLogEntry
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/logbook", tags=["logbook"])
 
@@ -38,3 +42,12 @@ def update_entry(entry_id: int, is_deleted: bool = None):
             entry.is_deleted = is_deleted
         session.commit()
         return {"status": "ok", "id": entry_id, "is_deleted": entry.is_deleted}
+
+
+@router.post("/generate-summary")
+def generate_shift_summary(data: dict[str, Any] = Body({})):
+    role_filter = data.get("role_filter", "All")
+    timeframe_label = data.get("timeframe_label", "Current Period")
+    logger.info("POST /generate-summary role=%s timeframe=%s", role_filter, timeframe_label)
+    result = svc.trigger_shift_summary(role_filter=role_filter, timeframe_label=timeframe_label)
+    return result
