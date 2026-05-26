@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import DeckGL from "@deck.gl/react";
 import { Map } from "react-map-gl/maplibre";
@@ -11,6 +11,8 @@ import {
   RefreshCw, AlertTriangle, CheckCircle, MapPin, Activity,
 } from "lucide-react";
 import api from "../utils/api";
+import { useAuth } from "../utils/AuthContext";
+import { getAllowedTabs } from "../utils/permissions";
 
 const CATEGORIES = [
   "All", "Cyber: Exploits & Vulns", "Cyber: Malware & Threats",
@@ -220,7 +222,10 @@ function Pagination({
 }
 
 export function ThreatTelemetryPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
+  const allowedThreatTabs = getAllowedTabs(user?.allowed_actions, "threatTelemetry");
+  const THREAT_TABS = ["RSS Triage", "CISA KEV", "Cloud Services", "Perimeter Crime"];
   const [activeTab, setActiveTab] = useState(0);
   const [subTab, setSubTab] = useState(0);
   const [categoryFilter, setCategoryFilter] = useState("All");
@@ -402,25 +407,28 @@ export function ThreatTelemetryPage() {
     return { latitude: 34.6755, longitude: -92.3235, zoom: mapZoom, pitch: 0 };
   }, [selectedCrime, radiusFilter]);
 
+  const HQ: [number, number] = [-92.3235, 34.6755];
+
   const crimeLayers = useMemo(() => {
     const base: any[] = [];
-    if (crimes.length > 0) {
-      const crimeData = crimes
-        .filter((c: any) => c.lat != null && c.lon != null)
-        .map((c: any) => ({
-          position: [c.lon, c.lat],
-          color: c.category?.toLowerCase().includes("violent") || c.category?.toLowerCase().includes("assault") || c.category?.toLowerCase().includes("weapon")
-            ? [220, 38, 38, 200]
-            : c.category?.toLowerCase().includes("theft") || c.category?.toLowerCase().includes("burglary") || c.category?.toLowerCase().includes("property")
-            ? [245, 158, 11, 200]
-            : c.category?.toLowerCase().includes("trespass") || c.category?.toLowerCase().includes("disturbance") || c.category?.toLowerCase().includes("narcotic")
-            ? [234, 179, 8, 200]
-            : [99, 102, 241, 200],
-          radius: 40,
-          raw_title: c.raw_title,
-          timestamp: c.timestamp,
-          distance_miles: c.distance_miles,
-        }));
+
+    const crimeData = crimes
+      .filter((c: any) => c.lat != null && c.lon != null)
+      .map((c: any) => ({
+        position: [c.lon, c.lat],
+        color: c.category?.toLowerCase().includes("violent") || c.category?.toLowerCase().includes("assault") || c.category?.toLowerCase().includes("weapon")
+          ? [220, 38, 38, 200]
+          : c.category?.toLowerCase().includes("theft") || c.category?.toLowerCase().includes("burglary") || c.category?.toLowerCase().includes("property")
+          ? [245, 158, 11, 200]
+          : c.category?.toLowerCase().includes("trespass") || c.category?.toLowerCase().includes("disturbance") || c.category?.toLowerCase().includes("narcotic")
+          ? [234, 179, 8, 200]
+          : [99, 102, 241, 200],
+        radius: 40,
+        raw_title: c.raw_title,
+        timestamp: c.timestamp,
+        distance_miles: c.distance_miles,
+      }));
+    if (crimeData.length > 0) {
       base.push(
         new ScatterplotLayer({
           id: "crime-scatter",
@@ -434,6 +442,7 @@ export function ThreatTelemetryPage() {
         })
       );
     }
+
     if (selectedCrime && selectedCrime.lat != null && selectedCrime.lon != null) {
       base.push(
         new ScatterplotLayer({
@@ -444,12 +453,38 @@ export function ThreatTelemetryPage() {
           getLineColor: [255, 255, 255, 255],
           stroked: true,
           lineWidthMinPixels: 3,
-          getRadius: 40,
+          getRadius: 50,
         })
       );
     }
+
+    base.push(
+      new ScatterplotLayer({
+        id: "hq-marker",
+        data: [{ position: HQ, label: "HQ" }],
+        getPosition: (d: any) => d.position,
+        getFillColor: [56, 189, 248, 220],
+        getLineColor: [255, 255, 255, 255],
+        getRadius: 80,
+        stroked: true,
+        lineWidthMinPixels: 3,
+        radiusMinPixels: 6,
+        radiusMaxPixels: 12,
+      }),
+      new ScatterplotLayer({
+        id: "hq-ring",
+        data: [{ position: HQ, radius: radiusFilter * 1609.34 }],
+        getPosition: (d: any) => d.position,
+        getFillColor: [56, 189, 248, 15],
+        getLineColor: [56, 189, 248, 80],
+        getRadius: (d: any) => d.radius,
+        stroked: true,
+        lineWidthMinPixels: 1,
+      })
+    );
+
     return base;
-  }, [crimes, selectedCrime]);
+  }, [crimes, selectedCrime, radiusFilter]);
 
   const renderArticles = (items: any[]) => {
     if (items.length === 0) {
@@ -514,6 +549,12 @@ export function ThreatTelemetryPage() {
     ));
   };
 
+  useEffect(() => {
+    if (allowedThreatTabs.length > 0 && !allowedThreatTabs.includes(String(activeTab))) {
+      setActiveTab(Number(allowedThreatTabs[0]));
+    }
+  }, [allowedThreatTabs.join(",")]);
+
   return (
     <div style={s.page}>
       <h2 style={{ margin: "0 0 1.5rem", color: "var(--text-primary, #e2e8f0)", fontSize: "1.5rem" }}>
@@ -521,7 +562,7 @@ export function ThreatTelemetryPage() {
       </h2>
 
       <div style={s.tabBar}>
-        {["RSS Triage", "CISA KEV", "Cloud Services", "Perimeter Crime"].map((label, i) => (
+        {THREAT_TABS.filter((_, i) => allowedThreatTabs.length === 0 || allowedThreatTabs.includes(String(i))).map((label, i) => (
           <TabButton key={label} active={activeTab === i} label={label} onClick={() => { setActiveTab(i); }} />
         ))}
       </div>
@@ -837,12 +878,12 @@ export function ThreatTelemetryPage() {
             </div>
           ) : (
             <>
-              <div style={{ ...s.card, padding: 0, overflow: "hidden", height: "480px" }}>
+              <div style={{ ...s.card, padding: 0, overflow: "hidden", height: "600px", width: "100%", position: "relative" }}>
                 <DeckGL
                   layers={crimeLayers}
                   initialViewState={crimeMapViewState}
                   controller={true}
-                  style={{ height: "100%" }}
+                  style={{ height: "600px", width: "100%" }}
                 >
                   <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
                 </DeckGL>

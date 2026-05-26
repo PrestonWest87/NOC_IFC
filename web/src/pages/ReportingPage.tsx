@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../utils/api";
+import { useAuth } from "../utils/AuthContext";
+import { getAllowedTabs } from "../utils/permissions";
 import {
   FileText, Calendar, Mail, Send, BookOpen, Search, Plus, Eye,
   Trash2, Loader2, AlertCircle, CheckCircle, Target, Layers, Save,
@@ -69,20 +71,30 @@ function Spinner() {
 }
 
 export function ReportingPage() {
-  const [tab, setTab] = useState(0);
-
-  const tabs = [
+  const { user } = useAuth();
+  const allowedReportTabs = getAllowedTabs(user?.allowed_actions, "reporting");
+  const ALL_REPORT_TABS = [
     { label: "Daily Fusion Briefing", icon: Calendar },
     { label: "Custom Report Builder", icon: FileText },
     { label: "Shared Library", icon: BookOpen },
   ];
+  const [tab, setTab] = useState(0);
+
+  useEffect(() => {
+    if (allowedReportTabs.length > 0 && !allowedReportTabs.includes(String(tab))) {
+      setTab(Number(allowedReportTabs[0]));
+    }
+  }, [allowedReportTabs.join(",")]);
+
+  const tabs = ALL_REPORT_TABS.filter((_, i) => allowedReportTabs.length === 0 || allowedReportTabs.includes(String(i)));
 
   return (
     <div style={{ padding: "1.5rem" }}>
       <h2 style={{ margin: "0 0 1rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
         <FileText size={22} />
-        Intelligence Reporting & Briefings
+        Reporting & Briefings
       </h2>
+
       <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginBottom: "1.25rem" }}>
         {tabs.map((t, i) => (
           <button

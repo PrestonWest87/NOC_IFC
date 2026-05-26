@@ -1,6 +1,8 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import api from "../utils/api";
+import { useAuth } from "../utils/AuthContext";
+import { getAllowedTabs } from "../utils/permissions";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer, GeoJsonLayer, BitmapLayer } from "@deck.gl/layers";
 import { Map as MapLibreMap } from "react-map-gl/maplibre";
@@ -16,7 +18,7 @@ import {
   MapPin, List, RefreshCw, AlertCircle, Bell
 } from "lucide-react";
 
-const tabs = [
+const ALL_TABS = [
   { key: "geospatial", label: "Geospatial Overlay", icon: Map },
   { key: "executive", label: "Executive Dashboard", icon: LayoutDashboard },
   { key: "hazard", label: "Deep Hazard Analytics", icon: AlertTriangle },
@@ -147,7 +149,10 @@ function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange
 const INITIAL_VIEW: MapViewState = { latitude: 34.8, longitude: -92.2, zoom: 5.5, pitch: 0 };
 
 export function RegionalGridPage() {
-  const [activeTab, setActiveTab] = useState("geospatial");
+  const { user } = useAuth();
+  const allowedRegionTabs = getAllowedTabs(user?.allowed_actions, "regionalGrid");
+  const tabs = ALL_TABS.filter(t => allowedRegionTabs.length === 0 || allowedRegionTabs.includes(t.key));
+  const [activeTab, setActiveTab] = useState(tabs.length > 0 ? tabs[0].key : "geospatial");
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
 
   // Geospatial tab state
@@ -214,6 +219,12 @@ export function RegionalGridPage() {
   });
 
   // Derived data
+  useEffect(() => {
+    if (allowedRegionTabs.length > 0 && tabs.length > 0 && !allowedRegionTabs.includes(activeTab)) {
+      setActiveTab(tabs[0].key);
+    }
+  }, [allowedRegionTabs.join(",")]);
+
   useEffect(() => {
     const locs = locations as any[];
     if (selectedTypes.length === 0) {

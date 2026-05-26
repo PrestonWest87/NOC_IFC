@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { getAllowedTabs, TAB_PERMISSION_MAP } from "../utils/permissions";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
@@ -19,7 +20,7 @@ const ALL_ACTIONS = [
   "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score",
   "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
   "Action: Submit Shift Log", "Action: Dispatch RCA Tickets", "Action: Manage Site Maintenance",
-  "Tab: Dashboards -> Operational", "Tab: Dashboards -> Global Risk", "Tab: Dashboards -> Internal Risk",
+  "Tab: Dashboards -> Operational", "Tab: Dashboards -> Global Risk", "Tab: Dashboards -> Internal Risk", "Tab: Dashboards -> Unified Brief",
   "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV",
   "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",
   "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash",
@@ -28,7 +29,7 @@ const ALL_ACTIONS = [
   "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
   "Tab: Shift Log -> Active Shift", "Tab: Shift Log -> History",
   "Tab: Reporting -> Daily Fusion", "Tab: Reporting -> Report Builder", "Tab: Reporting -> Shared Library",
-  "Tab: Settings -> Facility Locations", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training",
+  "Tab: Settings -> Facility Locations", "Tab: Settings -> Internal Assets", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training",
   "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone",
 ];
 
@@ -127,9 +128,10 @@ function SectionTitle({ text }: { text: string }) {
 }
 
 export function SettingsPage() {
+  const { user: currentUser } = useAuth();
+  const allowedSettingsTabs = getAllowedTabs(currentUser?.allowed_actions, "settings");
   const [tab, setTab] = useState("profile");
   const queryClient = useQueryClient();
-  const { user: currentUser } = useAuth();
 
   const { data: config, isLoading: configLoading } = useQuery({
     queryKey: ["settings-config"],
@@ -168,6 +170,15 @@ export function SettingsPage() {
     onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
   });
 
+  useEffect(() => {
+    if (allowedSettingsTabs.length > 0 && !allowedSettingsTabs.includes(tab)) {
+      setTab(allowedSettingsTabs[0]);
+    }
+  }, [allowedSettingsTabs.join(",")]);
+
+  const SETTINGS_ACTION_IDS = new Set(Object.values(TAB_PERMISSION_MAP.settings));
+  const filteredTabs = TABS.filter(t => allowedSettingsTabs.length === 0 || !SETTINGS_ACTION_IDS.has(t.id) || allowedSettingsTabs.includes(t.id));
+
   return (
     <div style={{ padding: "1.5rem" }}>
       <h2 style={{ margin: "0 0 1rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
@@ -175,7 +186,7 @@ export function SettingsPage() {
         Settings & Admin
       </h2>
       <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginBottom: "1.25rem" }}>
-        {TABS.map(t => (
+        {filteredTabs.map(t => (
           <TabButton key={t.id} active={tab === t.id} label={t.label} icon={t.icon} onClick={() => setTab(t.id)} />
         ))}
       </div>

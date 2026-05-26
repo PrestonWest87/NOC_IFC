@@ -10,6 +10,8 @@ import {
   X, Check, Clock, MapPin, Server, Mail, Zap,
 } from "lucide-react";
 import api from "../utils/api";
+import { useAuth } from "../utils/AuthContext";
+import { getAllowedTabs } from "../utils/permissions";
 
 const RISK_COLORS: Record<string, string> = {
   GREEN: "#28a745", BLUE: "#007bff", YELLOW: "#ffc107",
@@ -135,6 +137,9 @@ function ArticleItem({ article }: { article: any }) {
 const SUB_PANELS = ["Threat Triage", "Infrastructure Status", "AI Analysis"];
 
 export function DashboardPage() {
+  const { user } = useAuth();
+  const allowedDashboardTabs = getAllowedTabs(user?.allowed_actions, "dashboard");
+  const DASHBOARD_TABS = ["Operational Dashboard", "Global Risk", "Internal Risk", "Unified Brief"];
   const [tab, setTab] = useState(0);
   const [subPanel, setSubPanel] = useState(0);
   const [autoRotate, setAutoRotate] = useState(true);
@@ -156,6 +161,12 @@ export function DashboardPage() {
       if (rotateRef.current) clearInterval(rotateRef.current);
     };
   }, [autoRotate, tab]);
+
+  useEffect(() => {
+    if (allowedDashboardTabs.length > 0 && !allowedDashboardTabs.includes(String(tab))) {
+      setTab(Number(allowedDashboardTabs[0]));
+    }
+  }, [allowedDashboardTabs.join(",")]);
 
   const { data: metrics } = useQuery({
     queryKey: ["dashboard-metrics"], queryFn: () => api.get("/dashboard/metrics").then((r) => r.data), refetchInterval: 30000,
@@ -275,9 +286,10 @@ export function DashboardPage() {
       </div>
 
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
-        {["Operational Dashboard", "Global Risk", "Internal Risk", "Unified Brief"].map((l, i) => (
-          <TabButton key={l} active={tab === i} label={l} onClick={() => { setTab(i); setSubPanel(0); }} />
-        ))}
+        {DASHBOARD_TABS.filter((_v, idx) => allowedDashboardTabs.length === 0 || allowedDashboardTabs.includes(String(idx))).map(l => {
+          const originalIndex = DASHBOARD_TABS.indexOf(l);
+          return <TabButton key={l} active={tab === originalIndex} label={l} onClick={() => { setTab(originalIndex); setSubPanel(0); }} />;
+        })}
       </div>
 
       {/* ==================== TAB 1: Operational Dashboard ==================== */}

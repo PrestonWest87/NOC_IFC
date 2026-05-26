@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
 import api from "./api";
 
 interface User {
@@ -37,6 +37,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data.user);
     setToken(data.token);
   }, []);
+
+  const refreshUser = useCallback(async () => {
+    const tok = sessionStorage.getItem("noc_token");
+    if (!tok) return;
+    try {
+      const { data } = await api.get("/auth/me");
+      sessionStorage.setItem("noc_user", JSON.stringify(data));
+      setUser(data);
+    } catch {
+      sessionStorage.removeItem("noc_token");
+      sessionStorage.removeItem("noc_user");
+      setUser(null);
+      setToken("");
+    }
+  }, []);
+
+  useEffect(() => { refreshUser(); }, [refreshUser]);
 
   const logout = useCallback(() => {
     api.post("/auth/logout", null, { params: { username: user?.username } }).catch(() => {});

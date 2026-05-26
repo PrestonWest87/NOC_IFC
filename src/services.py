@@ -43,6 +43,7 @@ class TTLCache:
             self._store[key] = result
             self._timestamps[key] = now
             return result
+        wrapper.clear = self.clear
         return wrapper
 
     def clear(self):
@@ -350,7 +351,7 @@ def get_role_permissions(role_name):
                 "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score",
                 "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
                 "Action: Submit Shift Log", "Action: Dispatch RCA Tickets", "Action: Manage Site Maintenance",
-                "Tab: Dashboards -> Operational", "Tab: Dashboards -> Global Risk", "Tab: Dashboards -> Internal Risk",
+                "Tab: Dashboards -> Operational", "Tab: Dashboards -> Global Risk", "Tab: Dashboards -> Internal Risk", "Tab: Dashboards -> Unified Brief",
                 "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV",
                 "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",
                 "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash",

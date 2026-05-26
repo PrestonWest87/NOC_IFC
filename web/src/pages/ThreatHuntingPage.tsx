@@ -1,6 +1,8 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import api from "../utils/api";
+import { useAuth } from "../utils/AuthContext";
+import { getAllowedTabs } from "../utils/permissions";
 import {
   Shield, Search, AlertTriangle, FileDown, SlidersHorizontal,
   Target, Clock, ExternalLink, Filter,
@@ -9,7 +11,7 @@ import {
   Link2, Hash, Mail, FileCode, Brain,
 } from "lucide-react";
 
-const TABS = [
+const ALL_HUNT_TABS = [
   { key: "ioc", label: "Live Global IOC Matrix", icon: Shield },
   { key: "hunt", label: "Deep Hunt & Detection Builder", icon: Search },
   { key: "siem", label: "Elastic SIEM Report", icon: Activity },
@@ -143,7 +145,16 @@ function Badge({ label }: { label: string }) {
 }
 
 export function ThreatHuntingPage() {
-  const [activeTab, setActiveTab] = useState("ioc");
+  const { user } = useAuth();
+  const allowedHuntTabs = getAllowedTabs(user?.allowed_actions, "threatHunting");
+  const tabs = ALL_HUNT_TABS.filter(t => allowedHuntTabs.length === 0 || allowedHuntTabs.includes(t.key));
+  const [activeTab, setActiveTab] = useState(tabs.length > 0 ? tabs[0].key : "ioc");
+
+  useEffect(() => {
+    if (allowedHuntTabs.length > 0 && tabs.length > 0 && !allowedHuntTabs.includes(activeTab)) {
+      setActiveTab(tabs[0].key);
+    }
+  }, [allowedHuntTabs.join(",")]);
 
   return (
     <div style={{ padding: "1.25rem", height: "100%", display: "flex", flexDirection: "column" }}>
@@ -158,7 +169,7 @@ export function ThreatHuntingPage() {
         display: "flex", gap: 0, borderBottom: "1px solid var(--border-primary)",
         marginBottom: "1rem", overflowX: "auto", flexShrink: 0,
       }}>
-        {TABS.map(tab => (
+        {tabs.map(tab => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
             padding: "0.6rem 1.2rem", fontSize: "0.85rem",
             color: activeTab === tab.key ? "var(--accent-blue)" : "var(--text-muted)",

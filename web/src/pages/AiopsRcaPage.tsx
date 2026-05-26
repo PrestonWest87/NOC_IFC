@@ -1,6 +1,8 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../utils/api";
+import { useAuth } from "../utils/AuthContext";
+import { getAllowedTabs } from "../utils/permissions";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer } from "@deck.gl/layers";
 import { Map } from "react-map-gl/maplibre";
@@ -63,7 +65,10 @@ const btnBase: React.CSSProperties = {
 const label: React.CSSProperties = { fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" };
 
 export function AiopsRcaPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
+  const allowedRcaTabs = getAllowedTabs(user?.allowed_actions, "aiopsRca");
+  const RCA_TAB_LABELS = ["Active Board", "Patterns", "Global"];
   const [activeTab, setActiveTab] = useState(0);
   const [livePolling, setLivePolling] = useState(true);
   const [dispatchChecked, setDispatchChecked] = useState<Record<string, boolean>>({});
@@ -345,6 +350,12 @@ export function AiopsRcaPage() {
     );
   };
 
+  useEffect(() => {
+    if (allowedRcaTabs.length > 0 && !allowedRcaTabs.includes(String(activeTab))) {
+      setActiveTab(Number(allowedRcaTabs[0]));
+    }
+  }, [allowedRcaTabs.join(",")]);
+
   return (
     <div style={{ padding: "1.5rem", height: "calc(100vh - 3rem)", overflow: "auto" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
@@ -355,15 +366,11 @@ export function AiopsRcaPage() {
       </div>
 
       <div style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--border-primary)", marginBottom: "1rem" }}>
-        <button style={tabBtn(activeTab === 0)} onClick={() => setActiveTab(0)}>
-          <Activity size={16} /> Active Board
-        </button>
-        <button style={tabBtn(activeTab === 1)} onClick={() => setActiveTab(1)}>
-          <BarChart3 size={16} /> Patterns
-        </button>
-        <button style={tabBtn(activeTab === 2)} onClick={() => setActiveTab(2)}>
-          <Globe size={16} /> Global
-        </button>
+        {RCA_TAB_LABELS.filter((_, i) => allowedRcaTabs.length === 0 || allowedRcaTabs.includes(String(i))).map((label, i) => (
+          <button key={label} style={tabBtn(activeTab === i)} onClick={() => setActiveTab(i)}>
+            {i === 0 ? <Activity size={16} /> : i === 1 ? <BarChart3 size={16} /> : <Globe size={16} />} {label}
+          </button>
+        ))}
       </div>
 
       {activeTab === 0 && (
@@ -383,7 +390,7 @@ export function AiopsRcaPage() {
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "3fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
-            <div style={{ ...card, padding: 0, overflow: "hidden", height: "420px", position: "relative" }}>
+            <div style={{ ...card, padding: 0, overflow: "hidden", height: "600px", position: "relative" }}>
               <div style={{ position: "absolute", top: 8, left: 10, zIndex: 10, fontSize: "0.8rem", fontWeight: 600, color: "var(--text-secondary)", background: "var(--bg-card)", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-sm)" }}>
                 Overlays
               </div>
@@ -392,7 +399,7 @@ export function AiopsRcaPage() {
               </DeckGL>
             </div>
 
-            <div style={{ ...card, height: "420px", overflow: "auto", display: "flex", flexDirection: "column" }}>
+            <div style={{ ...card, height: "600px", overflow: "auto", display: "flex", flexDirection: "column" }}>
               <h3 style={{ margin: "0 0 0.5rem", fontSize: "0.95rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
                 <Clock size={15} /> Event Log
               </h3>
