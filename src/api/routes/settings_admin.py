@@ -154,8 +154,10 @@ def maintenance():
 @router.post("/ml-retrain")
 def ml_retrain():
     from src.train_model import train
+    from src.services.logic import force_reload_scorer
     try:
         train()
-        return {"status": "ok", "message": "Model retrained successfully."}
+        force_reload_scorer()
+        return {"status": "ok", "message": "Model retrained and scorer reloaded."}
     except Exception as e:
         return {"status": "error", "message": str(e)}

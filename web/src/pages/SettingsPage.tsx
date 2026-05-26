@@ -7,7 +7,7 @@ import {
   Trash2, Upload, Download, RefreshCw, AlertTriangle, Save,
   UserPlus, Key, Shield, Settings as SettingsIcon, Database, FileJson,
   Rss, Cpu, Brain, Mail, Users, HardDrive, Skull, Server, Globe,
-  FileSpreadsheet, Plus, Eye, EyeOff, X, User
+  FileSpreadsheet, Plus, Eye, EyeOff, X, User, Loader2
 } from "lucide-react";
 
 const ALL_PAGES = [
@@ -599,18 +599,19 @@ function MlTab({ mlCounts }: { mlCounts: any }) {
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "1rem" }}>
         <Card title="Total Samples" icon={Database}>
-          <div style={{ fontSize: "2rem", fontWeight: 700, color: "var(--accent-blue)" }}>{mlCounts?.total_samples ?? 0}</div>
+          <div style={{ fontSize: "2rem", fontWeight: 700, color: "var(--accent-blue)" }}>{mlCounts?.total ?? 0}</div>
         </Card>
-        <Card title="Positives" icon={Brain}>
-          <div style={{ fontSize: "2rem", fontWeight: 700, color: "var(--accent-orange)" }}>{mlCounts?.positives ?? 0}</div>
+        <Card title="Positives (Kept)" icon={Brain}>
+          <div style={{ fontSize: "2rem", fontWeight: 700, color: "var(--accent-orange)" }}>{mlCounts?.positive ?? 0}</div>
         </Card>
-        <Card title="Negatives" icon={Brain}>
-          <div style={{ fontSize: "2rem", fontWeight: 700, color: "var(--accent-red)" }}>{mlCounts?.negatives ?? 0}</div>
+        <Card title="Negatives (Dismissed)" icon={Brain}>
+          <div style={{ fontSize: "2rem", fontWeight: 700, color: "var(--accent-red)" }}>{mlCounts?.negative ?? 0}</div>
         </Card>
       </div>
       <Card title="Model Training">
         <button onClick={() => retrain.mutate()} disabled={retrain.isPending} style={btn("var(--accent-cyan)")}>
-          <RefreshCw size={14} /> {retrain.isPending ? "Training..." : "Retrain Model Now"}
+          {retrain.isPending ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
+          {retrain.isPending ? "Training..." : "Retrain Model Now"}
         </button>
       </Card>
     </div>
