@@ -287,6 +287,10 @@ def run_database_maintenance():
             session.query(BgpAnomaly).filter(BgpAnomaly.detected_at < hours_12_ago).delete()
             session.query(CveItem).filter(CveItem.date_added < days_7_ago).delete()
             session.query(CloudOutage).filter(CloudOutage.updated_at < hours_24_ago).delete()
+            session.query(CloudOutage).filter(
+                CloudOutage.is_resolved == False,
+                CloudOutage.updated_at < days_14_ago
+            ).delete()
             session.query(CrimeIncident).filter(CrimeIncident.timestamp < days_7_ago).delete()
             
             # Cleanup orphaned IOCs

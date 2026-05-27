@@ -13,8 +13,8 @@ def list_cves(limit: int = Query(50, ge=1, le=200), days_back: int = Query(30, g
 
 
 @router.get("/cloud-outages")
-def list_cloud_outages(active_only: bool = True):
-    return svc.get_cloud_outages(active_only=active_only)
+def list_cloud_outages(active_only: bool = True, days_back: int = Query(7, ge=1, le=90)):
+    return svc.get_cloud_outages(active_only=active_only, days_back=days_back)
 
 
 @router.get("/crime-incidents")

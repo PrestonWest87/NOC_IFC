@@ -1350,10 +1350,13 @@ def get_cves(limit=15, days_back=None):
         if days_back: q = q.filter(CveItem.date_added >= datetime.utcnow() - timedelta(days=days_back))
         return to_dotdict_list(q.order_by(CveItem.date_added.desc()).limit(limit).all())
 
-def get_cloud_outages(active_only=True, limit=None):
+def get_cloud_outages(active_only=True, limit=None, days_back=None):
     with SessionLocal() as db:
         q = db.query(CloudOutage)
         if active_only: q = q.filter_by(is_resolved=False)
+        if days_back:
+            cutoff = datetime.utcnow() - timedelta(days=days_back)
+            q = q.filter(CloudOutage.updated_at >= cutoff)
         q = q.order_by(CloudOutage.updated_at.desc())
         if limit: q = q.limit(limit)
         return to_dotdict_list(q.all())
