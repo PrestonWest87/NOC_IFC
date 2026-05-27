@@ -267,7 +267,9 @@ export function AiopsRcaPage() {
   const [dialogReason, setDialogReason] = useState("");
 
   const openSiteDialog = useCallback((site: any) => {
-    setSiteDialog(site);
+    const lat = site.position ? site.position[1] : site.lat;
+    const lon = site.position ? site.position[0] : site.lon;
+    setSiteDialog({ ...site, lat, lon });
     setDialogDispatch(site.is_dispatched);
     const isMaint = site.under_maintenance;
     setDialogStatus(isMaint ? "No Dispatch Needed" : "Investigate/Dispatch");

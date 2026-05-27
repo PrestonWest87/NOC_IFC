@@ -126,6 +126,12 @@ function RiskBadge({ level }: { level: string }) {
   );
 }
 
+const TOOLTIP_STYLE = {
+  background: "var(--bg-card)", color: "var(--text-primary)",
+  fontSize: "0.78rem", border: "1px solid var(--border-primary)",
+  borderRadius: "var(--radius-sm)", padding: "0.5rem",
+} as const;
+
 function FilterChip({ selected, onClick, label }: { selected: boolean; onClick: () => void; label: string }) {
   return (
     <button onClick={onClick} style={{
@@ -677,6 +683,45 @@ function GeospatialTab({
     { key: "earthquakes", label: "Earthquakes (USGS)" },
   ];
 
+  const mapTooltip = useCallback((info: any) => {
+    if (!info.object) return null;
+    const d = info.object;
+    const layerId = info.layer?.id;
+
+    if (layerId === "spc") {
+      return { html: `<b>SPC Convective Outlook</b><br/>Risk: ${d.properties?.LABEL || "Unknown"}`, style: TOOLTIP_STYLE };
+    }
+    if (layerId === "ar_warn" || layerId === "ar_watch" || layerId === "oos") {
+      const p = d.properties || d;
+      const ev = p.event || "Alert";
+      const hd = p.headline || "";
+      return { html: `<b>${ev}</b>${hd ? `<br/>${hd}` : ""}`, style: TOOLTIP_STYLE };
+    }
+    if (layerId === "fire_risk") {
+      const ev = d.properties?.event || "Red Flag Warning";
+      return { html: `<b>${ev}</b>`, style: TOOLTIP_STYLE };
+    }
+    if (layerId === "wildfires") {
+      return {
+        html: `<b>${d.name}</b><br/>Acres: ${Math.round(d.acres).toLocaleString()}<br/>Contained: ${d.contained}%`,
+        style: TOOLTIP_STYLE,
+      };
+    }
+    if (layerId === "earthquakes") {
+      return {
+        html: `<b>${d.name}</b><br/>Magnitude: ${d.mag}`,
+        style: TOOLTIP_STYLE,
+      };
+    }
+    if (layerId === "facilities") {
+      return {
+        html: `<b>${d.name}</b><br/>Priority: P${d.priority}`,
+        style: TOOLTIP_STYLE,
+      };
+    }
+    return null;
+  }, []);
+
   const affectedSitesSorted = useMemo(() => {
     return [...toggledAffectedSites].sort((a, b) => {
       const pa = a.Priority || 999;
@@ -781,6 +826,7 @@ function GeospatialTab({
                     onViewStateChange={({ viewState: vs }: any) => onViewStateChange(vs)}
                     controller={true}
                     style={{ height: "100%", width: "100%" }}
+                    getTooltip={mapTooltip}
                   >
                     <MapLibreMap mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
                   </DeckGL>
@@ -801,6 +847,7 @@ function GeospatialTab({
                 onViewStateChange={({ viewState: vs }: any) => onViewStateChange(vs)}
                 controller={true}
                 style={{ height: "100%", width: "100%" }}
+                getTooltip={mapTooltip}
               >
                 <MapLibreMap mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
               </DeckGL>
