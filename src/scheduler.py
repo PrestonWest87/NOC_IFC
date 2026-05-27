@@ -246,6 +246,67 @@ def job_unified_brief():
     except Exception as e:
         log(f"[ERROR] Unified Brief Error: {e}", "SYSTEM")
 
+def job_daily_email_unified_brief():
+    """Generates the Unified Risk Brief and emails it to the designated list."""
+    log("[AI] Generating Daily Unified Risk Brief for Email Dispatch...", "SYSTEM")
+    try:
+        import os
+        from src.llm import generate_unified_risk_brief
+        from src.services import get_executive_grid_intel, get_recent_crimes, save_global_config
+        from src.database import InternalRiskSnapshot, RegionalHazard, SessionLocal
+        from src.mailer import send_alert_email
+        from src.risk_alert import check_and_alert
+
+        recipients = os.environ.get("UNIFIED_BRIEF_EMAIL_RECIPIENTS")
+        if not recipients:
+            log("[WARN] UNIFIED_BRIEF_EMAIL_RECIPIENTS missing from .env. Skipping email dispatch.", "SYSTEM")
+            return
+
+        # Gather local telemetry
+        with SessionLocal() as session:
+            latest_internal = session.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
+            active_nws = session.query(RegionalHazard).count()
+
+        # Gather global telemetry
+        crime_data = get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
+        global_intel = get_executive_grid_intel(active_nws, crime_data)
+
+        # Fire AI and generate the brief
+        with SessionLocal() as session:
+            brief_text = generate_unified_risk_brief(session, global_intel, latest_internal)
+
+        if brief_text and "AI is currently disabled" not in brief_text:
+            # Save the brief so it also updates the HUD
+            save_global_config({
+                "unified_brief": brief_text,
+                "unified_brief_time": datetime.utcnow()
+            })
+            
+            log("[OK] Daily Unified Risk Brief generated. Dispatching email...", "SYSTEM")
+            
+            # Format Subject Line with the local Central Time date
+            local_date = datetime.now(ZoneInfo("America/Chicago")).strftime('%Y-%m-%d')
+            subject = f"Daily Unified Risk Brief - {local_date}"
+            
+            # Send email. We use is_html=True so mailer.py parses the markdown into basic HTML.
+            success, msg = send_alert_email(
+                subject=subject,
+                body=brief_text,
+                recipient_override=recipients,
+                is_html=True
+            )
+            
+            if success:
+                log(f"[SUCCESS] Daily Unified Risk Brief emailed to: {recipients}", "SYSTEM")
+            else:
+                log(f"[ERROR] Failed to email Unified Risk Brief: {msg}", "SYSTEM")
+            
+            # Trigger standard risk alert checks
+            check_and_alert(global_risk=global_intel.get('unified_risk'), internal_risk=None)
+
+    except Exception as e:
+        log(f"[ERROR] Daily Unified Brief Email Error: {e}", "SYSTEM")
+
 def job_internal_risk():
     """Wrapper to safely execute and log the internal risk calculation."""
     log("[SYSTEM] Generating Internal Risk Snapshot...", "SYSTEM")
@@ -620,6 +681,12 @@ if __name__ == "__main__":
     
     # 2. Map the Schedules to Threaded Wrappers
     schedule.every().sunday.at("02:00").do(run_threaded, job_retrain_ml)
+    try:
+        # Modern schedule library approach
+        schedule.every().day.at("07:00", "America/Chicago").do(run_threaded, job_daily_email_unified_brief)
+    except Exception:
+        # Fallback if your installed schedule version is older (relies on Docker TZ=America/Chicago)
+        schedule.every().day.at("07:00").do(run_threaded, job_daily_email_unified_brief)
     schedule.every(60).minutes.do(run_threaded, run_database_maintenance)
     schedule.every(30).minutes.do(run_threaded, job_unified_brief)
     schedule.every(15).minutes.do(run_threaded, fetch_feeds)
