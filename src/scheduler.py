@@ -207,6 +207,10 @@ def fetch_feeds(source="Scheduled"):
                 log(f"[ERROR] Processing error on {f_name}: {e}", "WORKER")
 
     log(f"[COMPLETE] Cycle complete. Added {total_added} items.", source)
+    with SessionLocal() as dedup_session:
+        deduped = deduplicate_articles(dedup_session)
+        if deduped:
+            log(f"[CLEANUP] De-duplicated {deduped} articles after feed fetch.", "WORKER")
     main_session.close()
 
     gc.collect()
@@ -249,7 +253,7 @@ def job_internal_risk():
     """Wrapper to safely execute and log the internal risk calculation."""
     log("[SYSTEM] Generating Internal Risk Snapshot...", "SYSTEM")
     try:
-        from src.services import generate_and_save_internal_risk_snapshot
+from src.services import generate_and_save_internal_risk_snapshot, deduplicate_articles
         cis_data = generate_and_save_internal_risk_snapshot()
         log("[OK] Internal Risk Snapshot generated successfully.", "SYSTEM")
 
@@ -269,6 +273,9 @@ def run_database_maintenance():
     log("[CLEANUP] Running Master Database Maintenance...", "SYSTEM")
     with SessionLocal() as session:
         try:
+            deduped = deduplicate_articles(session)
+            if deduped:
+                log(f"[CLEANUP] De-duplicated {deduped} articles.", "SYSTEM")
             now = datetime.utcnow()
             
             hours_12_ago = now - timedelta(hours=12)

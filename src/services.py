@@ -2549,3 +2549,58 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, usgs_ar_data,
     view_state = pdk.ViewState(latitude=34.8, longitude=-92.2, zoom=5.5, pitch=0)
 
     return layers, view_state, cache["map_diagnostics"], toggled_affected_sites, cache["master_affected_sites"]
+
+
+def deduplicate_articles(session):
+    """De-duplicate articles by link and similar titles within the past 24 hours."""
+    from difflib import SequenceMatcher
+
+    removed = 0
+    cutoff = datetime.utcnow() - timedelta(hours=24)
+
+    # 1. Exact link duplicates (some may bypass unique constraint under concurrency)
+    links = session.query(Article.id, Article.link).filter(
+        Article.published_date >= cutoff
+    ).all()
+
+    seen_links = {}
+    for art_id, link in links:
+        if link in seen_links:
+            dup = session.query(Article).get(art_id)
+            if dup:
+                session.delete(dup)
+                removed += 1
+        else:
+            seen_links[link] = art_id
+
+    # 2. Title similarity within same source
+    sources = session.query(Article.source).filter(
+        Article.published_date >= cutoff
+    ).distinct().all()
+
+    for (source,) in sources:
+        articles = session.query(Article).filter(
+            Article.source == source,
+            Article.published_date >= cutoff
+        ).order_by(Article.published_date.asc()).all()
+
+        for i in range(len(articles)):
+            if articles[i] is None:
+                continue
+            for j in range(i + 1, len(articles)):
+                if articles[j] is None:
+                    continue
+                t1 = (articles[i].title or "").lower().strip()
+                t2 = (articles[j].title or "").lower().strip()
+                if not t1 or not t2:
+                    continue
+                ratio = SequenceMatcher(None, t1, t2).ratio()
+                if ratio > 0.85:
+                    dup = articles[j]
+                    session.delete(dup)
+                    articles[j] = None
+                    removed += 1
+
+    if removed:
+        session.commit()
+    return removed
