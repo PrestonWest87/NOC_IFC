@@ -182,7 +182,7 @@ export function RegionalGridPage() {
   // Geospatial tab state
   const [mapToggles, setMapToggles] = useState<Record<string, boolean>>({
     radar: false, spc: false, warn: false, watch: false, oos: false,
-    fire_risk: false, active_wildfires: false, earthquakes: true,
+    fire_risk: false, active_wildfires: false, earthquakes: false,
   });
   const [showRadarPanel, setShowRadarPanel] = useState(false);
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);

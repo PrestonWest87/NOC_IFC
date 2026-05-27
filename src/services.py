@@ -1545,7 +1545,7 @@ def get_weather_alerts_log(ar_data, oos_data, selected_events, usgs_ar_data=None
             for f in geo_ds["features"]:
                 props = f.get("properties", {})
                 event = props.get("event", "Unknown")
-                if event not in selected_events: continue
+                if selected_events and event not in selected_events: continue
                 
                 prefix = "[OOS]" if is_oos else "[AR]"
                 all_alert_details.append({

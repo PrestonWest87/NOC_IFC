@@ -5,7 +5,7 @@ import { useAuth } from "../utils/AuthContext";
 import { getAllowedTabs } from "../utils/permissions";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer } from "@deck.gl/layers";
-import { Map, Popup } from "react-map-gl/maplibre";
+import { Map } from "react-map-gl/maplibre";
 import type { MapViewState } from "@deck.gl/core";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
@@ -121,6 +121,7 @@ export function AiopsRcaPage() {
       api.post("/rca/dispatch", { alert_ids: alertIds, is_dispatched: dispatched }).then((r) => r.data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rca-analyze"] });
+      queryClient.invalidateQueries({ queryKey: ["rca-dashboard"] });
     },
   });
 
@@ -169,16 +170,6 @@ export function AiopsRcaPage() {
           maintenance_etr: l.maintenance_etr ?? null,
           maintenance_reason: l.maintenance_reason ?? null,
         };
-      });
-      mapped.push({
-        name: "HQ - Campus",
-        lat: 34.6755,
-        lon: -92.3235,
-        alert_count: 0,
-        is_dispatched: false,
-        under_maintenance: false,
-        maintenance_etr: null,
-        maintenance_reason: null,
       });
       return mapped;
     },
@@ -281,19 +272,19 @@ export function AiopsRcaPage() {
     if (info.object && info.layer?.id === "sites") {
       const d = info.object;
       openSiteDialog(d);
-    } else {
-      setSiteDialog(null);
     }
   }, [openSiteDialog]);
 
-  const handleSaveSiteDialog = useCallback(() => {
+  const handleSaveSiteDialog = useCallback(async () => {
     if (!siteDialog) return;
     const { name } = siteDialog;
     const clusterAlerts = alerts.filter((a: any) => a.mapped_location === name);
     const alertIds = clusterAlerts.map((a: any) => a.id).filter(Boolean);
 
+    const promises: Promise<any>[] = [];
+
     if (alertIds.length > 0) {
-      dispatchMutation.mutate({ alertIds, dispatched: dialogDispatch });
+      promises.push(dispatchMutation.mutateAsync({ alertIds, dispatched: dialogDispatch }));
     }
 
     const isMaint = dialogStatus === "No Dispatch Needed";
@@ -304,10 +295,12 @@ export function AiopsRcaPage() {
     }
     const etrDate = isMaint ? dialogEtr : "";
     const reason = dialogReason;
-    maintMutation.mutate({ site_name: name, is_maint: isMaint, etr: etrDate, reason });
+    promises.push(maintMutation.mutateAsync({ site_name: name, is_maint: isMaint, etr: etrDate, reason }));
 
+    await Promise.allSettled(promises);
+    await queryClient.invalidateQueries({ queryKey: ["rca-dashboard"] });
     setSiteDialog(null);
-  }, [siteDialog, dialogDispatch, dialogStatus, dialogEtr, dialogReason, alerts, dispatchMutation, maintMutation]);
+  }, [siteDialog, dialogDispatch, dialogStatus, dialogEtr, dialogReason, alerts, dispatchMutation, maintMutation, queryClient]);
 
   useEffect(() => {
     for (const s of sites) {
@@ -560,79 +553,7 @@ export function AiopsRcaPage() {
                 onClick={handleMapClick}
                 getCursor={({ isDragging, isHovering }: any) => isDragging ? "grabbing" : isHovering ? "pointer" : "default"}
               >
-                <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json">
-                  {siteDialog && (
-                    <Popup
-                      latitude={siteDialog.lat}
-                      longitude={siteDialog.lon}
-                      closeOnClick={false}
-                      onClose={() => setSiteDialog(null)}
-                      style={{ zIndex: 20 }}
-                    >
-                      <div style={{ fontSize: "0.82rem", lineHeight: 1.5, minWidth: 260 }}>
-                        <div style={{ fontWeight: 700, marginBottom: "0.5rem", fontSize: "0.9rem", borderBottom: "1px solid var(--border-primary)", paddingBottom: "0.3rem" }}>
-                          Manage Site Status — {siteDialog.name}
-                        </div>
-
-                        <div style={{ marginBottom: "0.5rem" }}>
-                          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Status</div>
-                          <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer", marginBottom: "0.2rem" }}>
-                            <input type="radio" name="site-status" value="Investigate/Dispatch"
-                              checked={dialogStatus === "Investigate/Dispatch"}
-                              onChange={(e) => setDialogStatus(e.target.value)}
-                              style={{ accentColor: "var(--accent-blue)" }}
-                            /> Investigate/Dispatch
-                          </label>
-                          <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
-                            <input type="radio" name="site-status" value="No Dispatch Needed"
-                              checked={dialogStatus === "No Dispatch Needed"}
-                              onChange={(e) => setDialogStatus(e.target.value)}
-                              style={{ accentColor: "var(--accent-blue)" }}
-                            /> No Dispatch Needed
-                          </label>
-                        </div>
-
-                        <div style={{ marginBottom: "0.5rem" }}>
-                          <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
-                            <input type="checkbox"
-                              checked={dialogDispatch}
-                              onChange={(e) => setDialogDispatch(e.target.checked)}
-                              style={{ accentColor: "var(--accent-blue)" }}
-                            /> Ticket Dispatched
-                          </label>
-                        </div>
-
-                        <div style={{ marginBottom: "0.4rem" }}>
-                          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.15rem" }}>ETR</div>
-                          <input type="date" value={dialogEtr}
-                            onChange={(e) => setDialogEtr(e.target.value)}
-                            style={{ width: "100%", boxSizing: "border-box", background: "var(--bg-input)", color: "var(--text-primary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.25rem 0.4rem", fontSize: "0.78rem" }}
-                          />
-                        </div>
-
-                        <div style={{ marginBottom: "0.5rem" }}>
-                          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.15rem" }}>Reason</div>
-                          <textarea value={dialogReason}
-                            onChange={(e) => setDialogReason(e.target.value)}
-                            rows={2}
-                            style={{ width: "100%", boxSizing: "border-box", background: "var(--bg-input)", color: "var(--text-primary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.25rem 0.4rem", fontSize: "0.78rem", resize: "vertical" }}
-                          />
-                        </div>
-
-                        <div style={{ display: "flex", gap: "0.4rem", justifyContent: "flex-end", borderTop: "1px solid var(--border-primary)", paddingTop: "0.4rem" }}>
-                          <button onClick={() => setSiteDialog(null)}
-                            style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer" }}>
-                            Cancel
-                          </button>
-                          <button onClick={handleSaveSiteDialog}
-                            style={{ background: "var(--accent-blue)", color: "#fff", border: "none", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 }}>
-                            Save Changes
-                          </button>
-                        </div>
-                      </div>
-                    </Popup>
-                  )}
-                </Map>
+                <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
               </DeckGL>
             </div>
 
@@ -667,6 +588,83 @@ export function AiopsRcaPage() {
               </div>
             </div>
           </div>
+
+          {siteDialog && (
+            <div style={{
+              position: "fixed", inset: 0, zIndex: 1000,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: "rgba(0,0,0,0.5)",
+            }} onClick={() => setSiteDialog(null)}>
+              <div onClick={(e) => e.stopPropagation()} style={{
+                background: "var(--bg-card)", color: "var(--text-primary)",
+                borderRadius: "var(--radius-md)", padding: "1.25rem",
+                minWidth: 320, maxWidth: 420,
+                boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+                border: "1px solid var(--border-primary)",
+                fontSize: "0.82rem", lineHeight: 1.5,
+              }}>
+                <div style={{ fontWeight: 700, marginBottom: "0.5rem", fontSize: "0.9rem", borderBottom: "1px solid var(--border-primary)", paddingBottom: "0.3rem" }}>
+                  Manage Site Status — {siteDialog.name}
+                </div>
+
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Status</div>
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer", marginBottom: "0.2rem" }}>
+                    <input type="radio" name="site-status-modal" value="Investigate/Dispatch"
+                      checked={dialogStatus === "Investigate/Dispatch"}
+                      onChange={(e) => setDialogStatus(e.target.value)}
+                      style={{ accentColor: "var(--accent-blue)" }}
+                    /> Investigate/Dispatch
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
+                    <input type="radio" name="site-status-modal" value="No Dispatch Needed"
+                      checked={dialogStatus === "No Dispatch Needed"}
+                      onChange={(e) => setDialogStatus(e.target.value)}
+                      style={{ accentColor: "var(--accent-blue)" }}
+                    /> No Dispatch Needed
+                  </label>
+                </div>
+
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
+                    <input type="checkbox"
+                      checked={dialogDispatch}
+                      onChange={(e) => setDialogDispatch(e.target.checked)}
+                      style={{ accentColor: "var(--accent-blue)" }}
+                    /> Ticket Dispatched
+                  </label>
+                </div>
+
+                <div style={{ marginBottom: "0.4rem" }}>
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.15rem" }}>ETR</div>
+                  <input type="date" value={dialogEtr}
+                    onChange={(e) => setDialogEtr(e.target.value)}
+                    style={{ width: "100%", boxSizing: "border-box", background: "var(--bg-input)", color: "var(--text-primary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.25rem 0.4rem", fontSize: "0.78rem" }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.15rem" }}>Reason</div>
+                  <textarea value={dialogReason}
+                    onChange={(e) => setDialogReason(e.target.value)}
+                    rows={2}
+                    style={{ width: "100%", boxSizing: "border-box", background: "var(--bg-input)", color: "var(--text-primary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.25rem 0.4rem", fontSize: "0.78rem", resize: "vertical" }}
+                  />
+                </div>
+
+                <div style={{ display: "flex", gap: "0.4rem", justifyContent: "flex-end", borderTop: "1px solid var(--border-primary)", paddingTop: "0.4rem" }}>
+                  <button onClick={() => setSiteDialog(null)}
+                    style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer" }}>
+                    Cancel
+                  </button>
+                  <button onClick={handleSaveSiteDialog}
+                    style={{ background: "var(--accent-blue)", color: "#fff", border: "none", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 }}>
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {fleetOutages.length > 0 && (
             <div

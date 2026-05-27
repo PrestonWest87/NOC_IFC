@@ -1,36 +1,60 @@
 import ipaddress
+import json
 import math
+import re
 from datetime import datetime, timedelta
 from src.core.db import SessionLocal
 from src.models.schema import MonitoredLocation, SolarWindsAlert
 
 class EnterpriseAIOpsEngine:
     ONTOLOGY = {
-        "TRANSPORT_CORE": ["Router", "DWDM", "Firewall", "Service Provider", "VSAT Modem", "Radio", "SD-WAN"],
-        "NETWORK_ACCESS": ["Switch", "Lanolinx-switch", "Fabric Interconnect", "Wireless Controller", "Access Point", "GarrettCom-6KL"],
-        "COMPUTE_STORAGE": ["VM Host", "VM Server", "Physical Machine", "Storage", "Storage Switch", "NTP Server"],
-        "POWER_ENV": ["UPS", "Generator", "DC Power Supply", "Data Center PDU", "Data Center A/C", "PDU", "HVAC"],
-        "SCADA_OT": ["RTU", "NTEST RTU", "Sub Equipment", "Plant Equipment", "Meter Point 7403", "Meter Point 8650", "CAT Bank Meter", "I/O", "Member Equipment"],
-        "FACILITIES_IOT": ["Access Control Panel", "Door Controller", "PACS", "Firealram", "IP Camera", "IP Phone", "Intercom"]
+        "PRIMARY_INTERNET": ["VSAT", "Cellular", "Radio", "SD-WAN", "Modem"],
+        "COMMS_EQUIPMENT": ["Router", "Switch", "Firewall", "Lanolinx-switch", "Fabric Interconnect"],
+        "POWER_SUPPLIES": ["UPS", "Generator", "DC Power Supply", "PDU", "PDS", "DC Controller"],
+        "RTU": ["RTU", "NTEST RTU"],
+        "SCADA": ["Sub Equipment", "Plant Equipment", "Meter Point", "I/O", "Member Equipment", "SCADA"],
+        "COMPUTE": ["VM Host", "VM Server", "Physical Machine", "Storage"],
+        "FACILITIES": ["Access Control Panel", "Door Controller", "IP Camera", "HVAC"]
     }
 
     TIER_RANKING = {
-        "POWER_ENV": 1,
-        "TRANSPORT_CORE": 2,
-        "NETWORK_ACCESS": 3,
-        "COMPUTE_STORAGE": 4,
-        "SCADA_OT": 5,
-        "FACILITIES_IOT": 5,
-        "UNKNOWN_DOMAIN": 6
+        "POWER_SUPPLIES": 1,
+        "PRIMARY_INTERNET": 2,
+        "COMMS_EQUIPMENT": 3,
+        "COMPUTE": 4,
+        "RTU": 5,
+        "SCADA": 6,
+        "FACILITIES": 7,
+        "UNKNOWN_DOMAIN": 8
     }
 
     def __init__(self, session_factory=None):
         self.session_factory = session_factory or SessionLocal
 
-    def _get_domain(self, node_type):
+    def _get_domain(self, node_type, node_name="", primary_comms=""):
+        node_str = f"{node_type} {node_name}".lower()
+
+        if any(t in node_str for t in ["vsat", "cell", "cellular", "sd-wan", "isp", "modem"]):
+            return "PRIMARY_INTERNET"
+
+        if any(t in node_str for t in ["ups", "pds", "pdu", "dc controller", "generator", "dc power"]):
+            return "POWER_SUPPLIES"
+
+        if any(t in node_str for t in ["router", "switch", "firewall"]):
+            if "internet" in node_str or (primary_comms and primary_comms.lower() in node_str):
+                return "PRIMARY_INTERNET"
+            return "COMMS_EQUIPMENT"
+
+        if "rtu" in node_str:
+            return "RTU"
+
+        if any(t in node_str for t in ["scada", "meter", "i/o", "plant equipment", "sub equipment"]):
+            return "SCADA"
+
         for domain, types in self.ONTOLOGY.items():
             if any(t.lower() in str(node_type).lower() for t in types):
                 return domain
+
         return "UNKNOWN_DOMAIN"
 
     def _determine_patient_zero(self, alerts):
@@ -47,10 +71,13 @@ class EnterpriseAIOpsEngine:
             pm = p.get('Performance_Metrics') or {}
 
             node_type = nd.get('MachineType') or cp.get('Node_Type') or alert.device_type or 'Unknown'
-            domain = self._get_domain(node_type)
+            node_name = alert.node_name or ""
+            primary_comms = cp.get('Primary_Comms') or ""
 
-            tier = self.TIER_RANKING.get(domain, 6)
-            topo_score = (7 - tier) * 2000
+            domain = self._get_domain(node_type, node_name, primary_comms)
+
+            tier = self.TIER_RANKING.get(domain, 8)
+            topo_score = (9 - tier) * 2000
 
             status = str(alert.status).lower()
             event_cat = str(alert.event_category).lower()
@@ -79,7 +106,7 @@ class EnterpriseAIOpsEngine:
         for site, data in incidents.items():
             comms = data['site_metadata'].get('primary_coms', 'Unknown')
             if comms not in provider_map: provider_map[comms] = []
-            if any(sa['domain'] == "TRANSPORT_CORE" for sa in data['dependency_chain']):
+            if any(sa['domain'] in ["PRIMARY_INTERNET", "COMMS_EQUIPMENT"] for sa in data['dependency_chain']):
                 provider_map[comms].append(site)
 
         fleet_events = []
@@ -135,20 +162,23 @@ class EnterpriseAIOpsEngine:
         r = []
         if not f.empty:
             top_node = f.iloc[0]['Node Name']
-            top_node_count = f.iloc[0]['Total Incidents (60 Days)']
+            top_node_count = int(f.iloc[0]['Total Incidents (60 Days)'])
             if top_node_count > 5:
                 r.append(f"[CRITICAL] **CRITICAL FLAP DETECTED:** Node `{top_node}` is exhibiting severe chronic instability with {top_node_count} logged incidents this week. Recommend immediate hardware diagnostic or circuit test.")
 
         if not v.empty:
             top_site = v.iloc[0]['Site']
-            top_site_count = v.iloc[0]['Total Incidents (60 Days)']
+            top_site_count = int(v.iloc[0]['Total Incidents (60 Days)'])
             if top_site_count > 15:
                 r.append(f"[HIGH] **REGIONAL DEGRADATION:** The `{top_site}` facility is a current infrastructure hotspot. Recommend dispatching field tech to review local power conditioning and physical transport handoffs.")
 
         if not r:
             r.append("[OK] Telemetry indicates normal operational limits. Devices are stable and no immediate predictive maintenance is required.")
 
-        return f, v, r
+        f_json = json.loads(f.to_json(orient="records")) if not f.empty else []
+        v_json = json.loads(v.to_json(orient="records")) if not v.empty else []
+
+        return f_json, v_json, r
 
     def calculate_root_cause(self, site_name, data, active_weather, active_cloud, active_bgp, fleet_events=[]):
         meta = data.get('site_metadata', {})
@@ -192,21 +222,20 @@ class EnterpriseAIOpsEngine:
 
         cloud_hit = False
         if active_cloud and not fleet_hit:
-            cloud_providers_lower = {c.provider.lower() for c in active_cloud}
             for alert in data.get('alerts', []):
-                node_name_lower = alert.node_name.lower()
                 payload_str = str(alert.raw_payload).lower() if alert.raw_payload else ""
-                matched = next((cp for cp in cloud_providers_lower if cp in node_name_lower or cp in payload_str), None)
-                if matched:
-                    cause = f"Upstream Cloud Dependency Failure ({matched})"
-                    score += 85
-                    evidence_log.append(f"Cloud Correlation: Node relies on {matched}, which is currently experiencing a known outage.")
-                    cloud_hit = True
-                    break
+                for c in active_cloud:
+                    if c.provider.lower() in alert.node_name.lower() or c.provider.lower() in payload_str:
+                        cause = f"Upstream Cloud Dependency Failure ({c.provider})"
+                        score += 85
+                        evidence_log.append(f"Cloud Correlation: Node relies on {c.provider}, which is currently experiencing a known outage.")
+                        cloud_hit = True
+                        break
+                if cloud_hit: break
 
         bgp_hit = False
         if active_bgp and not cloud_hit and not fleet_hit:
-            if "TRANSPORT_CORE" in domains or "Service Provider" in str(domains):
+            if "PRIMARY_INTERNET" in domains or "COMMS_EQUIPMENT" in domains or "Service Provider" in str(domains):
                 for b in active_bgp:
                     if b.asn in str(meta.get('primary_coms', '')) or b.asn in str(meta.get('secondary_coms', '')):
                         cause = f"Carrier Routing Anomaly (BGP Event on {b.asn})"
@@ -216,18 +245,18 @@ class EnterpriseAIOpsEngine:
                         break
 
         if not cloud_hit and not bgp_hit and not fleet_hit:
-            if p0_domain == "POWER_ENV":
+            if p0_domain == "POWER_SUPPLIES":
                 cause = "Catastrophic Facilities/Power Failure causing complete site isolation."
                 score += 60
                 evidence_log.append(f"Structural Cause: Foundational Power/Environmental node ({p0.node_name}) failed.")
-            elif p0_domain == "TRANSPORT_CORE":
+            elif p0_domain in ["PRIMARY_INTERNET", "COMMS_EQUIPMENT"]:
                 if avg_loss >= 80 or 'down' in str(p0.status).lower():
                     cause = f"Site Isolation. Hard down on {meta.get('primary_coms', 'Unknown')} transport tier."
                     score += 50
-                    evidence_log.append(f"Structural Cause: Core transport equipment ({p0.node_name}) severed communication path.")
+                    evidence_log.append(f"Structural Cause: Core transport/comms equipment ({p0.node_name}) severed communication path.")
                 else:
                     cause = f"Severe Transport Congestion ({avg_loss}% Packet Loss)."
-            elif p0_domain == "SCADA_OT":
+            elif p0_domain in ["SCADA", "RTU"]:
                 cause = "Isolated OT/SCADA Telemetry Failure."
                 score += 30
                 evidence_log.append(f"Structural Cause: Field equipment ({p0.node_name}) alarming while Core IT network remains structurally stable.")
@@ -236,33 +265,56 @@ class EnterpriseAIOpsEngine:
 
         with SessionLocal() as db:
             site_record = db.query(MonitoredLocation).filter(MonitoredLocation.name == site_name).first()
-            if site_record and site_record.lat and site_record.lon:
-                for h in active_weather:
-                    if not getattr(h, 'lat', None) or not getattr(h, 'lon', None):
-                        if meta.get('district', '').lower() in str(h.location).lower() or site_name.lower() in str(h.location).lower():
-                            score += 40
-                            evidence_log.append(f"Regional Correlation: Site intersects active {h.hazard_type} warning zone.")
-                            if p0_domain in ["POWER_ENV", "TRANSPORT_CORE"]: cause = f"Severe Weather ({h.hazard_type}) induced failure of Utility/Carrier."
-                            break
-                    else:
-                        R = 3958.8
-                        lat1, lon1, lat2, lon2 = map(math.radians, [site_record.lat, site_record.lon, h.lat, h.lon])
-                        dlat, dlon = lat2 - lat1, lon2 - lon1
-                        a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
-                        distance_miles = R * (2 * math.asin(math.sqrt(a)))
-                        hazard_radius = getattr(h, 'radius_km', 24.1) * 0.621371
 
-                        if distance_miles <= hazard_radius:
-                            score += 55
-                            evidence_log.append(f"Geospatial Correlation: Site is exactly {round(distance_miles, 1)} miles from active {h.hazard_type} epicenter.")
-                            if p0_domain in ["POWER_ENV", "TRANSPORT_CORE"]: cause = f"Direct Kinetic Impact: Severe Weather ({h.hazard_type}) caused physical infrastructure failure."
-                            break
+            if site_record:
+                if site_record.under_maintenance and site_record.maintenance_etr:
+                    if datetime.utcnow().date() > site_record.maintenance_etr.date():
+                        site_record.under_maintenance = False
+                        site_record.maintenance_etr = None
+                        site_record.maintenance_reason = None
+                        db.commit()
+                        evidence_log.append("Maintenance Override: Expired maintenance window was automatically cleared.")
 
-        if data.get('max_alert_level', 3) == 1:
+                if site_record.lat and site_record.lon:
+                    for h in active_weather:
+                        if not getattr(h, 'lat', None) or not getattr(h, 'lon', None):
+                            if meta.get('district', '').lower() in str(h.location).lower() or site_name.lower() in str(h.location).lower():
+                                score += 40
+                                evidence_log.append(f"Regional Correlation: Site intersects active {h.hazard_type} warning zone.")
+                                if p0_domain in ["POWER_SUPPLIES", "PRIMARY_INTERNET"]: cause = f"Severe Weather ({h.hazard_type}) induced failure of Utility/Carrier."
+                                break
+                        else:
+                            R = 3958.8
+                            lat1, lon1, lat2, lon2 = map(math.radians, [site_record.lat, site_record.lon, h.lat, h.lon])
+                            dlat, dlon = lat2 - lat1, lon2 - lon1
+                            a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+                            distance_miles = R * (2 * math.asin(math.sqrt(a)))
+                            hazard_radius = getattr(h, 'radius_km', 24.1) * 0.621371
+
+                            if distance_miles <= hazard_radius:
+                                score += 55
+                                evidence_log.append(f"Geospatial Correlation: Site is exactly {round(distance_miles, 1)} miles from active {h.hazard_type} epicenter.")
+                                if p0_domain in ["POWER_SUPPLIES", "PRIMARY_INTERNET"]: cause = f"Direct Kinetic Impact: Severe Weather ({h.hazard_type}) caused physical infrastructure failure."
+                                break
+
+        if data.get('max_alert_level', 99) == 1:
             score += 50
             evidence_log.append("Policy Override: Native Alert Level 1 detected.")
 
-        priority = "P1 - CRITICAL" if score >= 80 else "P2 - HIGH" if score >= 50 else "P3 - MODERATE"
+        max_level = data.get('max_alert_level', 99)
+        if max_level == 99:
+            max_level = 3
+
+        sla_map = {
+            1: ("P1 - CRITICAL", "15 Minutes"),
+            2: ("P2 - HIGH", "1 Hour"),
+            3: ("P3 - MODERATE", "4 Hours"),
+            4: ("P4 - LOW", "24 Hours"),
+            5: ("P5 - PLANNING", "Best Effort")
+        }
+
+        base_priority, sla_time = sla_map.get(max_level, ("P3 - MODERATE", "4 Hours"))
+        priority = f"{base_priority} (SLA: {sla_time})"
 
         latest = data.get('latest_alert')
         if latest and getattr(latest, 'received_at', None) and getattr(p0, 'received_at', None):
@@ -295,7 +347,7 @@ class EnterpriseAIOpsEngine:
                     'avg_loss': [],
                     'avg_cpu': [],
                     'ips': [],
-                    'max_alert_level': 3,
+                    'max_alert_level': 99,
                     'latest_alert': alert
                 }
 
@@ -314,9 +366,12 @@ class EnterpriseAIOpsEngine:
             if alert.ip_address and alert.ip_address != "Unknown":
                 incidents[site_name]['ips'].append(alert.ip_address)
 
-            al = cp.get('Alert_Level') or p.get('severity')
+            al = p.get('Normalized_Alert_Level') or cp.get('Alert_Level') or p.get('severity')
             if al:
-                try: incidents[site_name]['max_alert_level'] = min(incidents[site_name]['max_alert_level'], int(al))
+                try:
+                    match = re.search(r'\d+', str(al))
+                    if match:
+                        incidents[site_name]['max_alert_level'] = min(incidents[site_name]['max_alert_level'], int(match.group()))
                 except (ValueError, TypeError): pass
 
         for site, cluster in incidents.items():

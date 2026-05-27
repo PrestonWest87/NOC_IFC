@@ -22,11 +22,11 @@ def classify_device(text_corpus: str, node_type_hint: str = None) -> str:
 
     text_corpus = text_corpus.lower()
     fingerprints = {
-        'TRANSPORT_CORE': ['fw', 'firewall', 'asa', 'palo', 'fortigate', 'meraki', 'rtr', 'router', 'asr', 'isr', 'gateway', 'sd-wan'],
-        'NETWORK_ACCESS': ['sw', 'switch', 'nexus', 'catalyst', 'idf', 'mdf', 'ap', 'wireless', 'wlc'],
-        'POWER_ENV': ['ups', 'pdu', 'ats', 'battery', 'generator', 'hvac', 'ac unit'],
-        'COMPUTE_STORAGE': ['vm', 'host', 'server', 'storage', 'san', 'nas', 'esxi'],
-        'SCADA_OT': ['rtu', 'plc', 'meter', 'substation', 'plant', 'relay', 'sel-']
+        'PRIMARY_INTERNET': ['vsat', 'cellular', 'sd-wan', 'modem', 'radio', 'isp', 'internet'],
+        'COMMS_EQUIPMENT': ['fw', 'firewall', 'asa', 'palo', 'fortigate', 'meraki', 'rtr', 'router', 'asr', 'isr', 'gateway', 'sw', 'switch', 'nexus', 'catalyst', 'idf', 'mdf', 'ap', 'wireless', 'wlc'],
+        'POWER_SUPPLIES': ['ups', 'pdu', 'ats', 'battery', 'generator', 'hvac', 'ac unit', 'dc power', 'dc controller'],
+        'COMPUTE': ['vm', 'host', 'server', 'storage', 'san', 'nas', 'esxi'],
+        'SCADA': ['rtu', 'plc', 'meter', 'substation', 'plant', 'relay', 'sel-']
     }
     
     for device_class, keywords in fingerprints.items():
@@ -55,7 +55,7 @@ def smart_extract(payload: dict):
 
     res_indicators = ['resolved', 'up', 'ok', 'clear', 'operational', 'recovered']
     status_lower = str(extracted["status"]).lower() + " " + str(payload.get("description", "")).lower()
-    if any(word in status_lower for word in res_indicators):
+    if any(re.search(r'\b' + re.escape(word) + r'\b', status_lower) for word in res_indicators):
         extracted["is_resolution"] = True
         extracted["status"] = "Resolved"
 

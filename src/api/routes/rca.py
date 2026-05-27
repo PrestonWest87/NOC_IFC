@@ -19,16 +19,31 @@ def rca_dashboard():
 
 @router.post("/analyze")
 def analyze():
+    from src.models.schema import CloudOutage, RegionalHazard, BgpAnomaly
+    from src.core.db import SessionLocal
     alerts, events, grid = svc.get_aiops_dashboard_data()
     engine = EnterpriseAIOpsEngine()
     clustered = engine.analyze_and_cluster(alerts)
-    fleet = engine.identify_fleet_outages()
-    rca = engine.calculate_root_cause()
+
+    fleet = engine.identify_fleet_outages(clustered)
+
+    with SessionLocal() as db:
+        active_clouds = db.query(CloudOutage).filter_by(is_resolved=False).all()
+        active_weather = db.query(RegionalHazard).all()
+        active_bgp = db.query(BgpAnomaly).filter_by(is_resolved=False).all()
+
+    root_cause = {}
+    for site, data in clustered.items():
+        result = engine.calculate_root_cause(
+            site, data, active_weather, active_clouds, active_bgp, fleet
+        )
+        root_cause[site] = result
+
     chronic = engine.generate_chronic_insights()
     return {
         "clustered": clustered,
         "fleet_outages": fleet,
-        "root_cause": rca,
+        "root_cause": root_cause,
         "chronic_insights": chronic,
         "events": events,
     }
@@ -41,14 +56,18 @@ def acknowledge(alert_ids: list[int] = Body([])):
 
 
 @router.post("/dispatch")
-def dispatch(alert_ids: list[int] = Body([]), is_dispatched: bool = True):
-    svc.set_cluster_dispatch(alert_ids, is_dispatched)
+def dispatch(data: dict = Body(...)):
+    svc.set_cluster_dispatch(data.get("alert_ids", []), data.get("is_dispatched", True))
     return {"status": "ok"}
 
 
 @router.post("/site-maintenance")
-def site_maintenance(site_name: str = "", is_maint: bool = False, etr: str = None, reason: str = ""):
+def site_maintenance(data: dict = Body(...)):
     from datetime import datetime
+    site_name = data.get("site_name", "")
+    is_maint = data.get("is_maint", False)
+    etr = data.get("etr")
+    reason = data.get("reason", "")
     etr_date = datetime.fromisoformat(etr) if etr else None
     svc.set_site_maintenance(site_name, is_maint, etr_date, reason)
     return {"status": "ok"}
