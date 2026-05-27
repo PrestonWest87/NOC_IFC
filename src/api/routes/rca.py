@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Query, Body
+from fastapi import APIRouter, Depends, Query, Body, HTTPException
 from typing import Any
 
 from src import services as svc
@@ -8,6 +8,17 @@ from src.services.aiops_engine import EnterpriseAIOpsEngine
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/rca", tags=["rca"])
+
+
+def require_action(action: str):
+    def checker(token: str = Query("")):
+        user = svc.get_user_by_token(token)
+        if not user:
+            raise HTTPException(401, "Not authenticated")
+        if action not in (user.allowed_actions or []):
+            raise HTTPException(403, f"Missing permission: {action}")
+        return user
+    return checker
 
 
 @router.get("/dashboard")
@@ -56,13 +67,13 @@ def acknowledge(alert_ids: list[int] = Body([])):
 
 
 @router.post("/dispatch")
-def dispatch(data: dict = Body(...)):
+def dispatch(data: dict = Body(...), _=Depends(require_action("Action: Dispatch RCA Tickets"))):
     svc.set_cluster_dispatch(data.get("alert_ids", []), data.get("is_dispatched", True))
     return {"status": "ok"}
 
 
 @router.post("/site-maintenance")
-def site_maintenance(data: dict = Body(...)):
+def site_maintenance(data: dict = Body(...), _=Depends(require_action("Action: Manage Site Maintenance"))):
     from datetime import datetime
     site_name = data.get("site_name", "")
     is_maint = data.get("is_maint", False)

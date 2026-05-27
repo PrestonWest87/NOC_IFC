@@ -68,6 +68,9 @@ export function AiopsRcaPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const allowedRcaTabs = getAllowedTabs(user?.allowed_actions, "aiopsRca");
+  const userActions = user?.allowed_actions ?? [];
+  const canDispatch = userActions.includes("Action: Dispatch RCA Tickets");
+  const canManageMaint = userActions.includes("Action: Manage Site Maintenance");
   const RCA_TAB_LABELS = ["Active Board", "Patterns", "Global"];
   const [activeTab, setActiveTab] = useState(0);
   const [livePolling, setLivePolling] = useState(true);
@@ -609,31 +612,37 @@ export function AiopsRcaPage() {
 
                 <div style={{ marginBottom: "0.5rem" }}>
                   <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Status</div>
-                  <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer", marginBottom: "0.2rem" }}>
-                    <input type="radio" name="site-status-modal" value="Investigate/Dispatch"
-                      checked={dialogStatus === "Investigate/Dispatch"}
-                      onChange={(e) => setDialogStatus(e.target.value)}
-                      style={{ accentColor: "var(--accent-blue)" }}
-                    /> Investigate/Dispatch
-                  </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
-                    <input type="radio" name="site-status-modal" value="No Dispatch Needed"
-                      checked={dialogStatus === "No Dispatch Needed"}
-                      onChange={(e) => setDialogStatus(e.target.value)}
-                      style={{ accentColor: "var(--accent-blue)" }}
-                    /> No Dispatch Needed
-                  </label>
+                  {canDispatch && (
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer", marginBottom: "0.2rem" }}>
+                      <input type="radio" name="site-status-modal" value="Investigate/Dispatch"
+                        checked={dialogStatus === "Investigate/Dispatch"}
+                        onChange={(e) => setDialogStatus(e.target.value)}
+                        style={{ accentColor: "var(--accent-blue)" }}
+                      /> Investigate/Dispatch
+                    </label>
+                  )}
+                  {canManageMaint && (
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
+                      <input type="radio" name="site-status-modal" value="No Dispatch Needed"
+                        checked={dialogStatus === "No Dispatch Needed"}
+                        onChange={(e) => setDialogStatus(e.target.value)}
+                        style={{ accentColor: "var(--accent-blue)" }}
+                      /> No Dispatch Needed
+                    </label>
+                  )}
                 </div>
 
-                <div style={{ marginBottom: "0.5rem" }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
-                    <input type="checkbox"
-                      checked={dialogDispatch}
-                      onChange={(e) => setDialogDispatch(e.target.checked)}
-                      style={{ accentColor: "var(--accent-blue)" }}
-                    /> Ticket Dispatched
-                  </label>
-                </div>
+                {canDispatch && (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
+                      <input type="checkbox"
+                        checked={dialogDispatch}
+                        onChange={(e) => setDialogDispatch(e.target.checked)}
+                        style={{ accentColor: "var(--accent-blue)" }}
+                      /> Ticket Dispatched
+                    </label>
+                  </div>
+                )}
 
                 <div style={{ marginBottom: "0.4rem" }}>
                   <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.15rem" }}>ETR</div>
@@ -776,45 +785,49 @@ export function AiopsRcaPage() {
                   )}
 
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center", marginTop: "0.4rem" }}>
-                    <label
-                      style={{
-                        ...btnBase,
-                        background: "var(--bg-tertiary)",
-                        color: "var(--text-primary)",
-                        cursor: "pointer",
-                        gap: "0.4rem",
-                        fontSize: "0.8rem",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={dispatchVal}
-                        onChange={(e) => handleDispatchToggle(site, e.target.checked)}
-                        style={{ accentColor: "var(--accent-blue)", cursor: "pointer" }}
-                      />
-                      Ticket Dispatched
-                    </label>
+                    {canDispatch && (
+                      <label
+                        style={{
+                          ...btnBase,
+                          background: "var(--bg-tertiary)",
+                          color: "var(--text-primary)",
+                          cursor: "pointer",
+                          gap: "0.4rem",
+                          fontSize: "0.8rem",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={dispatchVal}
+                          onChange={(e) => handleDispatchToggle(site, e.target.checked)}
+                          style={{ accentColor: "var(--accent-blue)", cursor: "pointer" }}
+                        />
+                        Ticket Dispatched
+                      </label>
+                    )}
 
-                    <button
-                      style={{
-                        ...btnBase,
-                        background: "transparent",
-                        color: "var(--accent-blue)",
-                        border: "1px solid var(--accent-blue)",
-                      }}
-                      onClick={() => {
-                        if (ticketExpanded === site) {
-                          setTicketExpanded(null);
-                        } else {
-                          setTicketExpanded(site);
-                          if (!ticketTexts[site]) handleGenerateTicket(site);
-                        }
-                      }}
-                    >
-                      <FileText size={14} />
-                      {ticketExpanded === site ? "Hide Ticket" : "Draft & Dispatch Ticket"}
-                      {ticketExpanded === site ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                    </button>
+                    {canDispatch && (
+                      <button
+                        style={{
+                          ...btnBase,
+                          background: "transparent",
+                          color: "var(--accent-blue)",
+                          border: "1px solid var(--accent-blue)",
+                        }}
+                        onClick={() => {
+                          if (ticketExpanded === site) {
+                            setTicketExpanded(null);
+                          } else {
+                            setTicketExpanded(site);
+                            if (!ticketTexts[site]) handleGenerateTicket(site);
+                          }
+                        }}
+                      >
+                        <FileText size={14} />
+                        {ticketExpanded === site ? "Hide Ticket" : "Draft & Dispatch Ticket"}
+                        {ticketExpanded === site ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </button>
+                    )}
 
                     <button
                       style={{
@@ -831,36 +844,38 @@ export function AiopsRcaPage() {
                       {isAcking ? "Acknowledging..." : `Acknowledge Incident & Clear Board (${site})`}
                     </button>
 
-                    <button
-                      style={{
-                        ...btnBase,
-                        background: "transparent",
-                        color: "var(--accent-orange)",
-                        border: "1px solid var(--accent-orange)",
-                      }}
-                      onClick={() => {
-                        setMaintExpanded((prev) => (prev === site ? null : site));
-                        if (!maintForm[site]) {
-                          setMaintForm((prev) => ({
-                            ...prev,
-                            [site]: {
-                              status: siteInfo?.under_maintenance ? "Active Maintenance" : "No Maintenance",
-                              etr: siteInfo?.maintenance_etr
-                                ? new Date(siteInfo.maintenance_etr).toISOString().split("T")[0]
-                                : new Date().toISOString().split("T")[0],
-                              reason: siteInfo?.maintenance_reason ?? "",
-                            },
-                          }));
-                        }
-                      }}
-                    >
-                      <Wrench size={14} />
-                      {maintExpanded === site ? "Hide Maintenance" : "Maintenance Controls"}
-                      {maintExpanded === site ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                    </button>
+                    {canManageMaint && (
+                      <button
+                        style={{
+                          ...btnBase,
+                          background: "transparent",
+                          color: "var(--accent-orange)",
+                          border: "1px solid var(--accent-orange)",
+                        }}
+                        onClick={() => {
+                          setMaintExpanded((prev) => (prev === site ? null : site));
+                          if (!maintForm[site]) {
+                            setMaintForm((prev) => ({
+                              ...prev,
+                              [site]: {
+                                status: siteInfo?.under_maintenance ? "Active Maintenance" : "No Maintenance",
+                                etr: siteInfo?.maintenance_etr
+                                  ? new Date(siteInfo.maintenance_etr).toISOString().split("T")[0]
+                                  : new Date().toISOString().split("T")[0],
+                                reason: siteInfo?.maintenance_reason ?? "",
+                              },
+                            }));
+                          }
+                        }}
+                      >
+                        <Wrench size={14} />
+                        {maintExpanded === site ? "Hide Maintenance" : "Maintenance Controls"}
+                        {maintExpanded === site ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </button>
+                    )}
                   </div>
 
-                  {ticketExpanded === site && (
+                  {canDispatch && ticketExpanded === site && (
                     <div style={{ marginTop: "0.75rem", padding: "0.75rem", background: "var(--bg-tertiary)", borderRadius: "var(--radius-sm)" }}>
                       <div style={{ ...label, marginBottom: "0.3rem" }}>Ticket Notes / RCA Summary</div>
                       <textarea
@@ -901,7 +916,7 @@ export function AiopsRcaPage() {
                     </div>
                   )}
 
-                  {maintExpanded === site && (
+                  {canManageMaint && maintExpanded === site && (
                     <div style={{ marginTop: "0.75rem", padding: "0.75rem", background: "var(--bg-tertiary)", borderRadius: "var(--radius-sm)" }}>
                       <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
                         Maintenance Controls: {site}
