@@ -274,6 +274,7 @@ class SolarWindsAlert(Base):
     received_at = Column(DateTime, default=datetime.utcnow, index=True)
     resolved_at = Column(DateTime, nullable=True, index=True)
     is_dispatched = Column(Boolean, default=False, index=True)
+    is_ticketed = Column(Boolean, default=False, index=True)
     is_correlated = Column(Boolean, default=False, index=True)
     ai_root_cause = Column(Text, nullable=True)
     device_type = Column(String, default="Unknown", index=True)
@@ -303,6 +304,12 @@ class MonitoredLocation(Base):
     under_maintenance = Column(Boolean, default=False)
     maintenance_etr = Column(DateTime, nullable=True)
     maintenance_reason = Column(Text, nullable=True)
+    last_auto_ticket = Column(DateTime, nullable=True)
+    last_escalation_ticket = Column(DateTime, nullable=True)
+    last_auto_dispatch = Column(DateTime, nullable=True)
+    last_escalation_dispatch = Column(DateTime, nullable=True)
+    status_modified_by = Column(String, nullable=True)
+    status_modified_at = Column(DateTime, nullable=True)
 
 
 class CrimeIncident(Base):
