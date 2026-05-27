@@ -184,31 +184,36 @@ All fixes committed and pushed to `origin/Refactor-no-monolith`.
 
 ## Remaining Work — Port from Main
 
-### High Priority
+### Completed
 
-1. **Tiered Alert Escalation scheduler job** — Completely missing from refactor. Port `job_tiered_alert_escalation()` from main's `scheduler.py`:
+1. **Tiered Alert Escalation scheduler job** — Ported from main:
    - 24/7 RCA ticketing with business hours detection
    - P1-P5 SLA escalation logic (P1=30min, P2=1hr, P3=2hr, P4=4hr, P5=8hr)
-   - Smart on-call paging based on time of day
-   - Flapping node detection
-   - Boot sequence must call `sched.add_job(job_tiered_alert_escalation, 'interval', minutes=1)`
+   - Smart on-call paging (NOC vs ITNetwork for SWF devices)
+   - Flapping node detection via cooldown
+   - Cascade handling (escalated alerts override target)
+   - Site-level onpage mute via `last_escalation_ticket`
+   - Boot sequence calls `schedule.every(1).minutes.do(run_threaded, job_tiered_alert_escalation)`
 
-2. **Google Cloud outage date filtering** — `get_cloud_outages()` reports old unresolved outages (2-3 months ago). Fixes needed:
-   - Add `days_back` parameter to `get_cloud_outages()` in `services.py` (default: 7 days)
-   - Filter by `created_at >= cutoff` in query
-   - Update `/threat/cloud-outages` route to accept `days_back` query param
-   - Update `run_database_maintenance()` to also purge unresolved CloudOutages older than N days (not just resolved ones)
+2. **Google Cloud outage date filtering** — Fixed:
+   - Added `days_back` parameter to `get_cloud_outages()` (default: 7 days)
+   - Filter by `updated_at >= cutoff` in query
+   - `/threat/cloud-outages` route accepts `days_back` query param
+   - `run_database_maintenance()` purges unresolved CloudOutages older than 14 days
 
-3. **RSS article deduplication** — Currently only inline dedup via `known_links` set in scheduler. Port from main:
-   - Create `deduplicate_articles(session)` function in `services.py` that:
-     - Queries all articles within a time window for same `source_id`
-     - De-duplicates by `link` (keep oldest, delete newer duplicates)
-     - Also deduplicate by `title` similarity (Levenshtein or simple substring match)
-   - Call it from `run_database_maintenance()` and after feed fetch
+3. **RSS article deduplication** — Added `deduplicate_articles(session)` function:
+   - Removes exact link duplicates (concurrency edge cases)
+   - Removes near-duplicate titles (SequenceMatcher > 85%) within same source
+   - Called from `run_database_maintenance()` and after each feed fetch
 
-4. **Scheduler intervals — match main**:
+4. **Scheduler intervals — matched to main**:
    - Internal Risk: 6 hours → **1 hour**
    - Unified Brief: 2 hours → **30 minutes**
+
+### Model columns added
+- `is_ticketed` to `SolarWindsAlert` (used by escalation engine)
+- `last_auto_ticket`, `last_escalation_ticket`, `last_auto_dispatch`, `last_escalation_dispatch` to `MonitoredLocation`
+- `status_modified_by`, `status_modified_at` to `MonitoredLocation`
 
 ### Medium Priority
 
@@ -216,12 +221,7 @@ All fixes committed and pushed to `origin/Refactor-no-monolith`.
    - Add `alert_level` extraction in `smart_extract()` — pull `Alert_Level` from payload or child payload, map to P1-P5
    - Inject `Normalized_Alert_Level` into `raw_payload` before DB insert
 
-6. **MonitoredLocation missing columns** — Main has these columns managed via ALTER TABLE migrations (not in model class either, but queried at runtime):
-   - `last_auto_ticket`, `last_escalation_ticket`, `last_auto_dispatch`, `last_escalation_dispatch`
-   - `status_modified_by`, `status_modified_at`
-   - Add to `MonitoredLocation` model in `schema.py` + ALTER TABLE in `init_db()`
-
-7. **Article pagination verification** — `get_paginated_articles()` exists but verify:
+6. **Article pagination verification** — `get_paginated_articles()` exists but verify:
    - Frontend pagination controls work end-to-end
    - Page size respected (default 25)
    - Total count returned for UI rendering
@@ -229,7 +229,7 @@ All fixes committed and pushed to `origin/Refactor-no-monolith`.
 
 ### Low Priority
 
-8. **Frontend known issues**:
+7. **Frontend known issues**:
    - Production web container lacks source volume mount — all frontend changes require `docker compose up --build -d --force-recreate web`
    - Regional grid frontend accesses `compileResponse[3]` and `compileResponse[4]` — fragile array index pattern
 
