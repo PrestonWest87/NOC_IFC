@@ -216,7 +216,7 @@ def fetch_feeds(source="Scheduled"):
     gc.collect()
 
 def job_unified_brief():
-    """Auto-generates the Unified Risk Brief every 2 hours."""
+    """Auto-generates the Unified Risk Brief every 30 minutes."""
     log("[AI] Generating Executive Unified Risk Brief...", "SYSTEM")
     try:
         from src.utils.llm import generate_unified_risk_brief
@@ -616,12 +616,11 @@ if __name__ == "__main__":
     # 2. Map the Schedules to Threaded Wrappers
     schedule.every().sunday.at("02:00").do(run_threaded, job_retrain_ml)
     schedule.every(60).minutes.do(run_threaded, run_database_maintenance)
-    schedule.every(2).hours.do(run_threaded, job_unified_brief)
-    schedule.every(1).minutes.do(run_threaded, job_tiered_alert_escalation)
+    schedule.every(30).minutes.do(run_threaded, job_unified_brief)
     schedule.every(15).minutes.do(run_threaded, fetch_feeds)
     schedule.every(3).minutes.do(run_threaded, fetch_live_crimes)
     schedule.every(6).hours.do(run_threaded, fetch_cisa_kev)
-    schedule.every(6).hours.do(run_threaded, job_internal_risk)
+    schedule.every(1).hours.do(run_threaded, job_internal_risk)
     
     # High-Priority / High-Churn Telemetry
     schedule.every(2).minutes.do(run_threaded, fetch_regional_hazards)
