@@ -22,12 +22,6 @@ def geojson():
     }
 
 
-@router.get("/infrastructure-analytics")
-def infrastructure_analytics():
-    locs = svc.get_cached_locations()
-    return {"total_sites": len(locs), "at_risk_sites": 0, "highest_risk": "None"}
-
-
 @router.post("/compile-map")
 def compile_map(data: dict[str, Any] = Body({})):
     toggles = data.get("toggles", {})
@@ -73,7 +67,23 @@ def compile_map(data: dict[str, Any] = Body({})):
         v.pop("Hazards")
         toggled_affected_sites.append(v)
 
-    return [[], {}, cache["map_diagnostics"], toggled_affected_sites, cache["master_affected_sites"]]
+    master_affected_sites = cache["master_affected_sites"]
+
+    analytics = svc.get_infrastructure_analytics(map_df, master_affected_sites)
+    analytics_serialized = {
+        "total_sites": int(analytics["total_sites"]),
+        "at_risk_sites": int(analytics["at_risk_sites"]),
+        "highest_risk": str(analytics["highest_risk"]),
+        "spc_distribution": analytics["spc_distribution"].to_dict(orient="records") if not analytics["spc_distribution"].empty else [],
+        "nws_distribution": analytics["nws_distribution"].to_dict(orient="records") if not analytics["nws_distribution"].empty else [],
+        "type_distribution": analytics["type_distribution"].reset_index().to_dict(orient="records") if not analytics["type_distribution"].empty else [],
+        "district_distribution": analytics["district_distribution"].reset_index().to_dict(orient="records") if not analytics["district_distribution"].empty else [],
+        "priority_risk_matrix": analytics["priority_risk_matrix"].reset_index().to_dict(orient="records") if not analytics["priority_risk_matrix"].empty else [],
+        "type_risk_matrix": analytics["type_risk_matrix"].reset_index().to_dict(orient="records") if not analytics["type_risk_matrix"].empty else [],
+        "district_risk_matrix": analytics["district_risk_matrix"].reset_index().to_dict(orient="records") if not analytics["district_risk_matrix"].empty else [],
+    }
+
+    return [[], {}, cache["map_diagnostics"], toggled_affected_sites, master_affected_sites, analytics_serialized]
 
 
 @router.get("/weather-prefs")

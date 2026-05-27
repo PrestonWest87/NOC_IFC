@@ -215,12 +215,6 @@ export function RegionalGridPage() {
     refetchInterval: 120000,
   });
 
-  const { data: analytics } = useQuery({
-    queryKey: ["regional-analytics"],
-    queryFn: () => api.get("/regional/infrastructure-analytics").then(r => r.data),
-    refetchInterval: 120000,
-  });
-
   const { data: alertsLog = [] } = useQuery({
     queryKey: ["regional-alerts-log"],
     queryFn: () => api.get("/regional/weather-alerts-log").then(r => r.data),
@@ -309,13 +303,14 @@ export function RegionalGridPage() {
       const res = await api.post("/regional/compile-map", payload);
       return res.data;
     },
-    enabled: activeTab === "geospatial" && geojson != null,
+    enabled: (activeTab === "geospatial" || activeTab === "executive") && geojson != null,
     refetchInterval: 120000,
   });
 
   const compileResponse = compileResult as any;
   const toggledAffectedSites: any[] = Array.isArray(compileResponse) ? compileResponse[3] || [] : [];
   const masterAffectedSites: any[] = Array.isArray(compileResponse) ? compileResponse[4] || [] : [];
+  const analytics: any = Array.isArray(compileResponse) ? compileResponse[5] || null : null;
 
   // Map layers
   const mapLayers = useMemo(() => {
