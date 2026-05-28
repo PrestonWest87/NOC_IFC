@@ -215,17 +215,16 @@ All fixes committed and pushed to `origin/Refactor-no-monolith`.
 - `last_auto_ticket`, `last_escalation_ticket`, `last_auto_dispatch`, `last_escalation_dispatch` to `MonitoredLocation`
 - `status_modified_by`, `status_modified_at` to `MonitoredLocation`
 
-### Medium Priority
+### Completed
 
-5. **Webhook alert level normalization** — `Normalized_Alert_Level` no longer injected into SolarWinds payload. Port from main:
-   - Add `alert_level` extraction in `smart_extract()` — pull `Alert_Level` from payload or child payload, map to P1-P5
+5. **Webhook alert level normalization** — Fixed:
+   - Added `alert_level` extraction in `smart_extract()` — pulls `Alert_Level` from payload or `Custom_Properties_Universal`
    - Inject `Normalized_Alert_Level` into `raw_payload` before DB insert
+   - Added `AlertName` to event_type extraction chain
 
-6. **Article pagination verification** — `get_paginated_articles()` exists but verify:
-   - Frontend pagination controls work end-to-end
-   - Page size respected (default 25)
-   - Total count returned for UI rendering
-   - Category filter + pagination work together
+6. **Article pagination verification** — Fixed:
+   - Category filter was hardcoded to `"All"` in API route — added `cat_filter` query param wiring it to `get_paginated_articles()`. Frontend's category dropdown now works.
+   - Verfied: page clamping, total/total_pages in UI, independent per-tab page tracking, search page size dropdown all work
 
 ### Low Priority
 
