@@ -1154,7 +1154,7 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
     formatted_html = re.sub(r'>\s+<', '><', formatted_html) # Strip whitespace between tags
     formatted_html = formatted_html.strip()
 
-return formatted_html
+    return formatted_html
     
 def generate_outlook_html_report(intel):
     """Generates the static fallback report if the LLM generation fails or is bypassed."""
