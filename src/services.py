@@ -1027,41 +1027,46 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
         overall_risk = internal_risk
     
     color_map = {
-        "GREEN": "#01a46d",   # CIS Alert Level: Low
-        "BLUE": "#377fc7",    # CIS Alert Level: Guarded
-        "YELLOW": "#f5d800",  # CIS Alert Level: Elevated
-        "ORANGE": "#ff9b2b",  # CIS Alert Level: High
-        "RED": "#ec3e40",     # CIS Alert Level: Severe
-        "UNKNOWN": "#6c757d"  # Utility (Retained)
+    "GREEN": "#01a46d",   # CIS Alert Level: Low
+    "BLUE": "#377fc7",    # CIS Alert Level: Guarded
+    "YELLOW": "#f5d800",  # CIS Alert Level: Elevated
+    "ORANGE": "#ff9b2b",  # CIS Alert Level: High
+    "RED": "#ec3e40",     # CIS Alert Level: Severe
+    "UNKNOWN": "#6c757d"  # Utility (Retained)
     }
-    
+        
     overall_color = color_map.get(overall_risk, "#6c757d")
     global_color = color_map.get(global_risk, "#6c757d")
     internal_color = color_map.get(internal_risk, "#6c757d")
-
+    
     def native_md_to_html(text):
-        # Base formatting
-        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#2c3e50; margin-bottom:5px; margin-top:15px;">\1</h3>', text, flags=re.MULTILINE)
-        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#2980b9; margin-bottom:5px; border-bottom:1px solid #eee; margin-top:20px;">\1</h2>', text, flags=re.MULTILINE)
-        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#2c3e50;">\1</h1>', text, flags=re.MULTILINE)
-        text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
+        # Base formatting with STRICT INLINE STYLES (No CSS classes needed)
+        
+        # H1, H2, H3 Headings
+        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#111827; font-size: 22px; font-weight: 600; margin-bottom: 10px;">\1</h1>', text, flags=re.MULTILINE)
+        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#111827; font-size: 18px; font-weight: 600; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px; margin-top: 30px; margin-bottom: 15px;">\1</h2>', text, flags=re.MULTILINE)
+        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#374151; font-size: 16px; margin-bottom: 5px; margin-top: 15px;">\1</h3>', text, flags=re.MULTILINE)
+        
+        # Bold & Links
+        text = re.sub(r'\*\*(.*?)\*\*', r'<strong style="color: #111827;">\1</strong>', text)
         text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#3498db; text-decoration:none;">\1</a>', text)
-        text = re.sub(r'^\* (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
-        text = re.sub(r'^- (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
-        text = text.replace('\n', '<br>').replace('<br><br><h', '<br><h')
+        
+        # Lists (Using styled block elements to ensure clean spacing in email clients)
+        text = re.sub(r'^\* (.*?)$', r'<div style="margin-bottom: 8px; padding-left: 10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
+        text = re.sub(r'^- (.*?)$', r'<div style="margin-bottom: 8px; padding-left: 10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
+        
+        # Line breaks (Cleaned up to prevent excessive spacing around headers)
+        text = text.replace('\n', '<br>').replace('<br><br><h', '<br><h').replace('</div><br>', '</div>')
         
         # EMOJI STRIPPING REMOVED: Emojis will now pass through natively
         return text
-
+    
     raw_html = native_md_to_html(markdown_content)
     
-    # 2. Build the visual table banners (Outlook Safe)
-    # 2. Build the visual table banners (Corporate Leadership Design - Outlook Safe)
     # 1. HTML for the Risk Banners (3-column dashboard layout)
     banners_html = f"""
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 20px; table-layout: fixed;">
         <tr>
-            <!-- Unified Posture -->
             <td width="33%" align="center" valign="top" style="padding: 5px;">
                 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8f9fa; border: 1px solid #e5e7eb; border-radius: 8px;">
                     <tr>
@@ -1075,7 +1080,6 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
                 </table>
             </td>
             
-            <!-- Global Risk -->
             <td width="33%" align="center" valign="top" style="padding: 5px;">
                 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8f9fa; border: 1px solid #e5e7eb; border-radius: 8px;">
                     <tr>
@@ -1089,7 +1093,6 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
                 </table>
             </td>
             
-            <!-- Internal Risk -->
             <td width="33%" align="center" valign="top" style="padding: 5px;">
                 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8f9fa; border: 1px solid #e5e7eb; border-radius: 8px;">
                     <tr>
@@ -1105,67 +1108,27 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
         </tr>
     </table>
     """
-
-    # 2. Assemble Final HTML
-    # Note: Double curly braces {{ }} are used in the <style> block to escape Python f-strings.
+    
+    # 2. Assemble Final HTML (No <head>, no <style> tags)
     formatted_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <style>
-            /* This styles the injected markdown/HTML from {raw_html} to look professional */
-            .exec-content h2 {{
-                color: #111827;
-                font-size: 18px;
-                font-weight: 600;
-                border-bottom: 2px solid #e5e7eb;
-                padding-bottom: 8px;
-                margin-top: 30px;
-                margin-bottom: 15px;
-            }}
-            .exec-content p {{
-                margin-top: 0;
-                margin-bottom: 15px;
-                color: #374151;
-            }}
-            .exec-content ul {{
-                margin-top: 0;
-                margin-bottom: 20px;
-                padding-left: 20px;
-            }}
-            .exec-content li {{
-                margin-bottom: 10px;
-                color: #374151;
-            }}
-            .exec-content strong {{
-                color: #111827;
-            }}
-        </style>
-    </head>
-    <body style="margin: 0; padding: 20px; background-color: #f3f4f6;">
+    <div style="margin: 0; padding: 20px; background-color: #f3f4f6;">
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 850px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
             
-            <!-- Header Section -->
             <div style="background-color: #1f2937; padding: 25px 30px; text-align: left;">
                 <h1 style="color: #ffffff; margin: 0 0 5px 0; font-size: 22px; font-weight: 600; letter-spacing: -0.5px;">Executive Unified Risk Brief</h1>
                 <p style="color: #9ca3af; margin: 0; font-size: 13px;">Generated: {report_time}</p>
             </div>
             
-            <!-- Main Content Area -->
-            <div style="padding: 30px;">
+            <div style="padding: 30px; font-size: 14px; line-height: 1.6; color: #374151;">
                 
-                <!-- Risk Dashboard (Banners) -->
                 {banners_html}
                 
-                <!-- Injected Report Content -->
-                <div class="exec-content" style="font-size: 14px; line-height: 1.6; color: #374151;">
+                <div>
                     {raw_html}
                 </div>
                 
             </div>
             
-            <!-- Footer -->
             <div style="background-color: #f9fafb; padding: 20px 30px; text-align: center; border-top: 1px solid #e5e7eb;">
                 <p style="margin: 0; font-size: 12px; color: #6b7280; line-height: 1.5;">
                     This is an automated intelligence briefing generated by the internal NOC AIOps system.<br>
@@ -1174,8 +1137,7 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
             </div>
             
         </div>
-    </body>
-    </html>
+    </div>
     """
     return formatted_html
     
