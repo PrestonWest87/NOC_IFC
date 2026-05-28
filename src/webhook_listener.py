@@ -42,8 +42,9 @@ def smart_extract(payload: dict):
     extracted = {
         "node_name": nd.get("NodeName") or nd.get("SysName") or payload.get("entity_caption") or "Unknown",
         "ip_address": nd.get("IP_Address") or "Unknown",
-        "severity": payload.get("severity") or cp.get("Alert_Level") or "Unknown",
-        "event_type": payload.get("check") or payload.get("class") or payload.get("description") or "Unknown",
+        "severity": payload.get("severity") or cp.get("Severity") or "Unknown",
+        "alert_level": payload.get("Alert_Level") or cp.get("Alert_Level") or "Unknown",
+        "event_type": payload.get("AlertName") or payload.get("check") or payload.get("class") or payload.get("description") or "Unknown",
         "status": nd.get("StatusDescription") or payload.get("description") or "Unknown",
         "is_resolution": False,
         "device_type": nd.get("MachineType") or cp.get("Node_Type") or payload.get("entity_type") or "Unknown",
@@ -77,6 +78,8 @@ def process_payload_background(raw_payload: dict):
         try:
             parsed = smart_extract(raw_payload)
             mapped_site = parsed["site_group"] # Direct mapping from payload
+
+            raw_payload["Normalized_Alert_Level"] = parsed["alert_level"]
 
             if parsed["is_resolution"]:
                 active = db.query(SolarWindsAlert).filter(
