@@ -1060,25 +1060,25 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
     banners_html = f"""
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 15px;">
         <tr>
-            <td style="text-align: center; padding: 20px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
+            <td style="text-align: center; padding: 5px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
                 <h3 style="margin: 0; color: #333333; text-transform: uppercase; font-size: 15px; letter-spacing: 1px;">Unified Threat Posture</h3>
-                <div style="margin-top: 15px; padding: 10px 25px; background-color: {overall_color}; color: #ffffff; display: inline-block; font-size: 22px; font-weight: bold; border-radius: 4px;">
+                <div style="margin-top: 15px; padding: 2px 5px; background-color: {overall_color}; color: #ffffff; display: inline-block; font-size: 22px; font-weight: bold; border-radius: 4px;">
                     {overall_risk}
                 </div>
             </td>
         </tr>
     </table>
-    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 25px;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 5px;">
         <tr>
-            <td width="48%" style="text-align: center; padding: 15px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
+            <td width="48%" style="text-align: center; padding: 5px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
                 <h3 style="margin: 0; color: #333333; text-transform: uppercase; font-size: 13px; letter-spacing: 1px;">Global Risk</h3>
-                <div style="margin-top: 10px; padding: 8px 20px; background-color: {global_color}; color: #ffffff; display: inline-block; font-size: 16px; font-weight: bold; border-radius: 4px;">
+                <div style="margin-top: 5px; padding: 2px 5px; background-color: {global_color}; color: #ffffff; display: inline-block; font-size: 16px; font-weight: bold; border-radius: 4px;">
                     {global_risk}
                 </div>
             </td>
-            <td width="4%"></td> <td width="48%" style="text-align: center; padding: 15px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
+            <td width="4%"></td> <td width="48%" style="text-align: center; padding: 5px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
                 <h3 style="margin: 0; color: #333333; text-transform: uppercase; font-size: 13px; letter-spacing: 1px;">Internal Risk</h3>
-                <div style="margin-top: 10px; padding: 8px 20px; background-color: {internal_color}; color: #ffffff; display: inline-block; font-size: 16px; font-weight: bold; border-radius: 4px;">
+                <div style="margin-top: 5px; padding: 2px 5px; background-color: {internal_color}; color: #ffffff; display: inline-block; font-size: 16px; font-weight: bold; border-radius: 4px;">
                     {internal_risk}
                 </div>
             </td>
@@ -1089,13 +1089,13 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
     # 3. Assemble Final HTML
     formatted_html = f"""
     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 0 auto; color: #333; line-height: 1.5;">
-        <div style="background-color: #fcfcfc; padding: 20px; border-radius: 6px; border-left: 4px solid {overall_color}; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+        <div style="background-color: #fcfcfc; padding: 5px; border-radius: 6px; border-left: 4px solid {overall_color}; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
             <h2 style="color: #2c3e50; margin-top: 0; text-transform: uppercase;">Executive Unified Risk Brief</h2>
             <p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 20px;"><strong>Generated:</strong> {report_time}</p>
             
             {banners_html}
             
-            <div style="font-size: 14px; background-color: #ffffff; padding: 20px; border-radius: 4px; border: 1px solid #eee;">
+            <div style="font-size: 14px; background-color: #ffffff; padding: 5px; border-radius: 4px; border: 1px solid #eee;">
                 {raw_html}
             </div>
             
