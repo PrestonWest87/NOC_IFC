@@ -1034,16 +1034,15 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
     "RED": "#ec3e40",     # CIS Alert Level: Severe
     "UNKNOWN": "#6c757d"  # Utility (Retained)
     }
-        
+    
     overall_color = color_map.get(overall_risk, "#6c757d")
     global_color = color_map.get(global_risk, "#6c757d")
     internal_color = color_map.get(internal_risk, "#6c757d")
     
     def native_md_to_html(text):
-        # 1. Pre-clean: strip leading/trailing whitespace and normalize carriage returns
         text = text.replace('\r', '').strip()
         
-        # 2. Base formatting with STRICT INLINE STYLES
+        # Base formatting with STRICT INLINE STYLES
         text = re.sub(r'^# (.*?)$', r'<h1 style="color:#111827; font-size: 22px; font-weight: 600; margin-bottom: 10px; margin-top: 0;">\1</h1>', text, flags=re.MULTILINE)
         text = re.sub(r'^## (.*?)$', r'<h2 style="color:#111827; font-size: 18px; font-weight: 600; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px; margin-top: 25px; margin-bottom: 12px;">\1</h2>', text, flags=re.MULTILINE)
         text = re.sub(r'^### (.*?)$', r'<h3 style="color:#374151; font-size: 16px; margin-bottom: 5px; margin-top: 15px;">\1</h3>', text, flags=re.MULTILINE)
@@ -1056,15 +1055,11 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
         text = re.sub(r'^\* (.*?)$', r'<div style="margin-bottom: 6px; padding-left: 10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
         text = re.sub(r'^- (.*?)$', r'<div style="margin-bottom: 6px; padding-left: 10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
         
-        # 3. Handle Line Breaks Safely (The Spacing Fix)
-        # First, collapse 3+ newlines into just 2 to prevent endless gaps
+        # Handle Line Breaks Safely
         text = re.sub(r'\n{3,}', '\n\n', text)
-        
-        # Swap remaining newlines to <br>
         text = text.replace('\n', '<br>')
         
         # CLEANUP: Strip out <br> tags adjacent to block-level HTML elements 
-        # Because h1, h2, h3, and divs provide their own margins, they don't need <br> tags.
         text = re.sub(r'(<br>)*<h', '<h', text)
         text = re.sub(r'</h1>(<br>)*', '</h1>', text)
         text = re.sub(r'</h2>(<br>)*', '</h2>', text)
@@ -1076,7 +1071,7 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
     
     raw_html = native_md_to_html(markdown_content)
     
-    # 1. HTML for the Risk Banners (3-column dashboard layout)
+    # 1. HTML for the Risk Banners
     banners_html = f"""
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 25px; table-layout: fixed;">
         <tr>
@@ -1152,7 +1147,14 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
         </div>
     </div>
     """
-    return formatted_html
+    
+    # 3. THE OUTLOOK FIX: HTML Minification
+    # This strips out invisible newlines/tabs from the Python code so Outlook doesn't render them as space.
+    formatted_html = formatted_html.replace('\xa0', ' ') # Remove any accidentally pasted non-breaking spaces
+    formatted_html = re.sub(r'>\s+<', '><', formatted_html) # Strip whitespace between tags
+    formatted_html = formatted_html.strip()
+
+return formatted_html
     
 def generate_outlook_html_report(intel):
     """Generates the static fallback report if the LLM generation fails or is bypassed."""
