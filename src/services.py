@@ -1040,32 +1040,45 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
     internal_color = color_map.get(internal_risk, "#6c757d")
     
     def native_md_to_html(text):
-        # Base formatting with STRICT INLINE STYLES (No CSS classes needed)
+        # 1. Pre-clean: strip leading/trailing whitespace and normalize carriage returns
+        text = text.replace('\r', '').strip()
         
-        # H1, H2, H3 Headings
-        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#111827; font-size: 22px; font-weight: 600; margin-bottom: 10px;">\1</h1>', text, flags=re.MULTILINE)
-        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#111827; font-size: 18px; font-weight: 600; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px; margin-top: 30px; margin-bottom: 15px;">\1</h2>', text, flags=re.MULTILINE)
+        # 2. Base formatting with STRICT INLINE STYLES
+        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#111827; font-size: 22px; font-weight: 600; margin-bottom: 10px; margin-top: 0;">\1</h1>', text, flags=re.MULTILINE)
+        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#111827; font-size: 18px; font-weight: 600; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px; margin-top: 25px; margin-bottom: 12px;">\1</h2>', text, flags=re.MULTILINE)
         text = re.sub(r'^### (.*?)$', r'<h3 style="color:#374151; font-size: 16px; margin-bottom: 5px; margin-top: 15px;">\1</h3>', text, flags=re.MULTILINE)
         
         # Bold & Links
         text = re.sub(r'\*\*(.*?)\*\*', r'<strong style="color: #111827;">\1</strong>', text)
         text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#3498db; text-decoration:none;">\1</a>', text)
         
-        # Lists (Using styled block elements to ensure clean spacing in email clients)
-        text = re.sub(r'^\* (.*?)$', r'<div style="margin-bottom: 8px; padding-left: 10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
-        text = re.sub(r'^- (.*?)$', r'<div style="margin-bottom: 8px; padding-left: 10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
+        # Lists (Using styled block elements for exact Outlook spacing)
+        text = re.sub(r'^\* (.*?)$', r'<div style="margin-bottom: 6px; padding-left: 10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
+        text = re.sub(r'^- (.*?)$', r'<div style="margin-bottom: 6px; padding-left: 10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
         
-        # Line breaks (Cleaned up to prevent excessive spacing around headers)
-        text = text.replace('\n', '<br>').replace('<br><br><h', '<br><h').replace('</div><br>', '</div>')
+        # 3. Handle Line Breaks Safely (The Spacing Fix)
+        # First, collapse 3+ newlines into just 2 to prevent endless gaps
+        text = re.sub(r'\n{3,}', '\n\n', text)
         
-        # EMOJI STRIPPING REMOVED: Emojis will now pass through natively
+        # Swap remaining newlines to <br>
+        text = text.replace('\n', '<br>')
+        
+        # CLEANUP: Strip out <br> tags adjacent to block-level HTML elements 
+        # Because h1, h2, h3, and divs provide their own margins, they don't need <br> tags.
+        text = re.sub(r'(<br>)*<h', '<h', text)
+        text = re.sub(r'</h1>(<br>)*', '</h1>', text)
+        text = re.sub(r'</h2>(<br>)*', '</h2>', text)
+        text = re.sub(r'</h3>(<br>)*', '</h3>', text)
+        text = re.sub(r'(<br>)*<div style="margin-bottom: 6px', '<div style="margin-bottom: 6px', text)
+        text = re.sub(r'</div>(<br>)*', '</div>', text)
+        
         return text
     
     raw_html = native_md_to_html(markdown_content)
     
     # 1. HTML for the Risk Banners (3-column dashboard layout)
     banners_html = f"""
-    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 20px; table-layout: fixed;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 25px; table-layout: fixed;">
         <tr>
             <td width="33%" align="center" valign="top" style="padding: 5px;">
                 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8f9fa; border: 1px solid #e5e7eb; border-radius: 8px;">
@@ -1109,7 +1122,7 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
     </table>
     """
     
-    # 2. Assemble Final HTML (No <head>, no <style> tags)
+    # 2. Assemble Final HTML
     formatted_html = f"""
     <div style="margin: 0; padding: 20px; background-color: #f3f4f6;">
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 850px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
@@ -1119,7 +1132,7 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
                 <p style="color: #9ca3af; margin: 0; font-size: 13px;">Generated: {report_time}</p>
             </div>
             
-            <div style="padding: 30px; font-size: 14px; line-height: 1.6; color: #374151;">
+            <div style="padding: 30px 30px 10px 30px; font-size: 14px; line-height: 1.6; color: #374151;">
                 
                 {banners_html}
                 
