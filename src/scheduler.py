@@ -21,7 +21,7 @@ import gc
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 from datetime import datetime, timedelta
-from src.services import generate_and_save_internal_risk_snapshot
+from src.services import generate_and_save_internal_risk_snapshot, deduplicate_articles
 
 from src.database import (
     SessionLocal, Article, FeedSource, RegionalHazard, CloudOutage,
@@ -253,7 +253,6 @@ def job_internal_risk():
     """Wrapper to safely execute and log the internal risk calculation."""
     log("[SYSTEM] Generating Internal Risk Snapshot...", "SYSTEM")
     try:
-from src.services import generate_and_save_internal_risk_snapshot, deduplicate_articles
         cis_data = generate_and_save_internal_risk_snapshot()
         log("[OK] Internal Risk Snapshot generated successfully.", "SYSTEM")
 

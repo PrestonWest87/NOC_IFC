@@ -202,3 +202,28 @@ def init_db():
         logger.error(f"Database initialization error: {e}")
     finally:
         session.close()
+
+    # Seed default RSS feeds (adds if missing, safe for existing DBs)
+    try:
+        from src.models.schema import FeedSource
+        session2 = SessionLocal()
+        default_feeds = [
+            ("https://feeds.feedburner.com/TheHackersNews", "The Hacker News"),
+            ("https://krebsonsecurity.com/feed/", "Krebs on Security"),
+            ("https://www.bleepingcomputer.com/feed/", "BleepingComputer"),
+            ("https://feeds.a.dj.com/rss/RSSWorldNews.xml", "WSJ World News"),
+            ("https://www.cisa.gov/cybersecurity-advisories/feed.xml", "CISA Advisories"),
+            ("https://www.darkreading.com/rss.xml", "Dark Reading"),
+            ("https://therecord.media/feed/", "The Record"),
+        ]
+        added = 0
+        for url, name in default_feeds:
+            if not session2.query(FeedSource).filter_by(url=url).first():
+                session2.add(FeedSource(url=url, name=name, is_active=True))
+                added += 1
+        if added:
+            session2.commit()
+            logger.info(f"Added {added} default RSS feed sources.")
+        session2.close()
+    except Exception as e:
+        logger.warning(f"Could not seed default feeds: {e}")
