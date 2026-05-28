@@ -1057,53 +1057,125 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
     
     # 2. Build the visual table banners (Outlook Safe)
     # 2. Build the visual table banners (Corporate Leadership Design - Outlook Safe)
+    # 1. HTML for the Risk Banners (3-column dashboard layout)
     banners_html = f"""
-    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 15px;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 20px; table-layout: fixed;">
         <tr>
-            <td style="text-align: center; padding: 5px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
-                <h3 style="margin: 0; color: #333333; text-transform: uppercase; font-size: 15px; letter-spacing: 1px;">Unified Threat Posture</h3>
-                <div style="margin-top: 15px; padding: 2px 5px; background-color: {overall_color}; color: #ffffff; display: inline-block; font-size: 22px; font-weight: bold; border-radius: 4px;">
-                    {overall_risk}
-                </div>
+            <!-- Unified Posture -->
+            <td width="33%" align="center" valign="top" style="padding: 5px;">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8f9fa; border: 1px solid #e5e7eb; border-radius: 8px;">
+                    <tr>
+                        <td align="center" style="padding: 15px 10px;">
+                            <div style="font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Unified Posture</div>
+                            <div style="background-color: {overall_color}; color: #ffffff; font-size: 14px; font-weight: bold; padding: 6px 16px; border-radius: 20px; display: inline-block;">
+                                {overall_risk}
+                            </div>
+                        </td>
+                    </tr>
+                </table>
             </td>
-        </tr>
-    </table>
-    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 5px;">
-        <tr>
-            <td width="48%" style="text-align: center; padding: 5px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
-                <h3 style="margin: 0; color: #333333; text-transform: uppercase; font-size: 13px; letter-spacing: 1px;">Global Risk</h3>
-                <div style="margin-top: 5px; padding: 2px 5px; background-color: {global_color}; color: #ffffff; display: inline-block; font-size: 16px; font-weight: bold; border-radius: 4px;">
-                    {global_risk}
-                </div>
+            
+            <!-- Global Risk -->
+            <td width="33%" align="center" valign="top" style="padding: 5px;">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8f9fa; border: 1px solid #e5e7eb; border-radius: 8px;">
+                    <tr>
+                        <td align="center" style="padding: 15px 10px;">
+                            <div style="font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Global Risk</div>
+                            <div style="background-color: {global_color}; color: #ffffff; font-size: 14px; font-weight: bold; padding: 6px 16px; border-radius: 20px; display: inline-block;">
+                                {global_risk}
+                            </div>
+                        </td>
+                    </tr>
+                </table>
             </td>
-            <td width="4%"></td> <td width="48%" style="text-align: center; padding: 5px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
-                <h3 style="margin: 0; color: #333333; text-transform: uppercase; font-size: 13px; letter-spacing: 1px;">Internal Risk</h3>
-                <div style="margin-top: 5px; padding: 2px 5px; background-color: {internal_color}; color: #ffffff; display: inline-block; font-size: 16px; font-weight: bold; border-radius: 4px;">
-                    {internal_risk}
-                </div>
+            
+            <!-- Internal Risk -->
+            <td width="33%" align="center" valign="top" style="padding: 5px;">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8f9fa; border: 1px solid #e5e7eb; border-radius: 8px;">
+                    <tr>
+                        <td align="center" style="padding: 15px 10px;">
+                            <div style="font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Internal Risk</div>
+                            <div style="background-color: {internal_color}; color: #ffffff; font-size: 14px; font-weight: bold; padding: 6px 16px; border-radius: 20px; display: inline-block;">
+                                {internal_risk}
+                            </div>
+                        </td>
+                    </tr>
+                </table>
             </td>
         </tr>
     </table>
     """
 
-    # 3. Assemble Final HTML
+    # 2. Assemble Final HTML
+    # Note: Double curly braces {{ }} are used in the <style> block to escape Python f-strings.
     formatted_html = f"""
-    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 0 auto; color: #333; line-height: 1.5;">
-        <div style="background-color: #fcfcfc; padding: 5px; border-radius: 6px; border-left: 4px solid {overall_color}; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <h2 style="color: #2c3e50; margin-top: 0; text-transform: uppercase;">Executive Unified Risk Brief</h2>
-            <p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 20px;"><strong>Generated:</strong> {report_time}</p>
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            /* This styles the injected markdown/HTML from {raw_html} to look professional */
+            .exec-content h2 {{
+                color: #111827;
+                font-size: 18px;
+                font-weight: 600;
+                border-bottom: 2px solid #e5e7eb;
+                padding-bottom: 8px;
+                margin-top: 30px;
+                margin-bottom: 15px;
+            }}
+            .exec-content p {{
+                margin-top: 0;
+                margin-bottom: 15px;
+                color: #374151;
+            }}
+            .exec-content ul {{
+                margin-top: 0;
+                margin-bottom: 20px;
+                padding-left: 20px;
+            }}
+            .exec-content li {{
+                margin-bottom: 10px;
+                color: #374151;
+            }}
+            .exec-content strong {{
+                color: #111827;
+            }}
+        </style>
+    </head>
+    <body style="margin: 0; padding: 20px; background-color: #f3f4f6;">
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 850px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
             
-            {banners_html}
-            
-            <div style="font-size: 14px; background-color: #ffffff; padding: 5px; border-radius: 4px; border: 1px solid #eee;">
-                {raw_html}
+            <!-- Header Section -->
+            <div style="background-color: #1f2937; padding: 25px 30px; text-align: left;">
+                <h1 style="color: #ffffff; margin: 0 0 5px 0; font-size: 22px; font-weight: 600; letter-spacing: -0.5px;">Executive Unified Risk Brief</h1>
+                <p style="color: #9ca3af; margin: 0; font-size: 13px;">Generated: {report_time}</p>
             </div>
             
-            <div style="margin-top: 25px; text-align: center; font-size: 11px; color: #999999;">
-                This is an automated intelligence briefing generated by the internal NOC AIOps system.<br>Please do not reply directly to this email.
+            <!-- Main Content Area -->
+            <div style="padding: 30px;">
+                
+                <!-- Risk Dashboard (Banners) -->
+                {banners_html}
+                
+                <!-- Injected Report Content -->
+                <div class="exec-content" style="font-size: 14px; line-height: 1.6; color: #374151;">
+                    {raw_html}
+                </div>
+                
             </div>
+            
+            <!-- Footer -->
+            <div style="background-color: #f9fafb; padding: 20px 30px; text-align: center; border-top: 1px solid #e5e7eb;">
+                <p style="margin: 0; font-size: 12px; color: #6b7280; line-height: 1.5;">
+                    This is an automated intelligence briefing generated by the internal NOC AIOps system.<br>
+                    Please do not reply directly to this email.
+                </p>
+            </div>
+            
         </div>
-    </div>
+    </body>
+    </html>
     """
     return formatted_html
     
