@@ -3319,6 +3319,22 @@ elif page == "Settings & Admin":
                         }
                         svc.save_global_config(new_config)
                         st.success("Configuration Saved!"); time.sleep(1); safe_rerun()
+
+
+                st.divider()
+                st.markdown("### 🧪 Diagnostic Triggers")
+                st.caption("Manually execute scheduled background jobs to verify formatting and SMTP configuration.")
+                
+                is_manual_brief_cooling = check_cooldown("manual_daily_brief", 60)
+                if st.button("Trigger Daily Unified Brief Email Now", type="primary", width="stretch", disabled=is_manual_brief_cooling):
+                    apply_cooldown("manual_daily_brief")
+                    with st.spinner("Executing background job (this may take a minute)..."):
+                        try:
+                            from src.scheduler import job_daily_email_unified_brief
+                            job_daily_email_unified_brief()
+                            st.success("Job triggered! Please check the terminal logs for transmission status and check your inbox.")
+                        except Exception as e:
+                            st.error(f"Failed to execute job: {e}")
             set_idx += 1
 
         if "Tab: Settings -> Users & Roles" in st.session_state.allowed_actions:
