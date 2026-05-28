@@ -1058,63 +1058,53 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
     # 2. Build the visual table banners (Outlook Safe)
     # 2. Build the visual table banners (Corporate Leadership Design - Outlook Safe)
     banners_html = f"""
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 15px;">
+        <tr>
+            <td style="text-align: center; padding: 20px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
+                <h3 style="margin: 0; color: #333333; text-transform: uppercase; font-size: 15px; letter-spacing: 1px;">Unified Threat Posture</h3>
+                <div style="margin-top: 15px; padding: 10px 25px; background-color: {overall_color}; color: #ffffff; display: inline-block; font-size: 22px; font-weight: bold; border-radius: 4px;">
+                    {overall_risk}
+                </div>
+            </td>
+        </tr>
+    </table>
     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 25px;">
         <tr>
-            <td width="32%" style="text-align: center; padding: 20px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
-                <span style="display: block; color: #64748b; text-transform: uppercase; font-size: 11px; font-weight: 700; letter-spacing: 1.5px; margin-bottom: 8px;">Global Posture</span>
-                <div style="padding: 6px 15px; background-color: {global_color}; color: #ffffff; display: inline-block; font-size: 15px; font-weight: bold; border-radius: 4px;">
+            <td width="48%" style="text-align: center; padding: 15px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
+                <h3 style="margin: 0; color: #333333; text-transform: uppercase; font-size: 13px; letter-spacing: 1px;">Global Risk</h3>
+                <div style="margin-top: 10px; padding: 8px 20px; background-color: {global_color}; color: #ffffff; display: inline-block; font-size: 16px; font-weight: bold; border-radius: 4px;">
                     {global_risk}
                 </div>
             </td>
-            <td width="2%"></td>
-            <td width="32%" style="text-align: center; padding: 20px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
-                <span style="display: block; color: #64748b; text-transform: uppercase; font-size: 11px; font-weight: 700; letter-spacing: 1.5px; margin-bottom: 8px;">Internal Asset Risk</span>
-                <div style="padding: 6px 15px; background-color: {internal_color}; color: #ffffff; display: inline-block; font-size: 15px; font-weight: bold; border-radius: 4px;">
+            <td width="4%"></td> <td width="48%" style="text-align: center; padding: 15px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
+                <h3 style="margin: 0; color: #333333; text-transform: uppercase; font-size: 13px; letter-spacing: 1px;">Internal Risk</h3>
+                <div style="margin-top: 10px; padding: 8px 20px; background-color: {internal_color}; color: #ffffff; display: inline-block; font-size: 16px; font-weight: bold; border-radius: 4px;">
                     {internal_risk}
-                </div>
-            </td>
-            <td width="2%"></td>
-            <td width="32%" style="text-align: center; padding: 20px; background-color: #f8fafc; border: 2px solid {overall_color}; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                <span style="display: block; color: #334155; text-transform: uppercase; font-size: 12px; font-weight: 800; letter-spacing: 1px; margin-bottom: 8px;">Unified Risk Level</span>
-                <div style="color: {overall_color}; font-size: 22px; font-weight: 900; letter-spacing: 0.5px;">
-                    {overall_risk}
                 </div>
             </td>
         </tr>
     </table>
     """
 
-    # 3. Assemble Final Corporate HTML
+    # 3. Assemble Final HTML
     formatted_html = f"""
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 850px; margin: 0 auto; background-color: #f1f5f9; padding: 20px;">
-        <div style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);">
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 0 auto; color: #333; line-height: 1.5;">
+        <div style="background-color: #fcfcfc; padding: 20px; border-radius: 6px; border-left: 4px solid {overall_color}; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <h2 style="color: #2c3e50; margin-top: 0; text-transform: uppercase;">Executive Unified Risk Brief</h2>
+            <p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 20px;"><strong>Generated:</strong> {report_time}</p>
             
-            <div style="background-color: #0f172a; padding: 30px; text-align: left; border-top: 5px solid {overall_color};">
-                <h1 style="color: #f8fafc; margin: 0 0 5px 0; font-size: 24px; font-weight: 600; letter-spacing: 0.5px;">Executive Unified Risk Brief</h1>
-                <p style="color: #94a3b8; font-size: 13px; margin: 0;"><strong>Generated:</strong> {report_time}</p>
+            {banners_html}
+            
+            <div style="font-size: 14px; background-color: #ffffff; padding: 20px; border-radius: 4px; border: 1px solid #eee;">
+                {raw_html}
             </div>
             
-            <div style="padding: 30px;">
-                {banners_html}
-                
-                <div style="font-size: 15px; color: #334155; line-height: 1.6; background-color: #ffffff;">
-                    {raw_html}
-                </div>
+            <div style="margin-top: 25px; text-align: center; font-size: 11px; color: #999999;">
+                This is an automated intelligence briefing generated by the internal NOC AIOps system.<br>Please do not reply directly to this email.
             </div>
-            
-            <div style="background-color: #f8fafc; padding: 20px; text-align: center; border-top: 1px solid #e2e8f0;">
-                <p style="margin: 0; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">
-                    NOC Intelligence Fusion Center • Automated AI Briefing
-                </p>
-                <p style="margin: 5px 0 0 0; font-size: 11px; color: #94a3b8;">
-                    This is an automated intelligence briefing. Please do not reply directly to this email.
-                </p>
-            </div>
-            
         </div>
     </div>
     """
-    return formatted_html
     return formatted_html
     
 def generate_outlook_html_report(intel):
