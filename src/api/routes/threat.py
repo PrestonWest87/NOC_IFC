@@ -25,13 +25,14 @@ def list_crime_incidents(hours_back: int = Query(24, ge=1, le=168), max_distance
 @router.get("/articles")
 def list_articles(
     category: str = Query("live", pattern="^(live|pinned|low|search)$"),
+    cat_filter: str = Query("All"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=5, le=100),
     search_term: str = Query(None),
     min_score: int = Query(0, ge=0),
 ):
     items, total, total_pages, current = svc.get_paginated_articles(
-        category, "All", page, page_size, search_term, min_score
+        category, cat_filter, page, page_size, search_term, min_score
     )
     return {"items": items, "total": total, "total_pages": total_pages, "page": current}
 
