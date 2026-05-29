@@ -12,7 +12,7 @@ NPM package manifest for the React/TypeScript frontend. Declares project metadat
 |-------|-------|-------------|
 | `name` | `noc-fusion-frontend` | Package name. Not published to any registry — marked `"private": true`. |
 | `private` | `true` | Prevents accidental publication to the npm registry. |
-| `version` | `2.0.0` | Semantic version. Version 2 corresponds to the refactored architecture (refactor-no-monolith branch). |
+| `version` | `2.0.0` | Semantic version. Version 2 corresponds to the decoupled architecture (architecture/monolith-to-decoupled branch). |
 | `type` | `module` | Treats all `.js`/`.ts` files as ES modules by default. Enables `import`/`export` syntax without `.mjs` extensions. |
 
 ## Scripts

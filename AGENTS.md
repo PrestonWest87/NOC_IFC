@@ -4,7 +4,7 @@
 
 Enterprise intelligence HUD for Network Operations Centers. Ingests RSS feeds, weather/telemetry data, crime incidents, and generates AI-powered reports.
 
-Branch `refactor-no-monolith` — a complete rewrite from main's Streamlit monolithic app to a decoupled FastAPI + React SPA.
+Branch `architecture/monolith-to-decoupled` — a complete rewrite from main's Streamlit monolithic app to a decoupled FastAPI + React SPA. Full enterprise-grade documentation available in `Documentation/`.
 
 ## Architecture
 
@@ -128,7 +128,7 @@ Prefix: `/api/v1/`
 | Unified Brief | 2 hours | **30 min** | Main runs 4x more often — should match |
 | DB Maintenance | 60 min | 60 min | Same |
 | ML Retrain | Sunday 02:00 | Sunday 02:00 | Same |
-| **Tiered Alert Escalation** | **REMOVED** | **1 min** | **Must be ported from main** |
+| Tiered Alert Escalation | **1 min** | **1 min** | Ported from main — requires `REMEDYFORCE_TICKET_EMAIL` env var |
 
 ## Risk Levels
 
@@ -152,7 +152,7 @@ The application uses CSS custom properties for theming. All components use inlin
 
 ## Completed Work
 
-All fixes committed and pushed to `origin/Refactor-no-monolith`.
+All fixes committed and pushed to `origin/architecture/monolith-to-decoupled`.
 
 ### AIOps RCA Page — Popup Save + Dispatch/Maintenance
 
@@ -224,7 +224,15 @@ All fixes committed and pushed to `origin/Refactor-no-monolith`.
 
 6. **Article pagination verification** — Fixed:
    - Category filter was hardcoded to `"All"` in API route — added `cat_filter` query param wiring it to `get_paginated_articles()`. Frontend's category dropdown now works.
-   - Verfied: page clamping, total/total_pages in UI, independent per-tab page tracking, search page size dropdown all work
+   - Verified: page clamping, total/total_pages in UI, independent per-tab page tracking, search page size dropdown all work
+
+7. **Keyword seeding + article rescoring** — Fixed:
+   - Seeded 70 default NOC/cybersecurity keywords in `init_db()` (ransomware 90, breach 85, exploit 80, etc.)
+   - Added `rescore_all_articles()` in `services.py` — re-scores every article using current keywords + categorizer + IOC extractor
+   - Called from `init_db()` after keyword seeding — 149 existing articles rescored on container start
+   - Live tab now shows **154 articles across 8 pages** (was 0 due to empty keyword table)
+   - Fixed CISA Advisories feed URL: `feed.xml` (404) → `all.xml` (works)
+   - Removed stale broken CISA feed entry from DB
 
 ### Low Priority
 
@@ -234,8 +242,9 @@ All fixes committed and pushed to `origin/Refactor-no-monolith`.
 
 ## Critical Context
 
+- **Keywords must be seeded for scorer**: `init_db()` seeds 70 keywords + rescales all existing articles. Rebuild API container after DB reset to trigger re-seed.
 - **Domain names must be consistent**: engine, webhook classifier, and all conditionals use `PRIMARY_INTERNET`, `COMMS_EQUIPMENT`, `POWER_SUPPLIES`, `RTU`, `SCADA`, `COMPUTE`, `FACILITIES`
 - **Permission strings**: `Action: Dispatch RCA Tickets` and `Action: Manage Site Maintenance` must match exactly in backend and frontend
 - **`web` container has no source mount**: rebuild with `docker compose up --build -d --force-recreate web` after frontend changes
 - **compile-map response**: returns `[layers[], viewState{}, diagnostics[], toggled_affected[], master_affected[], analytics{}]` — frontend accesses by index
-- **All fixes on `refactor-no-monolith`**: working tree clean, pushed to `origin/Refactor-no-monolith`
+- **All fixes on `architecture/monolith-to-decoupled`**: working tree clean, pushed to `origin/architecture/monolith-to-decoupled`

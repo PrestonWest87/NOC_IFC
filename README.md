@@ -1,253 +1,246 @@
-# 🌐 NOC Intelligence Fusion Center
+# NOC Intelligence Fusion Center
 
-An enterprise-grade, AI-powered intelligence aggregator and Heads-Up Display (HUD) built for Network Operations Centers. This platform ingests real-time telemetry from hundreds of RSS feeds, CISA vulnerabilities, 18+ global cloud infrastructure providers, regional utility grids, global BGP routing tables, **geofenced local law enforcement CAD APIs**, and **internal hardware/software asset inventories**. 
+Enterprise intelligence Heads-Up Display (HUD) for Network Operations Centers. Ingests multi-domain telemetry from RSS feeds, CISA vulnerabilities, cloud infrastructure providers, regional weather grids, BGP routing tables, law enforcement CAD feeds, and internal asset inventories. A hybrid intelligence engine combining machine learning classification, deterministic regex scoring, causal correlation analysis, and edge-optimized large language models provides automated threat synthesis and root cause analysis.
 
-It utilizes a highly optimized hybrid intelligence engine—combining Scikit-Learn Machine Learning for threat scoring, pre-compiled Regex for **Term-Hit Density** triage, strict deterministic algorithms for causal correlation, and edge-optimized LLMs for automated Map-Reduce synthesis—to cut through alert fatigue and deliver actionable intelligence.
+## Architecture
 
----
+The platform has been restructured from a monolithic Streamlit application into a decoupled service-oriented architecture comprising four containerized services.
 
-## 🏗️ Core Architecture
-
-* **Frontend (`web`):** Streamlit (Python) running interactive, zero-scroll dashboards with context-aware real-time asynchronous polling, dynamic cookie-persistent UI theming, and an integrated UI Debouncing/Cooldown Engine to protect backend resources.
-* **Service-Oriented Architecture (SOA):** A strict Data Access Layer (`services.py`) that completely decouples the Streamlit UI from SQLAlchemy ORM models, utilizing detached `DotDict` patterns and aggressive RAM caching to prevent detached instance crashes and database locking.
-* **Background Orchestration (`worker`):** A headless daemon driving a Master Scheduler that bypasses Python's GIL using a Hybrid Concurrency Model (Asynchronous I/O combined with Multiprocessing via `ProcessPoolExecutor`).
-* **Ingestion Gateway (`webhook`):** A dedicated FastAPI asynchronous listener hosting REST APIs to receive, parse, and normalize live ITSM telemetry (e.g., SolarWinds) without blocking the UI.
-* **Database (`database.py`):** Defaults to a lightweight SQLite database pushed to the limit via low-level C-library pragmas (Write-Ahead Logging, in-memory temp stores, and memory-mapped files) for extreme edge-compute concurrency.
-* **Synthesis & Broadcast (`llm.py`):** A universal LLM abstraction layer heavily tuned for Local Edge Compute (Ollama, LM Studio) utilizing adaptive chunking, strict temperature controls, and Map-Reduce pipelines to prevent VRAM context-window overflows.
-
----
-
-## 🖥️ Modules & Functional Capabilities (UI Deep Dive)
-
-The application routes operators between 8 distinct operational modules based on their assigned Role-Based Access Control (RBAC) permissions.
-
-### 1. 👁️ Global Dashboards
-High-level strategic views aggregating telemetry across all domains.
-* **Operational Dashboard:** Displays 24-hour KPIs. Houses auto-rotating panels for "Threat Triage" (Pinned/Live intel), "Infrastructure Status" (Active Cloud Outages, CVEs, Hazards), and an "AI Analysis" panel featuring an LLM-powered rolling summary and AI Security Auditor.
-* **Global Risk (Executive Matrix):** Evaluates live unified threat posture (Cyber + Physical) against a 14-Day Baseline Deviation Trend utilizing the MS-ISAC/CIS Alert Framework (GREEN to RED). 
-* **Internal Risk (Asset Posture):** Tracks the organization's hardware and software footprint against active OSINT threats, producing a localized risk score and highlighting critical asset exposures via historical trend lines.
-* **Unified Brief:** Displays an autonomous Map-Reduce narrative that merges the Global OSINT Threat with the Internal Asset Risk Matrix into a single macroscopic brief (auto-updates every 2 hours).
-
-### 2. 📡 Threat Telemetry
-The primary ingestion view for global and perimeter open-source intelligence.
-* **RSS Triage:** Implements advanced pagination logic to gracefully render thousands of threat articles across "Pinned", "Live", "Low", and "Search" sub-tabs. Operators can manually pin, boost, or send articles to the ML training queue.
-* **Exploits (KEV):** An offline, heavily indexed mirror of the CISA Known Exploited Vulnerabilities catalog.
-* **Cloud Services:** Monitors 18+ active IaaS/SaaS status pages (AWS, Azure, GCP, Datadog, etc.) to detect upstream dependencies affecting the NOC.
-* **Perimeter Crime:** Renders a 3D PyDeck map of localized law enforcement dispatch data geofenced around HQ. Features dynamic radius filtering (1, 3, 5, or 10 miles) and interactive row-selection that auto-zooms to specific kinetic threats.
-
-### 3. 🗺️ Regional Grid
-Advanced geospatial intelligence engine tracking environmental and kinetic threats to physical infrastructure.
-* **Geospatial Map:** Deep PyDeck integration overlaying authorized NOC facilities with active SPC Convective outlooks, NWS Warnings/Watches, NIFC Active Wildfires, and NWS Red Flag warnings. Includes an embedded live precipitation radar.
-* **Executive Dash:** Uses Plotly pie and bar charts to present critical infrastructure exposure by District, Priority, and Threat Type, alongside an AI Meteorological Briefing generator.
-* **Deep Hazard Analytics:** Provides an intersectional dataset displaying exactly which facilities sit inside specific storm geometries.
-* **Location Matrix & Alerts Log:** Raw data tables providing deep-dive inspection windows into explicit NWS action instructions and coordinates.
-
-### 4. 🎯 Threat Hunting & IOCs
-Proactive detection engineering and indicator extraction tools.
-* **Live Global IOC Matrix:** Displays autonomously extracted IOCs (IPv4, SHA256, CVE) with hyperlinked "OSINT Pivots" to external tools like VirusTotal and Shodan, fully exportable to CSV.
-* **Deep Hunt Builder:** Takes a target entity (e.g., "Volt Typhoon"), queries historical telemetry, and instructs the LLM to generate custom Splunk/SIEM queries, MITRE mappings, and YARA rules.
-
-### 5. ⚡ AIOps RCA (Root Cause Analysis)
-A near real-time self-healing correlation engine mapping raw network alerts against physical realities.
-* **Active Board:** Renders an auto-focusing map of alerting locations. Evaluates topology using the **Supreme Patient Zero Algorithm** (Topological Tier + Severity + Time Offset) to find the root cause. Integrates **Global Fleet Event Detection** (warning of massive carrier outages) and features a dynamic ticket dispatch system that drafts LLM correlation narratives direct to ITSM platforms.
-* **Predictive Analytics:** Executes heavy Pandas aggregations to highlight specific nodes experiencing state-flapping and sites suffering from chronic instability over 60-day historical periods.
-* **Global Correlation:** Deterministically graphs causal links between external global intelligence and internal network telemetry drops.
-
-### 6. 📝 Shift Logbook
-A tactical operations tool replacing external notepads, driven by AI Map-Reduce.
-* **Active Shift Entry:** Analysts log manual updates or utilize the "Auto-Draft Active Outages" engine, which polls the AIOps Engine to calculate and format active outage downtimes.
-* **Persistent Daily Summaries:** Autonomously generates "End of Morning" and "End of Day" handoff reports using the LLM. 
-* **Aggregated Executive Summaries:** Allows operators to target specific organizational roles (e.g., TOC vs. NOC) and run deep LLM analyses summarizing historical logs across an entire "Current Week" or "Current Month."
-* **Log Explorer:** A dynamic day/week calendar interface featuring soft-delete auditing, modal expansions, and an Admin CSV export utility.
-
-### 7. 📑 Reporting & Briefings
-Automated and manual intelligence synthesis pipelines.
-* **Daily Fusion Briefing:** An archive of automated AI-synthesized situational reports covering Cyber, Physical, and Cloud telemetry, natively converting Markdown into inline-CSS HTML for enterprise Outlook delivery.
-* **Custom Report Builder:** A multi-select interface allowing analysts to manually aggregate database articles into a targeted LLM pipeline.
-* **Shared Library:** An organizational repository for saving and reviewing generated custom reports.
-
-### 8. ⚙️ Settings & Admin
-The control plane for system maintenance and access management.
-* **Facilities & Internal Assets:** Bulk JSON/CSV importers to manage Monitored Locations, Hardware tracking, and Software footprints.
-* **RSS Sources & ML Training:** General database mutation, keyword weighting, and Scikit-Learn neural weight re-calibration interfaces.
-* **AI & SMTP:** Manages LLM endpoints, tech stack inputs, mail servers, and custom baseline overrides for the Executive Threat Matrix.
-* **Users & Roles (Geographic RBAC):** Granular controls allowing admins to craft custom roles mapped to specific pages, UI actions, and explicitly `allowed_site_types` (geographically or operationally restricting the map layers for specific users).
-* **Backup & Restore:** Generates and imports master JSON backups containing keywords, feeds, and locations.
-* **Danger Zone:** Houses destructive tools to run the Garbage Collector, clear crime/weather telemetry arrays, apply taxonomy migrations, or trigger full factory database resets. 
-* **Black Ops:** Undocumented operational tools (*Operation: Nick* and *Operation: Dean*) used for targeted UI locking or cascading failure mock drills.
-
----
-
-## 🧠 Background Engines & Workflows
-
-### The Hybrid Concurrency Scheduler (`scheduler.py`)
-Bypasses the Python Global Interpreter Lock (GIL) to maintain high throughput.
-* **Async I/O (`aiohttp`):** Handles high-latency, low-CPU network requests (polling hundreds of RSS feeds, NWS API, LRPD dispatch API) concurrently every 5 to 15 minutes.
-* **Multiprocessing (`ProcessPoolExecutor`):** Offloads heavy CPU-bound analytical tasks—such as calculating Haversine distances or running TF-IDF matrix predictions—to separate CPU cores, ensuring the primary scheduler loop never stalls.
-
-### Geospatial Bounding-Box Math (`services.py`)
-Before executing CPU-intensive point-in-polygon math (`site_pt.within(shape)`), the algorithm extracts the strict min/max boundaries of every weather polygon. It runs a pure float-math evaluation (`minx <= lon <= maxx`). If the facility is not inside the rough square of the storm, it skips the expensive Shapely math. This allows the system to evaluate thousands of IT locations against national weather systems instantly without UI latency.
-
-### The "Donut of Uncertainty" Geocoding (`crime_worker.py`)
-Automatically polls local CAD APIs. Uses ArcGIS Geocoding to translate addresses to Lat/Lon. If the third-party API fails or times out, the engine executes a mathematical fallback, generating a random radial offset (between 0.009 and 0.018 degrees) from HQ, ensuring the incident is still plotted on the UI map with an `(Approx Loc)` flag to preserve situational awareness.
-
----
-
-## ⚙️ System Requirements & Deployment
-
-This application scales exceptionally well. It is optimized to run on low-power edge-compute hardware via SQLite, while fully capable of saturating enterprise-grade servers connected to PostgreSQL during massive asynchronous data ingestion and parallel ML scoring tasks. 
-
-### **Real-World Resource Utilization (Docker)**
-* **Base Memory Footprint:** Highly optimized via slim base images and localized memory dictionaries; ~650 MB total across all 3 microservices.
-* **Database Storage:** The local SQLite file utilizes WAL (Write-Ahead Logging) and requires minimal disk space compared to an independent PostgreSQL container.
-* **Compute Profiling:** Web and Webhook gateways remain idle (< 1% CPU) until concurrent alert floods occur. The worker container may briefly spike compute resources during heavy geospatial polygon rendering or multiprocessing NLP vectorization.
-
-### **Recommended Hardware**
-* **CPU:** 4+ Cores (Allows the Python `ProcessPoolExecutor` to offload Scikit-Learn vectorization without bottlenecking the main scheduler loop).
-* **RAM:** 4 GB 
-* **Storage:** 15 GB SSD (Improves SQLite I/O speeds for high-velocity webhook bursts).
-* *Note: If connecting the system to a locally hosted LLM (e.g., Ollama), ensure the host machine has sufficient dedicated VRAM (8GB+).*
-
-### **Software Requirements**
-* **Docker:** Engine v20.10.0 or higher
-* **Docker Compose:** v2.0.0 or higher
-* **OS:** Any Linux distribution (Ubuntu/Debian recommended), Windows (via WSL2), or macOS.
-
-## 🚀 Installation & Deployment
-
-1. **Clone the repository** and navigate to the project folder.
-2. **Set up environment variables:** Edit the `.env` file to set your LLM API endpoints and optionally define a `DATABASE_URL` if bypassing the default SQLite setup.
-3. **Ensure Local Volume Persistence:** The `docker-compose.yml` automatically mounts the `./data` directory to share the SQLite database file across the `web`, `worker`, and `webhook` containers.
-4. **Build and start the containers:**
-```bash
-docker compose up --build -d
+```
++------------------+       +------------------+       +------------------+
+|   Browser        |       |   nginx:5173     |       |   FastAPI:8101   |
+|   (React SPA)    | ----> |   (web service)   | ----> |   (API service)  |
++------------------+       +------------------+       +--------+---------+
+                                                                 |
++-----------------------------------------------------------------+-------+
+|                                                                         |
++------------------+          +------------------+          +-------------+
+|   Worker         |          |   Webhook:8100   |          |  SQLite /   |
+|   (scheduler)    |          |   (FastAPI gw)   |          | PostgreSQL  |
++------------------+          +------------------+          +-------------+
 ```
 
-5. **Access the Dashboard:** Open a web browser and navigate to `http://localhost:8501`.
-* *Default zero-config bootstrap login is `admin` / `admin123` (promptly reset this in Settings)*.
+### Service Components
 
-6. **Route Webhooks:** Point your external monitoring tools (SolarWinds, Datadog, PRTG) to `POST http://<your-server-ip>:8100/webhook/solarwinds`.
+| Service | Image | Port | Entrypoint | Description |
+|---------|-------|------|------------|-------------|
+| api | noc_ifc-api (Python 3.11) | 8101 | uvicorn src.api.main:app | FastAPI REST API + WebSocket broadcaster |
+| worker | noc_ifc-api | - | python src/scheduler.py | Background scheduler for automated data ingestion |
+| webhook | noc_ifc-api | 8100 | python src/webhook_listener.py | FastAPI gateway for external ITSM telemetry (SolarWinds) |
+| web | nginx (built from web/) | 5173 | nginx serving static build | Production React SPA |
+| web-dev | node:20-alpine | 5173 | npm run dev | Development Vite dev server with hot reload |
 
-## 🛠️ Troubleshooting & Commands
+## Technology Stack
 
-**View Live Worker Logs (To monitor async scraping, telemetry fetching, and reporting cron-jobs):**
-```bash
-docker compose logs -f worker
-```
+### Backend
+- **API Framework**: FastAPI with uvicorn ASGI server
+- **Database**: SQLAlchemy ORM supporting SQLite (default) and PostgreSQL
+- **WebSocket**: Native FastAPI WebSocket with broadcast manager
+- **Machine Learning**: Scikit-Learn TF-IDF vectorization and Multinomial Naive Bayes classification
+- **Geospatial**: Shapely point-in-polygon intersection, Haversine distance calculations
+- **External Integrations**: aiohttp for async HTTP, feedparser for RSS, ArcGIS geocoding
 
-**View Webhook Gateway Logs (Useful for tuning NLP matching logic and device classification):**
-```bash
-docker compose logs -f webhook
-```
+### Frontend
+- **Framework**: React 18 with TypeScript
+- **Build Tool**: Vite
+- **State Management**: Zustand
+- **HTTP Client**: Axios
+- **Geospatial Visualization**: deck.gl (ScatterplotLayer, PolygonLayer) with MapLibre basemaps
+- **Routing**: React Router v6
+- **Styling**: CSS custom properties with dark theme
 
-**Manual Database Cleanup & Admin Tools:**
-If the dashboard feels sluggish after importing massive data feeds, navigate to **Settings & Admin > ⚠️ Danger Zone** and click **🧹 Run Garbage Collector** to force a cleanup of orphaned IOCs and stale telemetry. Administrators can also leverage undocumented internal tests (*Operation: Dean*) to simulate cascading failure loads on the map engine.
+## Frontend Routes
 
----
+| Route | Page | Description |
+|-------|------|-------------|
+| /login | LoginPage | Authentication gateway |
+| / | DashboardPage | Global operational, risk, internal, and brief dashboards |
+| /threat-telemetry | ThreatTelemetryPage | RSS triage, CISA KEV, cloud outages, perimeter crime map |
+| /regional-grid | RegionalGridPage | Geospatial map with weather hazards, SPC outlooks, NWS alerts |
+| /threat-hunting | ThreatHuntingPage | IOC matrix, OSINT pivot tool, deep hunt builder |
+| /aiops-rca | AiopsRcaPage | Active alert board, pattern recognition, global correlation |
+| /shift-logbook | ShiftLogbookPage | Shift entries, auto-draft reports, log explorer |
+| /reporting | ReportingPage | Daily fusion brief, custom report builder, shared library |
+| /settings | SettingsPage | Facility/assets management, RSS sources, AI config, users, backup |
 
-## 🤖 Addendum: AI-Generated Codebase
+## API Endpoints
 
-Please note that the entirety of this application's codebase was generated by Artificial Intelligence.
+All API routes are prefixed with `/api/v1/` and organized into domain-specific route modules.
 
-The Python backend, Streamlit frontend, Scikit-Learn machine learning logic, unified SQLite/PostgreSQL database schema, complex LLM Prompt Engineering pipelines, Regex algorithms, and Docker microservices configurations were written by an AI assistant (Google's Gemini) based on continuous, iterative prompting.
+| Group | Prefix | Description |
+|-------|--------|-------------|
+| Auth | /auth | Login, logout, profile retrieval |
+| Dashboard | /dashboard | Metrics aggregation, intelligence feeds, article retrieval |
+| Threat | /threat | CVE catalog, cloud outages, crime data, paginated articles |
+| Regional | /regional | Monitored locations, GeoJSON compilation, weather analytics |
+| Hunting | /hunting | IOC extraction, OSINT pivot, article search |
+| RCA | /rca | Root cause dashboard, site analysis, acknowledgment, dispatch |
+| AIOps | /aiops | Site dashboard, situational reports, site status |
+| Logbook | /logbook | Shift entry CRUD, auto-draft, calendar queries |
+| Reporting | /reporting | Briefings generation, saved reports management |
+| LLM | /llm | Connection testing, weather brief generation |
+| Email | /email | Outbound SMTP dispatch |
+| Settings | /settings | System configuration, user preferences |
+| Admin | /admin | Role management, location CRUD, database backup, system nuke |
 
-While the code was AI-generated, the system architecture, feature requirements, NOC operational workflow methodologies, optimization targeting, and rigorous hallucination-debugging were orchestrated and directed entirely by a human engineer. This project serves as a practical demonstration of AI-assisted software engineering to rapidly build customized, enterprise-grade critical infrastructure monitoring tools.
+## Background Scheduler Jobs
 
-### OpenCode Usage Guide
+The worker service runs a scheduled task engine with the following job intervals:
 
-This codebase supports development and maintenance via [OpenCode](https://opencode.ai), an interactive CLI tool for software engineering tasks.
+| Job | Interval | Description |
+|-----|----------|-------------|
+| RSS Feed Fetch | 15 minutes | Poll configured RSS/Atom feeds for threat intelligence |
+| Crime Feed | 3 minutes | Fetch geofenced law enforcement CAD data |
+| Regional Hazards | 2 minutes | Query NWS alerts, SPC outlooks, wildfire data |
+| Cloud Outages | 5 minutes | Monitor 18+ cloud provider status pages |
+| CISA KEV Sync | 6 hours | Mirror Known Exploited Vulnerabilities catalog |
+| Internal Risk | 1 hour | Score internal asset inventory against active CVEs |
+| Unified Brief | 30 minutes | Generate LLM-synthesized intelligence brief |
+| DB Maintenance | 60 minutes | Purge stale telemetry, deduplicate articles, vacuum |
+| ML Retrain | Sunday 02:00 | Retrain Scikit-Learn model from analyst feedback |
+| Tiered Alert Escalation | 1 minute | 24/7 RCA ticketing with P1-P5 SLA enforcement |
 
-#### Getting Started
+## Key Features by Module
 
-1. **Install OpenCode:**
-   ```bash
-   npm install -g opencode
-   ```
+### Global Dashboards
+- Operational dashboard with 24-hour KPI panels, auto-rotating threat triage, infrastructure status monitoring, and LLM-powered AI analysis summaries.
+- Global Risk executive matrix evaluating unified threat posture against 14-day baseline deviation using MS-ISAC/CIS Alert Framework (GREEN through RED).
+- Internal Asset Posture tracking organizational hardware and software against active OSINT threats with historical trend analysis.
+- Unified Brief displaying autonomous Map-Reduce narrative merging global OSINT threat with internal asset risk matrix.
 
-2. **Interactive Development:**
-   ```bash
-   opencode
-   ```
+### Threat Telemetry
+- RSS triage with pagination across Pinned, Live, Low, and Search sub-tabs supporting manual pinning, boosting, and ML training queue submission.
+- Offline CISA Known Exploited Vulnerabilities catalog with full-text search.
+- Multi-provider cloud status monitoring across 18+ IaaS/SaaS platforms.
+- Geofenced crime incident map with dynamic radius filtering and interactive row selection.
 
-3. **Natural Language Commands:**
-   OpenCode accepts natural language queries about the codebase. Examples:
-   - "How does the AIOps root cause analysis work?"
-   - "Find all functions that query the database"
-   - "Explain the IOC extraction regex patterns"
+### Regional Grid
+- Deck.gl geospatial map overlaying NOC facilities with SPC convective outlooks, NWS warnings/watches, NIFC active wildfires, and NWS red flag warnings.
+- Executive dash with infrastructure exposure analytics by district, priority, and threat type.
+- Hazard analytics computing precise point-in-polygon intersections between facilities and weather geometries.
+- Location matrix and alerts log for raw data inspection.
 
-#### Available Agents
+### Threat Hunting and IOC Extraction
+- Live global IOC matrix displaying autonomously extracted IPv4, SHA256, domain, CVE, and MITRE ATT&CK indicators with hyperlinked OSINT pivots to VirusTotal and Shodan.
+- Deep hunt builder accepting target entities and generating custom Splunk/SIEM queries, MITRE mappings, and YARA rules via LLM.
 
-| Agent | Purpose |
-|-------|---------|
-| `explore` | Fast codebase exploration by patterns and keywords |
-| `general` | Multi-step research and task execution |
+### AIOps Root Cause Analysis
+- Active board rendering auto-focusing map of alerting locations with Supreme Patient Zero algorithm using topological tier scoring, severity weighting, and time offset analysis.
+- Global fleet event detection identifying massive carrier outages.
+- Predictive analytics performing Pandas aggregations to detect state-flapping nodes and chronic instability patterns.
+- Global correlation graphing causal links between external intelligence and internal telemetry drops.
+- Tiered alert escalation engine with P1-P5 SLA enforcement, business hours detection, and smart on-call paging.
 
-#### Example Sessions
+### Shift Logbook
+- Active shift entry with manual logging and auto-draft engine polling AIOps for active outage downtimes.
+- Persistent daily summaries with autonomous end-of-morning and end-of-day handoff reports.
+- Aggregated executive summaries targeting organizational roles with LLM analysis over current week or month periods.
+- Log explorer with day/week calendar interface, soft-delete auditing, modal expansions, and CSV export.
 
-```bash
-# Explore RSS feed fetching logic
-opencode "How are RSS feeds fetched and parsed?"
+### Reporting and Briefings
+- Daily fusion briefing archive with automated AI-synthesized situational reports converting markdown to inline-CSS HTML for enterprise Outlook delivery.
+- Custom report builder with multi-select interface for manual article aggregation into targeted LLM pipelines.
+- Shared library for organizational storage and retrieval of generated custom reports.
 
-# Find database query functions
-opencode "Find all functions in services.py that query the database"
+### Settings and Administration
+- Facility and internal asset management with bulk JSON/CSV import.
+- RSS source management and ML training interface for keyword weighting and model recalibration.
+- AI and SMTP configuration for LLM endpoints, tech stack inputs, mail servers, and risk baseline overrides.
+- Role-based access control with granular page-level and action-level permissions and geographic site type restrictions.
+- Backup and restore with master JSON export/import.
+- Maintenance tools for garbage collection, telemetry purging, taxonomy migration, and database reset.
 
-# Explain ML scoring
-opencode "Explain the HybridScorer in logic.py"
-```
+## Data Model
 
----
+The database schema comprises 27 tables organized into the following domains:
 
-## 📚 External API References & Citations
+- Identity and Access: Users, Roles, Permissions, Login history
+- Threat Intelligence: Articles, Extracted IOCs, CVE Items, CVSS scores
+- Infrastructure: Monitored Locations, Hardware assets, Software assets
+- Telemetry: Cloud Outages, Regional Hazards, BGP Anomalies, Crime Incidents
+- AIOps: SolarWinds Alerts, RCA results, Dispatch records
+- Operations: Shift Logs, Briefings, Reports, Scheduled Reports
+- Configuration: Keywords, RSS Feeds, Settings, Audit Logs
 
-### Core Dependencies
+## Security and Permissions
 
-| API / Service | Purpose | Documentation |
-|---------------|---------|---------------|
-| Streamlit | UI Framework | https://docs.streamlit.io |
-| SQLAlchemy | ORM / Database | https://docs.sqlalchemy.org |
-| FastAPI | Webhook Gateway | https://fastapi.tiangolo.com |
-| Scikit-Learn | ML Classification | https://scikit-learn.org |
-| Pandas | Data Processing | https://pandas.pydata.org |
-| PyDeck | Geospatial Maps | https://pydeck.js.org |
-| Feedparser | RSS Ingestion | https://feedparser.readthedocs.io |
+The platform implements role-based access control (RBAC) with the following characteristics:
 
-### External Intelligence Feeds
+- Roles are mapped to specific page routes and UI actions.
+- Administrators can create custom roles with granular allowed_site_type restrictions for geographic/operational map filtering.
+- Permission strings follow the pattern Action: <Description> (e.g., Action: Dispatch RCA Tickets) and must match exactly between backend dependency injection and frontend conditional rendering.
+- The login endpoint returns user profile with an allowed_actions array for frontend permission gating.
+- Default credentials: admin / admin123 (should be reset in production).
 
-| Source | Purpose | API URL |
-|--------|---------|---------|
-| CISA KEV | Known Exploited Vulnerabilities | https://www.cisa.gov/known-exploited-vulnerabilities-catalog |
-| NWS Alerts | National Weather Service | https://www.weather.gov/api/ |
-| SPC Outlooks | Storm Prediction Center | https://www.spc.noaa.gov/ |
-| ArcGIS Geocoding | Address → Lat/Lon | https://developers.arcgis.com/ |
-| RIPE RIS | BGP Routing | https://ris.ripe.net/ |
-| ORNL ODIN | Power Outages | https://odn.disasterspacing.org/ |
-| LRPD CAD | Local Dispatch (Little Rock) | https://www.littlerock.gov/CAD/ |
-| IODA | Internet Outage Detection | https://ioda.caida.org/ |
+## WebSocket Interface
 
-### LLM Integration
+- Endpoint: ws://localhost:8101/ws
+- Receives dashboard_update payloads at 5-second intervals containing aggregated metrics.
+- Supports bidirectional command transmission: send JSON commands through the WebSocket which are processed by the API and forwarded to the scheduler or other subsystems.
 
-| Provider | Purpose | SDK |
-|----------|---------|-----|
-| Ollama | Local LLM | https://github.com/ollama/ollama |
-| LM Studio | Local LLM | https://lmstudio.ai/ |
-| OpenAI | Cloud LLM | https://platform.openai.com/ |
-| Anthropic | Cloud LLM | https://docs.anthropic.com/ |
+## Getting Started
 
-### SIEM Integration
+### Prerequisites
+- Docker Engine v20.10.0 or higher
+- Docker Compose v2.0.0 or higher
+- 4 GB RAM minimum, 15 GB SSD recommended
 
-| System | Purpose | API |
-|--------|---------|-----|
-| Elasticsearch | SIEM Telemetry | https://www.elastic.co/ |
-| Cisco FTD | Network Alerts | https://www.cisco.com/c/en/us/index.html |
+### Installation
 
-### Email / Notifications
+1. Clone the repository and navigate to the project root.
+2. Configure environment variables in .env (see .env.example).
+3. Build and start all services:
+   docker compose up --build -d
+4. Access the dashboard at http://localhost:5173.
+5. To use the Vite development server with hot reload:
+   docker compose --profile dev up --build -d
 
-| Service | Purpose | Protocol |
-|---------|---------|----------|
-| SMTP | Risk Alerts | RFC 5321 |
-| SendGrid | Email Relay | https://sendgrid.com/ |
-| Mailgun | Email Relay | https://www.mailgun.com/ |
+### Developer Commands
 
----
+| Command | Description |
+|---------|-------------|
+| docker compose logs -f worker | Monitor background scheduler logs |
+| docker compose logs -f api | Monitor API server logs |
+| docker compose logs -f web | Monitor frontend logs |
+| docker compose restart api | Restart API after backend changes |
+| docker compose up --build -d --force-recreate web | Rebuild frontend after changes |
+| cd web && npm run dev | Run frontend dev server standalone |
 
-*Documentation generated for NOC Intelligence Fusion Center v1.0*
+### Webhook Configuration
+
+Point external monitoring tools (SolarWinds, PRTG, Datadog) to:
+POST http://<host>:8100/webhook/solarwinds
+
+The webhook listener normalizes incoming ITSM alert payloads, extracts device classifications, and persists alerts for AIOps correlation.
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| DATABASE_URL | Yes | sqlite:///data/noc_fusion.db | Database connection string |
+| RISK_ALERT_RECIPIENTS | No | - | Comma-separated email recipients for risk alerts |
+| REMEDYFORCE_TICKET_EMAIL | No | - | Email address for tiered alert escalation ticketing |
+| SECRET_KEY | No | auto-generated | JWT signing key |
+| LLM_API_URL | No | - | Custom LLM endpoint for AI features |
+
+## Documentation
+
+Full enterprise-grade function-by-function documentation for every source file in this codebase is available in the documentation/ directory, organized by architectural layer:
+
+- documentation/api/ - FastAPI application, WebSocket manager, and all 13 route modules
+- documentation/core/ - Configuration management and database engine
+- documentation/models/ - All 27 SQLAlchemy ORM models
+- documentation/services/ - Data access layer (104 functions), AIOps correlation engine, categorizer, IOC extractor, hybrid scorer, threat hunter
+- documentation/workers/ - All 8 background worker modules
+- documentation/utils/ - LLM interaction utilities, mailer, risk alert engine
+- documentation/ui/ - Streamlit UI layer (legacy pages, components, utilities)
+- documentation/web/ - React SPA (entry points, 9 pages, 5 components, hooks, store, utilities, styles)
+- documentation/config/ - Dockerfiles, docker-compose, nginx, Vite, TypeScript, and deployment configuration
+
+## Risk Level Taxonomy
+
+GREEN - BLUE - YELLOW - ORANGE - RED
+
+## License
+
+See LICENSE file for details.
