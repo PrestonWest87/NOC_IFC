@@ -259,10 +259,10 @@ def job_daily_email_unified_brief():
         from src.risk_alert import check_and_alert
 
         sys_config = get_cached_config()
-        recipients = getattr(sys_config, 'smtp_recipient', None)
+        recipients = os.environ.get("UNIFIED_BRIEF_EMAIL_RECIPIENTS")
         
         if not recipients:
-            recipients = os.environ.get("UNIFIED_BRIEF_EMAIL_RECIPIENTS")
+            recipients = getattr(sys_config, 'smtp_recipient', None)
 
         if not recipients:
             log("[WARN] No SMTP recipient configured. Skipping email dispatch.", "SYSTEM")
