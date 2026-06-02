@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Query, Body, HTTPException
+import os
+import tempfile
+import json
+from fastapi import APIRouter, Query, Body, HTTPException, UploadFile, File
 from typing import Any
 
 from src import services as svc
@@ -118,6 +121,38 @@ def backup():
 def restore(data: dict[str, Any] = Body({})):
     svc.restore_backup_data(data)
     return {"status": "ok"}
+
+
+@router.get("/export-all")
+def export_all():
+    return svc.export_all_tables()
+
+
+@router.post("/import-all")
+def import_all(data: dict[str, Any] = Body({})):
+    merge = data.pop("_merge", False)
+    counts = svc.import_all_tables(data, merge=merge)
+    return {"status": "ok", "counts": counts}
+
+
+@router.post("/upload-db")
+async def upload_db(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.endswith(".db"):
+        raise HTTPException(400, "Uploaded file must have a .db extension")
+    tmp_path = None
+    try:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+        tmp_path = tmp.name
+        content = await file.read()
+        tmp.write(content)
+        tmp.close()
+        counts = svc.restore_from_db_upload(tmp_path)
+        return {"status": "ok", "counts": counts}
+    except Exception as e:
+        raise HTTPException(500, f"Database restore failed: {e}")
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 @router.delete("/record")

@@ -8,6 +8,8 @@ import uuid
 import re
 import json
 from datetime import datetime, timedelta
+from sqlalchemy import text
+from sqlalchemy.types import Boolean, DateTime
 from zoneinfo import ZoneInfo
 from shapely.geometry import Point, shape
 # Import your DB setup and models
@@ -15,7 +17,9 @@ from src.database import (
     SessionLocal, Article, FeedSource, Keyword, SystemConfig, CveItem,
     RegionalHazard, CloudOutage, User, Role, SavedReport, DailyBriefing,
     ExtractedIOC, MonitoredLocation, SolarWindsAlert, TimelineEvent,
-    RegionalOutage, BgpAnomaly, GeoJsonCache, DailyThreatScore, ShiftLogEntry
+    RegionalOutage, BgpAnomaly, GeoJsonCache, DailyThreatScore, ShiftLogEntry,
+    SoftwareAsset, HardwareAsset, InternalRiskSnapshot, CrimeIncident,
+    ElasticEvent, UserWeatherPreference, NodeAlias
 )
 
 LOCAL_TZ = ZoneInfo("America/Chicago")
@@ -1477,6 +1481,61 @@ def get_hazards(limit=15, hours_back=None):
         if hours_back: q = q.filter(RegionalHazard.updated_at >= datetime.utcnow() - timedelta(hours=hours_back))
         return to_dotdict_list(q.order_by(RegionalHazard.updated_at.desc()).limit(limit).all())
 
+def _hazard_color(event_type, severity, is_oos):
+    event_lower = event_type.lower()
+    if is_oos:
+        base = _hazard_color(event_type, severity, False)
+        return [max(0, c - 60) for c in base[:3]] + [base[3]]
+    if "tornado" in event_lower:
+        return [180, 0, 0, 100] if severity == "Warning" else [180, 0, 0, 60]
+    if "severe thunderstorm" in event_lower:
+        return [255, 120, 0, 100] if severity == "Warning" else [255, 140, 0, 60]
+    if "flash flood" in event_lower:
+        return [0, 180, 0, 100] if severity == "Warning" else [0, 140, 0, 60]
+    if "flood" in event_lower and "watch" in event_lower:
+        return [80, 140, 0, 60]
+    if "flood" in event_lower:
+        return [0, 150, 0, 100] if severity == "Warning" else [80, 140, 0, 60]
+    if "winter storm" in event_lower or "winter weather" in event_lower:
+        return [200, 90, 160, 100] if severity == "Warning" else [180, 100, 140, 60]
+    if "blizzard" in event_lower:
+        return [180, 60, 180, 100]
+    if "ice storm" in event_lower or "freezing" in event_lower:
+        return [160, 100, 140, 100] if severity == "Warning" else [140, 100, 120, 60]
+    if "heat" in event_lower or "excessive heat" in event_lower:
+        return [255, 140, 0, 100] if severity == "Warning" else [255, 160, 0, 60]
+    if "wind" in event_lower or "high wind" in event_lower:
+        return [255, 255, 0, 100] if severity == "Warning" else [220, 220, 0, 60]
+    if "red flag" in event_lower or "fire weather" in event_lower or "fire warning" in event_lower:
+        return [255, 69, 0, 120]
+    if "hurricane" in event_lower:
+        return [200, 0, 200, 100]
+    if "tropical storm" in event_lower:
+        return [200, 80, 170, 100]
+    if "snow squall" in event_lower:
+        return [160, 190, 220, 100]
+    if "special weather" in event_lower:
+        return [100, 160, 220, 70]
+    if "dense fog" in event_lower or "dense smoke" in event_lower:
+        return [140, 140, 160, 70]
+    if "dust" in event_lower:
+        return [180, 140, 80, 70]
+    if "coastal" in event_lower or "marine" in event_lower or "high surf" in event_lower:
+        return [0, 100, 180, 80]
+    if "severe weather" in event_lower:
+        return [255, 100, 0, 80]
+    if severity == "Warning":
+        return [255, 60, 60, 100]
+    if "watch" in event_lower:
+        return [255, 165, 0, 60]
+    return [255, 200, 0, 60]
+
+
+def _hazard_line_color(fill):
+    r, g, b, a = fill
+    return [min(255, r + 60), min(255, g + 60), min(255, b + 60), 255]
+
+
 def process_nws_alerts(data, selected_events, is_oos=False):
     map_diagnostics = []
     warn_geo = {"type": "FeatureCollection", "features": []}
@@ -1497,24 +1556,24 @@ def process_nws_alerts(data, selected_events, is_oos=False):
         prefix = "[OOS]" if is_oos else "[AR]"
         geometries_to_process = []
 
-        if geom: 
+        if geom:
             geometries_to_process.append(geom)
         else:
             # THE ENTERPRISE FIX: Strict FIPS Code Matching
             geocode_dict = props.get("geocode", {})
             same_codes = geocode_dict.get("SAME", [])
-            
+
             for same_code in same_codes:
                 # NWS SAME codes are 6 chars (e.g., 005001). Extract last 5 for standard FIPS.
                 fips = same_code[-5:]
                 if fips in regional_counties_geom:
                     state_fips = regional_counties_geom[fips]["state_fips"]
-                    
-                    # Strict Border Enforcement: 
+
+                    # Strict Border Enforcement:
                     # AR feed gets only AR counties. OOS feed gets only non-AR counties.
                     if (not is_oos and state_fips == "05") or (is_oos and state_fips != "05"):
                         geometries_to_process.append(regional_counties_geom[fips]["geometry"])
-                    
+
             if not geometries_to_process:
                 zonewide_alerts.append({"Event": f"{prefix} {event_type}", "Affected Area": props.get("areaDesc", "Unknown"), "Details": headline})
                 continue
@@ -1526,18 +1585,25 @@ def process_nws_alerts(data, selected_events, is_oos=False):
                 is_severe = "Warning" in event_type or "Emergency" in event_type or is_pds
                 severity = "PDS Watch" if (is_pds and not ("Warning" in event_type or "Emergency" in event_type)) else ("Warning" if is_severe else "Watch/Advisory")
 
-                micro_feature = {"type": "Feature", "geometry": g, "properties": {"info": f"{prefix} {event_type}", "severity": severity, "shapely_obj": poly_shape}}
+                fill_color = _hazard_color(event_type, severity, is_oos)
+                line_color = _hazard_line_color(fill_color)
+
+                micro_feature = {
+                    "type": "Feature", "geometry": g,
+                    "properties": {
+                        "info": f"{prefix} {event_type}", "severity": severity,
+                        "event": event_type, "headline": headline,
+                        "shapely_obj": poly_shape,
+                        "fill_color": fill_color, "line_color": line_color,
+                    }
+                }
 
                 if is_severe:
-                    micro_feature['properties']['fill_color'] = [139, 0, 0, 60] if is_oos else [255, 0, 0, 60]
-                    micro_feature['properties']['line_color'] = [139, 0, 0, 255] if is_oos else [255, 0, 0, 255]
                     warn_geo["features"].append(micro_feature)
                 else:
-                    micro_feature['properties']['fill_color'] = [204, 119, 34, 60] if is_oos else [255, 165, 0, 60]
-                    micro_feature['properties']['line_color'] = [204, 119, 34, 255] if is_oos else [255, 165, 0, 255]
                     watch_geo["features"].append(micro_feature)
             except Exception as e: continue
-            
+
     return warn_geo, watch_geo, zonewide_alerts, map_diagnostics
 
 def get_weather_alerts_log(ar_data, oos_data, selected_events, usgs_ar_data=None, usgs_oos_data=None):
@@ -2213,6 +2279,164 @@ def restore_backup_data(data):
         db.commit()
     return added
 
+ALL_MODELS = {
+    "users": User,
+    "roles": Role,
+    "saved_reports": SavedReport,
+    "feed_sources": FeedSource,
+    "keywords": Keyword,
+    "system_config": SystemConfig,
+    "shift_logs": ShiftLogEntry,
+    "software_assets": SoftwareAsset,
+    "hardware_assets": HardwareAsset,
+    "internal_risk_snapshots": InternalRiskSnapshot,
+    "articles": Article,
+    "extracted_iocs": ExtractedIOC,
+    "cve_items": CveItem,
+    "elastic_events": ElasticEvent,
+    "daily_briefings": DailyBriefing,
+    "daily_threat_scores": DailyThreatScore,
+    "regional_hazards": RegionalHazard,
+    "regional_outages": RegionalOutage,
+    "cloud_outages": CloudOutage,
+    "bgp_anomalies": BgpAnomaly,
+    "solarwinds_alerts": SolarWindsAlert,
+    "timeline_events": TimelineEvent,
+    "monitored_locations": MonitoredLocation,
+    "crime_incidents": CrimeIncident,
+    "geojson_cache": GeoJsonCache,
+    "user_weather_prefs": UserWeatherPreference,
+    "node_aliases": NodeAlias,
+}
+
+
+def _serialize_record(record):
+    d = {}
+    for col in record.__table__.columns:
+        val = getattr(record, col.name)
+        if isinstance(val, datetime):
+            d[col.name] = val.isoformat()
+        else:
+            d[col.name] = val
+    return d
+
+
+def export_all_tables():
+    """Export ALL tables as a dict of table_name -> list of records."""
+    result = {}
+    with SessionLocal() as db:
+        for table_name, model_cls in ALL_MODELS.items():
+            rows = db.query(model_cls).all()
+            result[table_name] = [_serialize_record(r) for r in rows]
+    return result
+
+
+def import_all_tables(data, merge=False):
+    """Import a full JSON dump of all tables.
+
+    If merge=True, inserts only non-duplicate records (by 'id').
+    If merge=False (default), truncates tables first then inserts.
+    """
+    counts = {}
+    with SessionLocal() as db:
+        try:
+            db.execute(text("PRAGMA foreign_keys=OFF"))
+            for table_name, model_cls in ALL_MODELS.items():
+                rows = data.get(table_name, [])
+                if not rows:
+                    counts[table_name] = 0
+                    continue
+                if not merge:
+                    db.query(model_cls).delete(synchronize_session=False)
+                inserted = 0
+                for row_data in rows:
+                    if merge:
+                        rid = row_data.get("id")
+                        if rid and db.query(model_cls).filter_by(id=rid).first():
+                            continue
+                    kwargs = {}
+                    for col in model_cls.__table__.columns:
+                        if col.name not in row_data:
+                            continue
+                        val = row_data[col.name]
+                        if isinstance(col.type, DateTime) and isinstance(val, str):
+                            try:
+                                kwargs[col.name] = datetime.fromisoformat(val)
+                            except ValueError:
+                                kwargs[col.name] = val
+                        elif isinstance(col.type, Boolean):
+                            kwargs[col.name] = bool(val) if val is not None else None
+                        else:
+                            kwargs[col.name] = val
+                    db.add(model_cls(**kwargs))
+                    inserted += 1
+                counts[table_name] = inserted
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.execute(text("PRAGMA foreign_keys=ON"))
+    return counts
+
+
+def restore_from_db_upload(db_file_path):
+    """Read a SQLite .db file and import all its tables into the current database."""
+    import sqlite3
+    conn = sqlite3.connect(db_file_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    table_names = [row[0] for row in cursor.fetchall()]
+    imported = {}
+    with SessionLocal() as db:
+        try:
+            db.execute(text("PRAGMA foreign_keys=OFF"))
+            for table_name in table_names:
+                cursor.execute(f"SELECT * FROM \"{table_name}\"")
+                rows = [dict(row) for row in cursor.fetchall()]
+                if not rows:
+                    imported[table_name] = 0
+                    continue
+                model_cls = ALL_MODELS.get(table_name)
+                if model_cls is not None:
+                    db.query(model_cls).delete(synchronize_session=False)
+                    inserted = 0
+                    for row_data in rows:
+                        kwargs = {}
+                        for col in model_cls.__table__.columns:
+                            if col.name not in row_data:
+                                continue
+                            val = row_data[col.name]
+                            if isinstance(col.type, DateTime) and isinstance(val, str):
+                                try:
+                                    kwargs[col.name] = datetime.fromisoformat(val)
+                                except ValueError:
+                                    kwargs[col.name] = val
+                            elif isinstance(col.type, Boolean):
+                                kwargs[col.name] = bool(val) if val is not None else None
+                            else:
+                                kwargs[col.name] = val
+                        db.add(model_cls(**kwargs))
+                        inserted += 1
+                    imported[table_name] = inserted
+                else:
+                    db.execute(text(f"DELETE FROM \"{table_name}\""))
+                    for row_data in rows:
+                        placeholders = ", ".join([f":{k}" for k in row_data])
+                        cols = ", ".join(row_data.keys())
+                        db.execute(text(f"INSERT INTO \"{table_name}\" ({cols}) VALUES ({placeholders})"), row_data)
+                    imported[table_name] = len(rows)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.execute(text("PRAGMA foreign_keys=ON"))
+    conn.close()
+    return imported
+
+
 def recategorize_all_articles():
     from src.services.categorizer import categorize_text
     with SessionLocal() as db:
@@ -2231,6 +2455,49 @@ def recategorize_all_articles():
                 
         db.commit()
         return count
+
+def rescore_all_articles():
+    """Re-score all existing articles using current keywords and categorizer."""
+    from src.services.logic import HybridScorer
+    from src.services.categorizer import categorize_text
+    from src.services.ioc_extractor import ioc_engine
+
+    scorer = HybridScorer()
+    ALERT_THRESHOLD = 45
+    count = 0
+
+    with SessionLocal() as db:
+        arts = db.query(Article).all()
+        for a in arts:
+            full_text = f"{a.title} {a.summary or ''}"
+            score, reasons = scorer.score(full_text)
+            category = categorize_text(full_text)
+
+            a.score = float(score)
+            a.category = category
+            a.keywords_found = reasons
+            a.is_bubbled = (score >= ALERT_THRESHOLD)
+
+            if score >= 50.0 and category.startswith("Cyber"):
+                iocs = ioc_engine.extract(full_text)
+                for ioc in iocs:
+                    existing = db.query(ExtractedIOC).filter_by(
+                        article_id=a.id,
+                        indicator_type=ioc["Type"],
+                        indicator_value=ioc["Indicator"]
+                    ).first()
+                    if not existing:
+                        db.add(ExtractedIOC(
+                            article_id=a.id, indicator_type=ioc["Type"],
+                            indicator_value=ioc["Indicator"], context=ioc["Context"]
+                        ))
+
+            count += 1
+
+        db.commit()
+        logger.info(f"Rescored {count} articles.")
+    return count
+
 
 def nuke_tables(model_names):
     models_map = {"CloudOutage": CloudOutage, "MonitoredLocation": MonitoredLocation, "Article": Article, "ExtractedIOC": ExtractedIOC, "FeedSource": FeedSource, "Keyword": Keyword}

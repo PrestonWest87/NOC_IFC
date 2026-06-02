@@ -7,8 +7,9 @@ import {
   Trash2, Upload, Download, RefreshCw, AlertTriangle, Save,
   UserPlus, Key, Shield, Settings as SettingsIcon, Database, FileJson,
   Rss, Cpu, Brain, Mail, Users, HardDrive, Skull, Server, Globe,
-  FileSpreadsheet, Plus, Eye, EyeOff, X, User, Loader2
+  FileSpreadsheet, Plus, Eye, EyeOff, X, User, Loader2, Palette
 } from "lucide-react";
+import { ThemeSelector } from "../components/ThemeSelector";
 
 const ALL_PAGES = [
   "Global Dashboards", "Threat Telemetry", "Regional Grid",
@@ -37,6 +38,7 @@ const ALL_SITE_TYPES = ["NOC", "SOC", "Data Center", "Field Office", "HQ", "Remo
 
 const TABS = [
   { id: "profile", label: "Profile", icon: User },
+  { id: "theme", label: "Theme", icon: Palette },
   { id: "facilities", label: "Facilities", icon: Globe },
   { id: "assets", label: "Internal Assets", icon: Server },
   { id: "rss", label: "RSS Sources", icon: Rss },
@@ -192,6 +194,7 @@ export function SettingsPage() {
       </div>
 
       {tab === "profile" && <ProfileTab user={currentUser} />}
+      {tab === "theme" && <ThemeTab />}
       {tab === "facilities" && <FacilitiesTab locations={locations} queryClient={queryClient} />}
       {tab === "assets" && <AssetsTab />}
       {tab === "rss" && <RssTab lists={lists} queryClient={queryClient} />}
@@ -949,6 +952,8 @@ function UsersRolesTab({ roles, users, queryClient }: { roles: any; users: any; 
    ============================ */
 function BackupRestoreTab() {
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  const [importAllFile, setImportAllFile] = useState<File | null>(null);
+  const [dbFile, setDbFile] = useState<File | null>(null);
   const queryClient = useQueryClient();
 
   const { data: backup, isLoading: backupLoading } = useQuery({
@@ -967,6 +972,21 @@ function BackupRestoreTab() {
     URL.revokeObjectURL(url);
   };
 
+  const downloadFullExport = async () => {
+    try {
+      const res = await api.get("/admin/export-all");
+      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `noc_full_export_${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      alert("Export error: " + (e.response?.data?.detail || e.message));
+    }
+  };
+
   const restoreMutation = useMutation({
     mutationFn: async (file: File) => {
       const text = await file.text();
@@ -977,32 +997,100 @@ function BackupRestoreTab() {
     onError: (e: any) => alert("Restore error: " + (e.response?.data?.detail || e.message)),
   });
 
+  const importAllMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      return api.post("/admin/import-all", data);
+    },
+    onSuccess: (res) => {
+      const counts = res.data?.counts;
+      const summary = counts ? Object.entries(counts).filter(([,c]) => (c as number) > 0).map(([t, c]) => `${t}: ${c}`).join(", ") : "";
+      alert(`Full import completed. ${summary}`);
+      queryClient.invalidateQueries();
+    },
+    onError: (e: any) => alert("Import error: " + (e.response?.data?.detail || e.message)),
+  });
+
+  const uploadDbMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      return api.post("/admin/upload-db", formData);
+    },
+    onSuccess: (res) => {
+      const counts = res.data?.counts;
+      const summary = counts ? Object.entries(counts).filter(([,c]) => (c as number) > 0).map(([t, c]) => `${t}: ${c}`).join(", ") : "";
+      alert(`Database restored from .db file. ${summary}`);
+      queryClient.invalidateQueries();
+    },
+    onError: (e: any) => alert("DB upload error: " + (e.response?.data?.detail || e.message)),
+  });
+
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
-      <Card title="Export Backup" icon={Download}>
-        <p style={{ color: "var(--text-muted)", fontSize: "0.8rem", margin: "0 0 0.75rem" }}>Download a full JSON backup of the database.</p>
-        <button onClick={downloadBackup} disabled={backupLoading || !backup} style={btn("var(--accent-blue)")}>
-          <Download size={14} /> {backupLoading ? "Loading..." : "Download Backup JSON"}
-        </button>
-        {backup && (
-          <div style={{ marginTop: "0.75rem", maxHeight: 300, overflow: "auto", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", padding: "0.75rem", fontSize: "0.7rem", fontFamily: "var(--font-mono)", color: "var(--text-secondary)", whiteSpace: "pre-wrap" }}>
-            {JSON.stringify(backup, null, 2).slice(0, 2000)}
-            {JSON.stringify(backup, null, 2).length > 2000 ? "..." : ""}
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      <Card title="Export" icon={Download} wide>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
+          <div>
+            <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>Legacy Backup (4 tables)</h4>
+            <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", margin: "0 0 0.6rem" }}>
+              Keywords, feeds, locations, aliases.
+            </p>
+            <button onClick={downloadBackup} disabled={backupLoading || !backup} style={btn("var(--accent-blue)")}>
+              <Download size={14} /> {backupLoading ? "Loading..." : "Download Legacy JSON"}
+            </button>
           </div>
-        )}
+          <div>
+            <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>Full Export (all 27 tables)</h4>
+            <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", margin: "0 0 0.6rem" }}>
+              Every table in the database as per-table JSON arrays.
+            </p>
+            <button onClick={downloadFullExport} style={btn("var(--accent-cyan)")}>
+              <Download size={14} /> Download Full Export JSON
+            </button>
+          </div>
+        </div>
       </Card>
 
-      <Card title="Import Restore" icon={Upload}>
-        <p style={{ color: "var(--text-muted)", fontSize: "0.8rem", margin: "0 0 0.75rem" }}>Upload a previously exported backup JSON file to restore.</p>
-        <input
-          type="file"
-          accept=".json"
-          onChange={e => setRestoreFile(e.target.files?.[0] || null)}
-          style={{ marginBottom: "0.6rem", color: "var(--text-primary)", fontSize: "0.8rem" }}
-        />
-        <button onClick={() => restoreFile && restoreMutation.mutate(restoreFile)} disabled={!restoreFile || restoreMutation.isPending} style={btn("var(--accent-orange)")}>
-          <Upload size={14} /> {restoreMutation.isPending ? "Restoring..." : "Restore from JSON"}
-        </button>
+      <Card title="Import" icon={Upload} wide>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1.25rem" }}>
+          <div>
+            <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>Legacy Restore (4 tables)</h4>
+            <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", margin: "0 0 0.6rem" }}>
+              Upload a legacy backup JSON (keywords, feeds, locations, aliases).
+            </p>
+            <input type="file" accept=".json" onChange={e => setRestoreFile(e.target.files?.[0] || null)}
+              style={{ marginBottom: "0.6rem", color: "var(--text-primary)", fontSize: "0.8rem", width: "100%" }} />
+            <button onClick={() => restoreFile && restoreMutation.mutate(restoreFile)}
+              disabled={!restoreFile || restoreMutation.isPending} style={btn("var(--accent-orange)")}>
+              <Upload size={14} /> {restoreMutation.isPending ? "Restoring..." : "Restore Legacy JSON"}
+            </button>
+          </div>
+          <div>
+            <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>Full Import (all 27 tables)</h4>
+            <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", margin: "0 0 0.6rem" }}>
+              Upload a full export JSON. Replaces all existing data.
+            </p>
+            <input type="file" accept=".json" onChange={e => setImportAllFile(e.target.files?.[0] || null)}
+              style={{ marginBottom: "0.6rem", color: "var(--text-primary)", fontSize: "0.8rem", width: "100%" }} />
+            <button onClick={() => importAllFile && importAllMutation.mutate(importAllFile)}
+              disabled={!importAllFile || importAllMutation.isPending} style={btn("var(--accent-green)")}>
+              <FileJson size={14} /> {importAllMutation.isPending ? "Importing..." : "Import Full JSON"}
+            </button>
+          </div>
+          <div>
+            <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>Restore from .db File</h4>
+            <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", margin: "0 0 0.6rem" }}>
+              Upload a SQLite .db file to replace the database.
+            </p>
+            <input type="file" accept=".db" onChange={e => setDbFile(e.target.files?.[0] || null)}
+              style={{ marginBottom: "0.6rem", color: "var(--text-primary)", fontSize: "0.8rem", width: "100%" }} />
+            <button onClick={() => dbFile && uploadDbMutation.mutate(dbFile)}
+              disabled={!dbFile || uploadDbMutation.isPending} style={btn("var(--accent-red)")}>
+              <Database size={14} /> {uploadDbMutation.isPending ? "Restoring..." : "Upload & Restore .db"}
+            </button>
+          </div>
+        </div>
       </Card>
     </div>
   );
@@ -1061,6 +1149,19 @@ function DangerZoneTab() {
           {dangerBtn(clearEvents, "Clear Timeline Events", <X size={13} />, "var(--accent-yellow)")}
           {dangerBtn(nukeAlerts, "Nuke Active Alerts", <AlertTriangle size={13} />)}
         </div>
+      </Card>
+    </div>
+  );
+}
+
+/* ============================
+   9. THEME TAB
+   ============================ */
+function ThemeTab() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      <Card title="UI Theme" icon={Palette}>
+        <ThemeSelector />
       </Card>
     </div>
   );
