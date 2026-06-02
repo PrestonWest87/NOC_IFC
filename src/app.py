@@ -3451,28 +3451,53 @@ elif page == "Settings & Admin":
                                     
         if "Tab: Settings -> Backup & Restore" in st.session_state.allowed_actions:
             with set_tabs[set_idx]:
-                st.subheader("Database Export & Import")
-                st.write("Backup or restore configurations, keywords, RSS feeds, and location mappings.")
+                st.subheader("Full Database Backup & Migration")
+                st.error("⚠️ **WARNING:** Executing a system restore will **WIPE AND REPLACE** all existing data, including users, passwords, roles, and settings. This action is irreversible.")
                 
                 c_exp, c_imp = st.columns(2)
                 with c_exp:
-                    st.markdown("### Export Data")
-                    if st.button("Generate Backup JSON", width="stretch"):
-                        backup_data = svc.get_backup_data()
-                        json_str = json.dumps(backup_data, indent=4)
-                        st.download_button("Download System_Backup.json", data=json_str, file_name=f"NOC_Backup_{datetime.now().strftime('%Y%m%d')}.json", mime="application/json", width="stretch")
-                
+                    st.markdown("### ⬇️ Export Full Backup")
+                    st.caption("Generates a comprehensive JSON payload of every table in the database.")
+                    if st.button("Generate System Backup JSON", width="stretch"):
+                        with st.spinner("Extracting complete database state..."):
+                            backup_data = svc.get_backup_data()
+                            json_str = json.dumps(backup_data, indent=4)
+                            st.download_button("Download Full_System_Backup.json", data=json_str, file_name=f"NOC_Full_Backup_{datetime.now(LOCAL_TZ).strftime('%Y%m%d_%H%M')}.json", mime="application/json", width="stretch", type="primary")
+                    
+                    st.divider()
+                    st.markdown("### 💾 Raw SQLite File")
+                    st.caption("Download the raw database file. (Most reliable method for server migration).")
+                    
+                    db_url = os.getenv("DATABASE_URL", "sqlite:////app/data/noc_fusion.db").strip().strip('"').strip("'")
+                    db_path = db_url.replace("sqlite:///", "") if db_url.startswith("sqlite:///") else "/app/data/noc_fusion.db"
+                    
+                    try:
+                        with open(db_path, "rb") as db_file:
+                            st.download_button(label="Download noc_fusion.db", data=db_file, file_name=f"noc_fusion_{datetime.now(LOCAL_TZ).strftime('%Y%m%d_%H%M')}.db", mime="application/octet-stream", width="stretch")
+                    except FileNotFoundError:
+                        st.info(f"Raw database file not found at {db_path}")
+
                 with c_imp:
-                    st.markdown("### Import Data")
+                    st.markdown("### ⬆️ Import & Restore")
+                    st.caption("Upload a previously generated JSON backup file to completely restore the system state.")
                     uploaded_backup = st.file_uploader("Upload JSON Backup File", type=["json"])
                     if uploaded_backup is not None:
-                        if st.button("Execute Import", width="stretch", type="primary"):
+                        if st.button("Execute Full System Restore", width="stretch", type="primary"):
                             try:
-                                data = json.load(uploaded_backup)
-                                added = svc.restore_backup_data(data)
-                                st.success(f"Restored: {added['kw']} Keywords, {added['feeds']} Feeds, {added['locs']} Locations.")
+                                with st.spinner("Wiping current database and restoring from backup..."):
+                                    data = json.load(uploaded_backup)
+                                    added = svc.restore_backup_data(data)
+                                    
+                                    if added:
+                                        # Format the success message dynamically to show every table restored
+                                        restored_stats = ", ".join([f"{count} {table}" for table, count in added.items() if count > 0])
+                                        st.success(f"Full System Restore Complete!\n\n**Restored:** {restored_stats}")
+                                        time.sleep(4)
+                                        safe_rerun()
+                                    else:
+                                        st.warning("Restore completed, but no data was processed. Please verify the JSON file.")
                             except Exception as e:
-                                st.error(f"Import Failed: {e}")
+                                st.error(f"Fatal Import Error: {e}")
             set_idx += 1
 
         if "Tab: Settings -> Danger Zone" in st.session_state.allowed_actions:
