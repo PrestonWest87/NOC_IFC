@@ -2041,26 +2041,78 @@ def get_ml_counts():
         return pos, neg, pos + neg
 
 def get_backup_data():
+    """Generates a comprehensive, full-database JSON backup of every table."""
+    from src.database import Base, SessionLocal
+    import datetime
+    
+    backup_data = {}
     with SessionLocal() as db:
-        return {
-            "keywords": [{"word": k.word, "weight": k.weight} for k in db.query(Keyword).all()],
-            "feeds": [{"url": f.url, "name": f.name} for f in db.query(FeedSource).all()],
-            "locations": [{"name": l.name, "lat": l.lat, "lon": l.lon, "type": l.loc_type, "prio": l.priority} for l in db.query(MonitoredLocation).all()],
-            "aliases": [{"pattern": a.node_pattern, "mapped": a.mapped_location_name, "conf": a.confidence_score, "ver": a.is_verified} for a in db.query(NodeAlias).all()]
-        }
+        # Iterate over every table defined in the database
+        for table in Base.metadata.sorted_tables:
+            records = db.execute(table.select()).mappings().all()
+            table_data = []
+            for record in records:
+                row_dict = dict(record)
+                # Convert datetimes/dates to string for JSON serialization
+                for k, v in row_dict.items():
+                    if isinstance(v, (datetime.datetime, datetime.date)):
+                        row_dict[k] = v.isoformat()
+                table_data.append(row_dict)
+            backup_data[table.name] = table_data
+            
+    return backup_data
 
 def restore_backup_data(data):
-    added = {"kw": 0, "feeds": 0, "locs": 0, "alias": 0}
+    """Wipes the current database and fully restores from a JSON backup."""
+    from src.database import Base, SessionLocal
+    from sqlalchemy import insert, delete, text
+    from sqlalchemy.types import DateTime, Date
+    import datetime
+    
+    added = {}
     with SessionLocal() as db:
-        for kw in data.get("keywords", []):
-            if not db.query(Keyword).filter_by(word=kw["word"]).first(): db.add(Keyword(word=kw["word"], weight=kw["weight"])); added["kw"] += 1
-        for f in data.get("feeds", []):
-            if not db.query(FeedSource).filter_by(url=f["url"]).first(): db.add(FeedSource(url=f["url"], name=f["name"])); added["feeds"] += 1
-        for l in data.get("locations", []):
-            if not db.query(MonitoredLocation).filter_by(name=l["name"]).first(): db.add(MonitoredLocation(name=l["name"], lat=l["lat"], lon=l["lon"], loc_type=l.get("type", "General"), priority=l.get("prio", 3))); added["locs"] += 1
-        for a in data.get("aliases", []):
-            if not db.query(NodeAlias).filter_by(node_pattern=a["pattern"]).first(): db.add(NodeAlias(node_pattern=a["pattern"], mapped_location_name=a["mapped"], confidence_score=a["conf"], is_verified=a["ver"])); added["alias"] += 1
+        # Temporarily disable foreign keys for a clean wipe & load in SQLite
+        db.execute(text("PRAGMA foreign_keys=OFF"))
+        
+        # Step 1: Wipe all existing data in reverse order to prevent constraint collisions
+        for table in reversed(Base.metadata.sorted_tables):
+            if table.name in data:
+                db.execute(delete(table))
+        
+        # Step 2: Insert the backed-up data
+        for table in Base.metadata.sorted_tables:
+            if table.name in data:
+                records = data[table.name]
+                if records:
+                    parsed_records = []
+                    for record in records:
+                        parsed_record = {}
+                        # Safely map JSON data to the current schema (ignores obsolete columns)
+                        for col in table.columns:
+                            if col.name in record:
+                                val = record[col.name]
+                                if val is not None:
+                                    # Reconstruct datetime objects from ISO strings
+                                    if isinstance(col.type, DateTime):
+                                        try:
+                                            val = datetime.datetime.fromisoformat(val)
+                                        except (ValueError, TypeError):
+                                            pass
+                                    elif isinstance(col.type, Date):
+                                        try:
+                                            val = datetime.datetime.fromisoformat(val).date()
+                                        except (ValueError, TypeError):
+                                            pass
+                                parsed_record[col.name] = val
+                        parsed_records.append(parsed_record)
+                        
+                    # Bulk insert
+                    db.execute(insert(table), parsed_records)
+                added[table.name] = len(records)
+                
         db.commit()
+        db.execute(text("PRAGMA foreign_keys=ON"))
+        
     return added
 
 def recategorize_all_articles():
