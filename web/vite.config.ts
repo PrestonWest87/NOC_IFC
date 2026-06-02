@@ -7,6 +7,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    allowedHosts: ["test.weasts.net"],
     proxy: {
       "/api": {
         target: apiUrl,
