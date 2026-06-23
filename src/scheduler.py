@@ -460,7 +460,6 @@ def job_tiered_alert_escalation():
             loc = db.query(MonitoredLocation).filter_by(name=site).first()
 
             # -> SITE-LEVEL ONPAGE MUTE (PREVENTS MAJOR OUTAGE FLOODING)
-            # Only applies if we are actually doing onpages (After-Hours)
             alert_is_day = is_business_hours(undispatched_alerts[0].received_at)
             if not alert_is_day and loc and getattr(loc, 'last_escalation_ticket', None):
                 time_since_onpage = now_utc - loc.last_escalation_ticket
@@ -478,27 +477,31 @@ def job_tiered_alert_escalation():
             )
 
             # -> DETERMINE TARGET ALERT & SHIFT RULES
-            target_alert = undispatched_alerts[0]
+            patient_zero_alert = undispatched_alerts[0]
+            target_alert = patient_zero_alert
             alert_is_day = is_business_hours(target_alert.received_at)
             ACTIVE_RULES = DAY_SHIFT_RULES if alert_is_day else AFTER_HOURS_RULES
 
             target_tier = get_tier(target_alert)
             is_cascade = False
-            base_weight = ACTIVE_RULES.get(target_tier, {"weight": -1})["weight"]
+            highest_weight = ACTIVE_RULES.get(target_tier, {"weight": -1})["weight"]
             
-            # Scan subsequent alerts: if one has a HIGHER weight, it overrides the target (Cascade Logic)
+            # Scan subsequent alerts: find the absolute highest priority alert in the cluster
             for a in undispatched_alerts[1:]:
                 a_tier = get_tier(a)
                 a_weight = ACTIVE_RULES.get(a_tier, {"weight": -1})["weight"]
-                if a_weight > base_weight:
+                if a_weight > highest_weight:
                     target_alert = a
                     target_tier = a_tier
+                    highest_weight = a_weight
                     is_cascade = True
                     log(f"[CASCADE DETECTED] {site} escalated to {target_tier.upper()}", "SYSTEM")
-                    break
+
+            # Calculate duration from the START of the incident (Patient Zero). 
+            # This prevents cascades from completely resetting the SLA clock backward.
+            duration_active = now_utc - patient_zero_alert.received_at
 
             # -> UNKNOWN TIER HANDLER
-            duration_active = now_utc - target_alert.received_at
             if target_tier == "unknown":
                 unknown_wait = 10 if alert_is_day else 30
                 if duration_active >= timedelta(minutes=unknown_wait):
@@ -535,8 +538,9 @@ def job_tiered_alert_escalation():
             wait_minutes = rules["wait"]
             is_onpage = rules.get("requires_onpage", False)
             
-            if is_cascade:
-                wait_minutes = 0 # Cascades generally wait 0 minutes from the escalated alert
+            # (Note: Removed the `wait_minutes = 0` override here).
+            # A P1-Low cascade now correctly inherits its wait_minutes from the dictionary.
+            # A P1-High naturally has a 0m wait in the dictionary, so it fires instantly.
 
             # --- 7. DISPATCH EVALUATION ---
             if duration_active >= timedelta(minutes=wait_minutes):
