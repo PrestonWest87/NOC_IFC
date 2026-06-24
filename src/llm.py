@@ -140,9 +140,11 @@ def analyze_cascading_impacts(articles, session):
     )
 
 def generate_unified_risk_brief(session, global_intel, internal_snapshot):
-    """Generates an exhaustive executive summary using Map-Reduce for deep OSINT correlation."""
+    """Generates an exhaustive, unembellished OSINT risk brief translated for an executive audience."""
     import json
+    from datetime import datetime, timedelta
     from src.llm import call_llm, _map_reduce_summarize, truncate_text
+    from src.database import CveItem, RegionalHazard, CloudOutage
 
     config = get_llm_config(session)
     if not config: return "AI is currently disabled in settings."
@@ -150,106 +152,107 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     global_risk = global_intel.get('unified_risk', 'UNKNOWN')
     internal_risk = internal_snapshot.risk_level if internal_snapshot else 'NONE'
 
-    # Diagnostic logging for accuracy verification
     print(f"[BRIEF DEBUG] Global Risk Level: {global_risk}")
     print(f"[BRIEF DEBUG] Internal Risk Level: {internal_risk}")
-    if internal_snapshot and internal_snapshot.timestamp:
-        # Strip tzinfo to prevent offset-naive vs offset-aware crash
-        snap_time = internal_snapshot.timestamp.replace(tzinfo=None)
-        age = (datetime.utcnow() - snap_time).total_seconds() / 60
-        print(f"[BRIEF DEBUG] Internal Snapshot Age: {age:.1f} minutes")
-    else:
-        print("[BRIEF WARNING] No internal snapshot available")
 
-    # --- 1. Extract Expanded Data Scope ---
-    # We pull much larger batches to feed the Map-Reduce pipeline for a deeper analysis
+    # --- 1. Fetch Deep Database Telemetry (Last 48 Hours) ---
+    t48 = datetime.utcnow() - timedelta(hours=48)
+    
+    recent_cves = session.query(CveItem).filter(CveItem.date_added >= t48).limit(30).all()
+    active_hazards = session.query(RegionalHazard).filter(RegionalHazard.updated_at >= t48).limit(30).all()
+    cloud_outages = session.query(CloudOutage).filter(CloudOutage.updated_at >= t48).limit(20).all()
+
     hw_data = json.loads(internal_snapshot.hw_data_json) if internal_snapshot and internal_snapshot.hw_data_json else []
     sw_data = json.loads(internal_snapshot.sw_data_json) if internal_snapshot and internal_snapshot.sw_data_json else []
+    top_hw = hw_data[:20]
+    top_sw = sw_data[:20]
 
-    top_hw = hw_data[:20]  # Expanded from 10 to 20
-    top_sw = sw_data[:20]  # Expanded from 10 to 20
+    cyber_arts = global_intel.get('raw_cyber_articles', [])[:30]
+    phys_arts = global_intel.get('raw_phys_articles', [])[:20]
+    crimes = global_intel.get('recent_crimes', [])[:20]
 
-    cyber_arts = global_intel.get('raw_cyber_articles', [])[:30]  # Expanded from 6 to 30
-    phys_arts = global_intel.get('raw_phys_articles', [])[:20]    # Expanded from 5 to 20
-    crimes = global_intel.get('recent_crimes', [])[:15]           # Expanded from 5 to 15
+    # --- 2. TIER 1: Map-Reduce Cyber, Cloud & CISA KEVs ---
+    cyber_payload = []
+    for a in cyber_arts: 
+        cyber_payload.append(f"OSINT Article - Title: {a.title} | Source: {a.source} | Summary: {truncate_text(a.summary, 300)}")
+    for c in recent_cves: 
+        cyber_payload.append(f"CISA KEV - CVE: {c.cve_id} | Vendor: {c.vendor} | Product: {c.product} | Vuln: {c.vulnerability_name}")
+    for cl in cloud_outages: 
+        cyber_payload.append(f"Cloud Outage - Provider: {cl.provider} | Service: {cl.service} | Status: {cl.status} | Region: {cl.region}")
 
-    # --- 2. TIER 1: Map-Reduce Global Cyber Intelligence ---
-    if cyber_arts:
-        map_p = "You are a CTI Analyst. Extract specific threat actors, vulnerabilities (CVEs), targeted sectors, and TTPs from these intelligence items. Output highly specific, detailed bullet points."
-        reduce_p = "Combine these extractions into a deep, exhaustive Cyber Threat Intelligence digest. Preserve all specific threat actor names, CVEs, and technical details. Structure by overarching campaigns or threat types."
+    if cyber_payload:
+        map_p = "Extract factual data points regarding threat actors, vulnerabilities (CVEs), cloud service disruptions, and active exploits. DO NOT embellish. Use strict bullet points."
+        reduce_p = "Compile an exhaustive, purely factual Cyber Threat Intelligence digest. Preserve all CVE IDs, specific threat actor names, targeted vendors, and cloud providers. Do not extrapolate risks; report only what is explicitly stated in the data."
         cyber_digest = _map_reduce_summarize(
-            cyber_arts, 
-            lambda a: f"Title: {a.title} | Source: {a.source} | Summary: {truncate_text(a.summary, 400)}", 
-            map_p, reduce_p, config, chunk_size=10
-        )
-    else: 
-        cyber_digest = "No critical global cyber OSINT reported."
-
-    # --- 3. TIER 1: Map-Reduce Physical Intelligence ---
-    if phys_arts:
-        map_p = "Extract specific locations, weather hazards, infrastructure impacts, and physical threats from these reports."
-        reduce_p = "Compile an exhaustive summary of physical threats and regional hazards that could impact utility/enterprise infrastructure."
-        phys_digest = _map_reduce_summarize(
-            phys_arts,
-            lambda a: f"Title: {a.title} | Source: {a.source} | Summary: {truncate_text(a.summary, 300)}",
-            map_p, reduce_p, config, chunk_size=8
+            cyber_payload, lambda x: x, map_p, reduce_p, config, chunk_size=15
         )
     else:
-        phys_digest = "No significant regional physical threats reported."
+        cyber_digest = "No active cyber OSINT, KEVs, or cloud outages reported in the last 48 hours."
 
-    # --- 4. Format Internal Context ---
-    # We pass these directly without Map-Reduce to ensure NO exact asset names are hallucinated away by the AI
-    hw_context = "\n".join([f"- {hw.get('Identifier', 'Unknown')} ({hw.get('OS', 'Unknown')}): {hw.get('OSINT Threat Matches', 0)} Active Exploit/OSINT Matches. Top Threat Reference: {hw.get('Top Threat Reference', 'None')}" for hw in top_hw]) if top_hw else "No hardware assets currently exposed to active OSINT threats."
-    sw_context = "\n".join([f"- {sw.get('Software Name', 'Unknown')}: {sw.get('Active OSINT Matches', 0)} Active Exploit/OSINT Matches. Top Threat Reference: {sw.get('Top Threat Reference', 'None')}" for sw in top_sw]) if top_sw else "No software assets currently exposed to active OSINT threats."
-    crime_context = "\n".join([f"- {c.get('raw_title', 'Unknown')} ({c.get('distance_miles', 0)} miles away) [FBI Cat: {c.get('fbi_category', 'Unknown')}]" for c in crimes]) if crimes else "No active perimeter crimes logged."
+    # --- 3. TIER 1: Map-Reduce Physical, Weather & Perimeter Crimes ---
+    phys_payload = []
+    for a in phys_arts: 
+        phys_payload.append(f"Physical Intel - Title: {a.title} | Source: {a.source}")
+    for h in active_hazards: 
+        phys_payload.append(f"Weather/Hazard - Alert: {h.title} | Severity: {h.severity} | Location: {h.location} | Details: {truncate_text(h.description, 200)}")
+    for c in crimes: 
+        phys_payload.append(f"Perimeter Crime - Type: {c.get('raw_title', 'Unknown')} | Distance from HQ: {c.get('distance_miles', 0)} miles | FBI Category: {c.get('fbi_category', 'Unknown')}")
 
-    # --- 5. Build the Master Context String ---
+    if phys_payload:
+        map_p = "Extract precise factual details regarding weather severity, regional infrastructure hazards, and perimeter crimes (including distance and FBI categories). Be purely objective."
+        reduce_p = "Compile an exhaustive physical risk digest. Categorize strictly into: 1) Severe Weather/Geospatial Hazards and 2) Local Perimeter Crimes. Retain exact distances, locations, and severity classifications. DO NOT embellish."
+        phys_digest = _map_reduce_summarize(
+            phys_payload, lambda x: x, map_p, reduce_p, config, chunk_size=15
+        )
+    else:
+        phys_digest = "No significant weather hazards, regional disruptions, or perimeter crimes reported."
+
+    # --- 4. Format Internal Context (Strict filtering for active hits) ---
+    hw_context = "\n".join([f"- {hw.get('Identifier', 'Unknown')} ({hw.get('OS', 'Unknown')}): {hw.get('OSINT Threat Matches', 0)} Matches. Threat Ref: {hw.get('Top Threat Reference', 'None')}" for hw in top_hw if hw.get('OSINT Threat Matches', 0) > 0]) or "No hardware vulnerabilities correlated with active OSINT."
+    sw_context = "\n".join([f"- {sw.get('Software Name', 'Unknown')}: {sw.get('Active OSINT Matches', 0)} Matches. Threat Ref: {sw.get('Top Threat Reference', 'None')}" for sw in top_sw if sw.get('Active OSINT Matches', 0) > 0]) or "No software vulnerabilities correlated with active OSINT."
+
+    # --- 5. Build Master Context String ---
     compiled_intel = f"""
     === MACRO THREAT POSTURE ===
-    Overall Global Risk Level: {global_risk}
-    Internal Risk Level: {internal_risk}
-    Internal Total Assets: {internal_snapshot.total_assets if internal_snapshot else 0}
-    Internal Assets with Active OSINT Exploits: {internal_snapshot.total_osint_hits if internal_snapshot else 0}
+    Global OSINT Risk Level: {global_risk}
+    Internal Exposure Level: {internal_risk}
     
-    === DEEP CYBER OSINT DIGEST ===
+    === DEEP CYBER OSINT DIGEST (Includes KEVs & Cloud Outages) ===
     {cyber_digest}
     
-    === DEEP PHYSICAL OSINT DIGEST ===
+    === DEEP PHYSICAL OSINT DIGEST (Includes Weather & Perimeter Crimes) ===
     {phys_digest}
     
-    === INTERNAL ATTACK SURFACE CORRELATIONS (TOP EXPOSURES) ===
+    === INTERNAL ASSET EXPOSURE (OSINT CORRELATIONS) ===
     --- HARDWARE ---
     {hw_context}
     
     --- SOFTWARE ---
     {sw_context}
-    
-    --- ACTIVE PERIMETER CRIMES ---
-    {crime_context}
     """
 
-    # --- 6. TIER 2: Master Editor Pass ---
-    master_sys_prompt = f"""You are the Chief Information Security Officer (CISO) delivering an exhaustive, boardroom-ready Unified Risk Brief based on OSINT telemetry.
+    # --- 6. TIER 2: Master Editor Pass (Executive Translation) ---
+    master_sys_prompt = f"""You are the Chief Information Security Officer (CISO) delivering a Unified Risk Brief to the Board of Directors and non-technical executives.
     
     CRITICAL DIRECTIVES & TONE:
-    1. OSINT DISCLAIMER: You MUST make it abundantly clear in the Executive Summary that this is strictly an Open-Source Intelligence (OSINT) correlation report. It highlights external global threats and maps them to our internal asset *types*. It does NOT represent confirmed internal breaches, active system compromises, or a definitive internal architectural risk assessment. Frame everything as "potential exposure," "OSINT correlations," and "external threat landscape."
-    2. Assess the Macro Threat Posture provided and explain the convergence of the Global and Internal risk levels using the Map-Reduced digests.
-    3. Use the provided "Internal Attack Surface Correlations" to explicitly name the exact hardware and software assets exposed to OSINT threats. Detail exactly what exploits or threats are correlating with our internal systems based on the data.
-    4. Synthesize the deep Cyber Intelligence and Physical/Perimeter digests into authoritative, expansive paragraphs to give the board a high-definition view of the threat landscape.
-    5. Structure the response in professional Markdown with these exact headers:
+    1. EXECUTIVE TRANSLATION: Your audience is non-technical. You must translate complex cyber, cloud, and physical telemetry into clear business and operational risks. Provide highly readable, narrative summaries explaining the "so what?" before listing any technical specifics (like CVE numbers).
+    2. OSINT DISCLAIMER: You MUST explicitly state in the Executive Summary that this report correlates external Open-Source Intelligence (OSINT) against our internal asset *types*. Make it clear that this does NOT represent active internal system breaches, but serves to provide situational awareness of the external threat landscape.
+    3. BUSINESS IMPACT FOCUS: When discussing CISA KEVs, cloud outages, or cyber threats, briefly explain how these could impact business continuity, supply chains, or data security if left unchecked.
+    4. PHYSICAL & PERSONNEL SAFETY: Give significant weight to the Physical & Perimeter section. Translate weather hazards and local crimes into operational contexts (e.g., potential disruptions to facility power, travel warnings, or personnel safety).
+    5. STRICT FACTUALITY: Do not fabricate generic remediation steps or hallucinate internal incidents. Only report on the exact asset overlaps and distances provided in the data, but wrap them in executive-level context.
+    
+    Structure the response in professional Markdown with these exact headers:
         ## Executive OSINT Summary (BLUF)
         ## Internal Asset Threat Correlations (OSINT Overlaps)
-        ## Global Cyber Threat Landscape
-        ## Physical & Perimeter Security Posture
-        ## Strategic Defensive Recommendations
-    6. Do NOT include any specific point calculations, raw scoring metrics, or mathematical equations. Focus purely on situational awareness and operational impacts.
-    7. Do NOT use generic filler. Be highly specific using the exact asset names, threat references, CVEs, and threat actors provided in the digests. Use expansive, detailed paragraphs and bulleted lists to ensure the report is incredibly dense with actionable intelligence.
+        ## Global Cyber & Cloud Threat Landscape
+        ## Physical, Weather & Perimeter Posture
     """
 
+    # Temperature raised to 0.2 to allow for narrative summarization while remaining grounded
     response = call_llm([
         {"role": "system", "content": master_sys_prompt},
         {"role": "user", "content": compiled_intel}
-    ], config, temperature=0.3)
+    ], config, temperature=0.2) 
     
     return response.strip() if response else "Brief generation failed."
 
