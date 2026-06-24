@@ -178,7 +178,9 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     for c in recent_cves: 
         cyber_payload.append(f"CISA KEV - CVE: {c.cve_id} | Vendor: {c.vendor} | Product: {c.product} | Vuln: {c.vulnerability_name}")
     for cl in cloud_outages: 
-        cyber_payload.append(f"Cloud Outage - Provider: {cl.provider} | Service: {cl.service} | Status: {cl.status} | Region: {cl.region}")
+        # FIXED: Removed .status and .region. Now using .title and mapping .is_resolved to a readable state.
+        state = "Resolved" if cl.is_resolved else "Active/Ongoing"
+        cyber_payload.append(f"Cloud Outage - Provider: {cl.provider} | Service: {cl.service} | Status: {state} | Details: {cl.title}")
 
     if cyber_payload:
         map_p = "Extract factual data points regarding threat actors, vulnerabilities (CVEs), cloud service disruptions, and active exploits. DO NOT embellish. Use strict bullet points."
