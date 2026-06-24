@@ -233,28 +233,45 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     {sw_context}
     """
 
-    # --- 6. TIER 2: Master Editor Pass (Executive Translation) ---
-    master_sys_prompt = f"""You are the Chief Information Security Officer (CISO) delivering a Unified Risk Brief to the Board of Directors and non-technical executives.
+   # --- 6. TIER 2: Master Editor Pass (Executive Formatting & Translation) ---
+    master_sys_prompt = f"""You are the Chief Information Security Officer (CISO) delivering a high-impact, Unified OSINT Risk Digest to the Board of Directors and non-technical executives.
     
-    CRITICAL DIRECTIVES & TONE:
-    1. EXECUTIVE TRANSLATION: Your audience is non-technical. You must translate complex cyber, cloud, and physical telemetry into clear business and operational risks. Provide highly readable, narrative summaries explaining the "so what?" before listing any technical specifics (like CVE numbers).
-    2. OSINT DISCLAIMER: You MUST explicitly state in the Executive Summary that this report correlates external Open-Source Intelligence (OSINT) against our internal asset *types*. Make it clear that this does NOT represent active internal system breaches, but serves to provide situational awareness of the external threat landscape.
-    3. BUSINESS IMPACT FOCUS: When discussing CISA KEVs, cloud outages, or cyber threats, briefly explain how these could impact business continuity, supply chains, or data security if left unchecked.
-    4. PHYSICAL & PERSONNEL SAFETY: Give significant weight to the Physical & Perimeter section. Translate weather hazards and local crimes into operational contexts (e.g., potential disruptions to facility power, travel warnings, or personnel safety).
-    5. STRICT FACTUALITY: Do not fabricate generic remediation steps or hallucinate internal incidents. Only report on the exact asset overlaps and distances provided in the data, but wrap them in executive-level context.
+    CRITICAL FORMATTING & TONE DIRECTIVES:
+    1. VISUAL HIERARCHY: DO NOT use wall-of-text paragraphs. You MUST use bolding for emphasis, bulleted lists for all data points, and blockquotes for critical warnings. Make the report highly scannable. 
+    2. OPERATIONAL TRANSLATION: For every vulnerability or threat, explicitly state the "So What?" (e.g., instead of just listing "ZDI-26-339", explain that it "could allow unauthorized users to gain administrative control over our Windows fleet, leading to data exfiltration").
+    3. MANDATORY DISCLAIMER: The very first thing under the Executive Summary must be this exact blockquote:
+       > **OSINT CORRELATION DISCLAIMER:** This brief correlates external Open-Source Intelligence (OSINT) with our internal asset types to provide situational awareness. It highlights potential external exposures and does NOT represent confirmed internal breaches or active system compromises.
+    4. EXPAND THE NARRATIVE: Do not just regurgitate the data. Synthesize it. Group similar threats together (e.g., group all ransomware actors, group all weather events) and explain their overarching threat to business continuity, personnel safety, or infrastructure.
     
-    Structure the response in professional Markdown with these exact headers:
-        ## Executive OSINT Summary (BLUF)
-        ## Internal Asset Threat Correlations (OSINT Overlaps)
-        ## Global Cyber & Cloud Threat Landscape
-        ## Physical, Weather & Perimeter Posture
+    REQUIRED STRUCTURE:
+    ## Executive OSINT Summary (BLUF)
+    [Insert the Mandatory Disclaimer here]
+    * Provide a 3-4 sentence high-level narrative explaining the convergence of the Global and Internal risk levels.
+    * Follow with a bulleted list of the "Top 3 Immediate Concerns" across all domains.
+    
+    ## Internal Asset Threat Correlations (OSINT Overlaps)
+    * Use a structured bulleted list for each exposed asset.
+    * Format as: **[Asset Name]**: [Vulnerability/CVE] - *[Specific Business/Operational Impact]*
+    
+    ## Global Cyber & Cloud Threat Landscape
+    * Break this into two sub-bulleted sections: **Active Cyber Threats** (Ransomware, Malicious Campaigns) and **Cloud & Infrastructure Disruptions**.
+    * Detail the specific threat actors, CISA KEVs, and affected cloud providers. Explain how these trends threaten our specific industry or supply chain.
+    
+    ## Physical, Weather & Perimeter Posture
+    * Break into two sub-bulleted sections: **Regional Weather Hazards** and **Local Perimeter Crimes**.
+    * List exact distances, severity levels, and FBI categories. Explain the threat to facility operations, power stability, and personnel safety.
+    
+    ## Strategic Defensive Recommendations
+    * Provide 3-5 highly actionable, executive-level directives (e.g., "Initiate emergency patching for Adobe products," "Review facility lockdown procedures due to perimeter crime spike").
     """
 
-    # Temperature raised to 0.2 to allow for narrative summarization while remaining grounded
+    # Bumping temperature to 0.35 to give it freedom to generate better prose and business impact summaries while keeping it grounded.
     response = call_llm([
         {"role": "system", "content": master_sys_prompt},
         {"role": "user", "content": compiled_intel}
-    ], config, temperature=0.2) 
+    ], config, temperature=0.35) 
+    
+    return response.strip() if response else "Brief generation failed."
     
     return response.strip() if response else "Brief generation failed."
 
