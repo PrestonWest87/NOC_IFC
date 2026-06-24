@@ -140,9 +140,9 @@ def analyze_cascading_impacts(articles, session):
     )
 
 def generate_unified_risk_brief(session, global_intel, internal_snapshot):
-    """Generates an exhaustive executive summary in a SINGLE FAST PASS using pre-calculated matrices."""
+    """Generates an exhaustive executive summary using Map-Reduce for deep OSINT correlation."""
     import json
-    from src.llm import call_llm
+    from src.llm import call_llm, _map_reduce_summarize, truncate_text
 
     config = get_llm_config(session)
     if not config: return "AI is currently disabled in settings."
@@ -161,73 +161,89 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     else:
         print("[BRIEF WARNING] No internal snapshot available")
 
-    # --- 1. Extract Pre-Calculated Data ---
+    # --- 1. Extract Expanded Data Scope ---
+    # We pull much larger batches to feed the Map-Reduce pipeline for a deeper analysis
     hw_data = json.loads(internal_snapshot.hw_data_json) if internal_snapshot and internal_snapshot.hw_data_json else []
     sw_data = json.loads(internal_snapshot.sw_data_json) if internal_snapshot and internal_snapshot.sw_data_json else []
 
-    # Since the Python backend already correlated and sorted these by severity,
-    # we just take the top 10 most critical to feed the LLM context directly.
-    top_hw = hw_data[:10]
-    top_sw = sw_data[:10]
+    top_hw = hw_data[:20]  # Expanded from 10 to 20
+    top_sw = sw_data[:20]  # Expanded from 10 to 20
 
-    cyber_arts = global_intel.get('raw_cyber_articles', [])[:6]
-    phys_arts = global_intel.get('raw_phys_articles', [])[:5]
-    crimes = global_intel.get('recent_crimes', [])[:5]
+    cyber_arts = global_intel.get('raw_cyber_articles', [])[:30]  # Expanded from 6 to 30
+    phys_arts = global_intel.get('raw_phys_articles', [])[:20]    # Expanded from 5 to 20
+    crimes = global_intel.get('recent_crimes', [])[:15]           # Expanded from 5 to 15
 
-    # --- 2. Format Context for the LLM ---
-    hw_context = "\n".join([f"- {hw['Identifier']} ({hw['OS']}): {hw['OSINT Threat Matches']} Active Exploit/OSINT Matches. Top Threat Reference: {hw['Top Threat Reference']}" for hw in top_hw]) if top_hw else "No hardware assets currently exposed to active OSINT threats."
+    # --- 2. TIER 1: Map-Reduce Global Cyber Intelligence ---
+    if cyber_arts:
+        map_p = "You are a CTI Analyst. Extract specific threat actors, vulnerabilities (CVEs), targeted sectors, and TTPs from these intelligence items. Output highly specific, detailed bullet points."
+        reduce_p = "Combine these extractions into a deep, exhaustive Cyber Threat Intelligence digest. Preserve all specific threat actor names, CVEs, and technical details. Structure by overarching campaigns or threat types."
+        cyber_digest = _map_reduce_summarize(
+            cyber_arts, 
+            lambda a: f"Title: {a.title} | Source: {a.source} | Summary: {truncate_text(a.summary, 400)}", 
+            map_p, reduce_p, config, chunk_size=10
+        )
+    else: 
+        cyber_digest = "No critical global cyber OSINT reported."
 
-    sw_context = "\n".join([f"- {sw['Software Name']}: {sw['Active OSINT Matches']} Active Exploit/OSINT Matches. Top Threat Reference: {sw['Top Threat Reference']}" for sw in top_sw]) if top_sw else "No software assets currently exposed to active OSINT threats."
+    # --- 3. TIER 1: Map-Reduce Physical Intelligence ---
+    if phys_arts:
+        map_p = "Extract specific locations, weather hazards, infrastructure impacts, and physical threats from these reports."
+        reduce_p = "Compile an exhaustive summary of physical threats and regional hazards that could impact utility/enterprise infrastructure."
+        phys_digest = _map_reduce_summarize(
+            phys_arts,
+            lambda a: f"Title: {a.title} | Source: {a.source} | Summary: {truncate_text(a.summary, 300)}",
+            map_p, reduce_p, config, chunk_size=8
+        )
+    else:
+        phys_digest = "No significant regional physical threats reported."
 
-    cyber_context = "\n".join([f"- {a.title} ({a.source})" for a in cyber_arts]) if cyber_arts else "No critical global cyber OSINT reported."
+    # --- 4. Format Internal Context ---
+    # We pass these directly without Map-Reduce to ensure NO exact asset names are hallucinated away by the AI
+    hw_context = "\n".join([f"- {hw.get('Identifier', 'Unknown')} ({hw.get('OS', 'Unknown')}): {hw.get('OSINT Threat Matches', 0)} Active Exploit/OSINT Matches. Top Threat Reference: {hw.get('Top Threat Reference', 'None')}" for hw in top_hw]) if top_hw else "No hardware assets currently exposed to active OSINT threats."
+    sw_context = "\n".join([f"- {sw.get('Software Name', 'Unknown')}: {sw.get('Active OSINT Matches', 0)} Active Exploit/OSINT Matches. Top Threat Reference: {sw.get('Top Threat Reference', 'None')}" for sw in top_sw]) if top_sw else "No software assets currently exposed to active OSINT threats."
+    crime_context = "\n".join([f"- {c.get('raw_title', 'Unknown')} ({c.get('distance_miles', 0)} miles away) [FBI Cat: {c.get('fbi_category', 'Unknown')}]" for c in crimes]) if crimes else "No active perimeter crimes logged."
 
-    phys_context = "\n".join([f"- {a.title} ({a.source})" for a in phys_arts]) if phys_arts else "No significant regional physical threats reported."
-
-    crime_context = "\n".join([f"- {c['raw_title']} ({c['distance_miles']} miles away) [FBI Cat: {c.get('fbi_category', 'Unknown')}]" for c in crimes]) if crimes else "No active perimeter crimes logged."
-
-    # --- 3. Build the Master Context String ---
+    # --- 5. Build the Master Context String ---
     compiled_intel = f"""
     === MACRO THREAT POSTURE ===
     Overall Global Risk Level: {global_risk}
-    Global Cyber Intel Brief: {global_intel.get('cyber_brief', 'N/A')}
-    Global Physical Intel Brief: {global_intel.get('physical_brief', 'N/A')}
-
     Internal Risk Level: {internal_risk}
     Internal Total Assets: {internal_snapshot.total_assets if internal_snapshot else 0}
     Internal Assets with Active OSINT Exploits: {internal_snapshot.total_osint_hits if internal_snapshot else 0}
     
-    === INTERNAL ATTACK SURFACE (TOP PRE-CALCULATED EXPOSURES) ===
+    === DEEP CYBER OSINT DIGEST ===
+    {cyber_digest}
+    
+    === DEEP PHYSICAL OSINT DIGEST ===
+    {phys_digest}
+    
+    === INTERNAL ATTACK SURFACE CORRELATIONS (TOP EXPOSURES) ===
     --- HARDWARE ---
     {hw_context}
     
     --- SOFTWARE ---
     {sw_context}
     
-    === GLOBAL THREAT LANDSCAPE (TOP ACTIVE THREATS) ===
-    --- CYBER OSINT ---
-    {cyber_context}
-    
-    --- PHYSICAL OSINT & CRIMES ---
-    {phys_context}
+    --- ACTIVE PERIMETER CRIMES ---
     {crime_context}
     """
 
-    # --- 4. Single Pass LLM Execution ---
-    master_sys_prompt = f"""You are the Chief Information Security Officer (CISO) delivering an exhaustive, boardroom-ready Unified Risk Brief.
+    # --- 6. TIER 2: Master Editor Pass ---
+    master_sys_prompt = f"""You are the Chief Information Security Officer (CISO) delivering an exhaustive, boardroom-ready Unified Risk Brief based on OSINT telemetry.
     
-    CRITICAL DIRECTIVES:
-    1. Assess the Macro Threat Posture provided and set the tone accordingly. Explain the convergence of the Global and Internal risk levels.
-    2. Use the provided "Top Pre-Calculated Exposures" to explicitly name the exact internal hardware and software assets exposed to OSINT threats. Detail exactly what exploits or threats are correlating with our internal systems.
-    3. Break down the Global Cyber Threat landscape and directly tie it back to why it matters to the organization given our internal exposures.
-    4. Address the Physical and Perimeter security posture, citing specific crime incidents and OSINT hazards.
+    CRITICAL DIRECTIVES & TONE:
+    1. OSINT DISCLAIMER: You MUST make it abundantly clear in the Executive Summary that this is strictly an Open-Source Intelligence (OSINT) correlation report. It highlights external global threats and maps them to our internal asset *types*. It does NOT represent confirmed internal breaches, active system compromises, or a definitive internal architectural risk assessment. Frame everything as "potential exposure," "OSINT correlations," and "external threat landscape."
+    2. Assess the Macro Threat Posture provided and explain the convergence of the Global and Internal risk levels using the Map-Reduced digests.
+    3. Use the provided "Internal Attack Surface Correlations" to explicitly name the exact hardware and software assets exposed to OSINT threats. Detail exactly what exploits or threats are correlating with our internal systems based on the data.
+    4. Synthesize the deep Cyber Intelligence and Physical/Perimeter digests into authoritative, expansive paragraphs to give the board a high-definition view of the threat landscape.
     5. Structure the response in professional Markdown with these exact headers:
-        ## Executive Summary (BLUF)
-        ## Internal Attack Surface & OSINT Exposures
+        ## Executive OSINT Summary (BLUF)
+        ## Internal Asset Threat Correlations (OSINT Overlaps)
         ## Global Cyber Threat Landscape
         ## Physical & Perimeter Security Posture
-        ## Strategic Recommendations
-    6. Do NOT include any specific point calculations, raw scoring metrics, or mathematical equations. Focus purely on operational impact.
-    7. Do NOT use generic filler. Be highly specific using the exact asset names, threat references, and numbers provided. Use expansive, detailed paragraphs and bulleted lists where appropriate to ensure the report is dense with actionable intelligence.
+        ## Strategic Defensive Recommendations
+    6. Do NOT include any specific point calculations, raw scoring metrics, or mathematical equations. Focus purely on situational awareness and operational impacts.
+    7. Do NOT use generic filler. Be highly specific using the exact asset names, threat references, CVEs, and threat actors provided in the digests. Use expansive, detailed paragraphs and bulleted lists to ensure the report is incredibly dense with actionable intelligence.
     """
 
     response = call_llm([
