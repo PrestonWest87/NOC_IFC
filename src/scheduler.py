@@ -250,7 +250,6 @@ def job_daily_email_unified_brief():
     try:
         import os
         from src.llm import generate_unified_risk_brief
-        # ADDED: generate_unified_brief_email_html to the import list
         from src.services import get_executive_grid_intel, get_recent_crimes, save_global_config, get_cached_config, generate_unified_brief_email_html
         from src.database import InternalRiskSnapshot, RegionalHazard, SessionLocal
         from src.mailer import send_alert_email
@@ -262,60 +261,58 @@ def job_daily_email_unified_brief():
         if not recipients:
             recipients = getattr(sys_config, 'smtp_recipient', None)
 
-        if not recipients:
-            log("[WARN] No SMTP recipient configured. Skipping email dispatch.", "SYSTEM")
-            return
-
-        # Gather local telemetry
+        #  FIX: Keep everything inside a SINGLE session block
         with SessionLocal() as session:
             latest_internal = session.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
             active_nws = session.query(RegionalHazard).count()
 
-        # Gather global telemetry
-        crime_data = get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
-        global_intel = get_executive_grid_intel(active_nws, crime_data)
+            # Gather global telemetry
+            crime_data = get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
+            global_intel = get_executive_grid_intel(active_nws, crime_data)
 
-        # Fire AI and generate the brief
-        with SessionLocal() as session:
+            # Fire AI and generate the brief
             brief_text = generate_unified_risk_brief(session, global_intel, latest_internal)
 
-        if brief_text and "AI is currently disabled" not in brief_text:
-            save_global_config({
-                "unified_brief": brief_text,
-                "unified_brief_time": datetime.utcnow()
-            })
-            
-            log("[OK] Daily Unified Risk Brief generated. Formatting HTML for dispatch...", "SYSTEM")
-            
-            local_now = datetime.now(ZoneInfo("America/Chicago"))
-            subject = f"Executive Unified Risk Brief - {local_now.strftime('%Y-%m-%d')}"
-            
-            # --- NEW: ROUTE THROUGH HTML GENERATOR ---
-            current_global = global_intel.get('unified_risk', 'UNKNOWN')
-            current_internal = latest_internal.risk_level if latest_internal else "UNKNOWN"
-            report_time_str = local_now.strftime('%B %d, %Y at %I:%M %p %Z')
-            
-            pretty_html = generate_unified_brief_email_html(
-                report_time=report_time_str,
-                markdown_content=brief_text,
-                global_risk=current_global,
-                internal_risk=current_internal
-            )
-            
-            # Send the highly-formatted HTML email
-            success, msg = send_alert_email(
-                subject=subject,
-                body=pretty_html,
-                recipient_override=recipients,
-                is_html=True
-            )
-            
-            if success:
-                log(f"[SUCCESS] Daily Unified Risk Brief emailed to: {recipients}", "SYSTEM")
-            else:
-                log(f"[ERROR] Failed to email Unified Risk Brief: {msg}", "SYSTEM")
-            
-            check_and_alert(global_risk=global_intel.get('unified_risk'), internal_risk=None)
+            if brief_text and "AI is currently disabled" not in brief_text:
+                save_global_config({
+                    "unified_brief": brief_text,
+                    "unified_brief_time": datetime.utcnow()
+                })
+                
+                #  FIX: Only bail out of the EMAIL sequence if recipients are missing (After the brief is safely saved)
+                if not recipients:
+                    log("[WARN] No SMTP recipient configured. Unified brief saved, but skipping email dispatch.", "SYSTEM")
+                    return
+
+                log("[OK] Daily Unified Risk Brief generated. Formatting HTML for dispatch...", "SYSTEM")
+                
+                local_now = datetime.now(ZoneInfo("America/Chicago"))
+                subject = f"Executive Unified Risk Brief - {local_now.strftime('%Y-%m-%d')}"
+                
+                current_global = global_intel.get('unified_risk', 'UNKNOWN')
+                current_internal = latest_internal.risk_level if latest_internal else "UNKNOWN"
+                report_time_str = local_now.strftime('%B %d, %Y at %I:%M %p %Z')
+                
+                pretty_html = generate_unified_brief_email_html(
+                    report_time=report_time_str,
+                    markdown_content=brief_text,
+                    global_risk=current_global,
+                    internal_risk=current_internal
+                )
+                
+                success, msg = send_alert_email(
+                    subject=subject,
+                    body=pretty_html,
+                    recipient_override=recipients,
+                    is_html=True
+                )
+                
+                if success:
+                    log(f"[SUCCESS] Daily Unified Risk Brief emailed to: {recipients}", "SYSTEM")
+                else:
+                    log(f"[ERROR] Failed to email Unified Risk Brief: {msg}", "SYSTEM")
+                
+                check_and_alert(global_risk=global_intel.get('unified_risk'), internal_risk=None)
 
     except Exception as e:
         log(f"[ERROR] Daily Unified Brief Email Error: {e}", "SYSTEM")
