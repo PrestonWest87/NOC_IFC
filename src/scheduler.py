@@ -213,36 +213,34 @@ def fetch_feeds(source="Scheduled"):
     gc.collect()
 
 def job_unified_brief():
-    """Auto-generates the Unified Risk Brief every 2 hours."""
+    """Auto-generates the Unified Risk Brief every 30 minutes."""
     log("[AI] Generating Executive Unified Risk Brief...", "SYSTEM")
     try:
         from src.llm import generate_unified_risk_brief
         from src.services import get_executive_grid_intel, get_recent_crimes, save_global_config
-        from src.database import InternalRiskSnapshot, RegionalHazard
+        from src.database import InternalRiskSnapshot, RegionalHazard, SessionLocal
 
-        # Gather local telemetry
         with SessionLocal() as session:
             latest_internal = session.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
             active_nws = session.query(RegionalHazard).count()
 
-        # Gather global telemetry
-        crime_data = get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
-        global_intel = get_executive_grid_intel(active_nws, crime_data)
+            # Gather global telemetry
+            crime_data = get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
+            global_intel = get_executive_grid_intel(active_nws, crime_data)
 
-        # Fire AI and Save
-        with SessionLocal() as session:
+            # Fire AI and Save
             brief_text = generate_unified_risk_brief(session, global_intel, latest_internal)
 
-        if brief_text and "AI is currently disabled" not in brief_text:
-            save_global_config({
-                "unified_brief": brief_text,
-                "unified_brief_time": datetime.utcnow()
-            })
-            log("[OK] Unified Risk Brief generated and saved.", "SYSTEM")
+            if brief_text and "AI is currently disabled" not in brief_text:
+                save_global_config({
+                    "unified_brief": brief_text,
+                    "unified_brief_time": datetime.utcnow()
+                })
+                log("[OK] Unified Risk Brief generated and saved.", "SYSTEM")
 
-            # Check for global risk increase and send alert if needed
-            from src.risk_alert import check_and_alert
-            check_and_alert(global_risk=global_intel.get('unified_risk'), internal_risk=None)
+                # Check for global risk increase and send alert if needed
+                from src.risk_alert import check_and_alert
+                check_and_alert(global_risk=global_intel.get('unified_risk'), internal_risk=None)
     except Exception as e:
         log(f"[ERROR] Unified Brief Error: {e}", "SYSTEM")
 
