@@ -256,7 +256,7 @@ def job_daily_email_unified_brief():
         from src.risk_alert import check_and_alert
 
         sys_config = get_cached_config()
-        recipients = "noc@aecc.com"
+        recipients = os.environ.get("UNIFIED_BRIEF_EMAIL_RECIPIENTS")
         
         if not recipients:
             recipients = getattr(sys_config, 'smtp_recipient', None)
