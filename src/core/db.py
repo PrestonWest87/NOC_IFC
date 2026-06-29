@@ -144,6 +144,20 @@ def init_db():
     except Exception:
         pass
 
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN scoring_mode VARCHAR DEFAULT 'auto'"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN cyber_criticality_override INTEGER DEFAULT 0"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN cyber_lethality_override INTEGER DEFAULT 0"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN physical_criticality_override INTEGER DEFAULT 0"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN physical_lethality_override INTEGER DEFAULT 0"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN internal_criticality_override INTEGER DEFAULT 0"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN internal_lethality_override INTEGER DEFAULT 0"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN global_risk_offset INTEGER DEFAULT 0"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN internal_risk_offset INTEGER DEFAULT 0"))
+    except Exception:
+        pass
+
     session = SessionLocal()
     try:
         from src.models.schema import Role, User
@@ -212,7 +226,7 @@ def init_db():
             ("https://krebsonsecurity.com/feed/", "Krebs on Security"),
             ("https://www.bleepingcomputer.com/feed/", "BleepingComputer"),
             ("https://feeds.a.dj.com/rss/RSSWorldNews.xml", "WSJ World News"),
-            ("https://www.cisa.gov/cybersecurity-advisories/feed.xml", "CISA Advisories"),
+            ("https://www.cisa.gov/cybersecurity-advisories/all.xml", "CISA Advisories"),
             ("https://www.darkreading.com/rss.xml", "Dark Reading"),
             ("https://therecord.media/feed/", "The Record"),
         ]
@@ -227,3 +241,51 @@ def init_db():
         session2.close()
     except Exception as e:
         logger.warning(f"Could not seed default feeds: {e}")
+
+    from src.models.schema import Keyword
+    session3 = SessionLocal()
+    default_keywords = [
+        ("ransomware", 90), ("breach", 85), ("data breach", 85), ("zero-day", 85),
+        ("exploit", 80), ("infrastructure", 80), ("malware", 80), ("outage", 80),
+        ("vulnerability", 75), ("ddos", 75), ("phishing", 75), ("backdoor", 75),
+        ("attack", 70), ("cve", 70), ("cyberattack", 70), ("hack", 70),
+        ("threat", 60), ("cyber", 55), ("security", 55), ("hacker", 60),
+        ("espionage", 75), ("apt", 80), ("nation-state", 75),
+        ("supply chain", 70), ("rce", 80), ("botnet", 75),
+        ("trojan", 70), ("spyware", 70), ("wiper", 75),
+        ("data exfiltration", 80), ("lateral movement", 70),
+        ("privilege escalation", 70), ("cobalt strike", 80),
+        ("critical infrastructure", 70), ("power grid", 65),
+        ("disruption", 60), ("degraded", 50), ("bgp", 55),
+        ("submarine cable", 60), ("intrusion", 60),
+        ("ransomware gang", 85), ("lockbit", 85), ("blackcat", 85),
+        ("clop", 80), ("alphv", 80), ("conti", 80),
+        ("solarwinds", 70), ("log4j", 80), ("log4shell", 85),
+        ("cisa", 60), ("fbi", 55), ("nsa", 55),
+        ("nato", 50), ("intelligence", 50), ("sanctions", 50),
+        ("disinformation", 50), ("deepfake", 50),
+        ("ai", 40), ("artificial intelligence", 45),
+        ("machine learning", 40), ("drone", 45), ("uav", 45),
+        ("missile", 50), ("military", 45), ("defense", 40),
+        ("pipeline", 50), ("energy", 40), ("financial", 35),
+        ("cryptocurrency", 35), ("bitcoin", 30),
+    ]
+    try:
+        added_kw = 0
+        for word, weight in default_keywords:
+            if not session3.query(Keyword).filter_by(word=word).first():
+                session3.add(Keyword(word=word, weight=weight))
+                added_kw += 1
+        if added_kw:
+            session3.commit()
+            logger.info(f"Seeded {added_kw} default keywords.")
+        session3.close()
+    except Exception as e:
+        logger.warning(f"Could not seed default keywords: {e}")
+
+    try:
+        from src.services import rescore_all_articles
+        rescored = rescore_all_articles()
+        logger.info(f"Rescored {rescored} existing articles with new keywords.")
+    except Exception as e:
+        logger.warning(f"Could not rescore articles: {e}")

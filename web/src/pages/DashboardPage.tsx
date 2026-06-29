@@ -149,6 +149,9 @@ export function DashboardPage() {
   const [dispatchEmail, setDispatchEmail] = useState("");
   const [ubEmail, setUbEmail] = useState("");
   const [forceRefreshKey, setForceRefreshKey] = useState(0);
+
+  const [globalOverrideForm, setGlobalOverrideForm] = useState<any>(null);
+  const [internalOverrideForm, setInternalOverrideForm] = useState<any>(null);
   const rotateRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const queryClient = useQueryClient();
 
@@ -177,6 +180,14 @@ export function DashboardPage() {
   const generateInternalMut = useMutation({
     mutationFn: () => api.post("/dashboard/generate-internal-risk"),
     onSuccess: () => { refetchInternal(); },
+  });
+
+  const saveOverrideConfigMut = useMutation({
+    mutationFn: (data: any) => api.post("/admin/config", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sys-config"] });
+      queryClient.invalidateQueries({ queryKey: ["executive-intel"] });
+    },
   });
 
   useEffect(() => {
@@ -232,6 +243,25 @@ export function DashboardPage() {
   const { data: sysConfig } = useQuery({
     queryKey: ["sys-config"], queryFn: () => api.get("/settings/config").then((r) => r.data), refetchInterval: 120000,
   });
+
+  useEffect(() => {
+    if (sysConfig) {
+      setGlobalOverrideForm({
+        scoring_mode: sysConfig.scoring_mode || "auto",
+        cyber_criticality_override: sysConfig.cyber_criticality_override || 0,
+        cyber_lethality_override: sysConfig.cyber_lethality_override || 0,
+        physical_criticality_override: sysConfig.physical_criticality_override || 0,
+        physical_lethality_override: sysConfig.physical_lethality_override || 0,
+        global_risk_offset: sysConfig.global_risk_offset || 0,
+      });
+      setInternalOverrideForm({
+        scoring_mode: sysConfig.scoring_mode || "auto",
+        internal_criticality_override: sysConfig.internal_criticality_override || 0,
+        internal_lethality_override: sysConfig.internal_lethality_override || 0,
+        internal_risk_offset: sysConfig.internal_risk_offset || 0,
+      });
+    }
+  }, [sysConfig]);
 
   const handleForceRefreshBriefing = () => {
     refreshBriefingMut.mutate();
@@ -731,7 +761,7 @@ export function DashboardPage() {
           {/* Dispatch Intelligence Report */}
           <div style={{
             background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
-            border: "1px solid var(--border-primary, #e2e8f0)",
+            border: "1px solid var(--border-primary, #e2e8f0)", marginBottom: "1.5rem",
           }}>
             <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
               <Send size={16} /> Dispatch Intelligence Report
@@ -760,6 +790,115 @@ export function DashboardPage() {
                 <Mail size={16} /> Send AI Scoring Report
               </button>
             </div>
+          </div>
+
+          {/* Global Risk Scoring Overrides */}
+          <div style={{
+            background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
+            border: "1px solid var(--border-primary, #e2e8f0)",
+          }}>
+            <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+              <BarChart3 size={16} /> Global Risk Scoring Overrides
+            </h3>
+            <p style={{ fontSize: "0.82rem", color: "var(--text-muted, #94a3b8)", margin: "0 0 0.75rem" }}>
+              Override the automatic CIS scoring. Changes take effect immediately on save.
+            </p>
+            {globalOverrideForm && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                  <label style={{ fontSize: "0.82rem", fontWeight: 600, minWidth: 120 }}>Scoring Mode:</label>
+                  <select
+                    value={globalOverrideForm.scoring_mode}
+                    onChange={(e) => setGlobalOverrideForm((f: any) => ({ ...f, scoring_mode: e.target.value }))}
+                    style={{
+                      padding: "0.35rem 0.5rem", borderRadius: "var(--radius-sm, 4px)",
+                      border: "1px solid var(--border-primary, #e2e8f0)", fontSize: "0.82rem",
+                    }}
+                  >
+                    <option value="auto">Auto (Full Algorithmic)</option>
+                    <option value="manual">Manual (Override All)</option>
+                    <option value="hybrid">Hybrid (Auto + Offset)</option>
+                  </select>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted, #94a3b8)" }}>
+                    Current: {executiveIntel?.scoring_mode || "auto"}
+                  </span>
+                </div>
+
+                {globalOverrideForm.scoring_mode === "manual" && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", maxWidth: 500 }}>
+                    <div>
+                      <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>Cyber Criticality (1-5):</label>
+                      <input type="range" min={1} max={5} step={1}
+                        value={globalOverrideForm.cyber_criticality_override}
+                        onChange={(e) => setGlobalOverrideForm((f: any) => ({ ...f, cyber_criticality_override: Number(e.target.value) }))}
+                        style={{ width: "100%" }} />
+                      <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textAlign: "center" }}>
+                        {globalOverrideForm.cyber_criticality_override}/5
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>Cyber Lethality (1-5):</label>
+                      <input type="range" min={1} max={5} step={1}
+                        value={globalOverrideForm.cyber_lethality_override}
+                        onChange={(e) => setGlobalOverrideForm((f: any) => ({ ...f, cyber_lethality_override: Number(e.target.value) }))}
+                        style={{ width: "100%" }} />
+                      <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textAlign: "center" }}>
+                        {globalOverrideForm.cyber_lethality_override}/5
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>Physical Criticality (1-5):</label>
+                      <input type="range" min={1} max={5} step={1}
+                        value={globalOverrideForm.physical_criticality_override}
+                        onChange={(e) => setGlobalOverrideForm((f: any) => ({ ...f, physical_criticality_override: Number(e.target.value) }))}
+                        style={{ width: "100%" }} />
+                      <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textAlign: "center" }}>
+                        {globalOverrideForm.physical_criticality_override}/5
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>Physical Lethality (1-5):</label>
+                      <input type="range" min={1} max={5} step={1}
+                        value={globalOverrideForm.physical_lethality_override}
+                        onChange={(e) => setGlobalOverrideForm((f: any) => ({ ...f, physical_lethality_override: Number(e.target.value) }))}
+                        style={{ width: "100%" }} />
+                      <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textAlign: "center" }}>
+                        {globalOverrideForm.physical_lethality_override}/5
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {globalOverrideForm.scoring_mode === "hybrid" && (
+                  <div style={{ maxWidth: 300 }}>
+                    <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>
+                      Global Offset ({globalOverrideForm.global_risk_offset >= 0 ? "+" : ""}{globalOverrideForm.global_risk_offset}):
+                    </label>
+                    <input type="range" min={-3} max={3} step={1}
+                      value={globalOverrideForm.global_risk_offset}
+                      onChange={(e) => setGlobalOverrideForm((f: any) => ({ ...f, global_risk_offset: Number(e.target.value) }))}
+                      style={{ width: "100%" }} />
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                      <span>-3</span><span>0</span><span>+3</span>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => saveOverrideConfigMut.mutate(globalOverrideForm)}
+                  disabled={saveOverrideConfigMut.isPending}
+                  style={{
+                    padding: "0.4rem 0.75rem", border: "none", borderRadius: "var(--radius-sm, 4px)",
+                    background: "var(--accent-blue, #3b82f6)", color: "#fff", cursor: "pointer",
+                    fontWeight: 600, fontSize: "0.82rem", alignSelf: "flex-start",
+                    display: "flex", alignItems: "center", gap: "0.3rem",
+                    opacity: saveOverrideConfigMut.isPending ? 0.6 : 1,
+                  }}
+                >
+                  {saveOverrideConfigMut.isPending ? <Loader2 size={14} className="spin" /> : null} Save Global Overrides
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -910,7 +1049,7 @@ export function DashboardPage() {
               {/* Software Assets */}
               <div style={{
                 background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
-                border: "1px solid var(--border-primary, #e2e8f0)",
+                border: "1px solid var(--border-primary, #e2e8f0)", marginBottom: "1.5rem",
               }}>
                 <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
                   <HardDrive size={16} /> Software Assets
@@ -920,6 +1059,92 @@ export function DashboardPage() {
                   type="software"
                   emptyMessage="All tracked software assets are currently clear of recent OSINT correlations."
                 />
+              </div>
+
+              {/* Internal Risk Scoring Overrides */}
+              <div style={{
+                background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
+                border: "1px solid var(--border-primary, #e2e8f0)",
+              }}>
+                <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                  <BarChart3 size={16} /> Internal Risk Scoring Overrides
+                </h3>
+                <p style={{ fontSize: "0.82rem", color: "var(--text-muted, #94a3b8)", margin: "0 0 0.75rem" }}>
+                  Override the internal asset risk scoring. Changes take effect on next calculation.
+                </p>
+                {internalOverrideForm && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                      <label style={{ fontSize: "0.82rem", fontWeight: 600, minWidth: 120 }}>Scoring Mode:</label>
+                      <select
+                        value={internalOverrideForm.scoring_mode}
+                        onChange={(e) => setInternalOverrideForm((f: any) => ({ ...f, scoring_mode: e.target.value }))}
+                        style={{
+                          padding: "0.35rem 0.5rem", borderRadius: "var(--radius-sm, 4px)",
+                          border: "1px solid var(--border-primary, #e2e8f0)", fontSize: "0.82rem",
+                        }}
+                      >
+                        <option value="auto">Auto (Full Algorithmic)</option>
+                        <option value="manual">Manual (Override All)</option>
+                        <option value="hybrid">Hybrid (Auto + Offset)</option>
+                      </select>
+                    </div>
+
+                    {internalOverrideForm.scoring_mode === "manual" && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", maxWidth: 400 }}>
+                        <div>
+                          <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>Criticality Override (1-5):</label>
+                          <input type="range" min={1} max={5} step={1}
+                            value={internalOverrideForm.internal_criticality_override}
+                            onChange={(e) => setInternalOverrideForm((f: any) => ({ ...f, internal_criticality_override: Number(e.target.value) }))}
+                            style={{ width: "100%" }} />
+                          <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textAlign: "center" }}>
+                            {internalOverrideForm.internal_criticality_override}/5
+                          </div>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>Lethality Override (1-5):</label>
+                          <input type="range" min={1} max={5} step={1}
+                            value={internalOverrideForm.internal_lethality_override}
+                            onChange={(e) => setInternalOverrideForm((f: any) => ({ ...f, internal_lethality_override: Number(e.target.value) }))}
+                            style={{ width: "100%" }} />
+                          <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textAlign: "center" }}>
+                            {internalOverrideForm.internal_lethality_override}/5
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {internalOverrideForm.scoring_mode === "hybrid" && (
+                      <div style={{ maxWidth: 300 }}>
+                        <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>
+                          Internal Offset ({internalOverrideForm.internal_risk_offset >= 0 ? "+" : ""}{internalOverrideForm.internal_risk_offset}):
+                        </label>
+                        <input type="range" min={-3} max={3} step={1}
+                          value={internalOverrideForm.internal_risk_offset}
+                          onChange={(e) => setInternalOverrideForm((f: any) => ({ ...f, internal_risk_offset: Number(e.target.value) }))}
+                          style={{ width: "100%" }} />
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                          <span>-3</span><span>0</span><span>+3</span>
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => saveOverrideConfigMut.mutate(internalOverrideForm)}
+                      disabled={saveOverrideConfigMut.isPending}
+                      style={{
+                        padding: "0.4rem 0.75rem", border: "none", borderRadius: "var(--radius-sm, 4px)",
+                        background: "var(--accent-blue, #3b82f6)", color: "#fff", cursor: "pointer",
+                        fontWeight: 600, fontSize: "0.82rem", alignSelf: "flex-start",
+                        display: "flex", alignItems: "center", gap: "0.3rem",
+                        opacity: saveOverrideConfigMut.isPending ? 0.6 : 1,
+                      }}
+                    >
+                      {saveOverrideConfigMut.isPending ? <Loader2 size={14} className="spin" /> : null} Save Internal Overrides
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           )}

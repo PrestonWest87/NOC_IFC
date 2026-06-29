@@ -73,14 +73,14 @@ def dispatch(data: dict = Body(...), _=Depends(require_action("Action: Dispatch 
 
 
 @router.post("/site-maintenance")
-def site_maintenance(data: dict = Body(...), _=Depends(require_action("Action: Manage Site Maintenance"))):
+def site_maintenance(data: dict = Body(...), user=Depends(require_action("Action: Manage Site Maintenance"))):
     from datetime import datetime
     site_name = data.get("site_name", "")
     is_maint = data.get("is_maint", False)
     etr = data.get("etr")
     reason = data.get("reason", "")
     etr_date = datetime.fromisoformat(etr) if etr else None
-    svc.set_site_maintenance(site_name, is_maint, etr_date, reason)
+    svc.set_site_maintenance(site_name, is_maint, etr_date, reason, modified_by=user.username)
     return {"status": "ok"}
 
 

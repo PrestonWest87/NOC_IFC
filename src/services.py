@@ -637,14 +637,13 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
 # ==========================================
     # CIS-ALIGNED SCORING ALGORITHM
     # ==========================================
-    
-    # --- CYBER SCORING (CIS Alert Level Framework) ---
-    c, l, s, n = 2, 2, 3, 4
+
     evidence_log = []
-    
+    scoring_mode = str(sys_config.get('scoring_mode', 'auto') or 'auto')
+
     sys_counter = sys_config.get('sys_countermeasures', 3) if sys_config else 3
     net_counter = sys_config.get('net_countermeasures', 3) if sys_config else 3
-    
+
     kev_count = critical_ics_count = 0
     for a in ics_advisories:
         if a['is_kev']: kev_count += 1
@@ -655,59 +654,54 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
         if getattr(a, 'is_ransomware', False): ran_count += 1
         if getattr(a, 'is_utility_related', False): util_count += 1
     cve_count = len(recent_cves)
-    
+
+    # --- AUTO-COMPUTE CYBER LETHALITY ---
+    auto_l = 2
     if kev_count > 0:
-        l = 5
+        auto_l = 5
         evidence_log.append(f"**KEV Active Exploits:** {kev_count} Known Exploited Vulnerabilities. Attacker could gain root/admin or cause DoS. (L=5)")
     elif cve_count > 10:
-        l = 4
+        auto_l = 4
         evidence_log.append(f"**High CVE Volume:** {cve_count} recent CVEs. Exploits likely available. (L=4)")
+    elif cve_count > 5:
+        auto_l = 3
+        evidence_log.append(f"**Moderate CVE Volume:** {cve_count} recent CVEs. Potential for targeted attacks. (L=3)")
     elif cve_count > 0:
-        l = 3
+        auto_l = 3
         evidence_log.append(f"**CVE Activity:** {cve_count} CVEs. No known exploits but potential for root/admin access. (L=3)")
     elif len(pure_cyber_articles) > 5:
-        l = 2
+        auto_l = 2
         evidence_log.append(f"**Elevated Cyber Activity:** {len(pure_cyber_articles)} threats. Potential for user-level access. (L=2)")
     else:
-        l = 1
+        auto_l = 1
         evidence_log.append(f"**Routine Cyber Activity:** Normal probing and known low-risk activity. (L=1)")
-    
+
+    # --- AUTO-COMPUTE CYBER CRITICALITY ---
+    auto_c = 2
     if critical_ics_count > 0 or util_count > 0:
-        c = 5
+        auto_c = 5
         evidence_log.append(f"**Critical Infrastructure Target:** OT/SCADA or Utility sector targeted. Core services at risk. (C=5)")
     elif len(ics_advisories) > 0:
-        c = 4
+        auto_c = 4
         evidence_log.append(f"**ICS/SCADA Targeting:** {len(ics_advisories)} ICS advisories. Email, web, database servers at risk. (C=4)")
     elif apt_count > 0 or ran_count > 0:
-        c = 4
+        auto_c = 4
         evidence_log.append(f"**APT/Ransomware Activity:** {apt_count} APT, {ran_count} Ransomware campaigns. Critical systems targeted. (C=4)")
     elif len(pure_cyber_articles) > 3:
-        c = 3
+        auto_c = 3
         evidence_log.append(f"**Elevated Threat Activity:** {len(pure_cyber_articles)} threats to less critical applications. (C=3)")
     else:
-        c = 2
+        auto_c = 2
         evidence_log.append(f"**General Cyber Activity:** Business systems potentially affected. (C=2)")
-    
+
     s = min(max(sys_counter, 1), 5)
     n = min(max(net_counter, 1), 5)
-    
-    cis_cyber_score = (c + l) - (s + n)
-    evidence_log.insert(0, f"**CIS Score: {cis_cyber_score}** = (C:{c} + L:{l}) - (S:{s} + N:{n}) | {len(pure_cyber_articles)} threats, {len(ics_advisories)} ICS, {cve_count} CVEs")
 
-    if cis_cyber_score >= 6: cyber_score = "RED"
-    elif cis_cyber_score >= 3: cyber_score = "ORANGE"
-    elif cis_cyber_score >= -1: cyber_score = "YELLOW"
-    elif cis_cyber_score >= -4: cyber_score = "BLUE"
-    else: cyber_score = "GREEN"
-        
-    cyber_brief = f"**CIS Score: {cis_cyber_score}** | C={c}, L={l}, S={s}, N={n} | {len(pure_cyber_articles)} threats, {len(ics_advisories)} ICS, {cve_count} CVEs"
-    
-    # --- PHYSICAL SCORING (CIS Alert Level Framework) ---
-    p_c, p_l = 2, 2
+    # --- AUTO-COMPUTE PHYSICAL CRITICALITY & LETHALITY ---
     crimes_persons = []
     crimes_property = []
     crimes_society = []
-    
+
     for c_item in recent_crimes:
         title_cat = (str(c_item.get('raw_title', '')) + " " + str(c_item.get('category', ''))).lower()
         if any(x in title_cat for x in ['assault', 'shoot', 'homicide', 'murder', 'violent', 'robbery', 'kidnap', 'battery', 'weapon', 'gun', 'stab']):
@@ -722,59 +716,103 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
         else:
             c_item['fbi_category'] = "Crimes Against Society"
             crimes_society.append(c_item)
-    
+
     phys_evidence = []
     total_crimes = len(crimes_persons) + len(crimes_property) + len(crimes_society)
-    
+
+    auto_p_l = 2
     if len(crimes_persons) >= 5 or len(crimes_property) >= 10:
-        p_l = 5
+        auto_p_l = 5
         phys_evidence.append(f"**Severe Crime Activity:** {len(crimes_persons)} violent crimes, {len(crimes_property)} property crimes. DoS to operations possible. (L=5)")
     elif len(crimes_persons) >= 3 or len(crimes_property) >= 6:
-        p_l = 4
+        auto_p_l = 4
         phys_evidence.append(f"**High Crime Activity:** {len(crimes_persons)} violent crimes, {len(crimes_property)} property crimes. User access possible. (L=4)")
     elif len(crimes_persons) >= 1 or len(crimes_property) >= 3:
-        p_l = 3
+        auto_p_l = 3
         phys_evidence.append(f"**Elevated Crime Activity:** Potential for damage/disruption. (L=3)")
     elif total_crimes >= 5:
-        p_l = 2
+        auto_p_l = 2
         phys_evidence.append(f"**General Crime Activity:** General risk of incidents. (L=2)")
     else:
-        p_l = 1
+        auto_p_l = 1
         phys_evidence.append(f"**Routine Activity:** Normal low-risk incidents. (L=1)")
-    
+
     weather_weight = min((active_warn_count * 1.5), 15) / 15
     osint_phys_score = min(sum([10 if art.score >= 80 else 2 for art in pure_phys_articles]), 20) / 20
-    
+
+    auto_p_c = 2
     if len(pure_phys_articles) >= 3 or weather_weight >= 0.8:
-        p_c = 5
+        auto_p_c = 5
         phys_evidence.append(f"**Critical Physical Threats:** {len(pure_phys_articles)} OSINT threats, {active_warn_count} weather alerts. Core infrastructure targeted. (C=5)")
     elif len(pure_phys_articles) >= 1 or weather_weight >= 0.4:
-        p_c = 4
-        phys_evidence.append(f"**Elevated Physical Threats:** Email/web/database services at risk. (C=4)")
+        auto_p_c = 4
+        phys_evidence.append(f"**Elevated Physical Threats:** {len(pure_phys_articles)} OSINT threats, {active_warn_count} weather alerts. Email/web/database services at risk. (C=4)")
     elif osint_phys_score > 0:
-        p_c = 3
+        auto_p_c = 3
         phys_evidence.append(f"**General Physical Threats:** Less critical systems affected. (C=3)")
     else:
-        p_c = 2
+        auto_p_c = 2
         phys_evidence.append(f"**Routine Physical Monitoring:** Business systems. (C=2)")
-    
+
+    # ==========================================
+    # SCORING MODE DISPATCH
+    # ==========================================
+    mode_label = "Auto"
+    if scoring_mode == "manual":
+        c = min(max(int(sys_config.get('cyber_criticality_override', 0) or 0), 1), 5)
+        l = min(max(int(sys_config.get('cyber_lethality_override', 0) or 0), 1), 5)
+        p_c = min(max(int(sys_config.get('physical_criticality_override', 0) or 0), 1), 5)
+        p_l = min(max(int(sys_config.get('physical_lethality_override', 0) or 0), 1), 5)
+        mode_label = "Manual Override"
+        evidence_log.insert(0, f"**Scoring Mode: {mode_label}** — C={c}, L={l}, P_C={p_c}, P_L={p_l} applied from config overrides")
+    elif scoring_mode == "hybrid":
+        c = auto_c
+        l = auto_l
+        p_c = auto_p_c
+        p_l = auto_p_l
+        offset = int(sys_config.get('global_risk_offset', 0) or 0)
+        mode_label = f"Hybrid (offset={offset:+d})"
+        evidence_log.insert(0, f"**Scoring Mode: {mode_label}** — Auto-computed with {offset:+d} offset")
+    else:
+        c = auto_c
+        l = auto_l
+        p_c = auto_p_c
+        p_l = auto_p_l
+        evidence_log.insert(0, f"**Scoring Mode: Auto** — Fully algorithmic CIS scoring")
+
+    cis_cyber_score = (c + l) - (s + n)
+    if scoring_mode == "hybrid":
+        offset = int(sys_config.get('global_risk_offset', 0) or 0)
+        cis_cyber_score = max(-8, min(8, cis_cyber_score + offset))
+
+    if cis_cyber_score >= 6: cyber_score = "RED"
+    elif cis_cyber_score >= 3: cyber_score = "ORANGE"
+    elif cis_cyber_score >= -1: cyber_score = "YELLOW"
+    elif cis_cyber_score >= -4: cyber_score = "BLUE"
+    else: cyber_score = "GREEN"
+
+    cyber_brief = f"**CIS Score: {cis_cyber_score}** | C={c}, L={l}, S={s}, N={n} | {len(pure_cyber_articles)} threats, {len(ics_advisories)} ICS, {cve_count} CVEs"
+
     cis_phys_score = (p_c + p_l) - (s + n)
-    
+    if scoring_mode == "hybrid":
+        offset = int(sys_config.get('global_risk_offset', 0) or 0)
+        cis_phys_score = max(-8, min(8, cis_phys_score + offset))
+
     if cis_phys_score >= 6: physical_score = "RED"
     elif cis_phys_score >= 3: physical_score = "ORANGE"
     elif cis_phys_score >= -1: physical_score = "YELLOW"
     elif cis_phys_score >= -4: physical_score = "BLUE"
     else: physical_score = "GREEN"
-    
+
     physical_brief = f"**CIS Score: {cis_phys_score}** | C={p_c}, L={p_l}, S={s}, N={n} | {len(crimes_persons)} violent, {len(crimes_property)} property, {len(pure_phys_articles)} OSINT, {active_warn_count} alerts"
 
     # --- UNIFIED TIERING ---
     tier_weights = {"RED": 5, "ORANGE": 4, "YELLOW": 3, "BLUE": 2, "GREEN": 1}
     reverse_tiers = {5: "RED", 4: "ORANGE", 3: "YELLOW", 2: "BLUE", 1: "GREEN"}
     unified_risk = reverse_tiers[max(tier_weights[cyber_score], tier_weights[physical_score])]
-    
+
     save_threat_score(cis_cyber_score, cis_phys_score, baseline_cyber, baseline_phys)
-    
+
     return {
             "timestamp": datetime.now(LOCAL_TZ).strftime("%H:%M:%S %Z"),
             "unified_risk": unified_risk, "physical_score": physical_score, "physical_brief": physical_brief,
@@ -782,7 +820,14 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
             "recent_crimes": recent_crimes, "raw_cyber_articles": pure_cyber_articles, "raw_phys_articles": pure_phys_articles,
             "evidence_log": evidence_log,
             "current_cyber_pts": cis_cyber_score, "current_phys_pts": cis_phys_score,
-            "baseline_cyber": baseline_cyber, "baseline_phys": baseline_phys
+            "baseline_cyber": baseline_cyber, "baseline_phys": baseline_phys,
+            "scoring_mode": scoring_mode,
+            "applied_overrides": {
+                "cyber_criticality": {"auto": auto_c, "used": c},
+                "cyber_lethality": {"auto": auto_l, "used": l},
+                "physical_criticality": {"auto": auto_p_c, "used": p_c},
+                "physical_lethality": {"auto": auto_p_l, "used": p_l},
+            }
         }
 
 def calculate_internal_cis_score(db_session):
@@ -1028,35 +1073,55 @@ def calculate_internal_cis_score(db_session):
     assets_at_risk = len(annotated_hw) + len(annotated_sw)
     percent_at_risk = (assets_at_risk / total_assets) * 100 if total_assets > 0 else 0
 
+    # --- AUTO-COMPUTE LETHALITY & CRITICALITY ---
     if critical_osint_hits > 10:
-        lethality = 5
+        auto_lethality = 5
     elif critical_osint_hits > 5:
-        lethality = 4
+        auto_lethality = 4
+    elif critical_osint_hits > 2:
+        auto_lethality = 3
     elif critical_osint_hits > 0:
-        lethality = 3
+        auto_lethality = 3
     elif total_osint_hits > 10:
-        lethality = 2
+        auto_lethality = 2
     else:
-        lethality = 1
+        auto_lethality = 1
 
     if percent_at_risk > 30:
-        criticality = 5
+        auto_criticality = 5
     elif percent_at_risk > 20:
-        criticality = 4
+        auto_criticality = 4
     elif percent_at_risk > 10:
-        criticality = 3
+        auto_criticality = 3
     elif percent_at_risk > 5:
-        criticality = 2
+        auto_criticality = 2
     else:
-        criticality = 1
+        auto_criticality = 1
 
     sys_config = get_cached_config()
     sys_counter = sys_config.get('sys_countermeasures', 3) if sys_config else 3
     net_counter = sys_config.get('net_countermeasures', 3) if sys_config else 3
     s = min(max(sys_counter, 1), 5)
     n = min(max(net_counter, 1), 5)
-    
+
+    scoring_mode = str(sys_config.get('scoring_mode', 'auto') or 'auto')
+
+    if scoring_mode == "manual":
+        criticality = min(max(int(sys_config.get('internal_criticality_override', 0) or 0), 1), 5)
+        lethality = min(max(int(sys_config.get('internal_lethality_override', 0) or 0), 1), 5)
+    elif scoring_mode == "hybrid":
+        criticality = auto_criticality
+        lethality = auto_lethality
+    else:
+        criticality = auto_criticality
+        lethality = auto_lethality
+
     raw_score = (criticality + lethality) - (s + n)
+
+    if scoring_mode == "hybrid":
+        offset = int(sys_config.get('internal_risk_offset', 0) or 0)
+        raw_score = raw_score + offset
+
     final_score = max(-8, min(8, raw_score))
 
     if final_score >= 6: risk_level = "RED"
@@ -1074,7 +1139,12 @@ def calculate_internal_cis_score(db_session):
         "total_osint_hits": total_osint_hits,
         "critical_osint_hits": critical_osint_hits,
         "hw_data": sorted(annotated_hw, key=lambda x: x["OSINT Risk Score"], reverse=True),
-        "sw_data": sorted(annotated_sw, key=lambda x: x["OSINT Risk Score"], reverse=True)
+        "sw_data": sorted(annotated_sw, key=lambda x: x["OSINT Risk Score"], reverse=True),
+        "scoring_mode": scoring_mode,
+        "applied_overrides": {
+            "criticality": {"auto": auto_criticality, "used": criticality},
+            "lethality": {"auto": auto_lethality, "used": lethality},
+        }
     }
     
 def generate_and_save_internal_risk_snapshot():
@@ -2111,6 +2181,8 @@ def get_latest_internal_risk():
         snap = db.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
         if not snap:
             return None
+        sys_config = get_cached_config()
+        scoring_mode = str(sys_config.get('scoring_mode', 'auto') or 'auto') if sys_config else 'auto'
         return {
             "id": snap.id,
             "timestamp": snap.timestamp.isoformat() if snap.timestamp else None,
@@ -2121,6 +2193,11 @@ def get_latest_internal_risk():
             "critical_osint_hits": snap.critical_osint_hits,
             "hw_data": json.loads(snap.hw_data_json) if snap.hw_data_json else [],
             "sw_data": json.loads(snap.sw_data_json) if snap.sw_data_json else [],
+            "scoring_mode": scoring_mode,
+            "applied_overrides": {
+                "criticality": {"auto": "stored", "used": "stored"},
+                "lethality": {"auto": "stored", "used": "stored"},
+            }
         }
 
 def get_internal_risk_history(days: int = 28):

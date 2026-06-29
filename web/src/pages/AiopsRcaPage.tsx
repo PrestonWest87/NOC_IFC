@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { getAllowedTabs } from "../utils/permissions";
+import { MapContainer } from "../components/MapContainer";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer } from "@deck.gl/layers";
 import { Map } from "react-map-gl/maplibre";
@@ -526,8 +527,7 @@ export function AiopsRcaPage() {
         ))}
       </div>
 
-      {activeTab === 0 && (
-        <div>
+      <div style={{ display: activeTab === 0 ? '' : 'none' }}>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.75rem" }}>
             <button
               style={{
@@ -543,7 +543,7 @@ export function AiopsRcaPage() {
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "3fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
-            <div style={{ ...card, padding: 0, overflow: "hidden", height: "600px", position: "relative" }}>
+            <MapContainer height="600px">
               <div style={{ position: "absolute", top: 8, left: 10, zIndex: 10, fontSize: "0.8rem", fontWeight: 600, color: "var(--text-secondary)", background: "var(--bg-card)", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-sm)" }}>
                 Overlays
               </div>
@@ -558,7 +558,89 @@ export function AiopsRcaPage() {
               >
                 <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
               </DeckGL>
-            </div>
+              {siteDialog && (
+                <div style={{
+                  position: "fixed", inset: 0, zIndex: 1000,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: "rgba(0,0,0,0.5)",
+                }} onClick={() => setSiteDialog(null)}>
+                  <div onClick={(e) => e.stopPropagation()} style={{
+                    background: "var(--bg-card)", color: "var(--text-primary)",
+                    borderRadius: "var(--radius-md)", padding: "1.25rem",
+                    minWidth: 320, maxWidth: 420,
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+                    border: "1px solid var(--border-primary)",
+                    fontSize: "0.82rem", lineHeight: 1.5,
+                  }}>
+                    <div style={{ fontWeight: 700, marginBottom: "0.5rem", fontSize: "0.9rem", borderBottom: "1px solid var(--border-primary)", paddingBottom: "0.3rem" }}>
+                      Manage Site Status — {siteDialog.name}
+                    </div>
+
+                    <div style={{ marginBottom: "0.5rem" }}>
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Status</div>
+                      {canDispatch && (
+                        <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer", marginBottom: "0.2rem" }}>
+                          <input type="radio" name="site-status-modal" value="Investigate/Dispatch"
+                            checked={dialogStatus === "Investigate/Dispatch"}
+                            onChange={(e) => setDialogStatus(e.target.value)}
+                            style={{ accentColor: "var(--accent-blue)" }}
+                          /> Investigate/Dispatch
+                        </label>
+                      )}
+                      {canManageMaint && (
+                        <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
+                          <input type="radio" name="site-status-modal" value="No Dispatch Needed"
+                            checked={dialogStatus === "No Dispatch Needed"}
+                            onChange={(e) => setDialogStatus(e.target.value)}
+                            style={{ accentColor: "var(--accent-blue)" }}
+                          /> No Dispatch Needed
+                        </label>
+                      )}
+                    </div>
+
+                    {canDispatch && (
+                      <div style={{ marginBottom: "0.5rem" }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
+                          <input type="checkbox"
+                            checked={dialogDispatch}
+                            onChange={(e) => setDialogDispatch(e.target.checked)}
+                            style={{ accentColor: "var(--accent-blue)" }}
+                          /> Ticket Dispatched
+                        </label>
+                      </div>
+                    )}
+
+                    <div style={{ marginBottom: "0.4rem" }}>
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.15rem" }}>ETR</div>
+                      <input type="date" value={dialogEtr}
+                        onChange={(e) => setDialogEtr(e.target.value)}
+                        style={{ width: "100%", boxSizing: "border-box", background: "var(--bg-input)", color: "var(--text-primary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.25rem 0.4rem", fontSize: "0.78rem" }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: "0.5rem" }}>
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.15rem" }}>Reason</div>
+                      <textarea value={dialogReason}
+                        onChange={(e) => setDialogReason(e.target.value)}
+                        rows={2}
+                        style={{ width: "100%", boxSizing: "border-box", background: "var(--bg-input)", color: "var(--text-primary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.25rem 0.4rem", fontSize: "0.78rem", resize: "vertical" }}
+                      />
+                    </div>
+
+                    <div style={{ display: "flex", gap: "0.4rem", justifyContent: "flex-end", borderTop: "1px solid var(--border-primary)", paddingTop: "0.4rem" }}>
+                      <button onClick={() => setSiteDialog(null)}
+                        style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer" }}>
+                        Cancel
+                      </button>
+                      <button onClick={handleSaveSiteDialog}
+                        style={{ background: "var(--accent-blue)", color: "#fff", border: "none", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 }}>
+                        Save Changes
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </MapContainer>
 
             <div style={{ ...card, height: "600px", overflow: "auto", display: "flex", flexDirection: "column" }}>
               <h3 style={{ margin: "0 0 0.5rem", fontSize: "0.95rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
@@ -591,89 +673,6 @@ export function AiopsRcaPage() {
               </div>
             </div>
           </div>
-
-          {siteDialog && (
-            <div style={{
-              position: "fixed", inset: 0, zIndex: 1000,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              background: "rgba(0,0,0,0.5)",
-            }} onClick={() => setSiteDialog(null)}>
-              <div onClick={(e) => e.stopPropagation()} style={{
-                background: "var(--bg-card)", color: "var(--text-primary)",
-                borderRadius: "var(--radius-md)", padding: "1.25rem",
-                minWidth: 320, maxWidth: 420,
-                boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
-                border: "1px solid var(--border-primary)",
-                fontSize: "0.82rem", lineHeight: 1.5,
-              }}>
-                <div style={{ fontWeight: 700, marginBottom: "0.5rem", fontSize: "0.9rem", borderBottom: "1px solid var(--border-primary)", paddingBottom: "0.3rem" }}>
-                  Manage Site Status — {siteDialog.name}
-                </div>
-
-                <div style={{ marginBottom: "0.5rem" }}>
-                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Status</div>
-                  {canDispatch && (
-                    <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer", marginBottom: "0.2rem" }}>
-                      <input type="radio" name="site-status-modal" value="Investigate/Dispatch"
-                        checked={dialogStatus === "Investigate/Dispatch"}
-                        onChange={(e) => setDialogStatus(e.target.value)}
-                        style={{ accentColor: "var(--accent-blue)" }}
-                      /> Investigate/Dispatch
-                    </label>
-                  )}
-                  {canManageMaint && (
-                    <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
-                      <input type="radio" name="site-status-modal" value="No Dispatch Needed"
-                        checked={dialogStatus === "No Dispatch Needed"}
-                        onChange={(e) => setDialogStatus(e.target.value)}
-                        style={{ accentColor: "var(--accent-blue)" }}
-                      /> No Dispatch Needed
-                    </label>
-                  )}
-                </div>
-
-                {canDispatch && (
-                  <div style={{ marginBottom: "0.5rem" }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
-                      <input type="checkbox"
-                        checked={dialogDispatch}
-                        onChange={(e) => setDialogDispatch(e.target.checked)}
-                        style={{ accentColor: "var(--accent-blue)" }}
-                      /> Ticket Dispatched
-                    </label>
-                  </div>
-                )}
-
-                <div style={{ marginBottom: "0.4rem" }}>
-                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.15rem" }}>ETR</div>
-                  <input type="date" value={dialogEtr}
-                    onChange={(e) => setDialogEtr(e.target.value)}
-                    style={{ width: "100%", boxSizing: "border-box", background: "var(--bg-input)", color: "var(--text-primary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.25rem 0.4rem", fontSize: "0.78rem" }}
-                  />
-                </div>
-
-                <div style={{ marginBottom: "0.5rem" }}>
-                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.15rem" }}>Reason</div>
-                  <textarea value={dialogReason}
-                    onChange={(e) => setDialogReason(e.target.value)}
-                    rows={2}
-                    style={{ width: "100%", boxSizing: "border-box", background: "var(--bg-input)", color: "var(--text-primary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.25rem 0.4rem", fontSize: "0.78rem", resize: "vertical" }}
-                  />
-                </div>
-
-                <div style={{ display: "flex", gap: "0.4rem", justifyContent: "flex-end", borderTop: "1px solid var(--border-primary)", paddingTop: "0.4rem" }}>
-                  <button onClick={() => setSiteDialog(null)}
-                    style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer" }}>
-                    Cancel
-                  </button>
-                  <button onClick={handleSaveSiteDialog}
-                    style={{ background: "var(--accent-blue)", color: "#fff", border: "none", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 }}>
-                    Save Changes
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
 
           {fleetOutages.length > 0 && (
             <div
@@ -984,10 +983,8 @@ export function AiopsRcaPage() {
             })}
           </div>
         </div>
-      )}
 
-      {activeTab === 1 && (
-        <div>
+      <div style={{ display: activeTab === 1 ? '' : 'none' }}>
           <h3 style={{ margin: "0 0 0.25rem", fontSize: "1rem", color: "var(--text-primary)" }}>
             Predictive Analytics & Chronic Degradation
           </h3>
@@ -1085,10 +1082,8 @@ export function AiopsRcaPage() {
             </div>
           )}
         </div>
-      )}
 
-      {activeTab === 2 && (
-        <div>
+      <div style={{ display: activeTab === 2 ? '' : 'none' }}>
           <h3 style={{ margin: "0 0 0.25rem", fontSize: "1rem", color: "var(--text-primary)" }}>
             Deterministic Global Correlation Engine
           </h3>
@@ -1148,8 +1143,7 @@ export function AiopsRcaPage() {
               Click "Run Global Correlation" to generate a multi-domain situation report.
             </div>
           )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -83,7 +83,34 @@ def compile_map(data: dict[str, Any] = Body({})):
         "district_risk_matrix": analytics["district_risk_matrix"].reset_index().to_dict(orient="records") if not analytics["district_risk_matrix"].empty else [],
     }
 
-    return [[], {}, cache["map_diagnostics"], toggled_affected_sites, master_affected_sites, analytics_serialized]
+    def _strip_feature(f):
+        if not isinstance(f, dict):
+            return f
+        return {
+            k: (
+                {pk: pv for pk, pv in v.items() if pk != "shapely_obj"}
+                if k == "properties" and isinstance(v, dict)
+                else v
+            )
+            for k, v in f.items() if k != "shapely_obj"
+        }
+
+    def _strip_collection(fc):
+        if not fc:
+            return {"type": "FeatureCollection", "features": []}
+        return {
+            "type": "FeatureCollection",
+            "features": [_strip_feature(f) for f in fc.get("features", [])]
+        }
+
+    processed_geo = {
+        "ar_warn": _strip_collection(cache.get("ar_warn")),
+        "ar_watch": _strip_collection(cache.get("ar_watch")),
+        "oos_warn": _strip_collection(cache.get("oos_warn")),
+        "oos_watch": _strip_collection(cache.get("oos_watch")),
+    }
+
+    return [processed_geo, {}, cache["map_diagnostics"], toggled_affected_sites, master_affected_sites, analytics_serialized]
 
 
 @router.get("/weather-prefs")

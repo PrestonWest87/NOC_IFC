@@ -657,6 +657,15 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation }: { config: any;
       physical_baseline: config.physical_baseline ?? 3,
       sys_countermeasures: config.sys_countermeasures ?? 3,
       net_countermeasures: config.net_countermeasures ?? 3,
+      scoring_mode: config.scoring_mode || "auto",
+      cyber_criticality_override: config.cyber_criticality_override || 0,
+      cyber_lethality_override: config.cyber_lethality_override || 0,
+      physical_criticality_override: config.physical_criticality_override || 0,
+      physical_lethality_override: config.physical_lethality_override || 0,
+      internal_criticality_override: config.internal_criticality_override || 0,
+      internal_lethality_override: config.internal_lethality_override || 0,
+      global_risk_offset: config.global_risk_offset || 0,
+      internal_risk_offset: config.internal_risk_offset || 0,
     });
   }
 
@@ -754,20 +763,50 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation }: { config: any;
         </div>
       </Card>
 
-      <Card title="CIS Countermeasures" icon={Shield}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", maxWidth: 500 }}>
+      <Card title="CIS Scoring Configuration" icon={Shield}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
           <div>
-            <SectionTitle text={`System (${form.sys_countermeasures}/5)`} />
-            <input type="range" min={1} max={5} step={1} value={form.sys_countermeasures} onChange={e => upd("sys_countermeasures", Number(e.target.value))} style={{ width: "100%" }} />
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: "var(--text-muted)" }}>
-              <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+            <SectionTitle text="Default Scoring Mode" />
+            <select value={form.scoring_mode} onChange={e => upd("scoring_mode", e.target.value)}
+              style={{
+                padding: "0.35rem 0.5rem", borderRadius: "var(--radius-sm, 4px)",
+                border: "1px solid var(--border-primary, #e2e8f0)", fontSize: "0.82rem", maxWidth: 300,
+              }}>
+              <option value="auto">Auto (Full Algorithmic)</option>
+              <option value="manual">Manual (Override All)</option>
+              <option value="hybrid">Hybrid (Auto + Offset)</option>
+            </select>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", maxWidth: 600 }}>
+            <div>
+              <SectionTitle text={`System Countermeasures (${form.sys_countermeasures}/5)`} />
+              <input type="range" min={1} max={5} step={1} value={form.sys_countermeasures} onChange={e => upd("sys_countermeasures", Number(e.target.value))} style={{ width: "100%" }} />
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+              </div>
+            </div>
+            <div>
+              <SectionTitle text={`Network Countermeasures (${form.net_countermeasures}/5)`} />
+              <input type="range" min={1} max={5} step={1} value={form.net_countermeasures} onChange={e => upd("net_countermeasures", Number(e.target.value))} style={{ width: "100%" }} />
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+              </div>
             </div>
           </div>
-          <div>
-            <SectionTitle text={`Network (${form.net_countermeasures}/5)`} />
-            <input type="range" min={1} max={5} step={1} value={form.net_countermeasures} onChange={e => upd("net_countermeasures", Number(e.target.value))} style={{ width: "100%" }} />
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: "var(--text-muted)" }}>
-              <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", maxWidth: 400 }}>
+            <div>
+              <SectionTitle text="Default Global Risk Offset" />
+              <input type="number" min={-3} max={3} step={1} value={form.global_risk_offset}
+                onChange={e => upd("global_risk_offset", Number(e.target.value))}
+                style={{ padding: "0.35rem 0.5rem", borderRadius: "var(--radius-sm, 4px)",
+                  border: "1px solid var(--border-primary, #e2e8f0)", fontSize: "0.82rem", width: "100%" }} />
+            </div>
+            <div>
+              <SectionTitle text="Default Internal Risk Offset" />
+              <input type="number" min={-3} max={3} step={1} value={form.internal_risk_offset}
+                onChange={e => upd("internal_risk_offset", Number(e.target.value))}
+                style={{ padding: "0.35rem 0.5rem", borderRadius: "var(--radius-sm, 4px)",
+                  border: "1px solid var(--border-primary, #e2e8f0)", fontSize: "0.82rem", width: "100%" }} />
             </div>
           </div>
         </div>

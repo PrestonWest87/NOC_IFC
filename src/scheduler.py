@@ -263,6 +263,64 @@ def job_internal_risk():
     except Exception as e:
         log(f"[ERROR] Internal Risk Error: {e}", "SYSTEM")
 
+def job_daily_email_unified_brief():
+    """Sends the latest Executive Unified Risk Brief via email at 07:00 daily."""
+    log("[EMAIL] Dispatching Daily Executive Unified Risk Brief...", "SYSTEM")
+    try:
+        import os
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        from src.utils.mailer import send_alert_email
+        from src.services import generate_unified_brief_email_html
+        from src.database import InternalRiskSnapshot, SystemConfig, SessionLocal
+        from src.services import get_executive_grid_intel, get_recent_crimes
+
+        ub_recipients = os.environ.get("RISK_ALERT_RECIPIENTS")
+        if not ub_recipients:
+            log("[WARN] RISK_ALERT_RECIPIENTS not set. Skipping daily email.", "SYSTEM")
+            return
+
+        now_local = datetime.now(ZoneInfo("America/Chicago"))
+        brief_time = now_local.strftime("%A, %B %d, %Y at %I:%M %p %Z")
+
+        with SessionLocal() as db:
+            sys_config = db.query(SystemConfig).first()
+            if not sys_config or not sys_config.unified_brief:
+                log("[WARN] No unified brief available. Skipping daily email.", "SYSTEM")
+                return
+
+            current_internal = None
+            latest_internal = db.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
+            if latest_internal:
+                current_internal = latest_internal.risk_level
+
+        from src.services import get_cached_geojson
+        cached_geo = get_cached_geojson()
+        ar_warn = cached_geo[3] or {}
+        oos_warn = cached_geo[4] or {}
+        active_nws = len(ar_warn.get("features", [])) + len(oos_warn.get("features", []))
+        crime_data = get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
+        global_intel = get_executive_grid_intel(active_nws, crime_data)
+        current_global = global_intel.get('unified_risk')
+
+        formatted_html = generate_unified_brief_email_html(
+            brief_time, sys_config.unified_brief,
+            global_risk=current_global,
+            internal_risk=current_internal
+        )
+
+        success, msg = send_alert_email(
+            "Executive Unified Risk Brief", formatted_html,
+            recipient_override=ub_recipients, is_html=True
+        )
+        if success:
+            log("[OK] Daily Unified Risk Brief emailed successfully.", "SYSTEM")
+        else:
+            log(f"[ERROR] Failed to send daily brief email: {msg}", "SYSTEM")
+
+    except Exception as e:
+        log(f"[ERROR] Daily Email Brief Error: {e}", "SYSTEM")
+
 
 # =====================================================================
 # 2. GARBAGE COLLECTION & MAINTENANCE
@@ -625,6 +683,13 @@ if __name__ == "__main__":
     schedule.every(2).minutes.do(run_threaded, fetch_regional_hazards)
     schedule.every(5).minutes.do(run_threaded, fetch_cloud_outages)
     schedule.every(5).minutes.do(run_threaded, run_telemetry_sync)
+    schedule.every(1).minutes.do(run_threaded, job_tiered_alert_escalation)
+    
+    # Daily Email Unified Brief at 07:00 CST
+    try:
+        schedule.every().day.at("07:00", "America/Chicago").do(run_threaded, job_daily_email_unified_brief)
+    except Exception:
+        schedule.every().day.at("07:00").do(run_threaded, job_daily_email_unified_brief)
     
     log("[START] Master Orchestrator Online. Firing Boot Sequence...", "SYSTEM")
     

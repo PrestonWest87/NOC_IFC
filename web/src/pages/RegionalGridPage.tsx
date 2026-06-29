@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { MapContainer } from "../components/MapContainer";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { getAllowedTabs } from "../utils/permissions";
@@ -126,12 +127,6 @@ function RiskBadge({ level }: { level: string }) {
   );
 }
 
-const TOOLTIP_STYLE = {
-  background: "var(--bg-card)", color: "var(--text-primary)",
-  fontSize: "0.78rem", border: "1px solid var(--border-primary)",
-  borderRadius: "var(--radius-sm)", padding: "0.5rem",
-} as const;
-
 function FilterChip({ selected, onClick, label }: { selected: boolean; onClick: () => void; label: string }) {
   return (
     <button onClick={onClick} style={{
@@ -171,6 +166,47 @@ function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange
 }
 
 const INITIAL_VIEW: MapViewState = { latitude: 34.8, longitude: -92.2, zoom: 5.5, pitch: 0 };
+
+function pointInPolygon(px: number, py: number, ring: number[][]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function extractPolygonRings(geometry: any): number[][][] | null {
+  if (!geometry?.type) return null;
+  const c = geometry.coordinates;
+  if (!c) return null;
+  if (geometry.type === "Polygon") return [c[0]];
+  if (geometry.type === "MultiPolygon") return c.map((p: any) => p[0]);
+  return null;
+}
+
+function buildFeatureIndex(processedGeo: any) {
+  const idx: Array<{bbox: number[]; rings: number[][][]; props: any; layerId: string}> = [];
+  const addFrom = (data: any, layerId: string) => {
+    for (const f of data?.features || []) {
+      const rings = extractPolygonRings(f.geometry);
+      if (!rings) continue;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const ring of rings) {
+        for (const p of ring) {
+          if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+          if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
+        }
+      }
+      idx.push({ bbox: [minX, minY, maxX, maxY], rings, props: f.properties, layerId });
+    }
+  };
+  addFrom(processedGeo?.ar_warn, "ar_warn");
+  addFrom(processedGeo?.ar_watch, "ar_watch");
+  addFrom(processedGeo?.oos_warn, "oos_warn");
+  addFrom(processedGeo?.oos_watch, "oos_watch");
+  return idx;
+}
 
 export function RegionalGridPage() {
   const { user } = useAuth();
@@ -308,6 +344,7 @@ export function RegionalGridPage() {
   });
 
   const compileResponse = compileResult as any;
+  const processedGeo: any = Array.isArray(compileResponse) ? compileResponse[0] || {} : {};
   const toggledAffectedSites: any[] = Array.isArray(compileResponse) ? compileResponse[3] || [] : [];
   const masterAffectedSites: any[] = Array.isArray(compileResponse) ? compileResponse[4] || [] : [];
   const analytics: any = Array.isArray(compileResponse) ? compileResponse[5] || null : null;
@@ -348,29 +385,35 @@ export function RegionalGridPage() {
       }));
     }
 
-    const mkNwsLayer = (id: string, data: any, color: [number, number, number, number]) => {
+    const mkNwsLayer = (id: string, data: any, defaultColor?: [number, number, number, number]) => {
       if (!data?.features?.length) return null;
       return new GeoJsonLayer({
         id, data,
         pickable: true, stroked: true, filled: true,
-        getFillColor: color,
-        getLineColor: [255, 255, 255, 200] as [number, number, number, number],
+        getFillColor: (d: any) => d.properties?.fill_color || defaultColor || [255, 60, 60, 100],
+        getLineColor: (d: any) => d.properties?.line_color || [255, 255, 255, 200],
         lineWidthMinPixels: 2,
         getLineDashArray: [4, 3],
       });
     };
 
-    if (mapToggles.warn && geo.nws_ar?.features?.length) {
-      const ar = mkNwsLayer("ar_warn", geo.nws_ar, [255, 60, 60, 100]);
+    if (mapToggles.warn && processedGeo?.ar_warn?.features?.length) {
+      const ar = mkNwsLayer("ar_warn", processedGeo.ar_warn);
       if (ar) layers.push(ar);
     }
-    if (mapToggles.watch && geo.nws_ar?.features?.length) {
-      const ar = mkNwsLayer("ar_watch", geo.nws_ar, [255, 165, 0, 80]);
+    if (mapToggles.watch && processedGeo?.ar_watch?.features?.length) {
+      const ar = mkNwsLayer("ar_watch", processedGeo.ar_watch);
       if (ar) layers.push(ar);
     }
-    if (mapToggles.oos && geo.nws_oos?.features?.length) {
-      const oos = mkNwsLayer("oos", geo.nws_oos, [128, 0, 128, 80]);
-      if (oos) layers.push(oos);
+    if (mapToggles.oos) {
+      if (processedGeo?.oos_warn?.features?.length) {
+        const oos = mkNwsLayer("oos_warn", processedGeo.oos_warn);
+        if (oos) layers.push(oos);
+      }
+      if (processedGeo?.oos_watch?.features?.length) {
+        const oos = mkNwsLayer("oos_watch", processedGeo.oos_watch);
+        if (oos) layers.push(oos);
+      }
     }
 
     if (mapToggles.fire_risk && geo.nws_ar?.features?.length) {
@@ -469,7 +512,7 @@ export function RegionalGridPage() {
     }
 
     return layers;
-  }, [geojson, mapToggles, mapDf]);
+  }, [geojson, processedGeo, mapToggles, mapDf]);
 
   const handleToggle = (key: string) => {
     setMapToggles(prev => ({ ...prev, [key]: !prev[key] }));
@@ -567,7 +610,7 @@ export function RegionalGridPage() {
 
       {/* Tab Content */}
       <div style={{ flex: 1, overflow: "auto" }}>
-        {activeTab === "geospatial" && (
+        <div style={{ display: activeTab === "geospatial" ? '' : 'none' }}>
           <GeospatialTab
             mapToggles={mapToggles}
             onToggle={handleToggle}
@@ -586,10 +629,12 @@ export function RegionalGridPage() {
             viewState={viewState}
             onViewStateChange={setViewState}
             toggledAffectedSites={toggledAffectedSites}
+            masterAffectedSites={masterAffectedSites}
+            processedGeo={processedGeo}
           />
-        )}
+        </div>
 
-        {activeTab === "executive" && (
+        <div style={{ display: activeTab === "executive" ? '' : 'none' }}>
           <ExecutiveTab
             analytics={analytics as any}
             masterAffectedSites={masterAffectedSites}
@@ -604,30 +649,30 @@ export function RegionalGridPage() {
             expandedSections={expandedSections}
             toggleSection={toggleSection}
           />
-        )}
+        </div>
 
-        {activeTab === "hazard" && (
+        <div style={{ display: activeTab === "hazard" ? '' : 'none' }}>
           <HazardTab
             masterAffectedSites={masterAffectedSites}
             hazardRecip={hazardRecip}
             setHazardRecip={setHazardRecip}
             onSendHazardSitrep={handleSendHazardSitrep}
           />
-        )}
+        </div>
 
-        {activeTab === "matrix" && (
+        <div style={{ display: activeTab === "matrix" ? '' : 'none' }}>
           <MatrixTab mapDf={mapDf} />
-        )}
+        </div>
 
-        {activeTab === "alerts" && (
+        <div style={{ display: activeTab === "alerts" ? '' : 'none' }}>
           <AlertsTab
             alertsLog={alertsLog as any[]}
             selectedAlertIdx={selectedAlertIdx}
             setSelectedAlertIdx={setSelectedAlertIdx}
           />
-        )}
+        </div>
 
-        {activeTab === "atmos" && (
+        <div style={{ display: activeTab === "atmos" ? '' : 'none' }}>
           <AtmosTab
             userPrefs={userPrefs as any}
             mapDf={mapDf}
@@ -637,7 +682,7 @@ export function RegionalGridPage() {
             forecast={forecast as any}
             onSavePrefs={handleSaveWeatherPrefs}
           />
-        )}
+        </div>
       </div>
     </div>
   );
@@ -656,6 +701,7 @@ function GeospatialTab({
   availableTypes, selectedTypes, setSelectedTypes,
   availablePrios, selectedPrios, setSelectedPrios,
   mapLayers, viewState, onViewStateChange, toggledAffectedSites,
+  masterAffectedSites, processedGeo,
 }: {
   mapToggles: Record<string, boolean>; onToggle: (k: string) => void;
   showRadarPanel: boolean; setShowRadarPanel: (v: boolean) => void;
@@ -664,6 +710,8 @@ function GeospatialTab({
   availablePrios: string[]; selectedPrios: string[]; setSelectedPrios: (v: string[]) => void;
   mapLayers: any[]; viewState: MapViewState; onViewStateChange: (v: MapViewState) => void;
   toggledAffectedSites: any[];
+  masterAffectedSites: any[];
+  processedGeo: any;
 }) {
   const layersToggle = [
     { key: "radar", label: "Radar Overlay" },
@@ -678,44 +726,77 @@ function GeospatialTab({
     { key: "earthquakes", label: "Earthquakes (USGS)" },
   ];
 
-  const mapTooltip = useCallback((info: any) => {
-    if (!info.object) return null;
-    const d = info.object;
-    const layerId = info.layer?.id;
+  const featureIndex = useMemo(() => buildFeatureIndex(processedGeo), [processedGeo]);
+  const [hoverInfo, setHoverInfo] = useState<{html: string; x: number; y: number} | null>(null);
 
-    if (layerId === "spc") {
-      return { html: `<b>SPC Convective Outlook</b><br/>Risk: ${d.properties?.LABEL || "Unknown"}`, style: TOOLTIP_STYLE };
+  const handleHover = useCallback((info: any) => {
+    const [lng, lat] = info.coordinate || [];
+    if (lng == null) { setHoverInfo(null); return; }
+    const x = info.x, y = info.y;
+
+    const alerts: string[] = [];
+    const sites: string[] = [];
+    let extraInfo = "";
+
+    if (info.object && info.picked) {
+      const d = info.object;
+      const layerId = info.layer?.id;
+
+      if (layerId === "facilities" || layerId?.startsWith("facilities")) {
+        const name = d.name;
+        sites.push(`<b>${name}</b><br/>Priority: P${d.priority}`);
+        for (const site of masterAffectedSites) {
+          if (site["Monitored Site"] === name && site.Hazard && !alerts.includes(site.Hazard)) {
+            alerts.push(site.Hazard);
+          }
+        }
+      } else if (layerId === "spc" || layerId?.startsWith("spc")) {
+        const label = d.properties?.LABEL || d.properties?.info || "Unknown";
+        if (!alerts.includes(label)) alerts.push(`SPC: ${label}`);
+      } else if (layerId === "wildfires" || layerId?.startsWith("wildfires")) {
+        extraInfo = `<b>${d.name}</b><br/>Acres: ${Math.round(d.acres).toLocaleString()}<br/>Contained: ${d.contained}%`;
+      } else if (layerId === "earthquakes" || layerId?.startsWith("earthquakes")) {
+        extraInfo = `<b>${d.name}</b><br/>Magnitude: ${d.mag}`;
+      } else if (layerId === "fire_risk" || layerId?.startsWith("fire_risk")) {
+        const ev = d.properties?.info || d.properties?.event || "Red Flag Warning";
+        if (!alerts.includes(ev)) alerts.push(ev);
+      }
     }
-    if (layerId === "ar_warn" || layerId === "ar_watch" || layerId === "oos") {
-      const p = d.properties || d;
-      const ev = p.event || "Alert";
-      const hd = p.headline || "";
-      return { html: `<b>${ev}</b>${hd ? `<br/>${hd}` : ""}`, style: TOOLTIP_STYLE };
+
+    for (const entry of featureIndex) {
+      const [minX, minY, maxX, maxY] = entry.bbox;
+      if (lng < minX || lng > maxX || lat < minY || lat > maxY) continue;
+      for (const ring of entry.rings) {
+        if (pointInPolygon(lng, lat, ring)) {
+          const p = entry.props;
+          const ev = p?.info || p?.event || "Alert";
+          const hd = p?.headline || "";
+          const line = hd ? `${ev} — ${hd.slice(0, 120)}` : ev;
+          if (!alerts.includes(line)) alerts.push(line);
+          break;
+        }
+      }
     }
-    if (layerId === "fire_risk") {
-      const ev = d.properties?.event || "Red Flag Warning";
-      return { html: `<b>${ev}</b>`, style: TOOLTIP_STYLE };
+
+    if (!alerts.length && !sites.length && !extraInfo) { setHoverInfo(null); return; }
+
+    let html = "";
+    if (sites.length > 0) {
+      html += sites.join("<hr style='margin:4px 0;border-color:var(--border-primary)'/>") + (alerts.length > 0 ? "<hr style='margin:6px 0;border-color:var(--border-secondary)'/>" : "");
     }
-    if (layerId === "wildfires") {
-      return {
-        html: `<b>${d.name}</b><br/>Acres: ${Math.round(d.acres).toLocaleString()}<br/>Contained: ${d.contained}%`,
-        style: TOOLTIP_STYLE,
-      };
+    if (alerts.length > 0) {
+      const maxShow = 6;
+      const shown = alerts.slice(0, maxShow);
+      html += shown.map(a => `<div style="padding:2px 0">• ${a}</div>`).join("");
+      if (alerts.length > maxShow) {
+        html += `<div style="color:var(--text-muted);font-size:0.72rem;margin-top:2px">+${alerts.length - maxShow} more</div>`;
+      }
+    } else if (extraInfo) {
+      html += extraInfo;
     }
-    if (layerId === "earthquakes") {
-      return {
-        html: `<b>${d.name}</b><br/>Magnitude: ${d.mag}`,
-        style: TOOLTIP_STYLE,
-      };
-    }
-    if (layerId === "facilities") {
-      return {
-        html: `<b>${d.name}</b><br/>Priority: P${d.priority}`,
-        style: TOOLTIP_STYLE,
-      };
-    }
-    return null;
-  }, []);
+    if (!html) { setHoverInfo(null); return; }
+    setHoverInfo({ html, x, y });
+  }, [featureIndex, masterAffectedSites]);
 
   const affectedSitesSorted = useMemo(() => {
     return [...toggledAffectedSites].sort((a, b) => {
@@ -812,21 +893,34 @@ function GeospatialTab({
             Live Threat Overlay
           </h4>
           <div style={{ width: "100%", height: "100%", minHeight: 500 }}>
-            {showRadarPanel ? (
-              <div style={{ display: "flex", height: "100%", gap: 0 }}>
-                <div style={{ flex: 2, position: "relative" }}>
+            <div style={{ display: "flex", height: "100%", gap: 0 }}>
+              <div style={{ flex: showRadarPanel ? 2 : 1, minWidth: 0 }}>
+                <MapContainer height="100%">
                   <DeckGL
                     layers={mapLayers}
                     viewState={viewState}
                     onViewStateChange={({ viewState: vs }: any) => onViewStateChange(vs)}
                     controller={true}
                     style={{ height: "100%", width: "100%" }}
-                    getTooltip={mapTooltip}
+                    onHover={handleHover}
                   >
                     <MapLibreMap mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
                   </DeckGL>
-                </div>
-                <div style={{ flex: 1, padding: "0.5rem", background: "var(--bg-secondary)", display: "flex", flexDirection: "column" }}>
+                  {hoverInfo && (
+                    <div style={{
+                      position: "absolute", left: hoverInfo.x + 12, top: hoverInfo.y - 8,
+                      zIndex: 999, pointerEvents: "none",
+                      background: "var(--bg-card)", color: "var(--text-primary)",
+                      fontSize: "0.78rem", border: "1px solid var(--border-primary)",
+                      borderRadius: "var(--radius-sm)", padding: "0.5rem",
+                      maxWidth: 320, maxHeight: 280, overflow: "auto",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                    }} dangerouslySetInnerHTML={{ __html: hoverInfo.html }} />
+                  )}
+                </MapContainer>
+              </div>
+              {showRadarPanel && (
+                <div style={{ flex: 1, minWidth: 0, padding: "0.5rem", background: "var(--bg-secondary)", display: "flex", flexDirection: "column" }}>
                   <h5 style={{ margin: "0 0 0.5rem", color: "var(--text-primary)", fontSize: "0.85rem" }}>Precipitation Loop</h5>
                   <iframe
                     src="https://www.rainviewer.com/map.html?loc=34.8,-92.2,6&oFa=0&oC=1&oU=0&oCS=1&oF=0&oAP=1&c=3&o=83&lm=1&layer=radar&sm=1&sn=1"
@@ -834,19 +928,8 @@ function GeospatialTab({
                     allowFullScreen
                   />
                 </div>
-              </div>
-            ) : (
-              <DeckGL
-                layers={mapLayers}
-                viewState={viewState}
-                onViewStateChange={({ viewState: vs }: any) => onViewStateChange(vs)}
-                controller={true}
-                style={{ height: "100%", width: "100%" }}
-                getTooltip={mapTooltip}
-              >
-                <MapLibreMap mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
-              </DeckGL>
-            )}
+              )}
+            </div>
           </div>
         </div>
 

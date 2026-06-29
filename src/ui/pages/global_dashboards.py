@@ -148,6 +148,7 @@ def render_global_dashboards():
 
         col_title, col_leg = st.columns([3, 1])
         col_title.caption("Strategic synthesis of Physical and Cyber telemetry measured against a 14-day operational baseline.")
+        col_title.caption("Updates every 30 minutes.")
         if col_leg.button("View CIS Threat Legend", width='stretch'):
             show_cis_legend()
 

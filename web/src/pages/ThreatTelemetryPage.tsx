@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { MapContainer } from "../components/MapContainer";
 import DeckGL from "@deck.gl/react";
 import { Map } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -239,6 +240,7 @@ export function ThreatTelemetryPage() {
   const [searchMinScore, setSearchMinScore] = useState(0);
   const [searchPageSize, setSearchPageSize] = useState(20);
 
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [cooldownRss, setCooldownRss] = useState(false);
   const [cooldownKev, setCooldownKev] = useState(false);
   const [cooldownCloud, setCooldownCloud] = useState(false);
@@ -249,10 +251,10 @@ export function ThreatTelemetryPage() {
   const feedType = SUB_TABS[subTab].toLowerCase();
 
   const articlesQuery = useQuery({
-    queryKey: ["articles", feedType, categoryFilter, feedType === "search" ? pageSearch : (feedType === "pinned" ? pagePinned : feedType === "live" ? pageLive : pageLow), feedType === "search" ? searchPageSize : feedType === "pinned" ? 10 : 20, searchTerm, searchMinScore],
+      queryKey: ["articles", feedType, categoryFilter, feedType === "search" ? pageSearch : (feedType === "pinned" ? pagePinned : feedType === "live" ? pageLive : pageLow), feedType === "search" ? searchPageSize : feedType === "pinned" ? 10 : feedType === "low" ? 10 : 20, searchTerm, searchMinScore],
     queryFn: () => {
       const p = feedType === "search" ? pageSearch : feedType === "pinned" ? pagePinned : feedType === "live" ? pageLive : pageLow;
-      const ps = feedType === "search" ? searchPageSize : feedType === "pinned" ? 10 : 20;
+      const ps = feedType === "search" ? searchPageSize : feedType === "pinned" ? 10 : feedType === "low" ? 10 : 20;
       return api.get("/threat/articles", {
         params: {
           category: feedType,
@@ -371,6 +373,11 @@ export function ThreatTelemetryPage() {
       return true;
     });
   }, [outages, todayFmts]);
+
+  const filteredOutages = useMemo(() => {
+    if (!selectedProvider) return activeOutages;
+    return activeOutages.filter((o: any) => o.provider === selectedProvider);
+  }, [activeOutages, selectedProvider]);
 
   const affectedProviders = useMemo(() => {
     return [...new Set(activeOutages.map((o: any) => o.provider).filter(Boolean))].sort();
@@ -607,8 +614,7 @@ ${d.category ? `<b>Category:</b> ${d.category}` : ""}`,
       </div>
 
       {/* === TAB 0: RSS TRIAGE === */}
-      {activeTab === 0 && (
-        <div>
+      <div style={{ display: activeTab === 0 ? '' : 'none' }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", gap: "1rem", flexWrap: "wrap" }}>
             <select
               value={categoryFilter}
@@ -699,11 +705,9 @@ ${d.category ? `<b>Category:</b> ${d.category}` : ""}`,
             </>
           )}
         </div>
-      )}
 
       {/* === TAB 1: CISA KEV === */}
-      {activeTab === 1 && (
-        <div>
+      <div style={{ display: activeTab === 1 ? '' : 'none' }}>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1rem" }}>
             <button
               onClick={() => syncKevMut.mutate()}
@@ -757,11 +761,9 @@ ${d.category ? `<b>Category:</b> ${d.category}` : ""}`,
             ))
           )}
         </div>
-      )}
 
       {/* === TAB 2: CLOUD SERVICES === */}
-      {activeTab === 2 && (
-        <div>
+      <div style={{ display: activeTab === 2 ? '' : 'none' }}>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1rem" }}>
             <button
               onClick={() => syncCloudMut.mutate()}
@@ -795,11 +797,20 @@ ${d.category ? `<b>Category:</b> ${d.category}` : ""}`,
 
               <div style={s.tabBar}>
                 {affectedProviders.map((p: string) => (
-                  <TabButton key={p} active={false} label={p} onClick={() => {}} />
+                  <TabButton
+                    key={p}
+                    active={p === selectedProvider}
+                    label={p}
+                    onClick={() => setSelectedProvider(selectedProvider === p ? null : p)}
+                  />
                 ))}
               </div>
 
-              {activeOutages.map((o: any) => (
+              {filteredOutages.length === 0 ? (
+                <div style={{ ...s.card, textAlign: "center", padding: "1rem", color: "var(--text-secondary)" }}>
+                  No active outages for this provider.
+                </div>
+              ) : filteredOutages.map((o: any) => (
                 <details key={o.id} style={{ ...s.card, padding: "0" }}>
                   <summary
                     style={{
@@ -867,11 +878,9 @@ ${d.category ? `<b>Category:</b> ${d.category}` : ""}`,
             </div>
           </details>
         </div>
-      )}
 
       {/* === TAB 3: PERIMETER CRIME === */}
-      {activeTab === 3 && (
-        <div>
+      <div style={{ display: activeTab === 3 ? '' : 'none' }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "1rem", marginBottom: "1rem", flexWrap: "wrap" }}>
             <div>
               <h3 style={{ margin: 0, color: "var(--text-primary, #e2e8f0)", fontSize: "1.1rem" }}>Perimeter Crime Telemetry</h3>
@@ -917,7 +926,7 @@ ${d.category ? `<b>Category:</b> ${d.category}` : ""}`,
             </div>
           ) : (
             <>
-              <div style={{ ...s.card, padding: 0, overflow: "hidden", height: "600px", width: "100%", position: "relative" }}>
+              <MapContainer height="600px">
                 <DeckGL
                   layers={crimeLayers}
                   initialViewState={crimeMapViewState}
@@ -927,7 +936,7 @@ ${d.category ? `<b>Category:</b> ${d.category}` : ""}`,
                 >
                   <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
                 </DeckGL>
-              </div>
+              </MapContainer>
 
               <hr style={s.divider} />
 
@@ -989,7 +998,6 @@ ${d.category ? `<b>Category:</b> ${d.category}` : ""}`,
             </>
           )}
         </div>
-      )}
     </div>
   );
 }

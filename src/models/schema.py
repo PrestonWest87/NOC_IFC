@@ -79,6 +79,16 @@ class SystemConfig(Base):
     sys_countermeasures = Column(Integer, default=3)
     net_countermeasures = Column(Integer, default=3)
 
+    scoring_mode = Column(String, default="auto")
+    cyber_criticality_override = Column(Integer, default=0)
+    cyber_lethality_override = Column(Integer, default=0)
+    physical_criticality_override = Column(Integer, default=0)
+    physical_lethality_override = Column(Integer, default=0)
+    internal_criticality_override = Column(Integer, default=0)
+    internal_lethality_override = Column(Integer, default=0)
+    global_risk_offset = Column(Integer, default=0)
+    internal_risk_offset = Column(Integer, default=0)
+
 
 class ShiftLogEntry(Base):
     __tablename__ = "shift_logs"
