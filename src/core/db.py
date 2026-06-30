@@ -29,14 +29,10 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def get_db():
-    """Dependency injection helper yielding a database session."""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+Here is the complete, corrected version of your init_db() function.
 
+The block handling the sys_countermeasures and net_countermeasures migration, along with the block following it (scoring_mode, overrides, and offsets), have both been updated to iteratively execute each statement inside their own nested try...except loops. This prevents a duplicate column error from aborting the execution of the statements that follow it.
+Python
 
 def init_db():
     time.sleep(random.uniform(0.1, 1.5))
@@ -122,15 +118,20 @@ def init_db():
     except Exception:
         pass
 
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN last_global_risk VARCHAR"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN last_internal_risk VARCHAR"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN last_risk_alert_time DATETIME"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN sys_countermeasures INTEGER DEFAULT 3"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN net_countermeasures INTEGER DEFAULT 3"))
-    except Exception:
-        pass
+    # FIXED: Loops over each alteration individually so already existing columns don't block countermeasures
+    risk_alert_alterations = [
+        "ALTER TABLE system_config ADD COLUMN last_global_risk VARCHAR",
+        "ALTER TABLE system_config ADD COLUMN last_internal_risk VARCHAR",
+        "ALTER TABLE system_config ADD COLUMN last_risk_alert_time DATETIME",
+        "ALTER TABLE system_config ADD COLUMN sys_countermeasures INTEGER DEFAULT 3",
+        "ALTER TABLE system_config ADD COLUMN net_countermeasures INTEGER DEFAULT 3"
+    ]
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        for stmt in risk_alert_alterations:
+            try:
+                conn.execute(text(stmt))
+            except Exception:
+                pass
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
@@ -144,19 +145,24 @@ def init_db():
     except Exception:
         pass
 
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN scoring_mode VARCHAR DEFAULT 'auto'"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN cyber_criticality_override INTEGER DEFAULT 0"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN cyber_lethality_override INTEGER DEFAULT 0"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN physical_criticality_override INTEGER DEFAULT 0"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN physical_lethality_override INTEGER DEFAULT 0"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN internal_criticality_override INTEGER DEFAULT 0"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN internal_lethality_override INTEGER DEFAULT 0"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN global_risk_offset INTEGER DEFAULT 0"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN internal_risk_offset INTEGER DEFAULT 0"))
-    except Exception:
-        pass
+    # FIXED: Loops over each calculation offset/override statement individually to handle pre-existing table runs safely
+    scoring_alterations = [
+        "ALTER TABLE system_config ADD COLUMN scoring_mode VARCHAR DEFAULT 'auto'",
+        "ALTER TABLE system_config ADD COLUMN cyber_criticality_override INTEGER DEFAULT 0",
+        "ALTER TABLE system_config ADD COLUMN cyber_lethality_override INTEGER DEFAULT 0",
+        "ALTER TABLE system_config ADD COLUMN physical_criticality_override INTEGER DEFAULT 0",
+        "ALTER TABLE system_config ADD COLUMN physical_lethality_override INTEGER DEFAULT 0",
+        "ALTER TABLE system_config ADD COLUMN internal_criticality_override INTEGER DEFAULT 0",
+        "ALTER TABLE system_config ADD COLUMN internal_lethality_override INTEGER DEFAULT 0",
+        "ALTER TABLE system_config ADD COLUMN global_risk_offset INTEGER DEFAULT 0",
+        "ALTER TABLE system_config ADD COLUMN internal_risk_offset INTEGER DEFAULT 0"
+    ]
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        for stmt in scoring_alterations:
+            try:
+                conn.execute(text(stmt))
+            except Exception:
+                pass
 
     session = SessionLocal()
     try:
