@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from contextlib import asynccontextmanager
 
@@ -14,7 +15,6 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 manager = ConnectionManager()
-
 
 async def broadcaster():
     from src import services as svc
@@ -38,7 +38,6 @@ async def broadcaster():
             logger.error("Broadcaster error: %s", e)
         await asyncio.sleep(5)
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -50,7 +49,6 @@ async def lifespan(app: FastAPI):
         await task
     except asyncio.CancelledError:
         pass
-
 
 app = FastAPI(title="NOC Fusion Enterprise API", version="2.0.0", lifespan=lifespan)
 
@@ -76,11 +74,9 @@ app.include_router(settings_admin.router)
 app.include_router(llm.router)
 app.include_router(email.router)
 
-
 @app.get("/health")
 def health():
     return {"status": "ok", "ws_clients": manager.count}
-
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -90,19 +86,19 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_text()
             logger.debug("Received WS message: %s", data)
             
+            # Catch incoming UI state updates and echo them to other users
             try:
                 parsed_data = json.loads(data)
                 if parsed_data.get("type") == "INVESTIGATING_UPDATE":
                     await manager.broadcast_json(parsed_data)
             except json.JSONDecodeError:
                 pass
-                
+
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception as e:
         logger.error("WebSocket error: %s", e)
         manager.disconnect(websocket)
-
 
 if __name__ == "__main__":
     import uvicorn
