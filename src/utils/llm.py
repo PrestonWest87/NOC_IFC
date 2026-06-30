@@ -376,7 +376,13 @@ def generate_executive_weather_brief(analytics, p1_count, sys_config):
     if not sys_config or not sys_config.get('is_active'):
         return "AI is currently disabled in settings."
 
-    dist_counts = analytics['district_distribution'].to_dict().get('Count', {}) if not analytics['district_distribution'].empty else {}
+    dist_data = analytics.get('district_distribution', [])
+    if hasattr(dist_data, 'empty'):
+        # Legacy Pandas DataFrame fallback
+        dist_counts = dist_data.to_dict().get('Count', {}) if not dist_data.empty else {}
+    else:
+        # Handles standard Python lists and dicts
+        dist_counts = dist_data if dist_data else {}
 
     prompt = f"""
     Analyze this weather threat data for our electrical grid infrastructure and write a 2-paragraph Executive Weather Briefing.
