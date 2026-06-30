@@ -10,6 +10,7 @@ import { ScatterplotLayer } from "@deck.gl/layers";
 import { Map } from "react-map-gl/maplibre";
 import type { MapViewState } from "@deck.gl/core";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { useAppStore } from "../store/useAppStore"; // Global Store Import
 import {
   Activity, AlertTriangle, Radio, BarChart3, Globe,
   Play, Send, CheckCircle, Wrench, ChevronDown, ChevronUp,
@@ -83,6 +84,12 @@ export function AiopsRcaPage() {
   const [ticketTexts, setTicketTexts] = useState<Record<string, string>>({});
   const [sitrepReport, setSitrepReport] = useState<string | null>(null);
   const [deepAnalysisRun, setDeepAnalysisRun] = useState(false);
+
+  // Global Store Methods for Syncing
+  const investigatingSitesArray = useAppStore((s) => s.investigatingSites);
+  const setInvestigatingSiteStore = useAppStore((s) => s.setInvestigatingSite);
+  const sendMessage = useAppStore((s) => s.sendMessage);
+  const investigatingSites = useMemo(() => new Set(investigatingSitesArray), [investigatingSitesArray]);
 
   const pollMs = livePolling ? 5000 : false;
 
@@ -167,7 +174,6 @@ export function AiopsRcaPage() {
     [locations, allowedTypes]
   );
 
-  const [investigatingSites, setInvestigatingSites] = useState<Set<string>>(new Set());
   const prevAlertCounts = useRef<Record<string, number>>({});
   const prevAlertLength = useRef(0);
   const hasAutoAnalyzed = useRef(false);
@@ -306,11 +312,18 @@ export function AiopsRcaPage() {
     }
 
     const isMaint = dialogStatus === "No Dispatch Needed";
-    if (isMaint) {
-      setInvestigatingSites((prev) => { const n = new Set(prev); n.delete(name); return n; });
-    } else {
-      setInvestigatingSites((prev) => { const n = new Set(prev); n.add(name); return n; });
-    }
+    const isInvestigating = !isMaint;
+
+    // 1. Update Global Store locally
+    setInvestigatingSiteStore(name, isInvestigating);
+    
+    // 2. Broadcast to all active WebSocket users
+    sendMessage({
+      type: "INVESTIGATING_UPDATE",
+      site: name,
+      is_investigating: isInvestigating
+    });
+
     const etrDate = isMaint ? dialogEtr : "";
     const reason = dialogReason;
     promises.push(maintMutation.mutateAsync({ site_name: name, is_maint: isMaint, etr: etrDate, reason }));
@@ -318,22 +331,26 @@ export function AiopsRcaPage() {
     await Promise.allSettled(promises);
     await queryClient.invalidateQueries({ queryKey: ["rca-dashboard"] });
     setSiteDialog(null);
-  }, [siteDialog, dialogDispatch, dialogStatus, dialogEtr, dialogReason, alerts, dispatchMutation, maintMutation, queryClient]);
+  }, [siteDialog, dialogDispatch, dialogStatus, dialogEtr, dialogReason, alerts, dispatchMutation, maintMutation, queryClient, setInvestigatingSiteStore, sendMessage]);
 
   useEffect(() => {
     const prev = prevAlertCounts.current;
     const curr: Record<string, number> = {};
     for (const s of sites) {
       curr[s.name] = s.alert_count;
+      
+      // Auto-clear investigating state if the problem is fixed
       if (s.alert_count === 0 && investigatingSites.has(s.name)) {
-        setInvestigatingSites((prev) => { const n = new Set(prev); n.delete(s.name); return n; });
+        setInvestigatingSiteStore(s.name, false);
+        sendMessage({ type: "INVESTIGATING_UPDATE", site: s.name, is_investigating: false });
       }
+
       if (prev[s.name] !== undefined && prev[s.name] > 0 && s.alert_count === 0 && s.under_maintenance) {
         maintMutation.mutate({ site_name: s.name, is_maint: false, etr: chicagoDateString(), reason: "" });
       }
     }
     prevAlertCounts.current = curr;
-  }, [sites, investigatingSites, maintMutation]);
+  }, [sites, investigatingSites, maintMutation, setInvestigatingSiteStore, sendMessage]);
 
   useEffect(() => {
     if (typeof Notification !== "undefined" && Notification.permission === "default") {
