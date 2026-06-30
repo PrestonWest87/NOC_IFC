@@ -34,8 +34,6 @@ const ALL_ACTIONS = [
   "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone",
 ];
 
-const ALL_SITE_TYPES = ["NOC", "SOC", "Data Center", "Field Office", "HQ", "Remote Site", "Cloud"];
-
 const TABS = [
   { id: "profile", label: "Profile", icon: User },
   { id: "theme", label: "Theme", icon: Palette },
@@ -166,6 +164,14 @@ export function SettingsPage() {
     queryFn: () => api.get("/admin/ml-counts").then(r => r.data),
   });
 
+  const { data: siteTypes } = useQuery({
+    queryKey: ["site-types"],
+    queryFn: () => api.get("/regional/site-types").then(r => r.data),
+    staleTime: 60000,
+  });
+
+  const ALL_SITE_TYPES: string[] = siteTypes?.length ? siteTypes : ["NOC", "SOC", "Data Center", "Field Office", "HQ", "Remote Site", "Cloud"];
+
   const saveConfigMutation = useMutation({
     mutationFn: (data: any) => api.post("/admin/config", data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["settings-config"] }); alert("Configuration saved."); },
@@ -200,7 +206,7 @@ export function SettingsPage() {
       {tab === "rss" && <RssTab lists={lists} queryClient={queryClient} />}
       {tab === "ml" && <MlTab mlCounts={mlCounts} />}
       {tab === "ai-smtp" && <AiSmtpTab config={config} configLoading={configLoading} saveConfigMutation={saveConfigMutation} />}
-      {tab === "users" && <UsersRolesTab roles={roles} users={users} queryClient={queryClient} />}
+      {tab === "users" && <UsersRolesTab roles={roles} users={users} queryClient={queryClient} allSiteTypes={ALL_SITE_TYPES} />}
       {tab === "backup" && <BackupRestoreTab />}
       {tab === "danger" && <DangerZoneTab />}
     </div>
@@ -435,14 +441,14 @@ function AssetsTab() {
           const lines = text.split("\n").filter(Boolean);
           const header = lines[0].toLowerCase();
           if (!header.includes("name")) return reject(new Error("CSV must contain a 'name' column"));
-          api.post("/admin/config", { software_assets_csv: text }).then(resolve).catch(reject);
+          api.post("/admin/assets/software", { csv_body: text }).then(resolve).catch(reject);
         };
         reader.onerror = () => reject(new Error("Failed to read file"));
         reader.readAsText(file);
       });
     },
-    onSuccess: () => { alert("Software assets uploaded."); setSwFile(null); queryClient.invalidateQueries({ queryKey: ["settings-config"] }); },
-    onError: (e: any) => alert("Error: " + (e.message || e.response?.data?.detail)),
+    onSuccess: (res: any) => { alert(res?.data?.message || "Software assets uploaded."); setSwFile(null); queryClient.invalidateQueries({ queryKey: ["settings-config"] }); },
+    onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
   });
 
   const uploadHw = useMutation({
@@ -454,14 +460,14 @@ function AssetsTab() {
           const lines = text.split("\n").filter(Boolean);
           const header = lines[0].toLowerCase();
           if (!header.includes("ip")) return reject(new Error("CSV must contain an 'IP Address' column"));
-          api.post("/admin/config", { hardware_assets_csv: text }).then(resolve).catch(reject);
+          api.post("/admin/assets/hardware", { csv_body: text }).then(resolve).catch(reject);
         };
         reader.onerror = () => reject(new Error("Failed to read file"));
         reader.readAsText(file);
       });
     },
-    onSuccess: () => { alert("Hardware assets uploaded."); setHwFile(null); queryClient.invalidateQueries({ queryKey: ["settings-config"] }); },
-    onError: (e: any) => alert("Error: " + (e.message || e.response?.data?.detail)),
+    onSuccess: (res: any) => { alert(res?.data?.message || "Hardware assets uploaded."); setHwFile(null); queryClient.invalidateQueries({ queryKey: ["settings-config"] }); },
+    onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
   });
 
   return (
@@ -848,7 +854,7 @@ function CheckboxGroup({ label, options, selected, onChange }: { label: string; 
   );
 }
 
-function UsersRolesTab({ roles, users, queryClient }: { roles: any; users: any; queryClient: any }) {
+function UsersRolesTab({ roles, users, queryClient, allSiteTypes }: { roles: any; users: any; queryClient: any; allSiteTypes: string[] }) {
   const [newUser, setNewUser] = useState({ username: "", password: "", full_name: "", role: "viewer" });
   const [roleChange, setRoleChange] = useState({ username: "", new_role: "viewer" });
   const [newRole, setNewRole] = useState({ name: "", allowed_pages: [] as string[], allowed_actions: [] as string[], allowed_site_types: [] as string[] });
@@ -927,7 +933,7 @@ function UsersRolesTab({ roles, users, queryClient }: { roles: any; users: any; 
           </div>
           <CheckboxGroup label="Allowed Pages" options={ALL_PAGES} selected={newRole.allowed_pages} onChange={v => setNewRole(p => ({ ...p, allowed_pages: v }))} />
           <CheckboxGroup label="Allowed Actions" options={ALL_ACTIONS} selected={newRole.allowed_actions} onChange={v => setNewRole(p => ({ ...p, allowed_actions: v }))} />
-          <CheckboxGroup label="Allowed Site Types" options={ALL_SITE_TYPES} selected={newRole.allowed_site_types} onChange={v => setNewRole(p => ({ ...p, allowed_site_types: v }))} />
+          <CheckboxGroup label="Allowed Site Types" options={allSiteTypes} selected={newRole.allowed_site_types} onChange={v => setNewRole(p => ({ ...p, allowed_site_types: v }))} />
           <button onClick={() => createRole.mutate(newRole)} disabled={createRole.isPending || !newRole.name} style={btn("var(--accent-green)")}>
             <Plus size={14} /> {createRole.isPending ? "Creating..." : "Create Role"}
           </button>
@@ -952,7 +958,7 @@ function UsersRolesTab({ roles, users, queryClient }: { roles: any; users: any; 
                 </div>
                 <CheckboxGroup label="Allowed Pages" options={ALL_PAGES} selected={editRole.allowed_pages || []} onChange={v => setEditRole((p: any) => ({ ...p, allowed_pages: v }))} />
                 <CheckboxGroup label="Allowed Actions" options={ALL_ACTIONS} selected={editRole.allowed_actions || []} onChange={v => setEditRole((p: any) => ({ ...p, allowed_actions: v }))} />
-                <CheckboxGroup label="Allowed Site Types" options={ALL_SITE_TYPES} selected={editRole.allowed_site_types || []} onChange={v => setEditRole((p: any) => ({ ...p, allowed_site_types: v }))} />
+                <CheckboxGroup label="Allowed Site Types" options={allSiteTypes} selected={editRole.allowed_site_types || []} onChange={v => setEditRole((p: any) => ({ ...p, allowed_site_types: v }))} />
                 <button onClick={() => editRoleMutation.mutate(editRole)} disabled={editRoleMutation.isPending} style={btn("var(--accent-yellow)")}>
                   <Save size={14} /> {editRoleMutation.isPending ? "Saving..." : "Update Role"}
                 </button>

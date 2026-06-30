@@ -46,6 +46,22 @@ def save_config(data: dict[str, Any] = Body({})):
     return {"status": "ok"}
 
 
+@router.post("/assets/software")
+def upload_software_assets(csv_body: str = Body(..., embed=True)):
+    logger.info("POST /admin/assets/software body_length=%d", len(csv_body) if csv_body else 0)
+    success, msg = svc.import_software_assets_csv(csv_body)
+    logger.info("POST /admin/assets/software result: success=%s msg=%s", success, msg)
+    return {"status": "ok" if success else "error", "message": msg}
+
+
+@router.post("/assets/hardware")
+def upload_hardware_assets(csv_body: str = Body(..., embed=True)):
+    logger.info("POST /admin/assets/hardware body_length=%d", len(csv_body) if csv_body else 0)
+    success, msg = svc.import_hardware_assets_csv(csv_body)
+    logger.info("POST /admin/assets/hardware result: success=%s msg=%s", success, msg)
+    return {"status": "ok" if success else "error", "message": msg}
+
+
 @router.get("/roles")
 def roles():
     logger.debug("GET /admin/roles")

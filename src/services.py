@@ -175,10 +175,17 @@ def get_regional_counties_mapping():
         return {}
 
 def get_all_site_types():
+    DEFAULT_SITE_TYPES = ["NOC", "SOC", "Data Center", "Field Office", "HQ", "Remote Site", "Cloud"]
     from src.database import MonitoredLocation
     with SessionLocal() as db:
-        types = db.query(MonitoredLocation.loc_type).distinct().all()
-        return [t[0] for t in types if t[0]]
+        db_types = [t[0] for t in db.query(MonitoredLocation.loc_type).distinct().all() if t[0]]
+    seen = set()
+    merged = []
+    for t in DEFAULT_SITE_TYPES + db_types:
+        if t not in seen:
+            seen.add(t)
+            merged.append(t)
+    return merged
 
 def set_cluster_dispatch(alert_ids, is_dispatched):
     from src.database import SolarWindsAlert
@@ -370,7 +377,7 @@ def get_role_permissions(role_name):
                 "Tab: Settings -> Facility Locations", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training",
                 "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
             ],
-            "allowed_site_types": ["NOC", "SOC", "Data Center", "Field Office", "HQ", "Remote Site", "Cloud"],
+            "allowed_site_types": get_all_site_types(),
         }
     with SessionLocal() as db:
         role = db.query(Role).filter(Role.name == role_name).first()
@@ -1934,6 +1941,58 @@ def update_locations(edited_df):
                 db_loc.name, db_loc.loc_type, db_loc.district, db_loc.priority, db_loc.lat, db_loc.lon = row['Name'], row['Type'], row['District'], row['Priority'], row['Lat'], row['Lon']
         db.commit()
     get_cached_locations.clear()
+
+def import_software_assets_csv(text: str):
+    """Parse CSV text and replace all SoftwareAsset records."""
+    import io, csv
+    from src.database import SoftwareAsset
+    reader = csv.DictReader(io.StringIO(text))
+    col_map = {k.strip().lower(): k for k in (reader.fieldnames or [])}
+    if 'name' not in col_map:
+        return False, "CSV must contain a 'name' column."
+    names = []
+    for row in reader:
+        val = row.get(col_map['name'], '').strip()
+        if val:
+            names.append(val)
+    if not names:
+        return False, "No valid rows found."
+    with SessionLocal() as db:
+        db.query(SoftwareAsset).delete()
+        for n in names:
+            db.add(SoftwareAsset(name=n))
+        db.commit()
+    return True, f"Imported {len(names)} software assets."
+
+
+def import_hardware_assets_csv(text: str):
+    """Parse CSV text and replace all HardwareAsset records."""
+    import io, csv
+    from src.database import HardwareAsset
+    reader = csv.DictReader(io.StringIO(text))
+    col_map = {k.strip().lower().replace(' ', '_'): k for k in (reader.fieldnames or [])}
+    if 'ip_address' not in col_map:
+        return False, "CSV must contain an 'IP Address' column."
+    valid_columns = {c.name for c in HardwareAsset.__table__.columns}
+    rows = []
+    for row in reader:
+        row_dict = {}
+        for norm_key, orig_key in col_map.items():
+            if norm_key in valid_columns:
+                val = row.get(orig_key, '').strip()
+                if val:
+                    row_dict[norm_key] = val
+        if row_dict.get('ip_address'):
+            rows.append(row_dict)
+    if not rows:
+        return False, "No valid rows found."
+    with SessionLocal() as db:
+        db.query(HardwareAsset).delete()
+        for rd in rows:
+            db.add(HardwareAsset(**rd))
+        db.commit()
+    return True, f"Imported {len(rows)} hardware assets."
+
 
 def nuke_crime_data():
     """Wipes all records from Little Rock crime table."""
