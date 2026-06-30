@@ -16,8 +16,8 @@ class SendEmailRequest(BaseModel):
 @router.post("/send")
 def send_email(req: SendEmailRequest):
     from src.utils.mailer import send_alert_email
-    if not req.recipients:
-        return {"status": "error", "message": "No recipients specified."}
+    
+    # Removed the hard block here to allow mailer.py to fallback to config.smtp_recipient
     success, msg = send_alert_email(
         req.subject, req.body,
         recipient_override=req.recipients,
