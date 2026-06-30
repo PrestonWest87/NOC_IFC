@@ -158,18 +158,28 @@ export function AiopsRcaPage() {
   const rootCause = analysis?.root_cause ?? {};
   const chronicInsights = analysis?.chronic_insights ?? null;
 
+  const allowedTypes = user?.allowed_site_types;
+  const filteredLocations = useMemo(
+    () => allowedTypes && allowedTypes.length > 0
+      ? (locations ?? []).filter((l: any) => allowedTypes.includes(l.loc_type))
+      : (locations ?? []),
+    [locations, allowedTypes]
+  );
+
   const [investigatingSites, setInvestigatingSites] = useState<Set<string>>(new Set());
 
   const sites = useMemo(
     () => {
-      const mapped = (locations ?? []).map((l: any) => {
+      const mapped = (filteredLocations ?? []).map((l: any) => {
         const siteAlerts = alerts.filter((a: any) => a.mapped_location === l.name);
+        const hasRecentDispatch = l.last_auto_dispatch || l.last_escalation_dispatch;
         return {
           name: l.name,
           lat: l.lat,
           lon: l.lon,
+          loc_type: l.loc_type,
           alert_count: siteAlerts.length,
-          is_dispatched: siteAlerts.some((a: any) => a.is_dispatched),
+          is_dispatched: siteAlerts.some((a: any) => a.is_dispatched) || !!hasRecentDispatch,
           under_maintenance: l.under_maintenance ?? false,
           maintenance_etr: l.maintenance_etr ?? null,
           maintenance_reason: l.maintenance_reason ?? null,
@@ -177,15 +187,16 @@ export function AiopsRcaPage() {
       });
       return mapped;
     },
-    [locations, alerts]
+    [filteredLocations, alerts]
   );
 
   const incidentSites = useMemo(() => {
-    const fromCluster = Object.keys(clustered);
-    const fromRoot = Object.keys(rootCause);
-    const fromAlerts: string[] = [...new Set(alerts.map((a: any) => a.mapped_location).filter(Boolean))];
+    const allowedNames = new Set(sites.map((s: any) => s.name));
+    const fromCluster = Object.keys(clustered).filter((n) => allowedNames.has(n));
+    const fromRoot = Object.keys(rootCause).filter((n) => allowedNames.has(n));
+    const fromAlerts: string[] = [...new Set(alerts.map((a: any) => a.mapped_location).filter((n: string) => allowedNames.has(n)))];
     return [...new Set([...fromCluster, ...fromRoot, ...fromAlerts])] as string[];
-  }, [clustered, rootCause, alerts]);
+  }, [clustered, rootCause, alerts, sites]);
 
   const getRc = (site: string) => {
     const rc = rootCause[site];
@@ -343,10 +354,11 @@ export function AiopsRcaPage() {
     const pulseData: any[] = [];
 
     for (const s of sites) {
-      const isDown = s.alert_count > 0;
+      const hasAlerts = s.alert_count > 0;
       const isNoDispatch = s.under_maintenance;
       const isDispatched = s.is_dispatched;
       const isInvestigating = investigatingSites.has(s.name);
+      const isDown = hasAlerts || isNoDispatch || isDispatched;
 
       let color: [number, number, number, number];
       let statusText: string;
@@ -358,21 +370,21 @@ export function AiopsRcaPage() {
         statusText = "Operational / Clear";
         showPulse = false;
         radius = 2000;
-      } else if (isNoDispatch) {
-        color = [0, 123, 255, 200];
-        statusText = "Down (No Dispatch Needed)";
+      } else if (isInvestigating) {
+        color = [255, 165, 0, 200];
+        statusText = "Down (Investigating)";
         showPulse = false;
-        radius = 2500;
+        radius = 3500;
       } else if (isDispatched) {
         color = [255, 193, 7, 200];
         statusText = "Down (Ticket Dispatched)";
         showPulse = false;
         radius = 3000;
-      } else if (isInvestigating) {
-        color = [255, 165, 0, 200];
-        statusText = "Down (Investigating/Pending Dispatch)";
+      } else if (isNoDispatch) {
+        color = [0, 123, 255, 200];
+        statusText = "Down (Maintenance)";
         showPulse = false;
-        radius = 3500;
+        radius = 2500;
       } else {
         color = [220, 53, 69, 200];
         statusText = "Down (Action Required)";
