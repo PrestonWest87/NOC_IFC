@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { getAllowedTabs } from "../utils/permissions";
+import { formatDateInChicago, chicagoDateString, formatInChicago } from "../utils/timezone";
 import {
   FileText, Calendar, Mail, Send, BookOpen, Search, Plus, Eye,
   Trash2, Loader2, AlertCircle, CheckCircle, Target, Layers, Save,
@@ -63,7 +64,7 @@ const sectionTitle: React.CSSProperties = {
 
 function formatDate(d: string | null | undefined) {
   if (!d) return "";
-  return d.slice(0, 10);
+  return formatDateInChicago(d);
 }
 
 function Spinner() {
@@ -227,7 +228,7 @@ function DailyFusionBriefing() {
                 >
                   {briefs.map((b: any, i: number) => (
                     <option key={b.id || i} value={i}>
-                      {b.report_date?.slice ? b.report_date.slice(0, 10) : String(b.report_date)}
+                      {b.report_date?.slice ? formatDateInChicago(b.report_date) : String(b.report_date)}
                     </option>
                   ))}
                 </select>
@@ -275,7 +276,7 @@ function DailyFusionBriefing() {
                     const r = recipients || config?.smtp_recipient || "";
                     if (!r) { alert("Please enter at least one recipient email."); return; }
                     broadcastMutation.mutate({
-                      report_date: selected.report_date?.slice ? selected.report_date.slice(0, 10) : String(selected.report_date),
+                      report_date: selected.report_date?.slice ? chicagoDateString(new Date(selected.report_date)) : String(selected.report_date),
                       content: selected.content as string,
                       recipients: r,
                     });
@@ -311,7 +312,7 @@ function CustomReportBuilder() {
     onSuccess: (r: any) => {
       if (r.data.status === "ok") {
         setGenerated(r.data.content);
-        setSaveTitle(`Custom Report - ${new Date().toISOString().slice(0, 16).replace("T", " ")}`);
+        setSaveTitle(`Custom Report - ${formatInChicago(new Date(), { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}`);
       } else {
         alert("Error: " + (r.data.message || "Generation failed."));
       }

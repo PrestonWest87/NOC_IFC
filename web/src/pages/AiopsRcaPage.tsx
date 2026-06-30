@@ -1,8 +1,9 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { getAllowedTabs } from "../utils/permissions";
+import { formatTimeInChicago, formatDateInChicago, chicagoDateString } from "../utils/timezone";
 import { MapContainer } from "../components/MapContainer";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer } from "@deck.gl/layers";
@@ -167,6 +168,9 @@ export function AiopsRcaPage() {
   );
 
   const [investigatingSites, setInvestigatingSites] = useState<Set<string>>(new Set());
+  const prevAlertCounts = useRef<Record<string, number>>({});
+  const prevAlertLength = useRef(0);
+  const hasAutoAnalyzed = useRef(false);
 
   const sites = useMemo(
     () => {
@@ -278,7 +282,7 @@ export function AiopsRcaPage() {
     setDialogDispatch(site.is_dispatched);
     const isMaint = site.under_maintenance;
     setDialogStatus(isMaint ? "No Dispatch Needed" : "Investigate/Dispatch");
-    setDialogEtr(site.maintenance_etr ? site.maintenance_etr.split("T")[0] : new Date().toISOString().split("T")[0]);
+    setDialogEtr(site.maintenance_etr ? chicagoDateString(new Date(site.maintenance_etr)) : chicagoDateString());
     setDialogReason(site.maintenance_reason ?? "");
   }, []);
 
@@ -317,12 +321,44 @@ export function AiopsRcaPage() {
   }, [siteDialog, dialogDispatch, dialogStatus, dialogEtr, dialogReason, alerts, dispatchMutation, maintMutation, queryClient]);
 
   useEffect(() => {
+    const prev = prevAlertCounts.current;
+    const curr: Record<string, number> = {};
     for (const s of sites) {
+      curr[s.name] = s.alert_count;
       if (s.alert_count === 0 && investigatingSites.has(s.name)) {
         setInvestigatingSites((prev) => { const n = new Set(prev); n.delete(s.name); return n; });
       }
+      if (prev[s.name] !== undefined && prev[s.name] > 0 && s.alert_count === 0 && s.under_maintenance) {
+        maintMutation.mutate({ site_name: s.name, is_maint: false, etr: chicagoDateString(), reason: "" });
+      }
     }
-  }, [sites, investigatingSites]);
+    prevAlertCounts.current = curr;
+  }, [sites, investigatingSites, maintMutation]);
+
+  useEffect(() => {
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  useEffect(() => {
+    const curLen = alerts.length;
+    if (prevAlertLength.current > 0 && curLen > prevAlertLength.current && typeof Notification !== "undefined" && Notification.permission === "granted") {
+      const delta = curLen - prevAlertLength.current;
+      new Notification(`NOC Alert: ${delta} new alert(s)`, {
+        body: `${delta} new alert(s) detected on AIOps RCA board.`,
+        icon: "/favicon.ico",
+      });
+    }
+    prevAlertLength.current = curLen;
+  }, [alerts.length]);
+
+  useEffect(() => {
+    if (!hasAutoAnalyzed.current) {
+      hasAutoAnalyzed.current = true;
+      refetchAnalysis();
+    }
+  }, [refetchAnalysis]);
 
   const handleRunDeepAnalysis = () => {
     setDeepAnalysisRun(true);
@@ -661,7 +697,7 @@ export function AiopsRcaPage() {
                   <div style={{ ...label, textAlign: "center", padding: "1rem 0" }}>No events recorded</div>
                 )}
                 {(events ?? []).map((e: any, i: number) => {
-                  const ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+                  const ts = e.timestamp ? formatTimeInChicago(e.timestamp) : "";
                   const msg = (e.message ?? "").replace(/[^\x20-\x7E]/g, "").trim();
                   return (
                     <div
@@ -783,7 +819,7 @@ export function AiopsRcaPage() {
                     >
                       <strong>SITE UNDER MAINTENANCE</strong> (ETR:{" "}
                       {siteInfo.maintenance_etr
-                        ? new Date(siteInfo.maintenance_etr).toLocaleDateString()
+                        ? formatDateInChicago(siteInfo.maintenance_etr)
                         : "Unknown"}
                       )
                       <br />
@@ -869,8 +905,8 @@ export function AiopsRcaPage() {
                               [site]: {
                                 status: siteInfo?.under_maintenance ? "Active Maintenance" : "No Maintenance",
                                 etr: siteInfo?.maintenance_etr
-                                  ? new Date(siteInfo.maintenance_etr).toISOString().split("T")[0]
-                                  : new Date().toISOString().split("T")[0],
+                                  ? chicagoDateString(new Date(siteInfo.maintenance_etr))
+                                  : chicagoDateString(),
                                 reason: siteInfo?.maintenance_reason ?? "",
                               },
                             }));

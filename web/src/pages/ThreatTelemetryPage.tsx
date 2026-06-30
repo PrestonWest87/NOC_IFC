@@ -14,6 +14,7 @@ import {
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { getAllowedTabs } from "../utils/permissions";
+import { formatInChicago, chicagoDateString, chicagoNow } from "../utils/timezone";
 
 const CATEGORIES = [
   "All", "Cyber: Exploits & Vulns", "Cyber: Malware & Threats",
@@ -44,14 +45,7 @@ function getScoreColor(score: number): string {
 
 function formatDate(d: string | null | undefined): string {
   if (!d) return "Unknown";
-  try {
-    return new Date(d).toLocaleString("en-US", {
-      month: "short", day: "numeric", year: "numeric",
-      hour: "2-digit", minute: "2-digit",
-    });
-  } catch {
-    return d;
-  }
+  return formatInChicago(d, undefined, d);
 }
 
 function truncate(s: string | null | undefined, len: number): string {
@@ -356,11 +350,15 @@ export function ThreatTelemetryPage() {
   const allOutages: any[] = resolvedQuery.data ?? [];
   const crimes: any[] = crimesQuery.data ?? [];
 
-  const now = new Date();
+  const now = chicagoNow();
+  const chicagoParts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric" }).formatToParts(now);
+  const chicagoLongParts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", month: "long", day: "numeric" }).formatToParts(now);
+  const chicagoShort = chicagoParts.map(p => p.value).join(" ").toLowerCase();
+  const chicagoLong = chicagoLongParts.map(p => p.value).join(" ").toLowerCase();
   const todayFmts = [
-    now.toLocaleString("en-US", { month: "short", day: "numeric" }).toLowerCase(),
-    now.toLocaleString("en-US", { month: "long", day: "numeric" }).toLowerCase(),
-    now.toISOString().slice(0, 10),
+    chicagoShort,
+    chicagoLong,
+    chicagoDateString(now),
     `${(now.getMonth() + 1).toString().padStart(2, "0")}/${now.getDate().toString().padStart(2, "0")}/${now.getFullYear()}`,
   ];
 
@@ -435,7 +433,7 @@ export function ThreatTelemetryPage() {
       return {
         html: `<b>${d.raw_title || "Incident"}</b><br/>
 ${d.distance_miles != null ? `<b>Distance:</b> ${d.distance_miles.toFixed(1)} mi<br/>` : ""}
-${d.timestamp ? `<b>Time:</b> ${new Date(d.timestamp).toLocaleString()}<br/>` : ""}
+${d.timestamp ? `<b>Time:</b> ${new Date(d.timestamp).toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}<br/>` : ""}
 ${d.category ? `<b>Category:</b> ${d.category}` : ""}`,
         style: { background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.78rem", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.5rem" },
       };

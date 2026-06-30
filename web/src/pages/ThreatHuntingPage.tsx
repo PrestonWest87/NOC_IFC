@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { getAllowedTabs } from "../utils/permissions";
+import { formatDateInChicago, chicagoDateString } from "../utils/timezone";
 import {
   Shield, Search, AlertTriangle, FileDown, SlidersHorizontal,
   Target, Clock, ExternalLink, Filter,
@@ -46,8 +47,7 @@ function osintPivotLink(iocType: string, value: string): string | null {
 
 function formatDt(s: string | null | undefined): string {
   if (!s) return "—";
-  try { return new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" }); }
-  catch { return s; }
+  return formatDateInChicago(s);
 }
 
 function csvEscape(v: string): string {
@@ -219,7 +219,7 @@ function IocMatrixTab() {
   }, [data]);
 
   const handleExport = useCallback(() => {
-    const ts = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const ts = chicagoDateString().replace(/-/g, "");
     downloadCsv(
       `Hunt_Targets_${ts}.csv`,
       ["Type", "Indicator", "Context", "Detected", "Source Article"],
@@ -603,7 +603,7 @@ function buildDetectionPackage(target: string, articles: any[]): string {
   sections.push("  meta:");
   sections.push(`    description = "Detection rule for ${target} indicators"`);
   sections.push(`    author = "NOC Intelligence Fusion Center"`);
-  sections.push(`    date = "${new Date().toISOString().slice(0, 10)}"`);
+  sections.push(`    date = "${chicagoDateString()}"`);
   sections.push("    hash = \"auto-generated\"");
   sections.push("  strings:");
   const keywords = target.split(/\s+/).filter(Boolean);

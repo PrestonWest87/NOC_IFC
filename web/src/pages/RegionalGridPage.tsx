@@ -4,6 +4,7 @@ import { MapContainer } from "../components/MapContainer";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { getAllowedTabs } from "../utils/permissions";
+import { formatInChicago } from "../utils/timezone";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer, GeoJsonLayer, BitmapLayer } from "@deck.gl/layers";
 import { Map as MapLibreMap } from "react-map-gl/maplibre";
@@ -80,10 +81,7 @@ const NWS_COLORS: Record<string, string> = {
 
 function formatDt(s: string) {
   if (!s || s === "N/A") return "N/A";
-  try {
-    const d = new Date(s);
-    return d.toLocaleString("en-US", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
-  } catch { return s; }
+  return formatInChicago(s, { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", timeZoneName: "short" }, s);
 }
 
 function InfoBox({ type, children }: { type: "info" | "success" | "warning" | "error"; children: React.ReactNode }) {

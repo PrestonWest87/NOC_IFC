@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
+import { formatInChicago, chicagoDateString } from "../utils/timezone";
 import { getAllowedTabs } from "../utils/permissions";
 
 const RISK_COLORS: Record<string, string> = {
@@ -505,7 +506,7 @@ export function DashboardPage() {
                 <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "0.75rem", flexWrap: "wrap" }}>
                   <span style={{ fontSize: "0.75rem", color: "var(--text-muted, #94a3b8)" }}>
                     <Clock size={12} style={{ verticalAlign: "middle", marginRight: "0.25rem" }} />
-                    Last Sync: {sitrep?.rolling_summary_time || "N/A"}
+                    Last Sync: {sitrep?.rolling_summary_time ? formatInChicago(sitrep.rolling_summary_time) : "N/A"}
                   </span>
                   <button
                     onClick={handleForceRefreshBriefing}
@@ -642,7 +643,7 @@ export function DashboardPage() {
                 {RISK_NAMES[executiveIntel.unified_risk] || executiveIntel.unified_risk}
               </div>
               <div style={{ color: "var(--text-muted, #94a3b8)", fontSize: "0.82rem" }}>
-                Last Updated: {executiveIntel.timestamp}
+                Last Updated: {formatInChicago(executiveIntel.timestamp)}
               </div>
             </div>
           )}
@@ -663,7 +664,7 @@ export function DashboardPage() {
               <div style={{ width: "100%", height: 250 }}>
                 <ResponsiveContainer>
                   <LineChart data={threatTrends.map((d: any) => ({
-                    date: d.record_date?.slice(0, 10) || "",
+                    date: d.record_date ? chicagoDateString(new Date(d.record_date)) : "",
                     cyber: d.cyber_points ?? 0,
                     physical: d.physical_points ?? 0,
                   }))}>
@@ -1000,7 +1001,7 @@ export function DashboardPage() {
                 </div>
                 <div style={{ color: "var(--text-muted, #94a3b8)", fontSize: "0.78rem", marginTop: "0.5rem" }}>
                   <Clock size={12} style={{ verticalAlign: "middle", marginRight: "0.25rem" }} />
-                  Last Updated: {internalRisk.timestamp}
+                   Last Updated: {formatInChicago(internalRisk.timestamp)}
                 </div>
               </div>
 
@@ -1045,7 +1046,7 @@ export function DashboardPage() {
                   <div style={{ width: "100%", height: 250 }}>
                     <ResponsiveContainer>
                       <LineChart data={internalRiskHistory.map((d: any) => ({
-                        time: d.timestamp?.slice(0, 10) || "",
+                        time: d.timestamp ? chicagoDateString(new Date(d.timestamp)) : "",
                         score: d.score ?? 0,
                       }))}>
                         <CartesianGrid strokeDasharray="3 3" stroke="var(--border-primary, #e2e8f0)" />
@@ -1226,7 +1227,7 @@ export function DashboardPage() {
               }}>
                 <div style={{ fontSize: "0.78rem", color: "var(--text-muted, #94a3b8)", marginBottom: "0.75rem" }}>
                   <Clock size={12} style={{ verticalAlign: "middle", marginRight: "0.25rem" }} />
-                  Last Auto-Generated: {sysConfig.unified_brief_time || "Unknown"}
+                  Last Auto-Generated: {sysConfig.unified_brief_time ? formatInChicago(sysConfig.unified_brief_time) : "Unknown"}
                 </div>
                 <div style={{
                   fontSize: "0.85rem", lineHeight: 1.7, whiteSpace: "pre-wrap",

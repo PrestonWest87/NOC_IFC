@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
+import { formatInChicago, formatTimeInChicago, chicagoDateString } from "../utils/timezone";
 import {
   BookOpen, Clock, User, Edit3, Trash2, RotateCcw, Plus,
   Search, X, Loader2, Zap, Activity, FileText,
@@ -73,13 +74,13 @@ export function ShiftLogbookPage() {
 
   const [analyst, setAnalyst] = useState(user?.full_name ?? user?.username ?? "");
   const [shiftPeriod, setShiftPeriod] = useState("Morning");
-  const [customDate, setCustomDate] = useState(new Date().toISOString().split("T")[0]);
+  const [customDate, setCustomDate] = useState(chicagoDateString());
   const [role, setRole] = useState(user?.role ?? "analyst");
   const [content, setContent] = useState("");
 
   const [selectedEntry, setSelectedEntry] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = chicagoDateString();
   const [dateFrom, setDateFrom] = useState(todayStr);
   const [dateTo, setDateTo] = useState("");
   const isAdmin = user?.role === "admin";
@@ -87,7 +88,7 @@ export function ShiftLogbookPage() {
   const [roleFilter, setRoleFilter] = useState(isAdmin ? "All" : userRole);
   const [logViewMode, setLogViewMode] = useState<"day" | "week">("day");
   const [weekOffset, setWeekOffset] = useState(0);
-  const [selectedLogDate, setSelectedLogDate] = useState(new Date().toISOString().split("T")[0]);
+  const [selectedLogDate, setSelectedLogDate] = useState(chicagoDateString());
   const [summaryRole, setSummaryRole] = useState(isAdmin ? "All" : userRole);
   const [summaryShiftPeriod, setSummaryShiftPeriod] = useState("Morning");
   const [summaryResult, setSummaryResult] = useState<string | null>(null);
@@ -288,7 +289,7 @@ export function ShiftLogbookPage() {
     ? {
         ...selectedEntry,
         created_at_local: selectedEntry.created_at
-          ? new Date(selectedEntry.created_at).toLocaleString()
+          ? formatInChicago(selectedEntry.created_at)
           : "-",
       }
     : null;
@@ -631,7 +632,7 @@ export function ShiftLogbookPage() {
                         style={{ marginRight: "0.2rem", verticalAlign: "middle" }}
                       />
                       {e.created_at
-                        ? new Date(e.created_at).toLocaleString()
+                        ? formatInChicago(e.created_at)
                         : ""}
                     </span>
                   </div>
@@ -737,9 +738,9 @@ export function ShiftLogbookPage() {
                 <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.5rem" }}>
                   <button
                     onClick={() => {
-                      const d = new Date(selectedLogDate);
+                      const d = new Date(selectedLogDate + "T12:00:00");
                       d.setDate(d.getDate() - 1);
-                      setSelectedLogDate(d.toISOString().split("T")[0]);
+                      setSelectedLogDate(chicagoDateString(d));
                     }}
                     style={{ ...btnBase, background: "var(--bg-tertiary)", color: "var(--text-primary)" }}
                   >
@@ -753,12 +754,12 @@ export function ShiftLogbookPage() {
                   />
                   <button
                     onClick={() => {
-                      const d = new Date(selectedLogDate);
+                      const d = new Date(selectedLogDate + "T12:00:00");
                       d.setDate(d.getDate() + 1);
                       const tomorrow = new Date();
                       tomorrow.setDate(tomorrow.getDate() + 1);
                       if (d <= tomorrow) {
-                        setSelectedLogDate(d.toISOString().split("T")[0]);
+                        setSelectedLogDate(chicagoDateString(d));
                       }
                     }}
                     style={{ ...btnBase, background: "var(--bg-tertiary)", color: "var(--text-primary)" }}
@@ -777,8 +778,8 @@ export function ShiftLogbookPage() {
                   }}
                 >
                   Logs for{" "}
-                  {new Date(selectedLogDate + "T12:00:00").toLocaleDateString(undefined, {
-                    weekday: "long",
+                  {new Date(selectedLogDate + "T12:00:00").toLocaleDateString("en-US", {
+                    timeZone: "America/Chicago", weekday: "long",
                     year: "numeric",
                     month: "long",
                     day: "numeric",
@@ -794,10 +795,7 @@ export function ShiftLogbookPage() {
                   {dayLogs.map((l: any) => {
                     const isDel = l.is_deleted;
                     const localTime = l.created_at
-                      ? new Date(l.created_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })
+                      ? formatTimeInChicago(l.created_at)
                       : "";
                     const shiftAbbr = l.shift_period?.includes("Morning")
                       ? "Morning"
@@ -879,8 +877,8 @@ export function ShiftLogbookPage() {
                       color: "var(--text-primary)",
                     }}
                   >
-                    Week of {weekStart.toLocaleDateString(undefined, {
-                      month: "long",
+                    Week of {weekStart.toLocaleDateString("en-US", {
+                      timeZone: "America/Chicago", month: "long",
                       day: "numeric",
                       year: "numeric",
                     })}
@@ -901,7 +899,7 @@ export function ShiftLogbookPage() {
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "0.25rem" }}>
                   {weekDays.map((d, i) => {
-                    const dateStr = d.toISOString().split("T")[0];
+                    const dateStr = chicagoDateString(d);
                     const logs = logsForDay(d);
                     return (
                       <div
@@ -913,7 +911,7 @@ export function ShiftLogbookPage() {
                           textAlign: "center",
                           cursor: "pointer",
                           border:
-                            dateStr === new Date().toISOString().split("T")[0]
+                            dateStr === chicagoDateString()
                               ? "1px solid var(--accent-blue)"
                               : "1px solid transparent",
                         }}
@@ -923,7 +921,7 @@ export function ShiftLogbookPage() {
                         }}
                       >
                         <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", fontWeight: 600 }}>
-                          {d.toLocaleDateString(undefined, { weekday: "short" })}
+                          {d.toLocaleDateString("en-US", { timeZone: "America/Chicago", weekday: "short" })}
                         </div>
                         <div
                           style={{
@@ -952,10 +950,7 @@ export function ShiftLogbookPage() {
                           >
                             {l.shift_period?.includes("Morning") ? "Morn" : "Eve"} |{" "}
                             {l.created_at
-                              ? new Date(l.created_at).toLocaleTimeString([], {
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })
+                              ? formatTimeInChicago(l.created_at)
                               : ""}
                           </div>
                         ))}
@@ -1028,14 +1023,14 @@ export function ShiftLogbookPage() {
                       filtered
                         .map(
                           (e: any) =>
-                            `"${e.created_at ? new Date(e.created_at).toLocaleString() : ""}","${(e.analyst ?? "").replace(/"/g, '""')}","${(e.author_role ?? "").toUpperCase()}","${(e.shift_period ?? "").replace(/"/g, '""')}","${(e.content ?? "").replace(/"/g, '""')}"`
+                            `"${e.created_at ? formatInChicago(e.created_at) : ""}","${(e.analyst ?? "").replace(/"/g, '""')}","${(e.author_role ?? "").toUpperCase()}","${(e.shift_period ?? "").replace(/"/g, '""')}","${(e.content ?? "").replace(/"/g, '""')}"`
                         )
                         .join("\n");
                     const blob = new Blob([csv], { type: "text/csv" });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");
                     a.href = url;
-                    const dateLabel = new Date().toISOString().split("T")[0];
+                    const dateLabel = chicagoDateString();
                     a.download = `NOC_ShiftLogs_${roleFilter.toUpperCase()}_${dateLabel}.csv`;
                     a.click();
                     URL.revokeObjectURL(url);
