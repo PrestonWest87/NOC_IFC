@@ -1298,29 +1298,53 @@ function HardwareSoftwareTable({ data, type, emptyMessage }: { data: any; type: 
   let items: any[] = [];
   let parsed = data;
 
-  // 1. Safely handle serialized JSON strings if the backend sent them
   try {
     if (typeof data === "string") parsed = JSON.parse(data);
   } catch (e) {
     console.error("Failed to parse table data:", e);
   }
 
-  // 2. Extract the array, checking for common backend wrappers
   if (Array.isArray(parsed)) {
     items = parsed;
   } else if (parsed && typeof parsed === "object") {
-    items = parsed.data ?? parsed.rows ?? parsed.items ?? Object.values(parsed);
+    // 1. Detect if it's a Pandas DataFrame in 'dict' orientation (columns -> indices -> values)
+    const keys = Object.keys(parsed);
+    if (keys.length > 0 && typeof parsed[keys[0]] === "object" && parsed[keys[0]] !== null && !Array.isArray(parsed[keys[0]])) {
+      const rowIndices = Object.keys(parsed[keys[0]]);
+      items = rowIndices.map((idx) => {
+        const row: Record<string, any> = {};
+        for (const key of keys) {
+          row[key] = parsed[key][idx];
+        }
+        return row;
+      });
+    } else {
+      // 2. Standard wrapper fallback
+      items = parsed.data ?? parsed.rows ?? parsed.items ?? Object.values(parsed);
+    }
   }
 
-  // 3. Fallback protection
   if (!Array.isArray(items)) items = [];
+  if (items.length === 1 && Array.isArray(items[0])) items = items[0];
 
-  // 4. Flatten the array if Object.values() accidentally grabbed a nested wrapper
-  if (items.length === 1 && Array.isArray(items[0])) {
-    items = items[0];
-  }
+  // Smart key matcher to handle "ip_address", "IP Address", "ip", etc., ignoring case/spaces/underscores
+  const getVal = (obj: any, targetKeys: string[]) => {
+    if (!obj || typeof obj !== "object") return null;
+    for (const target of targetKeys) {
+      if (obj[target] !== undefined && obj[target] !== null && obj[target] !== "") return obj[target];
+      
+      const normalizedTarget = target.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const match = Object.keys(obj).find(
+        (k) => k.toLowerCase().replace(/[^a-z0-9]/g, "") === normalizedTarget
+      );
+      if (match && obj[match] !== undefined && obj[match] !== null && obj[match] !== "") {
+        return obj[match];
+      }
+    }
+    return null;
+  };
 
-  const atRisk = items.filter((h: any) => (h["OSINT Threat Matches"] ?? 0) > 0 || (h.osint_count ?? 0) > 0);
+  const atRisk = items.filter((h: any) => getVal(h, ["osint_threat_matches", "osint_count", "osintmatches"]) > 0);
 
   return (
     <div>
@@ -1394,10 +1418,12 @@ function HardwareSoftwareTable({ data, type, emptyMessage }: { data: any; type: 
                   </thead>
                   <tbody>
                     {items.map((item: any, idx: number) => {
-                      const rowRisk = (item["OSINT Threat Matches"] ?? 0) > 0 || (item.osint_count ?? 0) > 0;
+                      const osintCount = getVal(item, ["osint_threat_matches", "osint_count", "osintmatches"]) ?? 0;
+                      const rowRisk = Number(osintCount) > 0;
+                      
                       return (
                         <tr
-                          key={item.id || item.ip_address || item.name || idx}
+                          key={getVal(item, ["id", "ip_address", "ip", "name"]) || idx}
                           style={{
                             borderBottom: "1px solid var(--border-primary, #e2e8f0)",
                             background: rowRisk ? "rgba(239, 68, 68, 0.05)" : "transparent",
@@ -1405,10 +1431,14 @@ function HardwareSoftwareTable({ data, type, emptyMessage }: { data: any; type: 
                         >
                           {type === "hardware" ? (
                             <>
-                              <td style={{ ...tdStyle, fontFamily: "var(--font-mono, monospace)" }}>{item.ip_address || item.ip || "-"}</td>
-                              <td style={tdStyle}>{item.asset_name || item.name || "-"}</td>
-                              <td style={tdStyle}>{item.host_type || item.type || "-"}</td>
-                              <td style={{ ...tdStyle, fontSize: "0.75rem" }}>{item.operating_system || item.os || "-"}</td>
+                              <td style={{ ...tdStyle, fontFamily: "var(--font-mono, monospace)" }}>
+                                {getVal(item, ["ip_address", "ipaddress", "ip"]) || "-"}
+                              </td>
+                              <td style={tdStyle}>{getVal(item, ["asset_name", "assetname", "name"]) || "-"}</td>
+                              <td style={tdStyle}>{getVal(item, ["host_type", "hosttype", "type"]) || "-"}</td>
+                              <td style={{ ...tdStyle, fontSize: "0.75rem" }}>
+                                {getVal(item, ["operating_system", "operatingsystem", "os"]) || "-"}
+                              </td>
                               <td style={tdStyle}>
                                 <span style={{
                                   background: rowRisk ? "#fef2f2" : "var(--bg-tertiary, #f1f5f9)",
@@ -1416,14 +1446,16 @@ function HardwareSoftwareTable({ data, type, emptyMessage }: { data: any; type: 
                                   padding: "0.1rem 0.4rem", borderRadius: "var(--radius-sm, 3px)",
                                   fontWeight: 700, fontSize: "0.75rem",
                                 }}>
-                                  {item["OSINT Threat Matches"] ?? item.osint_count ?? 0}
+                                  {osintCount}
                                 </span>
                               </td>
-                              <td style={tdStyle}>{(item.risk_score ?? item.raw_risk_score ?? 0).toFixed(1)}</td>
+                              <td style={tdStyle}>
+                                {Number(getVal(item, ["risk_score", "raw_risk_score", "riskscore"]) ?? 0).toFixed(1)}
+                              </td>
                             </>
                           ) : (
                             <>
-                              <td style={tdStyle}>{item.name || "-"}</td>
+                              <td style={tdStyle}>{getVal(item, ["software_name", "softwarename", "name"]) || "-"}</td>
                               <td style={tdStyle}>
                                 <span style={{
                                   background: rowRisk ? "#fef2f2" : "var(--bg-tertiary, #f1f5f9)",
@@ -1431,11 +1463,14 @@ function HardwareSoftwareTable({ data, type, emptyMessage }: { data: any; type: 
                                   padding: "0.1rem 0.4rem", borderRadius: "var(--radius-sm, 3px)",
                                   fontWeight: 700, fontSize: "0.75rem",
                                 }}>
-                                  {item["OSINT Threat Matches"] ?? item.osint_count ?? 0}
+                                  {osintCount}
                                 </span>
                               </td>
                               <td style={tdStyle}>
-                                {item.risk_level ? <RiskBadge level={item.risk_level} /> : "-"}
+                                {getVal(item, ["risk_level", "risklevel", "risk"]) ? 
+                                  <RiskBadge level={getVal(item, ["risk_level", "risklevel", "risk"])} /> : 
+                                  "-"
+                                }
                               </td>
                             </>
                           )}
