@@ -3455,7 +3455,7 @@ elif page == "Settings & Admin":
                 st.error("⚠️ **WARNING:** Executing a system restore will **WIPE AND REPLACE** all existing data, including users, passwords, roles, and settings. This action is irreversible.")
                 
                 c_exp, c_imp = st.columns(2)
-               with c_exp:
+            with c_exp:
                     st.markdown("### ⬇️ Export Full Backup")
                     st.caption("Generates a comprehensive JSON payload of every table in the database.")
                     
