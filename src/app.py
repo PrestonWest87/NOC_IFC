@@ -3455,17 +3455,16 @@ elif page == "Settings & Admin":
                 st.error("⚠️ **WARNING:** Executing a system restore will **WIPE AND REPLACE** all existing data, including users, passwords, roles, and settings. This action is irreversible.")
                 
                 c_exp, c_imp = st.columns(2)
-                with c_exp:
+               with c_exp:
                     st.markdown("### ⬇️ Export Full Backup")
                     st.caption("Generates a comprehensive JSON payload of every table in the database.")
                     
-                    # FIX 1: Use session state to hold the JSON so the download button persists across reruns
                     if st.button("Generate System Backup JSON", width="stretch"):
                         with st.spinner("Extracting complete database state..."):
                             backup_data = svc.get_backup_data()
-                            st.session_state.full_json_backup = json.dumps(backup_data, indent=4)
+                            # FIX 1: Add default=str so datetime objects don't crash the JSON encoder
+                            st.session_state.full_json_backup = json.dumps(backup_data, default=str, indent=4)
                     
-                    # Render the download button unconditionally if the data exists in session state
                     if "full_json_backup" in st.session_state:
                         st.download_button(
                             label="Download Full_System_Backup.json", 
@@ -3481,10 +3480,12 @@ elif page == "Settings & Admin":
                     st.caption("Download the raw database file. (Most reliable method for server migration).")
                     
                     db_url = os.getenv("DATABASE_URL", "sqlite:////app/data/noc_fusion.db").strip().strip('"').strip("'")
-                    db_path = db_url.replace("sqlite:///", "") if db_url.startswith("sqlite:///") else "/app/data/noc_fusion.db"
+                    
+                    # FIX 2: Ensure the parsed path is an absolute path for the containerized environment
+                    raw_path = db_url.split("sqlite://")[-1].lstrip("/")
+                    db_path = f"/{raw_path}"
                     
                     try:
-                        # FIX 2: Read the file into bytes in memory FIRST, then pass the bytes to Streamlit
                         with open(db_path, "rb") as db_file:
                             db_bytes = db_file.read()
                             
@@ -3496,7 +3497,7 @@ elif page == "Settings & Admin":
                             width="stretch"
                         )
                     except FileNotFoundError:
-                        st.info(f"Raw database file not found at {db_path}")
+                        st.error(f"Raw database file not found at {db_path}")
 
                 with c_imp:
                     st.markdown("### ⬆️ Import & Restore")
