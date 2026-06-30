@@ -27,6 +27,12 @@ export function useAIOpsWebSocket() {
       ws.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data) as DashboardPayload;
+
+          if (payload.type === "RCA_UPDATE") {
+            queryClient.invalidateQueries({ queryKey: ["rca-dashboard"] });
+            queryClient.invalidateQueries({ queryKey: ["rca-analyze"] });
+            return;
+            
           setData(payload);
           setStoreDashboard(payload);
 
