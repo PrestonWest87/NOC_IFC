@@ -3458,11 +3458,23 @@ elif page == "Settings & Admin":
                 with c_exp:
                     st.markdown("### ⬇️ Export Full Backup")
                     st.caption("Generates a comprehensive JSON payload of every table in the database.")
+                    
+                    # FIX 1: Use session state to hold the JSON so the download button persists across reruns
                     if st.button("Generate System Backup JSON", width="stretch"):
                         with st.spinner("Extracting complete database state..."):
                             backup_data = svc.get_backup_data()
-                            json_str = json.dumps(backup_data, indent=4)
-                            st.download_button("Download Full_System_Backup.json", data=json_str, file_name=f"NOC_Full_Backup_{datetime.now(LOCAL_TZ).strftime('%Y%m%d_%H%M')}.json", mime="application/json", width="stretch", type="primary")
+                            st.session_state.full_json_backup = json.dumps(backup_data, indent=4)
+                    
+                    # Render the download button unconditionally if the data exists in session state
+                    if "full_json_backup" in st.session_state:
+                        st.download_button(
+                            label="Download Full_System_Backup.json", 
+                            data=st.session_state.full_json_backup, 
+                            file_name=f"NOC_Full_Backup_{datetime.now(LOCAL_TZ).strftime('%Y%m%d_%H%M')}.json", 
+                            mime="application/json", 
+                            width="stretch", 
+                            type="primary"
+                        )
                     
                     st.divider()
                     st.markdown("### 💾 Raw SQLite File")
@@ -3472,8 +3484,17 @@ elif page == "Settings & Admin":
                     db_path = db_url.replace("sqlite:///", "") if db_url.startswith("sqlite:///") else "/app/data/noc_fusion.db"
                     
                     try:
+                        # FIX 2: Read the file into bytes in memory FIRST, then pass the bytes to Streamlit
                         with open(db_path, "rb") as db_file:
-                            st.download_button(label="Download noc_fusion.db", data=db_file, file_name=f"noc_fusion_{datetime.now(LOCAL_TZ).strftime('%Y%m%d_%H%M')}.db", mime="application/octet-stream", width="stretch")
+                            db_bytes = db_file.read()
+                            
+                        st.download_button(
+                            label="Download noc_fusion.db", 
+                            data=db_bytes, 
+                            file_name=f"noc_fusion_{datetime.now(LOCAL_TZ).strftime('%Y%m%d_%H%M')}.db", 
+                            mime="application/octet-stream", 
+                            width="stretch"
+                        )
                     except FileNotFoundError:
                         st.info(f"Raw database file not found at {db_path}")
 
