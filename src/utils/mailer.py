@@ -1,8 +1,11 @@
 import smtplib
+import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from src.core.db import SessionLocal
 from src.models.schema import SystemConfig
+
+logger = logging.getLogger(__name__)
 
 def send_alert_email(subject: str, body: str, recipient_override: str = None, is_html: bool = True):
     session = SessionLocal()
@@ -23,16 +26,19 @@ def send_alert_email(subject: str, body: str, recipient_override: str = None, is
 
         if is_html:
             html_body = body.replace("\n", "<br>").replace("**", "<b>").replace("##", "<h2>").replace("###", "<h3>")
-            msg.attach(MIMEText(html_body, 'html'))
+            # FIXED: Added 'utf-8' encoding argument to safeguard against rich text unicode characters
+            msg.attach(MIMEText(html_body, 'html', 'utf-8'))
         else:
-            msg.attach(MIMEText(body, 'plain'))
+            # FIXED: Added 'utf-8' encoding argument here as well
+            msg.attach(MIMEText(body, 'plain', 'utf-8'))
 
-        server = smtplib.SMTP(config.smtp_server, config.smtp_port)
+        # FIXED: Added a explicit 10-second timeout to prevent network drop hangs
+        server = smtplib.SMTP(config.smtp_server, config.smtp_port, timeout=10)
 
         try:
             server.starttls()
-        except Exception:
-            pass
+        except Exception as tls_err:
+            logger.warning(f"SMTP StartTLS skipped or unsupported: {tls_err}")
 
         if config.smtp_username and config.smtp_password:
             server.login(config.smtp_username, config.smtp_password)
@@ -43,6 +49,7 @@ def send_alert_email(subject: str, body: str, recipient_override: str = None, is
         return True, "Email sent successfully."
 
     except Exception as e:
+        logger.error(f"Mailer critical exception: {str(e)}")
         return False, str(e)
     finally:
         session.close()
