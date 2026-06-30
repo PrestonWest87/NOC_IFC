@@ -172,14 +172,13 @@ export function AiopsRcaPage() {
     () => {
       const mapped = (filteredLocations ?? []).map((l: any) => {
         const siteAlerts = alerts.filter((a: any) => a.mapped_location === l.name);
-        const hasRecentDispatch = l.last_auto_dispatch || l.last_escalation_dispatch;
         return {
           name: l.name,
           lat: l.lat,
           lon: l.lon,
           loc_type: l.loc_type,
           alert_count: siteAlerts.length,
-          is_dispatched: siteAlerts.some((a: any) => a.is_dispatched) || !!hasRecentDispatch,
+          is_dispatched: siteAlerts.some((a: any) => a.is_dispatched),
           under_maintenance: l.under_maintenance ?? false,
           maintenance_etr: l.maintenance_etr ?? null,
           maintenance_reason: l.maintenance_reason ?? null,
@@ -354,11 +353,10 @@ export function AiopsRcaPage() {
     const pulseData: any[] = [];
 
     for (const s of sites) {
-      const hasAlerts = s.alert_count > 0;
+      const isDown = s.alert_count > 0;
       const isNoDispatch = s.under_maintenance;
       const isDispatched = s.is_dispatched;
       const isInvestigating = investigatingSites.has(s.name);
-      const isDown = hasAlerts || isNoDispatch || isDispatched;
 
       let color: [number, number, number, number];
       let statusText: string;
