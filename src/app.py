@@ -3459,13 +3459,13 @@ elif page == "Settings & Admin":
                     st.markdown("### ⬇️ Export Full Backup")
                     st.caption("Generates a comprehensive JSON payload of every table in the database.")
                     
+                    # 1. Generate JSON and save it to session state
                     if st.button("Generate System Backup JSON", width="stretch"):
                         with st.spinner("Extracting complete database state..."):
                             backup_data = svc.get_backup_data()
-                            # default=str prevents silent backend crashes if unhandled objects (like UUIDs) sneak in
                             st.session_state.full_json_backup = json.dumps(backup_data, default=str, indent=4)
                     
-                    # Renders unconditionally if the data exists in session state
+                    # 2. Render JSON download button independently
                     if "full_json_backup" in st.session_state:
                         st.download_button(
                             label="Download Full_System_Backup.json", 
@@ -3486,16 +3486,16 @@ elif page == "Settings & Admin":
                     raw_path = db_url.split("sqlite://")[-1].lstrip("/")
                     db_path = f"/{raw_path}"
                     
-                    # Use a preparation button so we don't read the DB into RAM on every single UI click
+                    # 3. Read the database bytes into session state FIRST
                     if st.button("Prepare Database for Download", width="stretch"):
                         with st.spinner("Loading database into memory..."):
                             try:
                                 with open(db_path, "rb") as db_file:
-                                    # Store bytes in session state to protect the download link
                                     st.session_state.db_bytes_backup = db_file.read()
                             except FileNotFoundError:
                                 st.error(f"Raw database file not found at {db_path}")
 
+                    # 4. Render DB download button independently
                     if "db_bytes_backup" in st.session_state:
                         st.download_button(
                             label="Download noc_fusion.db", 
