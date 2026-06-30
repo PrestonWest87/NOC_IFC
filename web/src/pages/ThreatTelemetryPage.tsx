@@ -972,7 +972,7 @@ ${d.category ? `<b>Category:</b> ${d.category}` : ""}`,
                           onMouseEnter={e => { if (c.id !== selectedCrimeId) (e.currentTarget as HTMLElement).style.background = "var(--bg-tertiary, #0f172a)"; }}
                           onMouseLeave={e => { if (c.id !== selectedCrimeId) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
                         >
-                          <td style={{ padding: "0.4rem 0.5rem", whiteSpace: "nowrap" }}>{c.timestamp}</td>
+                           <td style={{ padding: "0.4rem 0.5rem", whiteSpace: "nowrap" }}>{formatInChicago(c.timestamp)}</td>
                           <td style={{ padding: "0.4rem 0.5rem", whiteSpace: "nowrap" }}>{c.distance_miles?.toFixed(1)} mi</td>
                           <td style={{ padding: "0.4rem 0.5rem" }}>
                             <span style={{

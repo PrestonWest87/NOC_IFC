@@ -730,7 +730,7 @@ export function DashboardPage() {
                     <strong style={{ fontSize: "0.82rem" }}>Grid-Relevant Perimeter Incidents:</strong>
                     {executiveIntel.recent_crimes.slice(0, 5).map((c: any, i: number) => (
                       <div key={i} style={{ fontSize: "0.78rem", color: "var(--text-secondary, #64748b)", padding: "0.25rem 0" }}>
-                        <strong>{c.fbi_category || c.category}:</strong> {c.raw_title} ({c.distance_miles?.toFixed(1)} mi) &middot; {c.timestamp}
+                        <strong>{c.fbi_category || c.category}:</strong> {c.raw_title} ({c.distance_miles?.toFixed(1)} mi) &middot; {formatInChicago(c.timestamp)}
                       </div>
                     ))}
                   </div>
