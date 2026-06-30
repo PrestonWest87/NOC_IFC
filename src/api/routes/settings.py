@@ -1,16 +1,20 @@
+import logging
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from src.core.db import get_db
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
 
 @router.get("/config")
 def get_config(db: Session = Depends(get_db)):
+    logger.debug("GET /settings/config")
     from src.models.schema import SystemConfig
     config = db.query(SystemConfig).first()
     if not config:
+        logger.warning("GET /settings/config: no config found")
         return {}
     return {
         "llm_endpoint": config.llm_endpoint,
@@ -43,8 +47,10 @@ def get_config(db: Session = Depends(get_db)):
 
 @router.get("/users")
 def get_users(db: Session = Depends(get_db)):
+    logger.debug("GET /settings/users")
     from src.models.schema import User
     users = db.query(User).all()
+    logger.debug("GET /settings/users: found %d users", len(users))
     return [
         {
             "id": u.id, "username": u.username, "role": u.role,

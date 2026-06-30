@@ -28,10 +28,12 @@ def fetch_spc_outlooks():
         "spc_day3": "https://www.spc.noaa.gov/products/outlook/day3otlk_cat.nolyr.geojson"
     }
 
+    logger.info("fetch_spc_outlooks: fetching %d SPC outlooks", len(SPC_URLS))
     with SessionLocal() as session:
         try:
             headers = {'User-Agent': 'Mozilla/5.0 (NOC_Fusion_Center)'}
             for feed_name, url in SPC_URLS.items():
+                logger.debug("fetch_spc_outlooks: fetching %s from %s", feed_name, url)
                 response = requests.get(url, headers=headers, timeout=15)
                 if response.status_code == 200:
                     save_geojson_to_db(session, feed_name, response.json())
@@ -41,14 +43,16 @@ def fetch_spc_outlooks():
             session.commit()
         except Exception as e:
             session.rollback()
-            logger.error(f"SPC Fetch Error: {e}")
+            logger.error(f"SPC Fetch Error: {e}", exc_info=True)
 
 
 def fetch_nws_alerts_for_region(area_str, feed_name):
+    logger.info("fetch_nws_alerts_for_region: area=%s feed=%s", area_str, feed_name)
     with SessionLocal() as session:
         try:
             url = f"https://api.weather.gov/alerts/active?area={area_str}"
             headers = {'User-Agent': 'Mozilla/5.0 (NOC_Fusion_Center)'}
+            logger.debug("fetch_nws_alerts_for_region: fetching %s", url)
             response = requests.get(url, headers=headers, timeout=15)
 
             if response.status_code == 200:
@@ -56,6 +60,7 @@ def fetch_nws_alerts_for_region(area_str, feed_name):
                 save_geojson_to_db(session, feed_name, data)
                 features = data.get('features', [])
                 added, updated = 0, 0
+                logger.debug("fetch_nws_alerts_for_region: got %d features", len(features))
 
                 for f in features:
                     props = f.get('properties', {})
@@ -84,7 +89,7 @@ def fetch_nws_alerts_for_region(area_str, feed_name):
 
         except Exception as e:
             session.rollback()
-            logger.error(f"NWS Fetch Error for {area_str}: {e}")
+            logger.error(f"NWS Fetch Error for {area_str}: {e}", exc_info=True)
 
 
 USGS_BOUNDS = {

@@ -1,13 +1,18 @@
+import logging
 import re
 import ipaddress
 from urllib.parse import unquote
 from typing import List, Dict, Set
 
+logger = logging.getLogger(__name__)
+
 class EnterpriseIOCExtractor:
     def __init__(self):
         self.CONTEXT_WINDOW = 45
+        logger.info("EnterpriseIOCExtractor: initializing with context_window=%d", self.CONTEXT_WINDOW)
         self._compile_rulesets()
         self._initialize_whitelists()
+        logger.info("EnterpriseIOCExtractor: initialized with %d rule categories", len(self.rules))
 
     def _initialize_whitelists(self):
         self.ignore_domains: Set[str] = {
@@ -95,11 +100,14 @@ class EnterpriseIOCExtractor:
         return f"...{context}..."
 
     def extract(self, raw_text: str) -> List[Dict]:
-        if not raw_text: return []
+        if not raw_text:
+            logger.debug("extract: empty text, returning empty list")
+            return []
 
         clean_text = self.refang_payload(raw_text)
         results = []
         seen_values = set()
+        logger.debug("extract: processing %d chars of text", len(raw_text))
 
         for category, types in self.compiled_rules.items():
             for type_name, compiled_regex in types.items():
@@ -136,6 +144,7 @@ class EnterpriseIOCExtractor:
 
                     seen_values.add(value_lower)
 
+        logger.debug("extract: found %d unique IOCs", len(results))
         return results
 
 ioc_engine = EnterpriseIOCExtractor()

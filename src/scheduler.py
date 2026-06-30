@@ -412,6 +412,11 @@ def job_tiered_alert_escalation():
     NOC_ONPAGE_EMAIL = os.environ.get("NOC_ONPAGE_EMAIL")
     ITNETWORK_ONPAGE_EMAIL = os.environ.get("ITNETWORK_ONPAGE_EMAIL")
 
+    log(f"[ENV] REMEDYFORCE_TICKET_EMAIL={'SET' if TICKET_EMAIL else 'MISSING'}", "SYSTEM")
+    log(f"[ENV] NOC_NOTIFY_EMAIL={'SET' if NOTIFY_EMAIL else 'MISSING'}", "SYSTEM")
+    log(f"[ENV] NOC_ONPAGE_EMAIL={'SET' if NOC_ONPAGE_EMAIL else 'MISSING'}", "SYSTEM")
+    log(f"[ENV] ITNETWORK_ONPAGE_EMAIL={'SET' if ITNETWORK_ONPAGE_EMAIL else 'MISSING'}", "SYSTEM")
+
     if not TICKET_EMAIL:
         log("[ERROR] REMEDYFORCE_TICKET_EMAIL missing from environment. Aborting run.", "SYSTEM")
         return
@@ -564,13 +569,13 @@ def job_tiered_alert_escalation():
             if is_cascade:
                 wait_minutes = 0
 
-            if duration_active >= timedelta(minutes=wait_minutes):
+                if duration_active >= timedelta(minutes=wait_minutes):
 
-                if is_node_on_cooldown(target_alert.node_name, rules["cooldown"]):
-                    log(f"[NODE FLAPPING] Muted cluster for {site} (Node {target_alert.node_name} on cooldown).", "SYSTEM")
-                    for a in undispatched_alerts: a.is_ticketed = True
-                    db.commit()
-                    continue
+                    if is_node_on_cooldown(target_alert.node_name, rules["cooldown"]):
+                        log(f"[NODE FLAPPING] Muted cluster for {site} (Node {target_alert.node_name} on cooldown).", "SYSTEM")
+                        for a in undispatched_alerts: a.is_ticketed = True
+                        db.commit()
+                        continue
 
                 shift_prefix = "DAY-SHIFT" if alert_is_day else "AFTER-HOURS"
                 prefix = f"{shift_prefix} SITE ESCALATION / CASCADE" if is_cascade else f"{shift_prefix} TICKET"
@@ -585,23 +590,31 @@ def job_tiered_alert_escalation():
                 dispatch_success = False
 
                 ticket_body = f"Automated Comms Outage\n*** {prefix} ***\n" + base_body
+                log(f"[DISPATCH] Sending ticket email for {site} to {TICKET_EMAIL}", "SYSTEM")
                 t_success, t_msg = send_alert_email(
                     f"{'CASCADE ' if is_cascade else ''}TICKET: {target_tier.upper()} Incident at {site}",
                     ticket_body, recipient_override=TICKET_EMAIL, is_html=False
                 )
-                if t_success: dispatch_success = True
-                else: log(f"[TICKET FAILED] SMTP Error for {site}: {t_msg}", "SYSTEM")
+                if t_success:
+                    log(f"[TICKET OK] Ticket sent for {site}", "SYSTEM")
+                    dispatch_success = True
+                else:
+                    log(f"[TICKET FAILED] SMTP Error for {site}: {t_msg}", "SYSTEM")
 
                 if not alert_is_day:
 
                     if NOTIFY_EMAIL:
+                        log(f"[DISPATCH] Sending NOC notification for {site} to {NOTIFY_EMAIL}", "SYSTEM")
                         n_success, n_msg = send_alert_email(
                             f"NOC NOTIFICATION {'(CASCADE) ' if is_cascade else ''}: {target_tier.upper()} Incident at {site}",
                             f"*** NOC NOTIFICATION {'ESCALATION ' if is_cascade else ''}***\n" + base_body,
                             recipient_override=NOTIFY_EMAIL, is_html=False
                         )
-                        if n_success: dispatch_success = True
-                        else: log(f"[NOTIFY FAILED] SMTP Error for {site}: {n_msg}", "SYSTEM")
+                        if n_success:
+                            log(f"[NOTIFY OK] Notification sent for {site}", "SYSTEM")
+                            dispatch_success = True
+                        else:
+                            log(f"[NOTIFY FAILED] SMTP Error for {site}: {n_msg}", "SYSTEM")
 
                     if is_onpage:
                         if is_swf_device:
@@ -612,15 +625,20 @@ def job_tiered_alert_escalation():
                             onpage_title = "ITNETWORK"
 
                         if target_onpage_email:
+                            log(f"[DISPATCH] Sending {onpage_title} ONPAGE for {site} to {target_onpage_email}", "SYSTEM")
                             o_success, o_msg = send_alert_email(
                                 f"URGENT {onpage_title} ONPAGE {'CASCADE ' if is_cascade else ''}: {target_tier.upper()} Incident at {site}",
                                 f"*** URGENT {onpage_title} ONPAGE {'ESCALATION ' if is_cascade else ''}***\n" + base_body,
                                 recipient_override=target_onpage_email, is_html=False
                             )
                             if o_success:
+                                log(f"[ONPAGE OK] {onpage_title} onpage sent for {site}", "SYSTEM")
                                 dispatch_success = True
                                 if loc: loc.last_escalation_ticket = now_utc
-                            else: log(f"[{onpage_title} ONPAGE FAILED] SMTP Error for {site}: {o_msg}", "SYSTEM")
+                            else:
+                                log(f"[{onpage_title} ONPAGE FAILED] SMTP Error for {site}: {o_msg}", "SYSTEM")
+                        else:
+                            log(f"[SKIP] {onpage_title} ONPAGE email not configured for {site}", "SYSTEM")
 
                 if dispatch_success:
                     log(f"[SUCCESS] Fully Ticketed {target_tier.upper()} cluster for {site}", "SYSTEM")

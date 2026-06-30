@@ -18,6 +18,7 @@ manager = ConnectionManager()
 
 async def broadcaster():
     from src import services as svc
+    cycle = 0
     while True:
         try:
             alerts, events, grid = svc.get_aiops_dashboard_data()
@@ -29,6 +30,10 @@ async def broadcaster():
                 "alert_count": len(alerts),
             }
             await manager.broadcast_json(payload)
+            cycle += 1
+            if cycle % 12 == 0:
+                logger.debug("Broadcaster: cycle=%d alerts=%d events=%d clients=%d",
+                              cycle, len(alerts), len(events), manager.count)
         except Exception as e:
             logger.error("Broadcaster error: %s", e)
         await asyncio.sleep(5)

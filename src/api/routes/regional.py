@@ -1,19 +1,23 @@
+import logging
 import pandas as pd
 from fastapi import APIRouter, Query, Body
 from typing import Any
 
 from src import services as svc
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/regional", tags=["regional"])
 
 
 @router.get("/locations")
 def locations():
+    logger.debug("GET /locations")
     return svc.get_cached_locations()
 
 
 @router.get("/geojson")
 def geojson():
+    logger.debug("GET /geojson")
     spc_d1, spc_d2, spc_d3, ar, oos, usgs_ar, usgs_oos = svc.get_cached_geojson()
     return {
         "spc_day1": spc_d1, "spc_day2": spc_d2, "spc_day3": spc_d3,
@@ -24,6 +28,7 @@ def geojson():
 
 @router.post("/compile-map")
 def compile_map(data: dict[str, Any] = Body({})):
+    logger.info("POST /compile-map toggles=%s", data.get("toggles", {}))
     toggles = data.get("toggles", {})
     spc = data.get("spc_data")
     ar = data.get("ar_data")
@@ -110,42 +115,52 @@ def compile_map(data: dict[str, Any] = Body({})):
         "oos_watch": _strip_collection(cache.get("oos_watch")),
     }
 
+    logger.info("POST /compile-map complete: affected_sites=%d analytics=%s",
+                 len(master_affected_sites), analytics_serialized.get('highest_risk'))
     return [processed_geo, {}, cache["map_diagnostics"], toggled_affected_sites, master_affected_sites, analytics_serialized]
 
 
 @router.get("/weather-prefs")
 def weather_prefs(username: str = ""):
+    logger.debug("GET /weather-prefs username=%s", username)
     return svc.get_user_weather_prefs(username)
 
 
 @router.post("/weather-prefs")
 def set_weather_prefs(username: str = "", alerts: list[str] = Body([])):
+    logger.info("POST /weather-prefs username=%s alerts=%s", username, alerts)
     svc.set_user_weather_prefs(username, alerts)
     return {"status": "ok"}
 
 
 @router.get("/forecast")
 def forecast(lat: float = Query(34.8), lon: float = Query(-92.2)):
+    logger.debug("GET /forecast lat=%.4f lon=%.4f", lat, lon)
     return svc.get_nws_forecast(lat, lon)
 
 
 @router.get("/weather-alerts-log")
 def weather_alerts_log():
+    logger.debug("GET /weather-alerts-log")
     _, _, _, ar, oos, usgs_ar, usgs_oos = svc.get_cached_geojson()
     return svc.get_weather_alerts_log(ar, oos, [], usgs_ar, usgs_oos)
 
 
 @router.get("/site-types")
 def site_types():
+    logger.debug("GET /site-types")
     return svc.get_all_site_types()
 
 
 @router.post("/sync-hazards")
 def sync_hazards():
+    logger.info("POST /sync-hazards: triggering manual hazard sync")
     from src.workers.infra_worker import fetch_regional_hazards
     try:
         fetch_regional_hazards()
         svc.get_cached_geojson.clear()
+        logger.info("POST /sync-hazards: sync complete")
         return {"status": "ok", "message": "Regional hazards synced."}
     except Exception as e:
+        logger.error("POST /sync-hazards failed: %s", e)
         return {"status": "error", "message": str(e)}

@@ -1,7 +1,10 @@
 import os
+import logging
 import joblib
 from src.core.db import SessionLocal
 from src.models.schema import Keyword
+
+logger = logging.getLogger(__name__)
 
 class HybridScorer:
     def __init__(self, model_path="src/ml_model.pkl"):
@@ -9,10 +12,15 @@ class HybridScorer:
         self.model = None
 
         if os.path.exists(self.model_path):
+            logger.info("HybridScorer: loading ML model from %s", model_path)
             self.model = joblib.load(self.model_path)
+            logger.info("HybridScorer: model loaded successfully")
+        else:
+            logger.warning("HybridScorer: no ML model found at %s, using keyword-only scoring", model_path)
 
         with SessionLocal() as session:
             self.keywords = {k.word.lower(): k.weight for k in session.query(Keyword).all()}
+            logger.info("HybridScorer: loaded %d keywords from database", len(self.keywords))
 
     def score(self, text: str):
         text_lower = text.lower()
@@ -24,6 +32,7 @@ class HybridScorer:
                 kw_score += weight
                 reasons.append(word)
 
+        logger.debug("score: keyword_score=%.1f matched_keywords=%d", kw_score, len(reasons))
         final_score = kw_score
 
         if self.model:
@@ -49,6 +58,7 @@ class HybridScorer:
                 final_score += bonus
                 reasons.append(f"[AI] AI Synergy Bonus (+{int(bonus)})")
 
+        logger.debug("score: final_score=%.1f ml_boost=%s", final_score, self.model is not None)
         return min(final_score, 100.0), reasons
 
 _SCORER_INSTANCE = None
@@ -56,9 +66,11 @@ _SCORER_INSTANCE = None
 def get_scorer():
     global _SCORER_INSTANCE
     if _SCORER_INSTANCE is None:
+        logger.info("get_scorer: creating new HybridScorer instance")
         _SCORER_INSTANCE = HybridScorer()
     return _SCORER_INSTANCE
 
 def force_reload_scorer():
     global _SCORER_INSTANCE
+    logger.info("force_reload_scorer: reloading scorer with fresh model and keywords")
     _SCORER_INSTANCE = HybridScorer()

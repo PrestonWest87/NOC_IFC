@@ -1,5 +1,8 @@
+import logging
 import re
 from collections import Counter
+
+logger = logging.getLogger(__name__)
 
 CATEGORIES = {
     "Cyber: Exploits & Vulns": r'\b(cve-\d{4}|zero-day|0-day|vulnerab|exploit|patch|buffer overflow|rce|privilege escalation|bypass)\b',
@@ -23,6 +26,7 @@ COMPILED_CATEGORIES = {cat: re.compile(pattern, re.IGNORECASE) for cat, pattern 
 
 def categorize_text(text):
     if not text:
+        logger.debug("categorize_text: empty text, returning General")
         return "General"
 
     scores = Counter()
@@ -31,9 +35,12 @@ def categorize_text(text):
         matches = pattern.findall(text)
         if matches:
             scores[cat] += len(matches)
+            logger.debug("categorize_text: category=%s matches=%d", cat, len(matches))
 
     if not scores:
+        logger.debug("categorize_text: no categories matched, returning General")
         return "General"
 
     top_category = scores.most_common(1)[0][0]
+    logger.debug("categorize_text: top_category=%s score=%d", top_category, scores[top_category])
     return top_category

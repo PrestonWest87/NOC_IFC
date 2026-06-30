@@ -11,31 +11,37 @@ router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
 @router.get("/metrics")
 def dashboard_metrics():
+    logger.debug("GET /dashboard/metrics")
     return svc.get_dashboard_metrics()
 
 
 @router.get("/pinned-articles")
 def pinned_articles():
+    logger.debug("GET /dashboard/pinned-articles")
     return svc.get_pinned_articles()
 
 
 @router.get("/live-articles")
 def live_articles(limit: int = Query(15, ge=1, le=100)):
+    logger.debug("GET /dashboard/live-articles limit=%d", limit)
     return svc.get_live_articles(limit=limit)
 
 
 @router.get("/hazards")
 def hazards(limit: int = Query(15, ge=1, le=100)):
+    logger.debug("GET /dashboard/hazards limit=%d", limit)
     return svc.get_hazards(limit=limit)
 
 
 @router.get("/threat-trends")
 def threat_trends(days: int = Query(14, ge=1, le=90)):
+    logger.debug("GET /dashboard/threat-trends days=%d", days)
     return svc.get_historical_threat_scores(days=days)
 
 
 @router.get("/internal-risk")
 def internal_risk():
+    logger.debug("GET /dashboard/internal-risk")
     data = svc.get_latest_internal_risk()
     if not data:
         return {"status": "empty", "message": "No internal risk snapshot available yet."}
@@ -44,11 +50,13 @@ def internal_risk():
 
 @router.get("/internal-risk/history")
 def internal_risk_history(days: int = Query(28, ge=1, le=365)):
+    logger.debug("GET /dashboard/internal-risk/history days=%d", days)
     return svc.get_internal_risk_history(days=days)
 
 
 @router.get("/executive-intel")
 def executive_intel():
+    logger.debug("GET /dashboard/executive-intel")
     crimes = svc.get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
     from src.models.schema import RegionalHazard
     from src.core.db import SessionLocal

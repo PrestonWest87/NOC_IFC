@@ -14,6 +14,7 @@ router = APIRouter(prefix="/api/v1/logbook", tags=["logbook"])
 
 @router.get("/entries")
 def entries(role_filter: str = Query("All"), start_date: str = None, end_date: str = None, session_token: str = Query(None)):
+    logger.debug("GET /logbook/entries role=%s start=%s end=%s", role_filter, start_date, end_date)
     sd = datetime.fromisoformat(start_date) if start_date else None
     ed = datetime.fromisoformat(end_date) if end_date else None
     if session_token:
@@ -32,6 +33,8 @@ def create_entry(
     custom_date: str = None,
     session_token: str = Query(None),
 ):
+    logger.info("POST /logbook/entries analyst=%s role=%s shift=%s content_length=%d",
+                 analyst, role, shift_period, len(content) if content else 0)
     if session_token:
         user = svc.get_user_by_token(session_token)
         if user and user.role != "admin":
@@ -43,6 +46,7 @@ def create_entry(
 
 @router.patch("/entries/{entry_id}")
 def update_entry(entry_id: int, is_deleted: bool = None):
+    logger.info("PATCH /logbook/entries/%d is_deleted=%s", entry_id, is_deleted)
     with SessionLocal() as session:
         entry = session.query(ShiftLogEntry).get(entry_id)
         if not entry:
@@ -59,7 +63,7 @@ def generate_shift_summary(data: dict[str, Any] = Body({})):
     shift_period = data.get("shift_period", "Morning")
     timeframe_label = data.get("timeframe_label", shift_period + " Shift")
     auto_append = data.get("auto_append", False)
-    logger.info("POST /generate-summary role=%s shift=%s auto_append=%s", role_filter, shift_period, auto_append)
+    logger.info("POST /logbook/generate-summary role=%s shift=%s auto_append=%s", role_filter, shift_period, auto_append)
     result = svc.trigger_shift_summary(
         role_filter=role_filter,
         shift_period=shift_period,

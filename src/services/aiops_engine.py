@@ -1,10 +1,13 @@
 import ipaddress
 import json
+import logging
 import math
 import re
 from datetime import datetime, timedelta
 from src.core.db import SessionLocal
 from src.models.schema import MonitoredLocation, SolarWindsAlert
+
+logger = logging.getLogger(__name__)
 
 class EnterpriseAIOpsEngine:
     ONTOLOGY = {
@@ -30,11 +33,14 @@ class EnterpriseAIOpsEngine:
 
     def __init__(self, session_factory=None):
         self.session_factory = session_factory or SessionLocal
+        logger.info("EnterpriseAIOpsEngine initialized")
 
     def _get_domain(self, node_type, node_name="", primary_comms=""):
         node_str = f"{node_type} {node_name}".lower()
+        logger.debug("_get_domain: node_type=%s node_name=%s primary_comms=%s", node_type, node_name, primary_comms)
 
         if any(t in node_str for t in ["vsat", "cell", "cellular", "sd-wan", "isp", "modem"]):
+            logger.debug("_get_domain: classified as PRIMARY_INTERNET")
             return "PRIMARY_INTERNET"
 
         if any(t in node_str for t in ["ups", "pds", "pdu", "dc controller", "generator", "dc power"]):
@@ -53,13 +59,18 @@ class EnterpriseAIOpsEngine:
 
         for domain, types in self.ONTOLOGY.items():
             if any(t.lower() in str(node_type).lower() for t in types):
+                logger.debug("_get_domain: matched ontology domain=%s", domain)
                 return domain
 
+        logger.debug("_get_domain: no match, returning UNKNOWN_DOMAIN")
         return "UNKNOWN_DOMAIN"
 
     def _determine_patient_zero(self, alerts):
-        if not alerts: return None, []
+        if not alerts:
+            logger.debug("_determine_patient_zero: no alerts provided")
+            return None, []
 
+        logger.debug("_determine_patient_zero: scoring %d alerts", len(alerts))
         scored_alerts = []
         valid_times = [a.received_at for a in alerts if a.received_at]
         earliest_time = min(valid_times) if valid_times else datetime.utcnow()
@@ -99,9 +110,14 @@ class EnterpriseAIOpsEngine:
             })
 
         scored_alerts.sort(key=lambda x: x['score'], reverse=True)
+        logger.debug("_determine_patient_zero: winner=%s score=%.1f domain=%s",
+                      scored_alerts[0]['alert'].node_name if scored_alerts else 'None',
+                      scored_alerts[0]['score'] if scored_alerts else 0,
+                      scored_alerts[0]['domain'] if scored_alerts else 'None')
         return scored_alerts[0]['alert'], scored_alerts
 
     def identify_fleet_outages(self, incidents, threshold=5):
+        logger.debug("identify_fleet_outages: checking %d sites with threshold=%d", len(incidents), threshold)
         provider_map = {}
         for site, data in incidents.items():
             comms = data['site_metadata'].get('primary_coms', 'Unknown')
@@ -112,21 +128,26 @@ class EnterpriseAIOpsEngine:
         fleet_events = []
         for provider, sites in provider_map.items():
             if len(sites) >= threshold and provider != "Unknown":
+                logger.info("identify_fleet_outages: FLEET EVENT provider=%s affected=%d sites", provider, len(sites))
                 fleet_events.append({
                     "provider": provider, "affected_sites": sites,
                     "event_type": "Regional Provider Outage", "severity": "CRITICAL"
                 })
+        logger.debug("identify_fleet_outages: found %d fleet events", len(fleet_events))
         return fleet_events
 
     def generate_chronic_insights(self):
         import pandas as pd
         from datetime import datetime, timedelta
 
+        logger.info("generate_chronic_insights: fetching alerts from last 60 days")
         cutoff = datetime.utcnow() - timedelta(days=60)
         with self.session_factory() as session:
             alerts = session.query(SolarWindsAlert).filter(SolarWindsAlert.received_at >= cutoff).all()
+        logger.debug("generate_chronic_insights: found %d total alerts", len(alerts))
 
         if not alerts:
+            logger.info("generate_chronic_insights: no alerts found, returning None")
             return None, None, None
 
         data = []
@@ -181,6 +202,7 @@ class EnterpriseAIOpsEngine:
         return f_json, v_json, r
 
     def calculate_root_cause(self, site_name, data, active_weather, active_cloud, active_bgp, fleet_events=[]):
+        logger.info("calculate_root_cause: site=%s domains=%s", site_name, data.get('domains_affected', set()))
         meta = data.get('site_metadata', {})
         domains = data.get('domains_affected', set())
 
@@ -189,6 +211,7 @@ class EnterpriseAIOpsEngine:
 
         avg_loss = sum(avg_loss_list) / len(avg_loss_list) if avg_loss_list else 0
         avg_cpu = sum(avg_cpu_list) / len(avg_cpu_list) if avg_cpu_list else 0
+        logger.debug("calculate_root_cause: avg_loss=%.1f avg_cpu=%.1f", avg_loss, avg_cpu)
 
         score = 0
         evidence_log = []
@@ -200,6 +223,7 @@ class EnterpriseAIOpsEngine:
 
         p0 = data.get('patient_zero')
         if not p0:
+            logger.warning("calculate_root_cause: no patient_zero for site=%s", site_name)
             return "Indeterminate Failure", score, "P3 - MODERATE", evidence_log, blast_radius, "Unknown", "N/A"
 
         p0_domain = next((sa['domain'] for sa in data.get('dependency_chain', []) if sa['alert'] == p0), "UNKNOWN")
@@ -324,9 +348,11 @@ class EnterpriseAIOpsEngine:
 
         cascade_str = f"{cascade_sec}s" if cascade_sec > 0 else "Simultaneous"
 
+        logger.info("calculate_root_cause: site=%s cause=%s score=%d priority=%s", site_name, cause, min(score, 100), priority)
         return cause, min(score, 100), priority, evidence_log, blast_radius, p0.node_name, cascade_str
 
     def analyze_and_cluster(self, active_alerts):
+        logger.info("analyze_and_cluster: clustering %d active alerts", len(active_alerts))
         incidents = {}
         for alert in active_alerts:
             p = alert.raw_payload if isinstance(alert.raw_payload, dict) else {}
@@ -380,4 +406,5 @@ class EnterpriseAIOpsEngine:
             cluster['dependency_chain'] = scored_chain
             for sa in scored_chain: cluster['domains_affected'].add(sa['domain'])
 
+        logger.info("analyze_and_cluster: clustered into %d incidents", len(incidents))
         return incidents

@@ -1,4 +1,7 @@
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 def refang(text):
     if not text: return ""
@@ -30,11 +33,14 @@ def is_private_ip(ip):
     return False
 
 def extract_all_iocs(raw_text):
-    if not raw_text: return []
+    if not raw_text:
+        logger.debug("extract_all_iocs: empty text")
+        return []
 
     text = refang(raw_text)
     iocs = []
     seen = set()
+    logger.debug("extract_all_iocs: processing %d chars", len(raw_text))
 
     def add_ioc(ioc_type, value):
         if value not in seen:
@@ -60,4 +66,5 @@ def extract_all_iocs(raw_text):
         if domain_lower not in IGNORE_DOMAINS:
             add_ioc("Domain", domain_lower)
 
+    logger.debug("extract_all_iocs: found %d IOCs", len(iocs))
     return iocs

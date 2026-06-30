@@ -74,10 +74,12 @@ def smart_extract(payload: dict):
     return extracted
     
 def process_payload_background(raw_payload: dict):
+    log(f"[PROCESSING] Starting background processing of webhook payload")
     with SessionLocal() as db:
         try:
             parsed = smart_extract(raw_payload)
-            mapped_site = parsed["site_group"] # Direct mapping from payload
+            mapped_site = parsed["site_group"]
+            log(f"[EXTRACT] node={parsed['node_name']} type={parsed['device_type']} site={mapped_site} severity={parsed['severity']} alert_level={parsed['alert_level']} event_type={parsed['event_type']} is_resolution={parsed['is_resolution']}")
 
             raw_payload["Normalized_Alert_Level"] = parsed["alert_level"]
 
@@ -86,6 +88,7 @@ def process_payload_background(raw_payload: dict):
                     SolarWindsAlert.node_name == parsed["node_name"],
                     SolarWindsAlert.status != 'Resolved'
                 ).all()
+                log(f"[RESOLUTION] Found {len(active)} active alerts for {parsed['node_name']}")
                 for a in active:
                     a.status, a.resolved_at = 'Resolved', datetime.utcnow()
                 
@@ -109,17 +112,21 @@ def process_payload_background(raw_payload: dict):
         except Exception as e:
             db.rollback()
             log(f"[ERROR] Background Processing Error: {e}")
+            logger.exception("webhook background processing error")
 
 @app.post("/webhook/solarwinds")
 async def receive_alert(request: Request, background_tasks: BackgroundTasks):
     try:
         raw_payload = await request.json()
+        log(f"[RECEIVED] Webhook payload received keys={list(raw_payload.keys())}")
         background_tasks.add_task(process_payload_background, raw_payload)
         return {"status": "accepted", "message": "Payload queued for AI processing."}
     except json.JSONDecodeError:
+        log("[ERROR] Invalid JSON payload")
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
     except Exception as e:
         log(f"[ERROR] Gateway Rejection Error: {e}")
+        logger.exception("webhook gateway error")
         raise HTTPException(status_code=500, detail="Internal Gateway Error")
 
 if __name__ == "__main__":

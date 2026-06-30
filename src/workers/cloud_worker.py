@@ -110,11 +110,14 @@ def fetch_cloud_outages():
         with SessionLocal() as session:
             for provider, url in CLOUD_FEEDS.items():
                 try:
+                    logger.debug("cloud_worker: fetching %s from %s", provider, url)
                     response = requests.get(url, timeout=10)
                     if response.status_code != 200:
                         raise Exception(f"HTTP {response.status_code}")
 
                     feed = feedparser.parse(response.content)
+                    feed_entries = len(feed.entries)
+                    logger.debug("cloud_worker: %s returned %d entries", provider, feed_entries)
 
                     for entry in feed.entries[:15]:
                         published_tuple = entry.get('published_parsed')
@@ -132,10 +135,12 @@ def fetch_cloud_outages():
 
                         if is_future_maintenance(title, description):
                             filtered_count += 1
+                            logger.debug("cloud_worker: filtered future maintenance: %s", title[:80])
                             continue
 
                         if is_foreign_region(title + " " + description):
                             filtered_count += 1
+                            logger.debug("cloud_worker: filtered foreign region: %s", title[:80])
                             continue
 
                         text_to_check = (title + " " + description).upper()
@@ -165,19 +170,26 @@ def fetch_cloud_outages():
                             )
                             session.add(new_outage)
                             added_count += 1
+                            logger.debug("cloud_worker: added new outage %s: %s", provider, title[:80])
                         else:
                             if is_resolved and not exists.is_resolved:
                                 exists.is_resolved = True
                                 exists.updated_at = updated_at
                                 resolved_count += 1
+                                logger.debug("cloud_worker: resolved outage %s: %s", provider, title[:80])
 
+                except requests.Timeout:
+                    failed_providers.append(provider)
+                    logger.warning("cloud_worker: timeout fetching %s", provider)
+                    continue
                 except Exception as e:
                     failed_providers.append(provider)
-                    logger.warning(f"Skipping {provider} due to timeout/error: {e}")
+                    logger.warning("cloud_worker: error fetching %s: %s", provider, e)
                     continue
 
             purge_cutoff = datetime.utcnow() - timedelta(days=3)
-            session.query(CloudOutage).filter(CloudOutage.is_resolved == True, CloudOutage.updated_at < purge_cutoff).delete()
+            deleted = session.query(CloudOutage).filter(CloudOutage.is_resolved == True, CloudOutage.updated_at < purge_cutoff).delete()
+            logger.debug("cloud_worker: purged %d old resolved outages", deleted)
 
             session.commit()
 
@@ -187,7 +199,7 @@ def fetch_cloud_outages():
         logger.info(summary)
 
     except Exception as e:
-        logger.error(f"Critical failure in cloud worker: {e}")
+        logger.error(f"Critical failure in cloud worker: {e}", exc_info=True)
 
 
 if __name__ == "__main__":

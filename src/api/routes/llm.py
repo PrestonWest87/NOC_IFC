@@ -15,8 +15,10 @@ def test_llm_connection(data: dict[str, Any] = Body({})):
     endpoint = data.get("llm_endpoint", "").rstrip("/")
     api_key = data.get("llm_api_key", "")
     model_name = data.get("llm_model_name", "gpt-4o-mini")
+    logger.info("POST /llm/test-connection endpoint=%s model=%s", endpoint, model_name)
 
     if not endpoint:
+        logger.warning("POST /llm/test-connection: no endpoint provided")
         return {"success": False, "message": "Endpoint URL is required."}
 
     class _TestConfig:
