@@ -29,6 +29,15 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+def get_db():
+    """Dependency injection helper yielding a database session."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
 def init_db():
     time.sleep(random.uniform(0.1, 1.5))
     try:
@@ -113,7 +122,6 @@ def init_db():
     except Exception:
         pass
 
-    # FIXED: Loops over each alteration individually so already existing columns don't block countermeasures
     risk_alert_alterations = [
         "ALTER TABLE system_config ADD COLUMN last_global_risk VARCHAR",
         "ALTER TABLE system_config ADD COLUMN last_internal_risk VARCHAR",
@@ -140,7 +148,6 @@ def init_db():
     except Exception:
         pass
 
-    # FIXED: Loops over each calculation offset/override statement individually to handle pre-existing table runs safely
     scoring_alterations = [
         "ALTER TABLE system_config ADD COLUMN scoring_mode VARCHAR DEFAULT 'auto'",
         "ALTER TABLE system_config ADD COLUMN cyber_criticality_override INTEGER DEFAULT 0",
