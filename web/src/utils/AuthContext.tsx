@@ -17,7 +17,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   token: string;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<User>;
   logout: () => void;
 }
 
@@ -36,6 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     sessionStorage.setItem("noc_user", JSON.stringify(data.user));
     setUser(data.user);
     setToken(data.token);
+    return data.user;
   }, []);
 
   const refreshUser = useCallback(async () => {

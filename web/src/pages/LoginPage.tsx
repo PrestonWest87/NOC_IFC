@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../utils/AuthContext";
+import { PAGE_ROUTE_MAP } from "../utils/routeConfig";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -13,8 +14,9 @@ export function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      await login(username, password);
-      window.location.hash = "#/";
+      const user = await login(username, password);
+      const firstAllowed = user.allowed_pages?.[0];
+      window.location.hash = firstAllowed ? `#${PAGE_ROUTE_MAP[firstAllowed] || "/"}` : "#/";
     } catch {
       setError("Invalid credentials");
     } finally {

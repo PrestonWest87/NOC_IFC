@@ -11,19 +11,9 @@ import { AiopsRcaPage } from "./pages/AiopsRcaPage";
 import { ShiftLogbookPage } from "./pages/ShiftLogbookPage";
 import { ReportingPage } from "./pages/ReportingPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { PAGE_PERMISSION_MAP, PAGE_ROUTE_MAP } from "./utils/routeConfig";
 
 const queryClient = new QueryClient();
-
-const PAGE_PERMISSION_MAP: Record<string, string> = {
-  "/": "Global Dashboards",
-  "/threat-telemetry": "Threat Telemetry",
-  "/regional-grid": "Regional Grid",
-  "/threat-hunting": "Threat Hunting & IOCs",
-  "/aiops-rca": "AIOps RCA",
-  "/shift-logbook": "Shift Logbook",
-  "/reporting": "Reporting & Briefings",
-  "/settings": "Settings & Admin",
-};
 
 function ProtectedRoute({ children, path }: { children: React.ReactNode; path?: string }) {
   const { user } = useAuth();
@@ -31,7 +21,8 @@ function ProtectedRoute({ children, path }: { children: React.ReactNode; path?: 
   if (path) {
     const pageName = PAGE_PERMISSION_MAP[path];
     if (pageName && !user.allowed_pages?.includes(pageName)) {
-      return <Navigate to="/" replace />;
+      const fallback = user.allowed_pages?.[0] ? PAGE_ROUTE_MAP[user.allowed_pages[0]] || "/" : "/";
+      return <Navigate to={fallback} replace />;
     }
   }
   return <Layout>{children}</Layout>;
