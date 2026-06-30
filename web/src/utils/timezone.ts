@@ -13,6 +13,21 @@ const TIME_OPTIONS: Intl.DateTimeFormatOptions = {
   hour: "2-digit", minute: "2-digit", timeZone: CHICAGO,
 };
 
+/**
+ * Safely parses naive date strings from the database (e.g., "2026-06-30T22:35:00")
+ * by appending a 'Z' suffix if no timezone indicator is present. This forces
+ * JavaScript to treat it as UTC rather than falling back to local system time.
+ */
+function ensureUtcDate(d: string | Date): Date {
+  if (d instanceof Date) return d;
+  
+  // If it's a string and doesn't contain a timezone marker (Z or +/- offset), append 'Z'
+  if (typeof d === "string" && !d.endsWith("Z") && !/[+-]\d{2}:\d{2}$/.test(d)) {
+    return new Date(`${d}Z`);
+  }
+  return new Date(d);
+}
+
 export function formatInChicago(
   d: string | Date | null | undefined,
   options?: Intl.DateTimeFormatOptions,
@@ -20,7 +35,8 @@ export function formatInChicago(
 ): string {
   if (!d) return fallback;
   try {
-    return new Date(d).toLocaleString("en-US", options ?? DEFAULT_OPTIONS);
+    const dateObj = ensureUtcDate(d);
+    return dateObj.toLocaleString("en-US", options ?? DEFAULT_OPTIONS);
   } catch {
     return String(d);
   }
@@ -32,7 +48,8 @@ export function formatDateInChicago(
 ): string {
   if (!d) return fallback;
   try {
-    return new Date(d).toLocaleDateString("en-US", DATE_OPTIONS);
+    const dateObj = ensureUtcDate(d);
+    return dateObj.toLocaleDateString("en-US", DATE_OPTIONS);
   } catch {
     return String(d);
   }
@@ -44,14 +61,15 @@ export function formatTimeInChicago(
 ): string {
   if (!d) return fallback;
   try {
-    return new Date(d).toLocaleTimeString("en-US", TIME_OPTIONS);
+    const dateObj = ensureUtcDate(d);
+    return dateObj.toLocaleTimeString("en-US", TIME_OPTIONS);
   } catch {
     return String(d);
   }
 }
 
 export function chicagoDateString(d?: string | Date): string {
-  const date = d ? new Date(d) : new Date();
+  const date = d ? ensureUtcDate(d) : new Date();
   const parts = new Intl.DateTimeFormat("en-CA", { // en-CA formats as YYYY-MM-DD
     timeZone: CHICAGO, year: "numeric", month: "2-digit", day: "2-digit",
   }).formatToParts(date);
@@ -75,7 +93,8 @@ export function formatShortInChicago(
 ): string {
   if (!d) return fallback;
   try {
-    return new Date(d).toLocaleDateString("en-US", {
+    const dateObj = ensureUtcDate(d);
+    return dateObj.toLocaleDateString("en-US", {
       month: "short", day: "numeric", year: "numeric",
       hour: "2-digit", minute: "2-digit", timeZone: CHICAGO,
     });
