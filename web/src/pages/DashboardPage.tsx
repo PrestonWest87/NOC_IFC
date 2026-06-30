@@ -1296,9 +1296,29 @@ function HardwareSoftwareTable({ data, type, emptyMessage }: { data: any; type: 
   const [expanded, setExpanded] = useState(true);
 
   let items: any[] = [];
-  if (Array.isArray(data)) items = data;
-  else if (data && typeof data === "object") items = Object.values(data);
+  let parsed = data;
+
+  // 1. Safely handle serialized JSON strings if the backend sent them
+  try {
+    if (typeof data === "string") parsed = JSON.parse(data);
+  } catch (e) {
+    console.error("Failed to parse table data:", e);
+  }
+
+  // 2. Extract the array, checking for common backend wrappers
+  if (Array.isArray(parsed)) {
+    items = parsed;
+  } else if (parsed && typeof parsed === "object") {
+    items = parsed.data ?? parsed.rows ?? parsed.items ?? Object.values(parsed);
+  }
+
+  // 3. Fallback protection
   if (!Array.isArray(items)) items = [];
+
+  // 4. Flatten the array if Object.values() accidentally grabbed a nested wrapper
+  if (items.length === 1 && Array.isArray(items[0])) {
+    items = items[0];
+  }
 
   const atRisk = items.filter((h: any) => (h["OSINT Threat Matches"] ?? 0) > 0 || (h.osint_count ?? 0) > 0);
 
