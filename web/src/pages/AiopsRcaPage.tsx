@@ -10,7 +10,6 @@ import { ScatterplotLayer } from "@deck.gl/layers";
 import { Map } from "react-map-gl/maplibre";
 import type { MapViewState } from "@deck.gl/core";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useAppStore } from "../store/useAppStore"; // Global Store Import
 import {
   Activity, AlertTriangle, Radio, BarChart3, Globe,
   Play, Send, CheckCircle, Wrench, ChevronDown, ChevronUp,
