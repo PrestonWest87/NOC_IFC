@@ -472,6 +472,8 @@ export function RegionalGridPage() {
           return {
             name: f.properties?.place || "Unknown",
             mag,
+            depth: f.geometry?.coordinates?.[2] ?? 0,
+            time: f.properties?.time ? new Date(f.properties.time).toISOString() : null,
             radius: mag * 3000 + 1000,
             color,
             lon: f.geometry?.coordinates?.[0] || 0,
@@ -756,7 +758,7 @@ function GeospatialTab({
       } else if (layerId === "wildfires" || layerId?.startsWith("wildfires")) {
         extraInfo = `<b>${d.name}</b><br/>Acres: ${Math.round(d.acres).toLocaleString()}<br/>Contained: ${d.contained}%`;
       } else if (layerId === "earthquakes" || layerId?.startsWith("earthquakes")) {
-        extraInfo = `<b>${d.name}</b><br/>Magnitude: ${d.mag}`;
+        extraInfo = `<b>${d.name}</b><br/>Magnitude: ${d.mag}<br/>Depth: ${d.depth?.toFixed(1)}km<br/>Time: ${d.time ? formatInChicago(d.time) : "Unknown"}`;
       } else if (layerId === "fire_risk" || layerId?.startsWith("fire_risk")) {
         const ev = d.properties?.info || d.properties?.event || "Red Flag Warning";
         if (!alerts.includes(ev)) alerts.push(ev);
