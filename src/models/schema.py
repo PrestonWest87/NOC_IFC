@@ -88,6 +88,7 @@ class SystemConfig(Base):
     internal_lethality_override = Column(Integer, default=0)
     global_risk_offset = Column(Integer, default=0)
     internal_risk_offset = Column(Integer, default=0)
+    alerted_eq_ids = Column(Text, default="[]")
 
 
 class ShiftLogEntry(Base):

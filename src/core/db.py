@@ -107,6 +107,7 @@ def init_db():
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE system_config ADD COLUMN unified_brief TEXT"))
             conn.execute(text("ALTER TABLE system_config ADD COLUMN unified_brief_time DATETIME"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN alerted_eq_ids TEXT DEFAULT '[]'"))
     except Exception:
         pass
 

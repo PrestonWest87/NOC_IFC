@@ -183,7 +183,7 @@ function extractPolygonRings(geometry: any): number[][][] | null {
   return null;
 }
 
-function buildFeatureIndex(processedGeo: any) {
+function buildFeatureIndex(processedGeo: any, mapToggles?: Record<string, boolean>) {
   const idx: Array<{bbox: number[]; rings: number[][][]; props: any; layerId: string}> = [];
   const addFrom = (data: any, layerId: string) => {
     for (const f of data?.features || []) {
@@ -199,10 +199,12 @@ function buildFeatureIndex(processedGeo: any) {
       idx.push({ bbox: [minX, minY, maxX, maxY], rings, props: f.properties, layerId });
     }
   };
-  addFrom(processedGeo?.ar_warn, "ar_warn");
-  addFrom(processedGeo?.ar_watch, "ar_watch");
-  addFrom(processedGeo?.oos_warn, "oos_warn");
-  addFrom(processedGeo?.oos_watch, "oos_watch");
+  if (!mapToggles || mapToggles.warn) addFrom(processedGeo?.ar_warn, "ar_warn");
+  if (!mapToggles || mapToggles.watch) addFrom(processedGeo?.ar_watch, "ar_watch");
+  if (!mapToggles || mapToggles.oos) {
+    addFrom(processedGeo?.oos_warn, "oos_warn");
+    addFrom(processedGeo?.oos_watch, "oos_watch");
+  }
   return idx;
 }
 
@@ -724,7 +726,7 @@ function GeospatialTab({
     { key: "earthquakes", label: "Earthquakes (USGS)" },
   ];
 
-  const featureIndex = useMemo(() => buildFeatureIndex(processedGeo), [processedGeo]);
+  const featureIndex = useMemo(() => buildFeatureIndex(processedGeo, mapToggles), [processedGeo, mapToggles]);
   const [hoverInfo, setHoverInfo] = useState<{html: string; x: number; y: number} | null>(null);
 
   const handleHover = useCallback((info: any) => {

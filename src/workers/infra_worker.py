@@ -2,6 +2,7 @@ import requests
 import uuid
 import gc
 import math
+import json
 import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -140,9 +141,17 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 
 def check_earthquake_proximity(equake_data, distance_miles=50):
     from src.utils.risk_alert import send_alert, get_alert_recipients, build_eq_alert_email_body
+    from src.services import get_cached_config, save_global_config
 
     if not equake_data or 'features' not in equake_data:
         return
+
+    # Read previously alerted earthquake IDs
+    sys_config = get_cached_config()
+    try:
+        alerted_ids = set(json.loads(sys_config.get('alerted_eq_ids', '[]')))
+    except Exception:
+        alerted_ids = set()
 
     with SessionLocal() as session:
         sites = session.query(MonitoredLocation).filter(
@@ -151,8 +160,14 @@ def check_earthquake_proximity(equake_data, distance_miles=50):
         ).all()
 
         new_alerts = []
+        triggered_ids = []
+
         for f in equake_data['features']:
             props = f.get('properties', {})
+            eq_id = f.get('id', '') or f"{props.get('time', '0')}_{props.get('place', 'unknown')}_{props.get('mag', 0)}"
+            if eq_id in alerted_ids:
+                continue
+
             mag = props.get('mag', 0)
             if mag < 2.5:
                 continue
@@ -164,6 +179,7 @@ def check_earthquake_proximity(equake_data, distance_miles=50):
             time_str = datetime.fromtimestamp(time_ms/1000, CENTRAL_TZ).strftime('%Y-%m-%d %H:%M') if time_ms else 'Unknown'
             depth = coords[2]
 
+            hit = False
             for site in sites:
                 if not site.lat or not site.lon:
                     continue
@@ -180,6 +196,10 @@ def check_earthquake_proximity(equake_data, distance_miles=50):
                         'lat': eq_lat,
                         'lon': eq_lon
                     })
+                    hit = True
+
+            if hit:
+                triggered_ids.append(eq_id)
 
         if new_alerts:
             recipients = get_alert_recipients()
@@ -187,6 +207,10 @@ def check_earthquake_proximity(equake_data, distance_miles=50):
                 body = build_eq_alert_email_body(new_alerts)
                 send_alert(recipients, f"NOC Alert: Earthquake Proximity Warning", body)
                 logger.info(f"Earthquake alert sent for {len(new_alerts)} site proximities")
+
+                # Persist alerted IDs so we never re-alert the same quake
+                updated = alerted_ids | set(triggered_ids)
+                save_global_config({'alerted_eq_ids': json.dumps(list(updated))})
 
 
 def fetch_regional_hazards():
