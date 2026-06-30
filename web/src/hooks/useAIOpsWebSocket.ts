@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { triggerCriticalNotification } from "../utils/notifications";
 import { useAppStore, type DashboardPayload } from "../store/useAppStore";
 import { useQueryClient } from "@tanstack/react-query";
@@ -7,20 +7,25 @@ export function useAIOpsWebSocket() {
   const queryClient = useQueryClient();
   const [data, setData] = useState<DashboardPayload | null>(null);
   const [connected, setConnected] = useState(false);
+  
   const setStoreDashboard = useAppStore((s) => s.setDashboard);
   const setStoreConnected = useAppStore((s) => s.setConnected);
   const setInvestigatingSite = useAppStore((s) => s.setInvestigatingSite);
+  const setSendMessage = useAppStore((s) => s.setSendMessage);
+  
   const wsRef = useRef<WebSocket | null>(null);
   const retryRef = useRef(0);
   const knownAlertIds = useRef(new Set<string>());
 
-  const sendMessage = useCallback((msg: unknown) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(msg));
-    }
-  }, []);
-
   useEffect(() => {
+    // Expose the send method globally so pages can broadcast
+    const sendMessage = (msg: any) => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify(msg));
+      }
+    };
+    setSendMessage(sendMessage);
+
     function connect() {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const host = window.location.host;
@@ -37,13 +42,13 @@ export function useAIOpsWebSocket() {
         try {
           const payload = JSON.parse(event.data) as DashboardPayload;
 
-          if (payload.type === "INVESTIGATING_UPDATE") {
-            if (payload.site !== undefined && payload.is_investigating !== undefined) {
-              setInvestigatingSite(payload.site, payload.is_investigating);
-            }
+          // Catch UI State Echoes
+          if (payload.type === "INVESTIGATING_UPDATE" && payload.site) {
+            setInvestigatingSite(payload.site, payload.is_investigating ?? false);
             return;
           }
 
+          // Catch Database Resync Requests
           if (payload.type === "RCA_UPDATE") {
             queryClient.invalidateQueries({ queryKey: ["rca-dashboard"] });
             queryClient.invalidateQueries({ queryKey: ["rca-analyze"] });
@@ -93,7 +98,7 @@ export function useAIOpsWebSocket() {
         wsRef.current.close();
       }
     };
-  }, [setStoreDashboard, setStoreConnected, setInvestigatingSite, queryClient]);
+  }, [setStoreDashboard, setStoreConnected, setSendMessage, setInvestigatingSite, queryClient]);
 
-  return { data, connected, sendMessage };
+  return { data, connected };
 }
