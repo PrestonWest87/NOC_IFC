@@ -73,6 +73,8 @@ def analyze():
 def acknowledge(alert_ids: list[int] = Body([])):
     logger.info("POST /rca/acknowledge alert_ids=%s", alert_ids)
     svc.acknowledge_cluster(alert_ids)
+    from src.api.main import manager
+    background_tasks.add_task(manager.broadcast_json, {"type": "RCA_UPDATE"})
     return {"status": "ok"}
 
 
@@ -81,6 +83,8 @@ def dispatch(data: dict = Body(...), _=Depends(require_action("Action: Dispatch 
     logger.info("POST /rca/dispatch alert_ids=%s is_dispatched=%s",
                  data.get("alert_ids"), data.get("is_dispatched"))
     svc.set_cluster_dispatch(data.get("alert_ids", []), data.get("is_dispatched", True))
+    from src.api.main import manager
+    background_tasks.add_task(manager.broadcast_json, {"type": "RCA_UPDATE"})
     return {"status": "ok"}
 
 
@@ -95,6 +99,9 @@ def site_maintenance(data: dict = Body(...), user=Depends(require_action("Action
                  site_name, is_maint, etr, reason, user.username)
     etr_date = datetime.fromisoformat(etr) if etr else None
     svc.set_site_maintenance(site_name, is_maint, etr_date, reason, modified_by=user.username)
+
+    from src.api.main import manager
+    background_tasks.add_task(manager.broadcast_json, {"type": "RCA_UPDATE"})
     return {"status": "ok"}
 
 
