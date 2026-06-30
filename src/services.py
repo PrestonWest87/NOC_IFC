@@ -96,10 +96,19 @@ def format_central(dt):
         dt = dt.replace(tzinfo=ZoneInfo("UTC"))
     return dt.astimezone(LOCAL_TZ).strftime('%Y-%m-%d %H:%M:%S')
 
+from sqlalchemy.exc import OperationalError
+
 @TTLCache(ttl=300)
 def get_cached_config():
     with SessionLocal() as db:
-        config = db.query(SystemConfig).first()
+        try:
+            config = db.query(SystemConfig).first()
+        except OperationalError:
+            db.rollback()
+            config = db.execute(text("SELECT * FROM system_config LIMIT 1")).first()
+            if config:
+                return to_dotdict(config)
+            config = SystemConfig(); db.add(config); db.commit(); db.refresh(config)
         if not config:
             config = SystemConfig(); db.add(config); db.commit(); db.refresh(config)
         return to_dotdict(config)

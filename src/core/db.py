@@ -39,6 +39,13 @@ def get_db():
 
 
 def init_db():
+    # Run column migration first so API queries don't fail on stale schema
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN alerted_eq_ids TEXT DEFAULT '[]'"))
+    except Exception:
+        pass
+
     time.sleep(random.uniform(0.1, 1.5))
     try:
         Base.metadata.create_all(bind=engine)
@@ -107,7 +114,6 @@ def init_db():
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE system_config ADD COLUMN unified_brief TEXT"))
             conn.execute(text("ALTER TABLE system_config ADD COLUMN unified_brief_time DATETIME"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN alerted_eq_ids TEXT DEFAULT '[]'"))
     except Exception:
         pass
 
