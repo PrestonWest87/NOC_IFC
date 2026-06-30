@@ -29,11 +29,6 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-Here is the complete, corrected version of your init_db() function.
-
-The block handling the sys_countermeasures and net_countermeasures migration, along with the block following it (scoring_mode, overrides, and offsets), have both been updated to iteratively execute each statement inside their own nested try...except loops. This prevents a duplicate column error from aborting the execution of the statements that follow it.
-Python
-
 def init_db():
     time.sleep(random.uniform(0.1, 1.5))
     try:
