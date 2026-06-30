@@ -86,14 +86,20 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_text()
             logger.debug("Received WS message: %s", data)
             
-            # Catch incoming UI state updates and echo them to other users
+            # ECHO UI MESSAGES TO ALL CONNECTED CLIENTS
             try:
                 parsed_data = json.loads(data)
-                if parsed_data.get("type") == "INVESTIGATING_UPDATE":
+                msg_type = parsed_data.get("type", "")
+                
+                # If a client sends an investigating lock or a manual resync request, broadcast it!
+                if msg_type in ["INVESTIGATING_UPDATE", "RCA_UPDATE"]:
                     await manager.broadcast_json(parsed_data)
+                    
             except json.JSONDecodeError:
                 pass
-
+            except Exception as ex:
+                logger.error("Error echoing WS message: %s", ex)
+                
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception as e:
