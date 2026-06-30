@@ -86,10 +86,15 @@ export function AiopsRcaPage() {
   const [deepAnalysisRun, setDeepAnalysisRun] = useState(false);
 
   // Global Store Methods for Syncing
-  const investigatingSitesArray = useAppStore((s) => s.investigatingSites);
-  const setInvestigatingSiteStore = useAppStore((s) => s.setInvestigatingSite);
-  const sendMessage = useAppStore((s) => s.sendMessage);
-  const investigatingSites = useMemo(() => new Set(investigatingSitesArray), [investigatingSitesArray]);
+
+  const investigateMutation = useMutation({
+  mutationFn: (params: { site: string; is_investigating: boolean }) =>
+    api.post("/rca/investigate", params).then((r) => r.data),
+  onSuccess: () => {
+    // This will trigger locally, while the broadcast triggers everyone else
+    queryClient.invalidateQueries({ queryKey: ["rca-dashboard"] });
+  },
+});
 
   const pollMs = livePolling ? 5000 : false;
 
@@ -173,6 +178,10 @@ export function AiopsRcaPage() {
       : (locations ?? []),
     [locations, allowedTypes]
   );
+
+  const investigatingSites = useMemo(() => {
+  return new Set((dashboard?.investigating_sites as string[]) || []);
+}, [dashboard?.investigating_sites]);
 
   const prevAlertCounts = useRef<Record<string, number>>({});
   const prevAlertLength = useRef(0);
@@ -314,26 +323,18 @@ export function AiopsRcaPage() {
     const isMaint = dialogStatus === "No Dispatch Needed";
     const isInvestigating = !isMaint;
 
-    // 1. Update Global Store locally
-    setInvestigatingSiteStore(name, isInvestigating);
-    
-    // 2. Broadcast to all active WebSocket users
-    sendMessage({
-      type: "INVESTIGATING_UPDATE",
-      site: name,
-      is_investigating: isInvestigating
-    });
+    // Use our new solid backend API endpoint!
+    promises.push(investigateMutation.mutateAsync({ site: name, is_investigating: isInvestigating }));
 
     const etrDate = isMaint ? dialogEtr : "";
     const reason = dialogReason;
     promises.push(maintMutation.mutateAsync({ site_name: name, is_maint: isMaint, etr: etrDate, reason }));
 
     await Promise.allSettled(promises);
-    await queryClient.invalidateQueries({ queryKey: ["rca-dashboard"] });
     setSiteDialog(null);
-  }, [siteDialog, dialogDispatch, dialogStatus, dialogEtr, dialogReason, alerts, dispatchMutation, maintMutation, queryClient, setInvestigatingSiteStore, sendMessage]);
+}, [siteDialog, dialogDispatch, dialogStatus, dialogEtr, dialogReason, alerts, dispatchMutation, maintMutation, investigateMutation]);
 
-  useEffect(() => {
+ useEffect(() => {
     const prev = prevAlertCounts.current;
     const curr: Record<string, number> = {};
     for (const s of sites) {
@@ -341,8 +342,7 @@ export function AiopsRcaPage() {
       
       // Auto-clear investigating state if the problem is fixed
       if (s.alert_count === 0 && investigatingSites.has(s.name)) {
-        setInvestigatingSiteStore(s.name, false);
-        sendMessage({ type: "INVESTIGATING_UPDATE", site: s.name, is_investigating: false });
+        investigateMutation.mutate({ site: s.name, is_investigating: false });
       }
 
       if (prev[s.name] !== undefined && prev[s.name] > 0 && s.alert_count === 0 && s.under_maintenance) {
@@ -350,7 +350,7 @@ export function AiopsRcaPage() {
       }
     }
     prevAlertCounts.current = curr;
-  }, [sites, investigatingSites, maintMutation, setInvestigatingSiteStore, sendMessage]);
+  }, [sites, investigatingSites, maintMutation, investigateMutation]);
 
   useEffect(() => {
     if (typeof Notification !== "undefined" && Notification.permission === "default") {
