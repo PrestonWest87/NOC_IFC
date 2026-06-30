@@ -89,6 +89,14 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             data = await websocket.receive_text()
             logger.debug("Received WS message: %s", data)
+            
+            try:
+                parsed_data = json.loads(data)
+                if parsed_data.get("type") == "INVESTIGATING_UPDATE":
+                    await manager.broadcast_json(parsed_data)
+            except json.JSONDecodeError:
+                pass
+                
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception as e:
