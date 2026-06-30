@@ -3456,48 +3456,55 @@ elif page == "Settings & Admin":
                 
                 c_exp, c_imp = st.columns(2)
                 with c_exp:
-                        st.markdown("### ⬇️ Export Full Backup")
-                        st.caption("Generates a comprehensive JSON payload of every table in the database.")
-                        
-                        if st.button("Generate System Backup JSON", width="stretch"):
-                            with st.spinner("Extracting complete database state..."):
-                                backup_data = svc.get_backup_data()
-                                # FIX 1: Add default=str so datetime objects don't crash the JSON encoder
-                                st.session_state.full_json_backup = json.dumps(backup_data, default=str, indent=4)
-                        
-                        if "full_json_backup" in st.session_state:
-                            st.download_button(
-                                label="Download Full_System_Backup.json", 
-                                data=st.session_state.full_json_backup, 
-                                file_name=f"NOC_Full_Backup_{datetime.now(LOCAL_TZ).strftime('%Y%m%d_%H%M')}.json", 
-                                mime="application/json", 
-                                width="stretch", 
-                                type="primary"
-                            )
-                        
-                        st.divider()
-                        st.markdown("### 💾 Raw SQLite File")
-                        st.caption("Download the raw database file. (Most reliable method for server migration).")
-                        
-                        db_url = os.getenv("DATABASE_URL", "sqlite:////app/data/noc_fusion.db").strip().strip('"').strip("'")
-                        
-                        # FIX 2: Ensure the parsed path is an absolute path for the containerized environment
-                        raw_path = db_url.split("sqlite://")[-1].lstrip("/")
-                        db_path = f"/{raw_path}"
-                        
-                        try:
-                            with open(db_path, "rb") as db_file:
-                                db_bytes = db_file.read()
-                                
-                            st.download_button(
-                                label="Download noc_fusion.db", 
-                                data=db_bytes, 
-                                file_name=f"noc_fusion_{datetime.now(LOCAL_TZ).strftime('%Y%m%d_%H%M')}.db", 
-                                mime="application/octet-stream", 
-                                width="stretch"
-                            )
-                        except FileNotFoundError:
-                            st.error(f"Raw database file not found at {db_path}")
+                    st.markdown("### ⬇️ Export Full Backup")
+                    st.caption("Generates a comprehensive JSON payload of every table in the database.")
+                    
+                    if st.button("Generate System Backup JSON", width="stretch"):
+                        with st.spinner("Extracting complete database state..."):
+                            backup_data = svc.get_backup_data()
+                            # default=str prevents silent backend crashes if unhandled objects (like UUIDs) sneak in
+                            st.session_state.full_json_backup = json.dumps(backup_data, default=str, indent=4)
+                    
+                    # Renders unconditionally if the data exists in session state
+                    if "full_json_backup" in st.session_state:
+                        st.download_button(
+                            label="Download Full_System_Backup.json", 
+                            data=st.session_state.full_json_backup, 
+                            file_name=f"NOC_Full_Backup_{datetime.now(LOCAL_TZ).strftime('%Y%m%d_%H%M')}.json", 
+                            mime="application/json", 
+                            width="stretch", 
+                            type="primary"
+                        )
+                    
+                    st.divider()
+                    st.markdown("### 💾 Raw SQLite File")
+                    st.caption("Download the raw database file. (Most reliable method for server migration).")
+                    
+                    db_url = os.getenv("DATABASE_URL", "sqlite:////app/data/noc_fusion.db").strip().strip('"').strip("'")
+                    
+                    # Ensure absolute pathing for containerized environments
+                    raw_path = db_url.split("sqlite://")[-1].lstrip("/")
+                    db_path = f"/{raw_path}"
+                    
+                    # Use a preparation button so we don't read the DB into RAM on every single UI click
+                    if st.button("Prepare Database for Download", width="stretch"):
+                        with st.spinner("Loading database into memory..."):
+                            try:
+                                with open(db_path, "rb") as db_file:
+                                    # Store bytes in session state to protect the download link
+                                    st.session_state.db_bytes_backup = db_file.read()
+                            except FileNotFoundError:
+                                st.error(f"Raw database file not found at {db_path}")
+
+                    if "db_bytes_backup" in st.session_state:
+                        st.download_button(
+                            label="Download noc_fusion.db", 
+                            data=st.session_state.db_bytes_backup, 
+                            file_name=f"noc_fusion_{datetime.now(LOCAL_TZ).strftime('%Y%m%d_%H%M')}.db", 
+                            mime="application/octet-stream", 
+                            width="stretch",
+                            type="primary"
+                        )
 
                 with c_imp:
                     st.markdown("### ⬆️ Import & Restore")
