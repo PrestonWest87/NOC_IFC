@@ -569,13 +569,14 @@ def job_tiered_alert_escalation():
             if is_cascade:
                 wait_minutes = 0
 
-                if duration_active >= timedelta(minutes=wait_minutes):
+            # --- 7. DISPATCH EVALUATION ---
+            if duration_active >= timedelta(minutes=wait_minutes):
 
-                    if is_node_on_cooldown(target_alert.node_name, rules["cooldown"]):
-                        log(f"[NODE FLAPPING] Muted cluster for {site} (Node {target_alert.node_name} on cooldown).", "SYSTEM")
-                        for a in undispatched_alerts: a.is_ticketed = True
-                        db.commit()
-                        continue
+                if is_node_on_cooldown(target_alert.node_name, rules["cooldown"]):
+                    log(f"[NODE FLAPPING] Muted cluster for {site} (Node {target_alert.node_name} on cooldown).", "SYSTEM")
+                    for a in undispatched_alerts: a.is_ticketed = True
+                    db.commit()
+                    continue
 
                 shift_prefix = "DAY-SHIFT" if alert_is_day else "AFTER-HOURS"
                 prefix = f"{shift_prefix} SITE ESCALATION / CASCADE" if is_cascade else f"{shift_prefix} TICKET"
