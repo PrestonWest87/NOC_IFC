@@ -965,10 +965,20 @@ export function AiopsRcaPage() {
                           justifyContent: "center",
                           marginTop: "0.4rem",
                         }}
-                        onClick={() => {
+                        disabled={dispatchMutation.isPending}
+                        onClick={async () => {
                           if (alertIds.length > 0) {
-                            dispatchMutation.mutate({ alertIds, dispatched: true });
-                            setDispatchChecked((prev) => ({ ...prev, [site]: true }));
+                            try {
+                              await api.post("/rca/send-ticket", {
+                                site,
+                                ticket_text: ticketTexts[site] ?? "",
+                                recipient: "remedyforceworkflow@aecc.com, noc@aecc.com",
+                                alert_ids: alertIds,
+                              });
+                              setDispatchChecked((prev) => ({ ...prev, [site]: true }));
+                            } catch (err) {
+                              console.error("Failed to send ticket:", err);
+                            }
                           }
                         }}
                       >

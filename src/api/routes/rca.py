@@ -135,6 +135,26 @@ def generate_ticket(site: str = "", priority: str = "P3", patient_zero: str = ""
     return {"ticket": svc.generate_rca_ticket_text(site, {}, priority, patient_zero, root_cause)}
 
 
+@router.post("/send-ticket")
+def send_ticket(background_tasks: BackgroundTasks, data: dict = Body(...), _=Depends(require_action("Action: Dispatch RCA Tickets"))):
+    from src.utils.mailer import send_alert_email
+    site = data.get("site", "")
+    ticket_text = data.get("ticket_text", "")
+    recipient = data.get("recipient", "remedyforceworkflow@aecc.com, noc@aecc.com")
+    alert_ids = data.get("alert_ids", [])
+    success, msg = send_alert_email(
+        subject=f"RCA Dispatch Ticket - {site}",
+        body=ticket_text,
+        recipient_override=recipient,
+        is_html=True
+    )
+    if alert_ids:
+        svc.set_cluster_dispatch(alert_ids, True)
+    from src.api.main import manager
+    background_tasks.add_task(manager.broadcast_json, {"type": "RCA_UPDATE"})
+    return {"status": "ok" if success else "error", "message": msg}
+
+
 @router.get("/sitrep")
 def sitrep():
     from src.models.schema import SystemConfig
