@@ -45,7 +45,8 @@ def create_entry(
 
 
 @router.patch("/entries/{entry_id}")
-def update_entry(entry_id: int, is_deleted: bool = None):
+def update_entry(entry_id: int, data: dict[str, Any] = Body({})):
+    is_deleted = data.get("is_deleted")
     logger.info("PATCH /logbook/entries/%d is_deleted=%s", entry_id, is_deleted)
     with SessionLocal() as session:
         entry = session.query(ShiftLogEntry).get(entry_id)
