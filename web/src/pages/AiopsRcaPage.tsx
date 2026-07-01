@@ -275,13 +275,16 @@ export function AiopsRcaPage() {
         } catch { /* leave default */ }
       }
 
+      // District from cluster site_metadata
+      const district = cluster.site_metadata?.district ?? "Unknown";
+
       // Affected domains (matches Python: domains.title().replace("_", " "))
       const domains: string[] = cluster.domains_affected ?? [];
       const affectingStr = domains.length > 0
         ? domains.map((d: string) => d.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())).join(", ")
         : "SCADA connectivity";
 
-      let ticket = `Automated Comms Outage\n\n${site} - Trouble\n\n`;
+      let ticket = `Automated Comms Outage\nDistrict: ${district}\n\n${site} - Trouble\n\n`;
       ticket += `A communications issue was identified on ${triggerTime}. This is affecting ${affectingStr}. For more information, please see additional notes.\n\n`;
       ticket += `\nPRIORITY: ${priority}\n${cause}\n\nAFFECTED INFRASTRUCTURE DETAILS:\n`;
 

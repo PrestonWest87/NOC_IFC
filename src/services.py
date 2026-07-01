@@ -2171,11 +2171,13 @@ def generate_rca_ticket_text(site, data, priority, patient_zero, root_cause):
     else:
         trigger_time = "Unknown Time"
     
+    district = data.get('site_metadata', {}).get('district', 'Unknown')
+    
     # Dynamically grab the affected domains for the ticket description (e.g. TRANSPORT_CORE, SCADA_OT)
     domains = list(data.get('domains_affected', []))
     affecting_str = ", ".join(domains).title().replace("_", " ") if domains else "SCADA connectivity"
     
-    ticket_text = f"Automated Comms Outage\n\n{site} - Trouble\n\n"
+    ticket_text = f"Automated Comms Outage\nDistrict: {district}\n\n{site} - Trouble\n\n"
     ticket_text += f"A communications issue was identified on {trigger_time}. This is affecting {affecting_str}. For more information, please see additional notes.\n\n"
     
     ticket_text += f"\nPRIORITY: {priority}" + f"\n{root_cause}\n\nAFFECTED INFRASTRUCTURE DETAILS:\n"
