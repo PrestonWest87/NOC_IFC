@@ -147,11 +147,17 @@ def send_ticket(background_tasks: BackgroundTasks, data: dict = Body(...), _=Dep
     ticket_text = data.get("ticket_text", "")
     recipient = data.get("recipient", "remedyforceworkflow@aecc.com, noc@aecc.com")
     alert_ids = data.get("alert_ids", [])
+    priority = data.get("priority", "P3")
+    district = data.get("district", "Unknown")
+    sla = data.get("sla", "N/A (Manual Dispatch)")
+
+    base_body = f"Priority: {priority}\nDistrict: {district.title()}\nTarget SLA: {sla}\n\n{ticket_text}"
+    ticket_body = f"Automated Comms Outage\n*** MANUAL TICKET ***\n\n{base_body}"
     success, msg = send_alert_email(
-        subject=f"RCA Dispatch Ticket - {site}",
-        body=ticket_text,
+        subject=f"TICKET: {priority} Incident at {site}",
+        body=ticket_body,
         recipient_override=recipient,
-        is_html=True
+        is_html=False
     )
     if alert_ids:
         svc.set_cluster_dispatch(alert_ids, True)

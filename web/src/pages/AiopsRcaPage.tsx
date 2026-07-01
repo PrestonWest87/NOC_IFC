@@ -1002,8 +1002,14 @@ export function AiopsRcaPage() {
                         onClick={async () => {
                           if (alertIds.length > 0) {
                             try {
+                              const rc = getRc(site);
+                              const cluster = clustered[site] ?? {};
+                              const district = cluster.site_metadata?.district ?? "Unknown";
+                              const priority = rc?.priority ?? "P3";
                               await api.post("/rca/send-ticket", {
                                 site,
+                                priority,
+                                district,
                                 ticket_text: ticketTexts[site] ?? "",
                                 recipient: "remedyforceworkflow@aecc.com, noc@aecc.com",
                                 alert_ids: alertIds,

@@ -177,7 +177,10 @@ def render_aiops_rca():
                                         if st.button("Dispatch Ticket", key=f"t_send_{site}", width='stretch'):
                                             from src.utils.mailer import send_alert_email
                                             with st.spinner("Dispatching to RemedyForce & NOC..."):
-                                                success, msg = send_alert_email(f"URGENT: {clean_p} Incident at {site}", ticket_body, fixed_recipients, is_html=False)
+                                                district = data.get('site_metadata', {}).get('district', 'Unknown')
+                                                base_body = f"Priority: {clean_p}\nDistrict: {district.title()}\nTarget SLA: N/A (Manual Dispatch)\n\n{ticket_body}"
+                                                ticket_email_body = f"Automated Comms Outage\n*** MANUAL TICKET ***\n\n{base_body}"
+                                                success, msg = send_alert_email(f"TICKET: {clean_p} Incident at {site}", ticket_email_body, fixed_recipients, is_html=False)
                                                 if success:
                                                     st.success("Ticket Dispatched successfully!")
                                                 else:
