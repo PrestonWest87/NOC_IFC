@@ -1273,8 +1273,8 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
     raw_html = native_md_to_html(markdown_content)
 
     cyber_line = (
-        f'The current Internal Cyber Risk is {internal_display} '
-        f'as assessed and determined by the Cyber Security Director.'
+        f'The current Internal Threat Posture of {internal_display} '
+        f'is assessed and determined by the AECC/CI Cyber Security Director.'
     )
 
     banners_html = f"""
