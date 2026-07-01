@@ -1204,12 +1204,15 @@ import re
 
 def generate_unified_brief_email_html(report_time, markdown_content, global_risk=None, internal_risk=None):
     if not global_risk or not internal_risk:
-        with SessionLocal() as session:
+        session = SessionLocal()
+        try:
             config = session.query(SystemConfig).first()
             if not global_risk:
                 global_risk = (config.last_global_risk or "UNKNOWN").upper()
             if not internal_risk:
                 internal_risk = (config.last_internal_risk or "UNKNOWN").upper()
+        finally:
+            session.close()
     else:
         global_risk = global_risk.upper()
         internal_risk = internal_risk.upper()
@@ -1225,6 +1228,11 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
     else:
         overall_risk = internal_risk
 
+    name_map = {
+        "GREEN": "LOW", "BLUE": "GUARDED",
+        "YELLOW": "ELEVATED", "ORANGE": "HIGH", "RED": "SEVERE"
+    }
+
     color_map = {
         "GREEN": "#01a46d", "BLUE": "#377fc7", "YELLOW": "#f5d800",
         "ORANGE": "#ff9b2b", "RED": "#ec3e40", "UNKNOWN": "#6c757d"
@@ -1233,73 +1241,68 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
     global_color = color_map.get(global_risk, "#6c757d")
     internal_color = color_map.get(internal_risk, "#6c757d")
 
+    overall_display = name_map.get(overall_risk, overall_risk)
+    global_display = name_map.get(global_risk, global_risk)
+    internal_display = name_map.get(internal_risk, internal_risk)
+
     def native_md_to_html(text):
-        text = text.replace('\r', '').strip()
-        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#111827; font-size:22px; font-weight:600; margin-bottom:10px; margin-top:0;">\1</h1>', text, flags=re.MULTILINE)
-        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#111827; font-size:18px; font-weight:600; border-bottom:2px solid #e5e7eb; padding-bottom:8px; margin-top:25px; margin-bottom:12px;">\1</h2>', text, flags=re.MULTILINE)
-        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#374151; font-size:16px; margin-bottom:5px; margin-top:15px;">\1</h3>', text, flags=re.MULTILINE)
-        text = re.sub(r'\*\*(.*?)\*\*', r'<strong style="color:#111827;">\1</strong>', text)
+        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#2c3e50; margin-bottom:5px; margin-top:15px;">\1</h3>', text, flags=re.MULTILINE)
+        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#2980b9; margin-bottom:5px; border-bottom:1px solid #eee; margin-top:20px;">\1</h2>', text, flags=re.MULTILINE)
+        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#2c3e50;">\1</h1>', text, flags=re.MULTILINE)
+        text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
         text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#3498db; text-decoration:none;">\1</a>', text)
-        text = re.sub(r'^\* (.*?)$', r'<div style="margin-bottom:6px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
-        text = re.sub(r'^- (.*?)$', r'<div style="margin-bottom:6px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        text = text.replace('\n', '<br>')
-        text = re.sub(r'(<br>)*<h', '<h', text)
-        text = re.sub(r'</h1>(<br>)*', '</h1>', text)
-        text = re.sub(r'</h2>(<br>)*', '</h2>', text)
-        text = re.sub(r'</h3>(<br>)*', '</h3>', text)
-        text = re.sub(r'(<br>)*<div style="margin-bottom: 6px', '<div style="margin-bottom: 6px', text)
-        text = re.sub(r'</div>(<br>)*', '</div>', text)
+        text = re.sub(r'^\* (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
+        text = re.sub(r'^- (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
+        text = text.replace('\n', '<br>').replace('<br><br><h', '<br><h')
         return text
 
     raw_html = native_md_to_html(markdown_content)
 
     banners_html = f"""
-    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:25px; table-layout:fixed;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 15px;">
         <tr>
-            <td width="33%" align="center" valign="top" style="padding:5px;">
-                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fa; border:1px solid #e5e7eb; border-radius:8px;">
-                    <tr><td align="center" style="padding:15px 10px;">
-                        <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Unified Posture</div>
-                        <div style="background-color:{overall_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{overall_risk}</div>
-                    </td></tr>
-                </table>
+            <td style="text-align: center; padding: 20px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
+                <h3 style="margin: 0; color: #333333; text-transform: uppercase; font-size: 15px; letter-spacing: 1px;">Unified Threat Posture</h3>
+                <div style="margin-top: 15px; padding: 10px 25px; background-color: {overall_color}; color: #ffffff; display: inline-block; font-size: 22px; font-weight: bold; border-radius: 4px;">
+                    {overall_display}
+                </div>
             </td>
-            <td width="33%" align="center" valign="top" style="padding:5px;">
-                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fa; border:1px solid #e5e7eb; border-radius:8px;">
-                    <tr><td align="center" style="padding:15px 10px;">
-                        <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Global Risk</div>
-                        <div style="background-color:{global_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{global_risk}</div>
-                    </td></tr>
-                </table>
+        </tr>
+    </table>
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 25px;">
+        <tr>
+            <td width="48%" style="text-align: center; padding: 15px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
+                <h3 style="margin: 0; color: #333333; text-transform: uppercase; font-size: 13px; letter-spacing: 1px;">Global Risk</h3>
+                <div style="margin-top: 10px; padding: 8px 20px; background-color: {global_color}; color: #ffffff; display: inline-block; font-size: 16px; font-weight: bold; border-radius: 4px;">
+                    {global_display}
+                </div>
             </td>
-            <td width="33%" align="center" valign="top" style="padding:5px;">
-                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fa; border:1px solid #e5e7eb; border-radius:8px;">
-                    <tr><td align="center" style="padding:15px 10px;">
-                        <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Internal Risk</div>
-                        <div style="background-color:{internal_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{internal_risk}</div>
-                    </td></tr>
-                </table>
+            <td width="4%"></td>
+            <td width="48%" style="text-align: center; padding: 15px; background-color: #f8f9fa; border: 1px solid #eeeeee; border-radius: 4px;">
+                <h3 style="margin: 0; color: #333333; text-transform: uppercase; font-size: 13px; letter-spacing: 1px;">Internal Risk</h3>
+                <div style="margin-top: 10px; padding: 8px 20px; background-color: {internal_color}; color: #ffffff; display: inline-block; font-size: 16px; font-weight: bold; border-radius: 4px;">
+                    {internal_display}
+                </div>
             </td>
         </tr>
     </table>
     """
 
     formatted_html = f"""
-    <div style="margin:0; padding:20px; background-color:#f3f4f6;">
-        <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width:850px; margin:0 auto; background-color:#ffffff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);">
-            <div style="background-color:#1f2937; padding:25px 30px; text-align:left;">
-                <h1 style="color:#ffffff; margin:0 0 5px 0; font-size:22px; font-weight:600; letter-spacing:-0.5px;">Executive Unified Risk Brief</h1>
-                <p style="color:#9ca3af; margin:0; font-size:13px;">Generated: {report_time}</p>
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 0 auto; color: #333; line-height: 1.5;">
+        <div style="background-color: #fcfcfc; padding: 20px; border-radius: 6px; border-left: 4px solid {overall_color}; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <h2 style="color: #2c3e50; margin-top: 0; text-transform: uppercase;">Executive Unified Risk Brief</h2>
+            <p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 20px;"><strong>Generated:</strong> {report_time}</p>
+
+            {banners_html}
+
+            <div style="font-size: 14px; background-color: #ffffff; padding: 20px; border-radius: 4px; border: 1px solid #eee;">
+                {raw_html}
             </div>
-            <div style="padding:25px 30px;">
-                {banners_html}
-                <div style="font-size:14px; line-height:1.6; color:#374151;">
-                    {raw_html}
-                </div>
-            </div>
-            <div style="background-color:#f9fafb; padding:15px 30px; text-align:center; border-top:1px solid #e5e7eb;">
-                <p style="margin:0; font-size:11px; color:#9ca3af;">This is an automated intelligence briefing generated by the internal NOC AIOps system.<br>Please do not reply directly to this email.</p>
+
+            <br>
+            <div style="margin-top: 25px; text-align: center; font-size: 11px; color: #999999;">
+                This is an automated intelligence briefing generated by the internal NOC AIOps system.<br>Please do not reply directly to this email.
             </div>
         </div>
     </div>
@@ -1319,8 +1322,8 @@ def generate_outlook_html_report(intel):
     badge_color = color_map.get(intel["unified_risk"].upper(), "#28a745")
     
     name_map = {
-        "GREEN": "GREEN (LOW)", "BLUE": "BLUE (GUARDED)", 
-        "YELLOW": "YELLOW (ELEVATED)", "ORANGE": "ORANGE (HIGH)", "RED": "RED (SEVERE)"
+        "GREEN": "LOW", "BLUE": "GUARDED",
+        "YELLOW": "ELEVATED", "ORANGE": "HIGH", "RED": "SEVERE"
     }
     display_risk = name_map.get(intel["unified_risk"].upper(), "UNKNOWN")
     
