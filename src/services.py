@@ -1299,7 +1299,7 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
             <td width="33%" align="center" valign="top" style="padding:5px;">
                 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fa; border:1px solid #e5e7eb; border-radius:8px;">
                     <tr><td align="center" style="padding:15px 10px;">
-                        <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Internal Risk</div>
+                        <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Internal Cyber Risk</div>
                         <div style="background-color:{internal_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{internal_display}</div>
                     </td></tr>
                 </table>
