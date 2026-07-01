@@ -88,10 +88,21 @@ def utc_now():
     """Return current UTC time."""
     return datetime.utcnow()
 
+def _get_attr(obj, attr, default=None):
+    """Get attribute from either an ORM object or a dict."""
+    if isinstance(obj, dict):
+        return obj.get(attr, default)
+    return getattr(obj, attr, default)
+
 def format_central(dt):
     """Format a UTC datetime as Central time string."""
     if dt is None:
         return "Unknown"
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt.replace('Z', '+00:00'))
+        except (ValueError, TypeError):
+            return dt
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=ZoneInfo("UTC"))
     return dt.astimezone(LOCAL_TZ).strftime('%Y-%m-%d %H:%M:%S')
@@ -2150,7 +2161,15 @@ def generate_rca_ticket_text(site, data, priority, patient_zero, root_cause):
     priority = sanitize_text(priority)
     root_cause = sanitize_text(root_cause)
     pz_obj = data.get('patient_zero')
-    trigger_time = pz_obj.received_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(LOCAL_TZ).strftime('%m/%d/%Y %I:%M %p %Z') if pz_obj and pz_obj.received_at else "Unknown Time"
+    pz_received = _get_attr(pz_obj, 'received_at') if pz_obj else None
+    if pz_received:
+        if isinstance(pz_received, str):
+            pz_dt = datetime.fromisoformat(pz_received.replace('Z', '+00:00'))
+        else:
+            pz_dt = pz_received.replace(tzinfo=ZoneInfo("UTC")) if pz_received.tzinfo is None else pz_received
+        trigger_time = pz_dt.astimezone(LOCAL_TZ).strftime('%m/%d/%Y %I:%M %p %Z')
+    else:
+        trigger_time = "Unknown Time"
     
     # Dynamically grab the affected domains for the ticket description (e.g. TRANSPORT_CORE, SCADA_OT)
     domains = list(data.get('domains_affected', []))
@@ -2162,9 +2181,14 @@ def generate_rca_ticket_text(site, data, priority, patient_zero, root_cause):
     ticket_text += f"\nPRIORITY: {priority}" + f"\n{root_cause}\n\nAFFECTED INFRASTRUCTURE DETAILS:\n"
     
     for idx, alert in enumerate(data.get('alerts', []), 1):
-        rcv_time = format_central(alert.received_at) if alert.received_at else "Unknown"
+        alert_rcv = _get_attr(alert, 'received_at')
+        rcv_time = format_central(alert_rcv) if alert_rcv else "Unknown"
         # Compact single-line device format
-        ticket_text += f"[{idx}] {alert.node_name} ({alert.ip_address}) - {alert.status} | {alert.event_category} | Since: {rcv_time}\n"
+        node_name = _get_attr(alert, 'node_name', 'Unknown')
+        ip_address = _get_attr(alert, 'ip_address', 'Unknown')
+        status = _get_attr(alert, 'status', 'Unknown')
+        event_category = _get_attr(alert, 'event_category', 'Unknown')
+        ticket_text += f"[{idx}] {node_name} ({ip_address}) - {status} | {event_category} | Since: {rcv_time}\n"
         
     return ticket_text
 

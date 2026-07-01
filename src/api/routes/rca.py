@@ -131,8 +131,13 @@ def site_maintenance(background_tasks: BackgroundTasks, data: dict = Body(...), 
 
 
 @router.post("/generate-ticket")
-def generate_ticket(site: str = "", priority: str = "P3", patient_zero: str = "", root_cause: str = ""):
-    return {"ticket": svc.generate_rca_ticket_text(site, {}, priority, patient_zero, root_cause)}
+def generate_ticket(data: dict = Body(...)):
+    site = data.get("site", "")
+    priority = data.get("priority", "P3")
+    patient_zero = data.get("patient_zero", "")
+    root_cause = data.get("root_cause", "")
+    cluster = data.get("cluster", {})
+    return {"ticket": svc.generate_rca_ticket_text(site, cluster, priority, patient_zero, root_cause)}
 
 
 @router.post("/send-ticket")

@@ -255,28 +255,58 @@ export function AiopsRcaPage() {
   const handleGenerateTicket = useCallback(
     (site: string) => {
       const rc = getRc(site);
+      const cluster = clustered[site] ?? {};
       const priority = rc?.priority ?? "P3 - MODERATE";
-      const pz = rc?.patientZero ?? "Indeterminate (Simultaneous Failure)";
       const cause = rc?.cause ?? "Under Investigation";
-      api
-        .post("/rca/generate-ticket", { site, priority, patient_zero: pz, root_cause: cause })
-        .then((r) => {
-          setTicketTexts((prev) => ({ ...prev, [site]: r.data.ticket }));
-        })
-        .catch(() => {
-          const fallback = [
-            `URGENT: ${priority} Incident at ${site}`,
-            `Patient Zero: ${pz}`,
-            `Root Cause: ${cause}`,
-            ``,
-            `---`,
-            `Action Required: Investigate and remediate at earliest convenience.`,
-            `Recipients: remedyforceworkflow@aecc.com, noc@aecc.com`,
-          ].join("\n");
-          setTicketTexts((prev) => ({ ...prev, [site]: fallback }));
-        });
+
+      // Format trigger time from patient zero alert (matches Python format_central trigger_time)
+      const pzAlert = cluster.patient_zero;
+      let triggerTime = "Unknown Time";
+      if (pzAlert?.received_at) {
+        try {
+          const raw = pzAlert.received_at;
+          const ts = typeof raw === "string" && !raw.endsWith("Z") && !/[+-]\d{2}:\d{2}$/.test(raw) ? `${raw}Z` : raw;
+          triggerTime = new Date(ts).toLocaleString("en-US", {
+            timeZone: "America/Chicago",
+            month: "2-digit", day: "2-digit", year: "numeric",
+            hour: "2-digit", minute: "2-digit", hour12: true,
+            timeZoneName: "short",
+          });
+        } catch { /* leave default */ }
+      }
+
+      // Affected domains (matches Python: domains.title().replace("_", " "))
+      const domains: string[] = cluster.domains_affected ?? [];
+      const affectingStr = domains.length > 0
+        ? domains.map((d: string) => d.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())).join(", ")
+        : "SCADA connectivity";
+
+      let ticket = `Automated Comms Outage\n\n${site} - Trouble\n\n`;
+      ticket += `A communications issue was identified on ${triggerTime}. This is affecting ${affectingStr}. For more information, please see additional notes.\n\n`;
+      ticket += `\nPRIORITY: ${priority}\n${cause}\n\nAFFECTED INFRASTRUCTURE DETAILS:\n`;
+
+      const alerts: any[] = cluster.alerts ?? [];
+      alerts.forEach((alert: any, idx: number) => {
+        let rcvTime = "Unknown";
+        if (alert.received_at) {
+          try {
+            const raw = alert.received_at;
+            const ts = typeof raw === "string" && !raw.endsWith("Z") && !/[+-]\d{2}:\d{2}$/.test(raw) ? `${raw}Z` : raw;
+            const parts = new Intl.DateTimeFormat("en-US", {
+              timeZone: "America/Chicago",
+              year: "numeric", month: "2-digit", day: "2-digit",
+              hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+            }).formatToParts(new Date(ts));
+            const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+            rcvTime = `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
+          } catch { /* leave default */ }
+        }
+        ticket += `[${idx + 1}] ${alert.node_name} (${alert.ip_address}) - ${alert.status} | ${alert.event_category} | Since: ${rcvTime}\n`;
+      });
+
+      setTicketTexts((prev) => ({ ...prev, [site]: ticket }));
     },
-    [rootCause]
+    [rootCause, clustered]
   );
 
   const [siteDialog, setSiteDialog] = useState<{
