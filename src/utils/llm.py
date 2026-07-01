@@ -215,13 +215,14 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     1. VISUAL HIERARCHY: DO NOT use wall-of-text paragraphs. You MUST use bolding for emphasis, bulleted lists for all data points, and blockquotes for critical warnings. Make the report highly scannable.
     2. OPERATIONAL TRANSLATION: For every vulnerability or threat, explicitly state the "So What?" (e.g., instead of just listing "ZDI-26-339", explain that it "could allow unauthorized users to gain administrative control over our Windows fleet, leading to data exfiltration").
     3. MANDATORY DISCLAIMER: The very first thing under the Executive Summary must be this exact blockquote:
-       > **OSINT CORRELATION DISCLAIMER:** This brief correlates external Open-Source Intelligence (OSINT) with our internal asset types to provide situational awareness. It highlights potential external exposures and does NOT represent confirmed internal breaches or active system compromises.
-    4. EXPAND THE NARRATIVE: Do not just regurgitate the data. Synthesize it. Group similar threats together (e.g., group all ransomware actors, group all weather events) and explain their overarching threat to business continuity, personnel safety, or infrastructure.
+       > **OSINT CORRELATION DISCLAIMER:** This brief correlates external Open-Source Intelligence (OSINT) with our internal asset types to provide situational awareness. It highlights potential external exposures and does NOT represent confirmed internal breaches or active system compromises. The Current threat posture of Guarded is Assessed and determined by the Cyber security director.
+    4. THREAT LEVEL TERMINOLOGY: When referring to threat levels or risk levels, you MUST strictly use the terms: Low, Guarded, Elevated, High, or Severe. Do NOT use colors (e.g., yellow, blue, red) to describe threat levels.
+    5. EXPAND THE NARRATIVE: Do not just regurgitate the data. Synthesize it. Group similar threats together (e.g., group all ransomware actors, group all weather events) and explain their overarching threat to business continuity, personnel safety, or infrastructure.
 
     REQUIRED STRUCTURE:
     ## Executive OSINT Summary (BLUF)
     [Insert the Mandatory Disclaimer here]
-    * Provide a 3-4 sentence high-level narrative explaining the convergence of the Global and Internal risk levels.
+    * Provide a 3-4 sentence high-level narrative explaining the convergence of the Global and Internal risk levels (using only the terminology: Low, Guarded, Elevated, High, Severe).
     * Follow with a bulleted list of the "Top 3 Immediate Concerns" across all domains.
 
     ## Internal Asset Threat Correlations (OSINT Overlaps)
