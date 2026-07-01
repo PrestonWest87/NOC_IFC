@@ -3,6 +3,7 @@ import random
 import logging
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 from sqlalchemy import text
 from src.models import Base
 from src.core.config import DATABASE_URL
@@ -11,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 engine = create_engine(
     DATABASE_URL,
+    poolclass=NullPool,
     connect_args={"check_same_thread": False, "timeout": 30}
 )
 
