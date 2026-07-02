@@ -93,6 +93,20 @@ def init_db():
     except Exception:
         pass
 
+    for _col in [
+        "status_modified_by VARCHAR",
+        "status_modified_at DATETIME",
+        "last_auto_ticket DATETIME",
+        "last_escalation_ticket DATETIME",
+        "last_auto_dispatch DATETIME",
+        "last_escalation_dispatch DATETIME",
+    ]:
+        try:
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                conn.execute(text(f"ALTER TABLE monitored_locations ADD COLUMN {_col}"))
+        except Exception:
+            pass
+
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("""
@@ -145,21 +159,18 @@ def init_db():
             except Exception:
                 pass
 
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE solarwinds_alerts ADD COLUMN is_ticketed BOOLEAN DEFAULT 0"))
-            conn.execute(text("ALTER TABLE solarwinds_alerts ADD COLUMN acknowledged_by VARCHAR"))
-            conn.execute(text("ALTER TABLE solarwinds_alerts ADD COLUMN acknowledged_at DATETIME"))
-            conn.execute(text("ALTER TABLE solarwinds_alerts ADD COLUMN dispatched_by VARCHAR"))
-            conn.execute(text("ALTER TABLE solarwinds_alerts ADD COLUMN dispatched_at DATETIME"))
-            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN last_auto_ticket DATETIME"))
-            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN last_escalation_ticket DATETIME"))
-            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN last_auto_dispatch DATETIME"))
-            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN last_escalation_dispatch DATETIME"))
-            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN status_modified_by VARCHAR"))
-            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN status_modified_at DATETIME"))
-    except Exception:
-        pass
+    for _col in [
+        "is_ticketed BOOLEAN DEFAULT 0",
+        "acknowledged_by VARCHAR",
+        "acknowledged_at DATETIME",
+        "dispatched_by VARCHAR",
+        "dispatched_at DATETIME",
+    ]:
+        try:
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                conn.execute(text(f"ALTER TABLE solarwinds_alerts ADD COLUMN {_col}"))
+        except Exception:
+            pass
 
     scoring_alterations = [
         "ALTER TABLE system_config ADD COLUMN scoring_mode VARCHAR DEFAULT 'auto'",
