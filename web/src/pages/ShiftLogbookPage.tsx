@@ -271,17 +271,6 @@ export function ShiftLogbookPage() {
     return days;
   }, [weekStart]);
 
-  const dayLogs = useMemo(() => {
-    if (!allEntries.length) return [];
-    return entriesForChicagoDay(allEntries, selectedLogDate);
-  }, [allEntries, selectedLogDate]);
-
-  const logsForDay = (date: Date) => {
-    if (!allEntries.length) return [];
-    const dayStr = chicagoDateString(date);
-    return entriesForChicagoDay(allEntries, dayStr);
-  };
-
   const explorerFiltered = useMemo(() => {
     let list = [...allEntries];
     if (explorerSearch) {
@@ -307,6 +296,17 @@ export function ShiftLogbookPage() {
     }
     return list.reverse();
   }, [allEntries, explorerSearch, explorerRoleFilter, explorerDateFrom, explorerDateTo]);
+
+  const dayLogs = useMemo(() => {
+    if (!explorerFiltered.length) return [];
+    return entriesForChicagoDay(explorerFiltered, selectedLogDate);
+  }, [explorerFiltered, selectedLogDate]);
+
+  const logsForDay = (date: Date) => {
+    if (!explorerFiltered.length) return [];
+    const dayStr = chicagoDateString(date);
+    return entriesForChicagoDay(explorerFiltered, dayStr);
+  };
 
   const selectedEntryLocal = selectedEntry
     ? {

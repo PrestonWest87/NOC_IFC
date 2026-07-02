@@ -93,9 +93,11 @@ def analyze():
 
 # UPDATE: Add BackgroundTasks to force live-sync on Acknowledgements
 @router.post("/acknowledge")
-def acknowledge(background_tasks: BackgroundTasks, alert_ids: list[int] = Body([])):
+def acknowledge(background_tasks: BackgroundTasks, alert_ids: list[int] = Body([]), token: str = Query("")):
     logger.info("POST /rca/acknowledge alert_ids=%s", alert_ids)
-    svc.acknowledge_cluster(alert_ids)
+    user = svc.get_user_by_token(token)
+    username = user.username if user else "unknown"
+    svc.acknowledge_cluster(alert_ids, username=username)
     
     from src.api.main import manager
     background_tasks.add_task(manager.broadcast_json, {"type": "RCA_UPDATE"})
@@ -104,9 +106,9 @@ def acknowledge(background_tasks: BackgroundTasks, alert_ids: list[int] = Body([
 
 # UPDATE: Add BackgroundTasks to force live-sync on Dispatches
 @router.post("/dispatch")
-def dispatch(background_tasks: BackgroundTasks, data: dict = Body(...), _=Depends(require_action("Action: Dispatch RCA Tickets"))):
+def dispatch(background_tasks: BackgroundTasks, data: dict = Body(...), user=Depends(require_action("Action: Dispatch RCA Tickets"))):
     logger.info("POST /rca/dispatch alert_ids=%s is_dispatched=%s", data.get("alert_ids"), data.get("is_dispatched"))
-    svc.set_cluster_dispatch(data.get("alert_ids", []), data.get("is_dispatched", True))
+    svc.set_cluster_dispatch(data.get("alert_ids", []), data.get("is_dispatched", True), dispatched_by=user.username)
     
     from src.api.main import manager
     background_tasks.add_task(manager.broadcast_json, {"type": "RCA_UPDATE"})
@@ -141,7 +143,7 @@ def generate_ticket(data: dict = Body(...)):
 
 
 @router.post("/send-ticket")
-def send_ticket(background_tasks: BackgroundTasks, data: dict = Body(...), _=Depends(require_action("Action: Dispatch RCA Tickets"))):
+def send_ticket(background_tasks: BackgroundTasks, data: dict = Body(...), user=Depends(require_action("Action: Dispatch RCA Tickets"))):
     from src.utils.mailer import send_alert_email
     site = data.get("site", "")
     ticket_text = data.get("ticket_text", "")
@@ -160,7 +162,7 @@ def send_ticket(background_tasks: BackgroundTasks, data: dict = Body(...), _=Dep
         is_html=False
     )
     if alert_ids:
-        svc.set_cluster_dispatch(alert_ids, True)
+        svc.set_cluster_dispatch(alert_ids, True, dispatched_by=user.username)
     from src.api.main import manager
     background_tasks.add_task(manager.broadcast_json, {"type": "RCA_UPDATE"})
     return {"status": "ok" if success else "error", "message": msg}

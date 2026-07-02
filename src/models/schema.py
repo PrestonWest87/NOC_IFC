@@ -290,6 +290,10 @@ class SolarWindsAlert(Base):
     ai_root_cause = Column(Text, nullable=True)
     device_type = Column(String, default="Unknown", index=True)
     event_category = Column(String, default="Unknown")
+    acknowledged_by = Column(String, nullable=True)
+    acknowledged_at = Column(DateTime, nullable=True)
+    dispatched_by = Column(String, nullable=True)
+    dispatched_at = Column(DateTime, nullable=True)
 
 
 class TimelineEvent(Base):

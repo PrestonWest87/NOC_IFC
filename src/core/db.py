@@ -148,6 +148,10 @@ def init_db():
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE solarwinds_alerts ADD COLUMN is_ticketed BOOLEAN DEFAULT 0"))
+            conn.execute(text("ALTER TABLE solarwinds_alerts ADD COLUMN acknowledged_by VARCHAR"))
+            conn.execute(text("ALTER TABLE solarwinds_alerts ADD COLUMN acknowledged_at DATETIME"))
+            conn.execute(text("ALTER TABLE solarwinds_alerts ADD COLUMN dispatched_by VARCHAR"))
+            conn.execute(text("ALTER TABLE solarwinds_alerts ADD COLUMN dispatched_at DATETIME"))
             conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN last_auto_ticket DATETIME"))
             conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN last_escalation_ticket DATETIME"))
             conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN last_auto_dispatch DATETIME"))
@@ -188,7 +192,7 @@ def init_db():
             "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score",
             "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
             "Action: Submit Shift Log", "Action: Dispatch RCA Tickets", "Action: Manage Site Maintenance",
-            "Tab: Dashboards -> Operational", "Tab: Dashboards -> Global Risk", "Tab: Dashboards -> Internal Risk",
+            "Tab: Dashboards -> Operational", "Tab: Dashboards -> Global Risk", "Tab: Dashboards -> Internal Risk", "Tab: Dashboards -> Unified Brief",
             "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV",
             "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",
             "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash",
@@ -299,6 +303,17 @@ def init_db():
         session3.close()
     except Exception as e:
         logger.warning(f"Could not seed default keywords: {e}")
+
+    try:
+        from src.models.schema import SystemConfig
+        session_cfg = SessionLocal()
+        if not session_cfg.query(SystemConfig).first():
+            session_cfg.add(SystemConfig(is_active=False))
+            session_cfg.commit()
+            logger.info("Created default SystemConfig.")
+        session_cfg.close()
+    except Exception as e:
+        logger.warning(f"Could not seed default SystemConfig: {e}")
 
     try:
         from src.services import rescore_all_articles

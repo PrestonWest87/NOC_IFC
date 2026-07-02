@@ -200,6 +200,8 @@ export function AiopsRcaPage() {
           under_maintenance: l.under_maintenance ?? false,
           maintenance_etr: l.maintenance_etr ?? null,
           maintenance_reason: l.maintenance_reason ?? null,
+          status_modified_by: l.status_modified_by ?? null,
+          status_modified_at: l.status_modified_at ?? null,
         };
       });
       return mapped;
@@ -316,6 +318,7 @@ export function AiopsRcaPage() {
     name: string; lat: number; lon: number; alert_count: number;
     is_dispatched: boolean; under_maintenance: boolean;
     maintenance_etr: string | null; maintenance_reason: string | null;
+    status_modified_by: string | null; status_modified_at: string | null;
   } | null>(null);
   const [dialogDispatch, setDialogDispatch] = useState(false);
   const [dialogStatus, setDialogStatus] = useState<string>("Investigate/Dispatch");
@@ -483,7 +486,9 @@ export function AiopsRcaPage() {
           name: s.name, position: [s.lon + 0.012 * offset, s.lat + 0.012 * offset] as [number, number],
           color, alert_count: s.alert_count, under_maintenance: s.under_maintenance,
           is_dispatched: s.is_dispatched, maintenance_etr: s.maintenance_etr,
-          maintenance_reason: s.maintenance_reason, status_text: statusText, radius,
+          maintenance_reason: s.maintenance_reason,
+          status_modified_by: s.status_modified_by, status_modified_at: s.status_modified_at,
+          status_text: statusText, radius,
         });
       } else {
         seenCoords[coordKey] = 0;
@@ -491,7 +496,9 @@ export function AiopsRcaPage() {
           name: s.name, position: [s.lon, s.lat] as [number, number],
           color, alert_count: s.alert_count, under_maintenance: s.under_maintenance,
           is_dispatched: s.is_dispatched, maintenance_etr: s.maintenance_etr,
-          maintenance_reason: s.maintenance_reason, status_text: statusText, radius,
+          maintenance_reason: s.maintenance_reason,
+          status_modified_by: s.status_modified_by, status_modified_at: s.status_modified_at,
+          status_text: statusText, radius,
         });
       }
 
@@ -722,6 +729,15 @@ export function AiopsRcaPage() {
                       />
                     </div>
 
+                    {siteDialog.status_modified_by && (
+                      <div style={{ marginBottom: "0.5rem", fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                        Last modified by <strong>{siteDialog.status_modified_by}</strong>
+                        {siteDialog.status_modified_at && (
+                          <> &middot; {formatTimeInChicago(siteDialog.status_modified_at)}</>
+                        )}
+                      </div>
+                    )}
+
                     <div style={{ display: "flex", gap: "0.4rem", justifyContent: "flex-end", borderTop: "1px solid var(--border-primary)", paddingTop: "0.4rem" }}>
                       <button onClick={() => setSiteDialog(null)}
                         style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer" }}>
@@ -815,6 +831,9 @@ export function AiopsRcaPage() {
               const isAcking = ackMutation.isPending;
               const mf = maintForm[site] ?? { status: "No Maintenance", etr: "", reason: "" };
 
+              const ackInfo = clusterAlerts.find((a: any) => a.acknowledged_by);
+              const dispatchInfo = clusterAlerts.find((a: any) => a.dispatched_by);
+
               return (
                 <div key={site} style={{ ...card, marginBottom: "0.75rem" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.5rem" }}>
@@ -854,6 +873,16 @@ export function AiopsRcaPage() {
                     )}
                   </div>
 
+                  {ackInfo && (
+                    <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginBottom: "0.3rem", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                      <CheckCircle size={12} style={{ color: "var(--accent-green)" }} />
+                      Acknowledged by <strong>{ackInfo.acknowledged_by}</strong>
+                      {ackInfo.acknowledged_at && (
+                        <> &middot; {formatTimeInChicago(ackInfo.acknowledged_at)}</>
+                      )}
+                    </div>
+                  )}
+
                   {isUnderMaint && siteInfo && (
                     <div
                       style={{
@@ -875,6 +904,17 @@ export function AiopsRcaPage() {
                       <span style={{ color: "var(--text-secondary)" }}>
                         Reason: {siteInfo.maintenance_reason || "No reason provided."}
                       </span>
+                      {siteInfo.status_modified_by && (
+                        <>
+                          <br />
+                          <span style={{ color: "var(--text-muted)", fontSize: "0.72rem" }}>
+                            Last modified by <strong>{siteInfo.status_modified_by}</strong>
+                            {siteInfo.status_modified_at && (
+                              <> &middot; {formatTimeInChicago(siteInfo.status_modified_at)}</>
+                            )}
+                          </span>
+                        </>
+                      )}
                     </div>
                   )}
 
@@ -898,6 +938,14 @@ export function AiopsRcaPage() {
                         />
                         Ticket Dispatched
                       </label>
+                    )}
+                    {dispatchInfo && (
+                      <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                        Dispatched by <strong>{dispatchInfo.dispatched_by}</strong>
+                        {dispatchInfo.dispatched_at && (
+                          <> &middot; {formatTimeInChicago(dispatchInfo.dispatched_at)}</>
+                        )}
+                      </span>
                     )}
 
                     {canDispatch && (

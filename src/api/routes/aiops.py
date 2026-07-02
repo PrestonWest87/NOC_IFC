@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from src.core.db import get_db
@@ -49,13 +49,15 @@ def get_sites(db: Session = Depends(get_db)):
 
 
 @router.patch("/sites/{site_id}/acknowledge")
-def acknowledge_site(site_id: int, db: Session = Depends(get_db)):
+def acknowledge_site(site_id: int, token: str = Query(""), db: Session = Depends(get_db)):
     logger.info("PATCH /aiops/sites/%d/acknowledge", site_id)
+    user = svc.get_user_by_token(token)
+    username = user.username if user else "unknown"
     from src.models.schema import SolarWindsAlert
     alerts = db.query(SolarWindsAlert).filter(
         SolarWindsAlert.is_correlated == False,
         SolarWindsAlert.status != "Resolved",
     ).all()
-    svc.acknowledge_cluster([a.id for a in alerts])
-    logger.info("PATCH /aiops/sites/%d/acknowledge: acknowledged %d alerts", site_id, len(alerts))
+    svc.acknowledge_cluster([a.id for a in alerts], username=username)
+    logger.info("PATCH /aiops/sites/%d/acknowledge: acknowledged %d alerts by %s", site_id, len(alerts), username)
     return {"status": "acknowledged"}

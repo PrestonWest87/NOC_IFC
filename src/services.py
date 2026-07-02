@@ -207,12 +207,22 @@ def get_all_site_types():
             merged.append(t)
     return merged
 
-def set_cluster_dispatch(alert_ids, is_dispatched):
-    from src.database import SolarWindsAlert
+def set_cluster_dispatch(alert_ids, is_dispatched, dispatched_by="unknown"):
     with SessionLocal() as db:
+        now_utc = datetime.utcnow()
         alerts = db.query(SolarWindsAlert).filter(SolarWindsAlert.id.in_(alert_ids)).all()
+        updated_sites = set()
         for a in alerts:
             a.is_dispatched = is_dispatched
+            a.dispatched_by = dispatched_by
+            a.dispatched_at = now_utc
+            if a.mapped_location:
+                updated_sites.add(a.mapped_location)
+        for site in updated_sites:
+            loc = db.query(MonitoredLocation).filter(MonitoredLocation.name == site).first()
+            if loc:
+                loc.status_modified_by = dispatched_by
+                loc.status_modified_at = now_utc
         db.commit()
         return True
       
@@ -394,7 +404,7 @@ def get_role_permissions(role_name):
                 "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
                 "Tab: Shift Log -> Active Shift", "Tab: Shift Log -> History",
                 "Tab: Reporting -> Daily Fusion", "Tab: Reporting -> Report Builder", "Tab: Reporting -> Shared Library",
-                "Tab: Settings -> Facility Locations", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training",
+                "Tab: Settings -> Facility Locations", "Tab: Settings -> Internal Assets", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training",
                 "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
             ],
             "allowed_site_types": get_all_site_types(),
@@ -2133,11 +2143,23 @@ def resolve_alert(alert_id, node_name):
             db.add(TimelineEvent(source="User", event_type="Resolution", message=f"[OK] Operator manually resolved {node_name}"))
             db.commit()
 
-def acknowledge_cluster(alert_ids):
+def acknowledge_cluster(alert_ids, username="unknown"):
     with SessionLocal() as db:
+        now_utc = datetime.utcnow()
+        updated_sites = set()
         for aid in alert_ids:
             a = db.query(SolarWindsAlert).filter_by(id=aid).first()
-            if a: a.is_correlated = True
+            if a:
+                a.is_correlated = True
+                a.acknowledged_by = username
+                a.acknowledged_at = now_utc
+                if a.mapped_location:
+                    updated_sites.add(a.mapped_location)
+        for site in updated_sites:
+            loc = db.query(MonitoredLocation).filter(MonitoredLocation.name == site).first()
+            if loc:
+                loc.status_modified_by = username
+                loc.status_modified_at = now_utc
         db.commit()
 
 def save_alias(alias_id, new_mapped_name):
@@ -2413,8 +2435,21 @@ def trigger_scoring_rationale(intel_data: dict):
     logger.warning("trigger_scoring_rationale: generation failed: %s", (report or "None")[:200])
     return {"status": "error", "message": report or "Generation failed."}
 
+def _build_fallback_summary(logs, timeframe_label, target_role):
+    """Build a plain-text shift summary from log entries without calling an LLM."""
+    lines = []
+    lines.append(f"=== {timeframe_label} Shift Summary: {target_role.upper()} ===")
+    lines.append(f"Total entries: {len(logs)}")
+    lines.append("")
+    for i, log in enumerate(logs, 1):
+        ts = log.created_at.strftime("%Y-%m-%d %H:%M") if log.created_at else "Unknown"
+        lines.append(f"{i}. [{ts}] {log.analyst}: {log.content[:300]}")
+    return "\n".join(lines)
+
+
 def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning", timeframe_label: str = "Morning Shift", auto_append: bool = False):
     """Force-generate an aggregated shift summary from log entries."""
+    import threading
     from src.utils.llm import generate_aggregated_shift_summary
     from src.database import ShiftLogEntry
     logger = logging.getLogger(__name__)
@@ -2429,21 +2464,46 @@ def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning
         logs = query.order_by(ShiftLogEntry.created_at.desc()).limit(200).all()
         logger.info("trigger_shift_summary: fetched %d logs", len(logs))
 
-        summary = generate_aggregated_shift_summary(session, logs, timeframe_label, target_role=role_filter)
+        if not logs:
+            return {"status": "ok", "summary": f"No log entries found for {timeframe_label} ({role_filter})."}
 
-    if summary and "[WARN]" not in summary and "Summary generation failed" not in summary:
-        logger.info("trigger_shift_summary: success (len=%d)", len(summary))
-        if auto_append:
-            save_shift_log(
-                analyst="AI Shift Report",
-                role="system",
-                shift_period=shift_period,
-                content=f"**AUTO-GENERATED {timeframe_label.upper()} REPORT:**\n\n{summary}",
-            )
-            logger.info("trigger_shift_summary: auto-appended to shift log")
-        return {"status": "ok", "summary": summary}
-    logger.warning("trigger_shift_summary: generation failed: %s", (summary or "None")[:200])
-    return {"status": "error", "message": summary or "Generation failed."}
+        llm_result = [None]
+        llm_error = [None]
+        done = threading.Event()
+
+        def run_llm():
+            try:
+                llm_result[0] = generate_aggregated_shift_summary(session, logs, timeframe_label, target_role=role_filter)
+            except Exception as e:
+                llm_error[0] = e
+            finally:
+                done.set()
+
+        t = threading.Thread(target=run_llm, daemon=True)
+        t.start()
+        ok = done.wait(timeout=30)
+
+        if ok and not llm_error[0] and llm_result[0] and "[WARN]" not in llm_result[0] and "Summary generation failed" not in llm_result[0]:
+            summary = llm_result[0]
+            logger.info("trigger_shift_summary: LLM success (len=%d)", len(summary))
+        else:
+            if not ok:
+                logger.warning("trigger_shift_summary: LLM timed out (>30s), using fallback")
+            elif llm_error[0]:
+                logger.error("trigger_shift_summary: LLM exception: %s", llm_error[0])
+            else:
+                logger.warning("trigger_shift_summary: LLM failed or unavailable, using fallback")
+            summary = _build_fallback_summary(logs, timeframe_label, role_filter)
+
+    if auto_append:
+        save_shift_log(
+            analyst="AI Shift Report",
+            role="system",
+            shift_period=shift_period,
+            content=f"**{timeframe_label.upper()} SHIFT REPORT:**\n\n{summary}",
+        )
+        logger.info("trigger_shift_summary: auto-appended to shift log")
+    return {"status": "ok", "summary": summary}
 
 def add_bulk_keywords(raw_text):
     with SessionLocal() as db:
