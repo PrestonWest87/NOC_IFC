@@ -349,23 +349,28 @@ export function AiopsRcaPage() {
     const clusterAlerts = alerts.filter((a: any) => a.mapped_location === name);
     const alertIds = clusterAlerts.map((a: any) => a.id).filter(Boolean);
 
-    const promises: Promise<any>[] = [];
-
-    if (alertIds.length > 0) {
-      promises.push(dispatchMutation.mutateAsync({ alertIds, dispatched: dialogDispatch }));
-    }
-
     const isMaint = dialogStatus === "No Dispatch Needed";
     const isInvestigating = !isMaint;
 
-    // Use our new solid backend API endpoint!
-    promises.push(investigateMutation.mutateAsync({ site: name, is_investigating: isInvestigating }));
+    // SEQUENTIAL mutations — each must fully complete before next starts.
+    // Parallel Promise.allSettled caused a race: each mutation's onSuccess
+    // invalidates rca-dashboard, triggering staggered refetches where
+    // intermediate data (e.g. locations cache before maintMutation cleared it)
+    // could show stale under_maintenance for other sites.
 
+    // 1. Investigate (fastest — in-memory set)
+    await investigateMutation.mutateAsync({ site: name, is_investigating: isInvestigating });
+
+    // 2. Maintenance (clears get_cached_locations cache)
     const etrDate = isMaint ? dialogEtr : "";
     const reason = dialogReason;
-    promises.push(maintMutation.mutateAsync({ site_name: name, is_maint: isMaint, etr: etrDate, reason }));
+    await maintMutation.mutateAsync({ site_name: name, is_maint: isMaint, etr: etrDate, reason });
 
-    await Promise.allSettled(promises);
+    // 3. Dispatch (last — invalidates both rca-dashboard and rca-analyze)
+    if (alertIds.length > 0) {
+      await dispatchMutation.mutateAsync({ alertIds, dispatched: dialogDispatch });
+    }
+
     setSiteDialog(null);
 }, [siteDialog, dialogDispatch, dialogStatus, dialogEtr, dialogReason, alerts, dispatchMutation, maintMutation, investigateMutation]);
 
@@ -377,6 +382,7 @@ export function AiopsRcaPage() {
       
       // Auto-clear investigating only when alerts transition from >0 to 0
       if (prev[s.name] !== undefined && prev[s.name] > 0 && s.alert_count === 0 && investigatingSites.has(s.name)) {
+        console.debug(`[RCA] Auto-clear investigating for ${s.name} (alerts: ${prev[s.name]}→0)`);
         investigateMutation.mutate({ site: s.name, is_investigating: false });
       }
     }
@@ -473,6 +479,7 @@ export function AiopsRcaPage() {
         showPulse = true;
         radius = 4000;
       }
+      console.debug(`[RCA] ${s.name}: alert_count=${s.alert_count} investigating=${isInvestigating} dispatched=${isDispatched} maint=${isNoDispatch} → ${statusText}`);
 
       const coordKey = `${s.lat}_${s.lon}`;
       if (seenCoords[coordKey] !== undefined) {
