@@ -291,14 +291,6 @@ class EnterpriseAIOpsEngine:
             site_record = db.query(MonitoredLocation).filter(MonitoredLocation.name == site_name).first()
 
             if site_record:
-                if site_record.under_maintenance and site_record.maintenance_etr:
-                    if datetime.utcnow().date() > site_record.maintenance_etr.date():
-                        site_record.under_maintenance = False
-                        site_record.maintenance_etr = None
-                        site_record.maintenance_reason = None
-                        db.commit()
-                        evidence_log.append("Maintenance Override: Expired maintenance window was automatically cleared.")
-
                 if site_record.lat and site_record.lon:
                     for h in active_weather:
                         if not getattr(h, 'lat', None) or not getattr(h, 'lon', None):

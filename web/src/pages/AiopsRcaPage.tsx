@@ -90,7 +90,6 @@ export function AiopsRcaPage() {
   mutationFn: (params: { site: string; is_investigating: boolean }) =>
     api.post("/rca/investigate", params).then((r) => r.data),
   onSuccess: () => {
-    // This will trigger locally, while the broadcast triggers everyone else
     queryClient.invalidateQueries({ queryKey: ["rca-dashboard"] });
   },
 });
@@ -479,7 +478,6 @@ export function AiopsRcaPage() {
         showPulse = true;
         radius = 4000;
       }
-      console.debug(`[RCA] ${s.name}: alert_count=${s.alert_count} investigating=${isInvestigating} dispatched=${isDispatched} maint=${isNoDispatch} → ${statusText}`);
 
       const coordKey = `${s.lat}_${s.lon}`;
       if (seenCoords[coordKey] !== undefined) {
