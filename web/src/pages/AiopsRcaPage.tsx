@@ -379,10 +379,6 @@ export function AiopsRcaPage() {
       if (prev[s.name] !== undefined && prev[s.name] > 0 && s.alert_count === 0 && investigatingSites.has(s.name)) {
         investigateMutation.mutate({ site: s.name, is_investigating: false });
       }
-
-      if (prev[s.name] !== undefined && prev[s.name] > 0 && s.alert_count === 0 && s.under_maintenance) {
-        maintMutation.mutate({ site_name: s.name, is_maint: false, etr: chicagoDateString(), reason: "" });
-      }
     }
     prevAlertCounts.current = curr;
   }, [sites, investigatingSites, maintMutation, investigateMutation]);
