@@ -375,8 +375,8 @@ export function AiopsRcaPage() {
     for (const s of sites) {
       curr[s.name] = s.alert_count;
       
-      // Auto-clear investigating state if the problem is fixed
-      if (s.alert_count === 0 && investigatingSites.has(s.name)) {
+      // Auto-clear investigating only when alerts transition from >0 to 0
+      if (prev[s.name] !== undefined && prev[s.name] > 0 && s.alert_count === 0 && investigatingSites.has(s.name)) {
         investigateMutation.mutate({ site: s.name, is_investigating: false });
       }
 

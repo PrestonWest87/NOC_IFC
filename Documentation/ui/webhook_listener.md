@@ -1,161 +1,136 @@
-# Module: `src/webhook_listener.py`
+# Module: `src.webhook_listener.py`
+
+FastAPI webhook gateway for external ITSM telemetry ingestion. Runs as a standalone service on port 8100. Receives SolarWinds alert payloads, normalizes them, and persists to the database.
+
+---
 
 ## Overview
 
-FastAPI-based enterprise webhook gateway running on port 8100. Receives SolarWinds alert payloads via HTTP POST, performs intelligent field extraction and device classification, and persists normalized alerts to the database for downstream AIOps correlation.
+The webhook listener is a separate FastAPI application (not the main API) that:
+1. Receives POST requests from SolarWinds (or compatible ITSM tools)
+2. Queues background processing via `BackgroundTasks`
+3. Extracts, normalizes, and classifies alert data
+4. Creates or resolves `SolarWindsAlert` records
+5. Creates `TimelineEvent` entries for the RCA activity feed
 
 ---
 
-## Function: `log(msg)`
+## Endpoint
 
-**Purpose:** Writes a prefixed log message at INFO level for the webhook module.
+### `POST /webhook/solarwinds`
 
-**Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `msg` | `str` | The log message content. |
+**Port**: 8100
 
-**Returns:** None
+**Request**: JSON payload (SolarWinds webhook format)
 
-**Raises:** None
+**Response**: `{"status": "accepted", "message": "Payload queued for AI processing."}`
 
-**Flow:**
-1. Calls `logger.info("[WEBHOOK] %s", msg)`.
-
-**Dependencies:** `logging.getLogger(__name__)`
+**Error Responses**:
+- `400 Bad Request` — Invalid JSON payload
+- `500 Internal Server Error` — Gateway processing failure
 
 ---
 
-## Function: `classify_device(text_corpus, node_type_hint=None)`
+## Processing Pipeline
 
-**Purpose:** Classifies a network device into a standardized domain category using keyword fingerprint matching on node name, event type, and device type text.
-
-**Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `text_corpus` | `str` | Concatenated text from node name, event type, and device type. |
-| `node_type_hint` | `str \| None` | Pre-existing device type classification from the payload. If valid, returned directly. |
-
-**Returns:**
-| Type | Description |
-|------|-------------|
-| `str` | One of: `PRIMARY_INTERNET`, `COMMS_EQUIPMENT`, `POWER_SUPPLIES`, `COMPUTE`, `SCADA`, or `Network Node` (fallback). |
-
-**Raises:** None
-
-**Flow:**
-1. If `node_type_hint` is a known non-empty value, returns it immediately.
-2. Converts text corpus to lowercase.
-3. Checks against ordered fingerprint dictionaries:
-   - `PRIMARY_INTERNET`: vsat, cellular, sd-wan, modem, radio, isp, internet
-   - `COMMS_EQUIPMENT`: fw, firewall, asa, palo, fortigate, meraki, rtr, router, switch, nexus, catalyst, ap, wireless, wlc, etc.
-   - `POWER_SUPPLIES`: ups, pdu, ats, battery, generator, hvac, dc power, etc.
-   - `COMPUTE`: vm, host, server, storage, san, nas, esxi
-   - `SCADA`: rtu, plc, meter, substation, plant, relay, sel-
-4. Returns the first matching class, or `"Network Node"` as fallback.
-
-**Dependencies:** None (pure function)
+```
+receive_alert()
+  │
+  ├── Parse JSON body
+  └── background_tasks.add_task(process_payload_background)
+        │
+        └── process_payload_background(raw_payload)
+              │
+              ├── smart_extract(payload)
+              │     ├── Extract: node_name, ip_address, severity, alert_level,
+              │     │             event_type, status, device_type, site_group,
+              │     │             primary_comms, secondary_comms
+              │     ├── Inject Normalized_Alert_Level into raw_payload
+              │     ├── Classify device_type via classify_device()
+              │     └── Detect resolution status
+              │
+              ├── If resolution:
+              │     ├── Find active alerts for node_name
+              │     ├── Mark all as Resolved
+              │     └── Create TimelineEvent (Resolution)
+              │
+              └── If new alert:
+                    ├── Create SolarWindsAlert record
+                    └── Create TimelineEvent (Alert)
+```
 
 ---
 
-## Function: `smart_extract(payload)`
+## Functions
 
-**Purpose:** Extracts and normalizes structured fields from a raw SolarWinds webhook payload using intelligent field mapping with fallbacks.
+### `classify_device(text_corpus: str, node_type_hint: str = None) -> str`
 
-**Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `payload` | `dict` | Raw JSON payload from the SolarWinds webhook. |
+Classifies a device into one of 6 ontology domains using keyword fingerprint matching.
 
-**Returns:**
-| Type | Description |
-|------|-------------|
-| `dict` | Normalized extraction dict with keys: `node_name`, `ip_address`, `severity`, `alert_level`, `event_type`, `status`, `is_resolution`, `device_type`, `event_category`, `site_group`, `primary_comms`, `secondary_comms`. |
+| Device Class | Keywords |
+|-------------|----------|
+| `PRIMARY_INTERNET` | vsat, cellular, sd-wan, modem, radio, isp, internet |
+| `COMMS_EQUIPMENT` | fw, firewall, asa, palo, fortigate, meraki, rtr, router, asr, isr, gateway, sw, switch, nexus, catalyst, idf, mdf, ap, wireless, wlc |
+| `POWER_SUPPLIES` | ups, pdu, ats, battery, generator, hvac, ac unit, dc power, dc controller |
+| `COMPUTE` | vm, host, server, storage, san, nas, esxi |
+| `SCADA` | rtu, plc, meter, substation, plant, relay, sel- |
+| `Network Node` (fallback) | Any unmatched device |
 
-**Raises:** None
-
-**Flow:**
-1. Extracts `Node_Details`, `Performance_Metrics`, and `Custom_Properties_Universal` from payload.
-2. Maps fields with multi-level fallbacks (e.g., `node_name` from `Node_Details.NodeName` -> `Node_Details.SysName` -> `payload.entity_caption` -> `"Unknown"`).
-3. Extracts `primary_comms` and `secondary_comms` from `Custom_Properties_Universal` for fleet correlation.
-4. Checks if status text contains resolution indicators (resolved, up, ok, clear, operational, recovered) using regex word boundary matching; if so, sets `is_resolution = True` and `status = "Resolved"`.
-5. If `ip_address` is "Unknown", performs a regex fallback scan of the entire JSON payload for IPv4 patterns.
-6. Runs `classify_device()` on the concatenated node name, event type, and device type text.
-7. Returns the structured extraction dict.
-
-**Dependencies:** `re`, `json`, `classify_device`
+If `node_type_hint` is provided and not "unknown", it is returned immediately without fingerprint matching. The fingerprint text corpus is constructed from `{node_name} {event_type} {device_type}`.
 
 ---
 
-## Function: `process_payload_background(raw_payload)`
+### `smart_extract(payload: dict) -> dict`
 
-**Purpose:** Background task that processes a normalized webhook payload by persisting it to the database as either a resolution or a new alert.
+Extracts and normalizes fields from a SolarWinds webhook payload.
 
-**Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `raw_payload` | `dict` | The original raw JSON payload as received from the webhook. |
+**Extraction Chain Order** (first non-empty wins):
 
-**Returns:** None
+| Output Field | Extraction Chain |
+|-------------|------------------|
+| `node_name` | `Node_Details.NodeName` → `Node_Details.SysName` → `entity_caption` → `"Unknown"` |
+| `ip_address` | `Node_Details.IP_Address` → regex fallback on full payload → `"Unknown"` |
+| `severity` | `severity` → `Custom_Properties_Universal.Severity` → `"Unknown"` |
+| `alert_level` | `Alert_Level` → `Custom_Properties_Universal.Alert_Level` → `"Unknown"` |
+| `event_type` | `AlertName` → `check` → `class` → `description` → `"Unknown"` |
+| `status` | `Node_Details.StatusDescription` → `description` → `"Unknown"` |
+| `device_type` | `Node_Details.MachineType` → `Custom_Properties_Universal.Node_Type` → `entity_type` → `"Unknown"` |
+| `site_group` | `Custom_Properties_Universal.Site` → `Custom_Properties_Universal.City` → `"Unknown"` |
+| `primary_comms` | `Custom_Properties_Universal.Primary_Comms` → `"Unknown"` |
+| `secondary_comms` | `Custom_Properties_Universal.Secondary_Comms` → `"Unknown"` |
 
-**Raises:** None (exceptions caught, rollback, and logged)
-
-**Flow:**
-1. Opens a new database session.
-2. Calls `smart_extract(raw_payload)` to get normalized fields.
-3. Injects `Normalized_Alert_Level` into `raw_payload`.
-4. If `is_resolution` is True:
-   - Queries all active (non-Resolved) alerts matching the node name.
-   - Sets each to `status = 'Resolved'` with `resolved_at = datetime.utcnow()`.
-   - Adds a `TimelineEvent` for the resolution.
-   - Commits and returns.
-5. If not a resolution:
-   - Creates a new `SolarWindsAlert` record with all extracted fields and the raw payload.
-   - Adds a `TimelineEvent` for the critical alert.
-   - Commits.
-
-**Dependencies:** `smart_extract`, `SolarWindsAlert`, `TimelineEvent`, `SessionLocal`
+**Resolution Detection**: Checks if status + description contain any of `resolved`, `up`, `ok`, `clear`, `operational`, `recovered` using word-boundary regex.
 
 ---
 
-## Endpoint: `POST /webhook/solarwinds`
+## Alert Level Normalization
 
-**Purpose:** FastAPI route that receives SolarWinds webhook payloads, validates JSON, and queues processing as a background task.
+The webhook injects `Normalized_Alert_Level` into the raw payload before DB insertion. This field is critical for the tiered alert escalation engine's `get_tier()` function, which parses values like `p1-high`, `p2-low`, `p3`, `p4`, `p5` to determine SLA targets.
 
-**Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `request` | `Request` | FastAPI request object. |
-| `background_tasks` | `BackgroundTasks` | FastAPI background task manager. |
-
-**Returns:**
-| Type | Description |
-|------|-------------|
-| `dict` | `{"status": "accepted", "message": "Payload queued for AI processing."}` on success. |
-
-**Raises:**
-| Exception | Condition |
-|-----------|-----------|
-| `HTTPException(status_code=400)` | Invalid JSON payload (JSONDecodeError). |
-| `HTTPException(status_code=500)` | Internal gateway error. |
-
-**Flow:**
-1. Reads JSON body via `await request.json()`.
-2. Adds `process_payload_background` as a FastAPI background task with the raw payload.
-3. Returns acceptance response.
-4. On `JSONDecodeError`, returns 400.
-5. On other exceptions, logs and returns 500.
-
-**Dependencies:** `fastapi.Request`, `fastapi.BackgroundTasks`, `fastapi.HTTPException`, `process_payload_background`
+Extraction chain: `Alert_Level` → `Custom_Properties_Universal.Alert_Level` → stored as `Normalized_Alert_Level`.
 
 ---
 
-## Module-Level Execution (if `__name__ == "__main__"`)
+## Resolution Handling
 
-**Purpose:** Starts the Uvicorn server when the module is run directly.
+When a resolution alert is received (e.g., a "Node Up" message):
+1. All active (non-Resolved) `SolarWindsAlert` records for that `node_name` are marked as `Resolved`
+2. A `TimelineEvent` is created with source "Webhook", event_type "Resolution"
+3. No new alert record is created
 
-**Flow:**
-1. Calls `setup_logging()` from `src.core.config`.
-2. Starts `uvicorn.run(app, host="0.0.0.0", port=8100)`.
+---
 
-**Dependencies:** `src.core.config.setup_logging`, `uvicorn`
+## Dependencies
+
+- `src.core.db.SessionLocal`, `init_db()`
+- `src.models.schema.SolarWindsAlert`, `TimelineEvent`
+- FastAPI `BackgroundTasks` for async processing
+- Standard library: `re`, `json`, `datetime`
+
+---
+
+## Configuration
+
+- Runs on port 8100 by default (configured in `__main__` block)
+- Requires `init_db()` call at module level for database readiness
+- Logging via `src.core.config.setup_logging()`
