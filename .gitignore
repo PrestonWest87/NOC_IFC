@@ -1,6 +1,8 @@
 # Environment files (secrets)
 .env
 
+docker-compose.yml
+
 # Runtime data
 data/
 
