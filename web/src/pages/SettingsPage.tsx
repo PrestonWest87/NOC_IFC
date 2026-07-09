@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { getAllowedTabs, TAB_PERMISSION_MAP } from "../utils/permissions";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../utils/api";
@@ -7,9 +7,14 @@ import {
   Trash2, Upload, Download, RefreshCw, AlertTriangle, Save,
   UserPlus, Key, Shield, Settings as SettingsIcon, Database, FileJson,
   Rss, Cpu, Brain, Mail, Users, HardDrive, Skull, Server, Globe,
-  FileSpreadsheet, Plus, Eye, EyeOff, X, User, Loader2, Palette
+  FileSpreadsheet, Plus, Eye, EyeOff, X, User, Loader2, Palette,
+  Pin, PinOff, ThumbsUp, ThumbsDown
 } from "lucide-react";
 import { ThemeSelector } from "../components/ThemeSelector";
+import DeckGL from "@deck.gl/react";
+import { ScatterplotLayer } from "@deck.gl/layers";
+import { Map } from "react-map-gl/maplibre";
+import "maplibre-gl/dist/maplibre-gl.css";
 
 const ALL_PAGES = [
   "Global Dashboards", "Threat Telemetry", "Regional Grid",
@@ -312,6 +317,7 @@ function ProfileTab({ user }: { user: any }) {
 function FacilitiesTab({ locations, queryClient }: { locations: any; queryClient: any }) {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [editData, setEditData] = useState<any[]>([]);
+  const [mapSite, setMapSite] = useState<{ name: string; lat: number; lon: number; type: string } | null>(null);
 
   const importMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -349,8 +355,99 @@ function FacilitiesTab({ locations, queryClient }: { locations: any; queryClient
     });
   };
 
+  const mapSites = useMemo(() => {
+    return (locs ?? []).filter((l: any) => l.lat != null && l.lon != null).map((l: any) => ({
+      name: l.name || "Unnamed",
+      lat: l.lat,
+      lon: l.lon,
+      type: l.type || l.loc_type || "",
+      alert_count: 0,
+    }));
+  }, [locs]);
+
+  const mapLayers = useMemo(() => {
+    if (mapSites.length === 0) return [];
+    return [
+      new ScatterplotLayer({
+        id: "facilities",
+        data: mapSites,
+        getPosition: (d: any) => [d.lon, d.lat],
+        getFillColor: [56, 189, 248, 200],
+        getRadius: 1800,
+        radiusMinPixels: 6,
+        radiusMaxPixels: 15,
+        pickable: true,
+        stroked: true,
+        getLineColor: [255, 255, 255, 200],
+        lineWidthMinPixels: 1,
+      }),
+    ];
+  }, [mapSites]);
+
+  const handleMapClick = useCallback((info: any) => {
+    if (info.object && info.layer?.id === "facilities") {
+      setMapSite(info.object);
+    }
+  }, []);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      <Card title="Facility Map" icon={Globe} wide>
+        <div style={{ height: "380px", position: "relative", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
+          {mapSites.length === 0 ? (
+            <div style={{ color: "var(--text-muted)", fontSize: "0.85rem", padding: "2rem", textAlign: "center" }}>No facility locations with coordinates loaded.</div>
+          ) : (
+            <DeckGL
+              layers={mapLayers}
+              initialViewState={{ latitude: 34.8, longitude: -92.2, zoom: 6, pitch: 0 }}
+              controller={true}
+              style={{ height: "100%" }}
+              onClick={handleMapClick}
+              getCursor={({ isDragging, isHovering }: any) => isDragging ? "grabbing" : isHovering ? "pointer" : "default"}
+            >
+              <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
+            </DeckGL>
+          )}
+        </div>
+        {mapSite && (
+          <div style={{
+            position: "fixed", inset: 0, zIndex: 1000,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: "rgba(0,0,0,0.5)",
+          }} onClick={() => setMapSite(null)}>
+            <div onClick={(e) => e.stopPropagation()} style={{
+              background: "var(--bg-card)", color: "var(--text-primary)",
+              borderRadius: "var(--radius-md)", padding: "1.25rem",
+              minWidth: 280, maxWidth: 360,
+              boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+              border: "1px solid var(--border-primary)",
+              fontSize: "0.82rem", lineHeight: 1.5,
+            }}>
+              <div style={{ fontWeight: 700, marginBottom: "0.75rem", fontSize: "0.9rem", borderBottom: "1px solid var(--border-primary)", paddingBottom: "0.3rem" }}>
+                {mapSite.name}
+              </div>
+              <div style={{ marginBottom: "0.3rem" }}>
+                <span style={{ color: "var(--text-muted)" }}>Type: </span>
+                <strong>{mapSite.type || "N/A"}</strong>
+              </div>
+              <div style={{ marginBottom: "0.3rem" }}>
+                <span style={{ color: "var(--text-muted)" }}>Latitude: </span>
+                {mapSite.lat.toFixed(4)}
+              </div>
+              <div style={{ marginBottom: "0.3rem" }}>
+                <span style={{ color: "var(--text-muted)" }}>Longitude: </span>
+                {mapSite.lon.toFixed(4)}
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "0.75rem", borderTop: "1px solid var(--border-primary)", paddingTop: "0.5rem" }}>
+                <button onClick={() => setMapSite(null)}
+                  style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer" }}>
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
       <Card title="Mass Import JSON" icon={Upload}>
         <input
           type="file"
@@ -525,69 +622,132 @@ function RssTab({ lists, queryClient }: { lists: any; queryClient: any }) {
   });
 
   const delKw = useMutation({
-    mutationFn: (_id: number) => api.post("/admin/keywords/bulk", []),
+    mutationFn: (id: number) => api.delete(`/admin/keywords/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-lists"] }),
   });
 
   const delFeed = useMutation({
-    mutationFn: (_id: number) => api.post("/admin/feeds/bulk", []),
+    mutationFn: (id: number) => api.delete(`/admin/feeds/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-lists"] }),
+  });
+
+  const togglePinMut = useMutation({
+    mutationFn: (articleId: number) => api.post("/dashboard/articles/toggle-pin", null, { params: { article_id: articleId } }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["settings-articles"] }); },
+  });
+
+  const boostScoreMut = useMutation({
+    mutationFn: (articleId: number) => api.post("/dashboard/articles/boost-score", null, { params: { article_id: articleId, amount: 15 } }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["settings-articles"] }); },
+  });
+
+  const feedbackMut = useMutation({
+    mutationFn: ({ articleId, feedback }: { articleId: number; feedback: number }) =>
+      api.post("/dashboard/articles/feedback", null, { params: { article_id: articleId, feedback } }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["settings-articles"] }); },
+  });
+
+  const { data: recentArticles } = useQuery({
+    queryKey: ["settings-articles"],
+    queryFn: () => api.get("/threat/articles", { params: { category: "live", page: 1, page_size: 20 } }).then(r => r.data),
+    refetchInterval: 60000,
   });
 
   const keywords = lists?.keywords ?? [];
   const feeds = lists?.feeds ?? [];
+  const articles: any[] = recentArticles?.items ?? [];
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
-      <Card title="Keywords" icon={Globe}>
-        <SectionTitle text='Add keywords (one per line: "word, weight")' />
-        <textarea
-          style={{ ...textareaStyle, marginBottom: "0.5rem" }}
-          placeholder="critical, 5&#10;emergency, 4&#10;outage, 3"
-          value={kwText}
-          onChange={e => setKwText(e.target.value)}
-        />
-        <button onClick={() => kwText && kwBulk.mutate(kwText)} disabled={!kwText || kwBulk.isPending} style={btn("var(--accent-cyan)")}>
-          <Plus size={14} /> {kwBulk.isPending ? "Adding..." : "Bulk Add"}
-        </button>
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
+        <Card title="Keywords" icon={Globe}>
+          <SectionTitle text='Add keywords (one per line: "word, weight")' />
+          <textarea
+            style={{ ...textareaStyle, marginBottom: "0.5rem" }}
+            placeholder="critical, 5&#10;emergency, 4&#10;outage, 3"
+            value={kwText}
+            onChange={e => setKwText(e.target.value)}
+          />
+          <button onClick={() => kwText && kwBulk.mutate(kwText)} disabled={!kwText || kwBulk.isPending} style={btn("var(--accent-cyan)")}>
+            <Plus size={14} /> {kwBulk.isPending ? "Adding..." : "Bulk Add"}
+          </button>
 
-        <div style={{ marginTop: "1rem", maxHeight: 220, overflowY: "auto" }}>
-          {keywords.map((kw: any) => (
-            <div key={kw.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.3rem 0", borderBottom: "1px solid var(--border-primary)", fontSize: "0.8rem" }}>
-              <span style={{ color: "var(--text-primary)" }}>{kw.word} <span style={{ color: "var(--text-muted)", fontSize: "0.7rem" }}>(w:{kw.weight})</span></span>
-              <button onClick={() => delKw.mutate(kw.id)} style={{ background: "none", border: "none", color: "var(--accent-red)", cursor: "pointer", padding: 2 }}>
-                <Trash2 size={13} />
-              </button>
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      <Card title="RSS Feeds" icon={Rss}>
-        <SectionTitle text='Add feeds (one per line: "URL, Name")' />
-        <textarea
-          style={{ ...textareaStyle, marginBottom: "0.5rem" }}
-          placeholder="https://example.com/rss, Example Feed&#10;https://other.com/feed, Other"
-          value={feedText}
-          onChange={e => setFeedText(e.target.value)}
-        />
-        <button onClick={() => feedText && feedBulk.mutate(feedText)} disabled={!feedText || feedBulk.isPending} style={btn("var(--accent-orange)")}>
-          <Plus size={14} /> {feedBulk.isPending ? "Adding..." : "Bulk Add"}
-        </button>
-
-        <div style={{ marginTop: "1rem", maxHeight: 220, overflowY: "auto" }}>
-          {feeds.map((f: any) => (
-            <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.3rem 0", borderBottom: "1px solid var(--border-primary)", fontSize: "0.8rem" }}>
-              <div style={{ overflow: "hidden" }}>
-                <div style={{ color: "var(--text-primary)", fontWeight: 500 }}>{f.name}</div>
-                <div style={{ color: "var(--text-muted)", fontSize: "0.7rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 260 }}>{f.url}</div>
+          <div style={{ marginTop: "1rem", maxHeight: 220, overflowY: "auto" }}>
+            {keywords.map((kw: any) => (
+              <div key={kw.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.3rem 0", borderBottom: "1px solid var(--border-primary)", fontSize: "0.8rem" }}>
+                <span style={{ color: "var(--text-primary)" }}>{kw.word} <span style={{ color: "var(--text-muted)", fontSize: "0.7rem" }}>(w:{kw.weight})</span></span>
+                <button onClick={() => delKw.mutate(kw.id)} style={{ background: "none", border: "none", color: "var(--accent-red)", cursor: "pointer", padding: 2 }}>
+                  <Trash2 size={13} />
+                </button>
               </div>
-              <button onClick={() => delFeed.mutate(f.id)} style={{ background: "none", border: "none", color: "var(--accent-red)", cursor: "pointer", padding: 2 }}>
-                <Trash2 size={13} />
-              </button>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card title="RSS Feeds" icon={Rss}>
+          <SectionTitle text='Add feeds (one per line: "URL, Name")' />
+          <textarea
+            style={{ ...textareaStyle, marginBottom: "0.5rem" }}
+            placeholder="https://example.com/rss, Example Feed&#10;https://other.com/feed, Other"
+            value={feedText}
+            onChange={e => setFeedText(e.target.value)}
+          />
+          <button onClick={() => feedText && feedBulk.mutate(feedText)} disabled={!feedText || feedBulk.isPending} style={btn("var(--accent-orange)")}>
+            <Plus size={14} /> {feedBulk.isPending ? "Adding..." : "Bulk Add"}
+          </button>
+
+          <div style={{ marginTop: "1rem", maxHeight: 220, overflowY: "auto" }}>
+            {feeds.map((f: any) => (
+              <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.3rem 0", borderBottom: "1px solid var(--border-primary)", fontSize: "0.8rem" }}>
+                <div style={{ overflow: "hidden" }}>
+                  <div style={{ color: "var(--text-primary)", fontWeight: 500 }}>{f.name}</div>
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.7rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 260 }}>{f.url}</div>
+                </div>
+                <button onClick={() => delFeed.mutate(f.id)} style={{ background: "none", border: "none", color: "var(--accent-red)", cursor: "pointer", padding: 2 }}>
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      <Card title="Article Feedback Queue" icon={Brain} wide>
+        <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", margin: "0 0 0.75rem" }}>
+          Recent articles — use Keep/Dismiss to train keyword weights, Pin to bookmark, +15 Score to elevate.
+        </p>
+        {articles.length === 0 ? (
+          <div style={{ color: "var(--text-muted)", fontSize: "0.85rem", padding: "1rem 0", textAlign: "center" }}>No articles loaded. Fetch RSS feeds to populate.</div>
+        ) : (
+          <div style={{ maxHeight: 400, overflowY: "auto" }}>
+            {articles.map((art: any) => (
+              <div key={art.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "0.5rem 0", borderBottom: "1px solid var(--border-primary)", gap: "0.5rem" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: "var(--text-primary)", fontSize: "0.82rem", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {art.title}
+                  </div>
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.7rem" }}>
+                    {art.source} &middot; Score: {art.score ?? "?"} &middot; {art.category}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "0.25rem", flexShrink: 0 }}>
+                  <button onClick={() => togglePinMut.mutate(art.id)} style={{ background: "none", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", color: art.is_pinned ? "var(--accent-red)" : "var(--text-secondary)", cursor: "pointer", padding: "0.2rem 0.35rem", fontSize: "0.7rem", display: "inline-flex", alignItems: "center", gap: "0.15rem" }}>
+                    {art.is_pinned ? <PinOff size={11} /> : <Pin size={11} />} {art.is_pinned ? "Unpin" : "Pin"}
+                  </button>
+                  <button onClick={() => boostScoreMut.mutate(art.id)} style={{ background: "none", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", color: "var(--text-secondary)", cursor: "pointer", padding: "0.2rem 0.35rem", fontSize: "0.7rem", display: "inline-flex", alignItems: "center", gap: "0.15rem" }}>
+                    +15
+                  </button>
+                  <button onClick={() => feedbackMut.mutate({ articleId: art.id, feedback: 2 })} style={{ background: "none", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", color: "var(--accent-green)", cursor: "pointer", padding: "0.2rem 0.35rem", fontSize: "0.7rem", display: "inline-flex", alignItems: "center", gap: "0.15rem" }}>
+                    <ThumbsUp size={11} /> Keep
+                  </button>
+                  <button onClick={() => feedbackMut.mutate({ articleId: art.id, feedback: 1 })} style={{ background: "none", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", color: "#f87171", cursor: "pointer", padding: "0.2rem 0.35rem", fontSize: "0.7rem", display: "inline-flex", alignItems: "center", gap: "0.15rem" }}>
+                    <ThumbsDown size={11} /> Dismiss
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
     </div>
   );

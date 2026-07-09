@@ -32,6 +32,20 @@ def add_feeds(raw_text: str = ""):
     return {"status": "ok"}
 
 
+@router.delete("/keywords/{keyword_id}")
+def delete_keyword(keyword_id: int):
+    logger.info("DELETE /admin/keywords/%d", keyword_id)
+    svc.delete_record("Keyword", keyword_id)
+    return {"status": "ok"}
+
+
+@router.delete("/feeds/{feed_id}")
+def delete_feed(feed_id: int):
+    logger.info("DELETE /admin/feeds/%d", feed_id)
+    svc.delete_record("FeedSource", feed_id)
+    return {"status": "ok"}
+
+
 @router.get("/ml-counts")
 def ml_counts():
     logger.debug("GET /admin/ml-counts")

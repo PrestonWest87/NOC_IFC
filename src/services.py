@@ -238,7 +238,7 @@ def get_shift_logs(role_filter="All", start_date=None, end_date=None):
         if end_date:
             query = query.filter(ShiftLogEntry.created_at < end_date + timedelta(days=1))
             
-        logs = query.order_by(ShiftLogEntry.created_at.asc()).all()
+        logs = query.order_by(ShiftLogEntry.created_at.desc()).all()
         return to_dotdict_list(logs)
 
 def save_shift_log(analyst, role, shift_period, content, custom_date=None):
@@ -611,14 +611,14 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
     baseline_phys = float(sys_config.baseline_override_phys) if sys_config and sys_config.get('baseline_override_phys', 0.0) > 0 else max(avg_phys, 25.0) if history else 25.0
 
     with SessionLocal() as db:
-        t48 = datetime.utcnow() - timedelta(hours=48)
+        t24 = datetime.utcnow() - timedelta(hours=24)
         
         # PULLING CYBER TELEMETRY (Articles, ICS, and CVEs)
-        raw_cyber_articles = db.query(Article).filter(Article.published_date >= t48, Article.category.in_(['Cyber: Exploits & Vulns', 'Cyber: Malware & Threats', 'ICS/OT & SCADA', 'Cloud & IT Infra']), Article.score >= 50).order_by(Article.score.desc()).all()
-        raw_ics_articles = db.query(Article).filter(Article.published_date >= t48).order_by(Article.published_date.desc()).all()
-        raw_phys_articles = db.query(Article).filter(Article.published_date >= t48, Article.category.in_(['Physical Security', 'Severe Weather', 'Geopolitics & Policy']), Article.score >= 50).order_by(Article.score.desc()).all()
+        raw_cyber_articles = db.query(Article).filter(Article.published_date >= t24, Article.category.in_(['Cyber: Exploits & Vulns', 'Cyber: Malware & Threats', 'ICS/OT & SCADA', 'Cloud & IT Infra']), Article.score >= 50).order_by(Article.score.desc()).all()
+        raw_ics_articles = db.query(Article).filter(Article.published_date >= t24).order_by(Article.published_date.desc()).all()
+        raw_phys_articles = db.query(Article).filter(Article.published_date >= t24, Article.category.in_(['Physical Security', 'Severe Weather', 'Geopolitics & Policy']), Article.score >= 50).order_by(Article.score.desc()).all()
         
-        recent_cves = db.query(CveItem).filter(CveItem.date_added >= t48).all()
+        recent_cves = db.query(CveItem).filter(CveItem.date_added >= t24).all()
 
         geopolitical_noise_words = ["troop", "missile", "election", "ballot", "warfare", "kinetic", "embassy"]
         threat_actors = ["volt typhoon", "sandworm", "dragos", "chernovite", "apt", "lazarus"]
@@ -1024,25 +1024,33 @@ def calculate_internal_cis_score(db_session):
         trigger_to_assets.setdefault(asset_map['trigger'], []).append(asset_map)
     
     # 1. SCAN ARTICLES (O(C * avg_triggers_per_article) instead of O(C * A))
+    # Cap matches per article to 5 to reduce repetitiveness
     for art in article_index:
+        article_match_count = 0
         for trigger in art['word_set'].intersection(trigger_to_assets.keys()):
+            if article_match_count >= 5: break
             for asset_map in trigger_to_assets[trigger]:
+                if article_match_count >= 5: break
                 collision_regex = ACRONYM_COLLISIONS.get(asset_map['raw_name'])
                 if collision_regex and collision_regex.search(art['text']): continue
 
                 for pat in asset_map['exact']:
                     if pat.search(art['text']):
                         asset_map['matches'].append({"title": art['obj'].title, "is_critical": art['is_critical']})
+                        article_match_count += 1
                         break 
 
-    # 2. SCAN CVE DATABASE
+    # 2. SCAN CVE DATABASE (cap 3 matches per CVE)
     for cve in cve_index:
         candidate_triggers = cve['word_set']
         if cve['vendor']:
             candidate_triggers = candidate_triggers | {cve['vendor']}
+        cve_match_count = 0
         
         for trigger in candidate_triggers.intersection(trigger_to_assets.keys()):
+            if cve_match_count >= 3: break
             for asset_map in trigger_to_assets[trigger]:
+                if cve_match_count >= 3: break
                 if asset_map['is_hw']:
                     hw = asset_map['obj']
                     hw_vendor = str(hw.os_vendor or "").lower()
@@ -1050,6 +1058,7 @@ def calculate_internal_cis_score(db_session):
                     
                     if (hw_vendor and hw_vendor in cve['vendor']) and (hw_name and hw_name in cve['product']):
                         asset_map['matches'].append({"title": f"CISA KEV: {cve['obj'].cve_id}", "is_critical": True})
+                        cve_match_count += 1
                         continue
 
                 collision_regex = ACRONYM_COLLISIONS.get(asset_map['raw_name'])
@@ -1058,6 +1067,7 @@ def calculate_internal_cis_score(db_session):
                 for pat in asset_map['exact']:
                     if pat.search(cve['text']):
                         asset_map['matches'].append({"title": f"CISA KEV: {cve['obj'].cve_id}", "is_critical": True})
+                        cve_match_count += 1
                         break
 
     # ==========================================
@@ -1083,21 +1093,27 @@ def calculate_internal_cis_score(db_session):
             display_name = hw.asset_name if hw.asset_name else f"Device ({hw.ip_address})"
             os_display = f"{hw.operating_system or 'Unknown'} {hw.os_version or ''}".strip()
             
+            osint_risk_score = min(len(unique_intel) * 25, 100)
             annotated_hw.append({
                 "Identifier": display_name,
                 "IP Address": hw.ip_address,
                 "OS": os_display,
-                "OSINT Risk Score": min(len(unique_intel) * 25, 100),
+                "OSINT Risk Score": osint_risk_score,
                 "OSINT Threat Matches": len(unique_intel),
-                "Top Threat Reference": list(unique_intel.keys())[0]
+                "Top Threat Reference": list(unique_intel.keys())[0],
+                "risk_score": osint_risk_score,
+                "osint_threat_matches": len(unique_intel),
             })
         else:
             sw = asset_map['obj']
+            osint_score = min(len(unique_intel) * 25, 100)
             annotated_sw.append({
                 "Software Name": sw.name,
-                "OSINT Risk Score": min(len(unique_intel) * 25, 100),
+                "OSINT Risk Score": osint_score,
                 "Active OSINT Matches": len(unique_intel),
-                "Top Threat Reference": list(unique_intel.keys())[0]
+                "Top Threat Reference": list(unique_intel.keys())[0],
+                "osint_threat_matches": len(unique_intel),
+                "risk_level": "HIGH" if osint_score >= 75 else "MEDIUM" if osint_score >= 40 else "LOW",
             })
 
     # ==========================================
@@ -2447,13 +2463,16 @@ def _build_fallback_summary(logs, timeframe_label, target_role):
     return "\n".join(lines)
 
 
-def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning", timeframe_label: str = "Morning Shift", auto_append: bool = False):
-    """Force-generate an aggregated shift summary from log entries."""
+def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning", timeframe_label: str = "Morning Shift", auto_append: bool = False, timeframe: str = "shift"):
+    """Force-generate an aggregated shift summary from log entries.
+    timeframe: 'shift' = today only, 'week' = last 7 days.
+    """
     import threading
     from src.utils.llm import generate_aggregated_shift_summary
     from src.database import ShiftLogEntry
+    from zoneinfo import ZoneInfo
     logger = logging.getLogger(__name__)
-    logger.info("trigger_shift_summary: role=%s shift=%s timeframe=%s auto_append=%s", role_filter, shift_period, timeframe_label, auto_append)
+    logger.info("trigger_shift_summary: role=%s shift=%s timeframe=%s auto_append=%s timeframe=%s", role_filter, shift_period, timeframe_label, auto_append, timeframe)
 
     with SessionLocal() as session:
         query = session.query(ShiftLogEntry).filter(ShiftLogEntry.is_deleted == False)
@@ -2461,6 +2480,17 @@ def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning
             query = query.filter(ShiftLogEntry.author_role == role_filter.lower())
         if shift_period:
             query = query.filter(ShiftLogEntry.shift_period == shift_period)
+
+        now_chicago = datetime.now(ZoneInfo("America/Chicago"))
+        if timeframe == "week":
+            week_start = now_chicago - timedelta(days=7)
+            query = query.filter(ShiftLogEntry.created_at >= week_start)
+            if not timeframe_label or timeframe_label == shift_period + " Shift":
+                timeframe_label = "Current Week"
+        else:
+            today_start = now_chicago.replace(hour=0, minute=0, second=0, microsecond=0)
+            query = query.filter(ShiftLogEntry.created_at >= today_start)
+
         logs = query.order_by(ShiftLogEntry.created_at.desc()).limit(200).all()
         logger.info("trigger_shift_summary: fetched %d logs", len(logs))
 

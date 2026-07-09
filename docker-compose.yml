@@ -44,7 +44,7 @@ services:
     ports:
       - "5173:5173"
     environment:
-      - VITE_API_URL=http://localhost:8101
+      - VITE_API_URL=http://api:8101
     depends_on:
       - api
 
@@ -57,6 +57,7 @@ services:
       - "5173:5173"
     environment:
       - VITE_API_URL=http://api:8101
+      - CHOKIDAR_USEPOLLING=1
     depends_on:
       - api
     volumes:

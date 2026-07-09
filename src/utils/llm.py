@@ -137,11 +137,11 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
 
     logger.info("generate_unified_risk_brief: global_risk=%s internal_risk=%s", global_risk, internal_risk)
 
-    t48 = datetime.utcnow() - timedelta(hours=48)
+    t24 = datetime.utcnow() - timedelta(hours=24)
 
-    recent_cves = session.query(CveItem).filter(CveItem.date_added >= t48).limit(30).all()
-    active_hazards = session.query(RegionalHazard).filter(RegionalHazard.updated_at >= t48).limit(30).all()
-    cloud_outages = session.query(CloudOutage).filter(CloudOutage.updated_at >= t48).limit(20).all()
+    recent_cves = session.query(CveItem).filter(CveItem.date_added >= t24).limit(30).all()
+    active_hazards = session.query(RegionalHazard).filter(RegionalHazard.updated_at >= t24).limit(30).all()
+    cloud_outages = session.query(CloudOutage).filter(CloudOutage.updated_at >= t24).limit(20).all()
 
     hw_data = json.loads(internal_snapshot.hw_data_json) if internal_snapshot and internal_snapshot.hw_data_json else []
     sw_data = json.loads(internal_snapshot.sw_data_json) if internal_snapshot and internal_snapshot.sw_data_json else []
@@ -187,8 +187,21 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     else:
         phys_digest = "No significant weather hazards, regional disruptions, or perimeter crimes reported."
 
-    hw_context = "\n".join([f"- {hw.get('Identifier', 'Unknown')} ({hw.get('OS', 'Unknown')}): {hw.get('OSINT Threat Matches', 0)} Matches. Threat Ref: {hw.get('Top Threat Reference', 'None')}" for hw in top_hw if hw.get('OSINT Threat Matches', 0) > 0]) or "No hardware vulnerabilities correlated with active OSINT."
-    sw_context = "\n".join([f"- {sw.get('Software Name', 'Unknown')}: {sw.get('Active OSINT Matches', 0)} Matches. Threat Ref: {sw.get('Top Threat Reference', 'None')}" for sw in top_sw if sw.get('Active OSINT Matches', 0) > 0]) or "No software vulnerabilities correlated with active OSINT."
+    hw_lines = [f"- {hw.get('Identifier', 'Unknown')} ({hw.get('OS', 'Unknown')}): {hw.get('OSINT Threat Matches', 0)} Matches. Threat Ref: {hw.get('Top Threat Reference', 'None')}" for hw in top_hw if hw.get('OSINT Threat Matches', 0) > 0]
+    sw_lines = [f"- {sw.get('Software Name', 'Unknown')}: {sw.get('Active OSINT Matches', 0)} Matches. Threat Ref: {sw.get('Top Threat Reference', 'None')}" for sw in top_sw if sw.get('Active OSINT Matches', 0) > 0]
+
+    threat_refs = set()
+    for hw in top_hw:
+        ref = hw.get('Top Threat Reference', '')
+        if ref != 'None': threat_refs.add(ref)
+    for sw in top_sw:
+        ref = sw.get('Top Threat Reference', '')
+        if ref != 'None': threat_refs.add(ref)
+
+    deduped_vulns = "\n".join([f"- {ref}" for ref in sorted(threat_refs)]) if threat_refs else "No specific vulnerability references correlate at this time."
+
+    hw_context = "\n".join(hw_lines) or "No hardware vulnerabilities correlated with active OSINT."
+    sw_context = "\n".join(sw_lines) or "No software vulnerabilities correlated with active OSINT."
 
     compiled_intel = f"""
     === MACRO THREAT POSTURE ===
@@ -207,6 +220,9 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
 
     --- SOFTWARE ---
     {sw_context}
+
+    --- DEDUPLICATED VULNERABILITY REFERENCES ---
+    {deduped_vulns}
     """
 
     master_sys_prompt = f"""You are the Chief Information Security Officer (CISO) delivering a high-impact, Unified OSINT Risk Digest to the Board of Directors and non-technical executives.
@@ -218,6 +234,7 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
         **OSINT CORRELATION DISCLAIMER:** This brief correlates external Open-Source Intelligence (OSINT) with our internal asset types to provide situational awareness. It highlights potential external exposures and does NOT represent confirmed internal breaches or active system compromises.
     4. THREAT LEVEL TERMINOLOGY: When referring to threat levels or risk levels, you MUST strictly use the terms: Low, Guarded, Elevated, High, or Severe. Do NOT use colors (e.g., yellow, blue, red) to describe threat levels.
     5. EXPAND THE NARRATIVE: Do not just regurgitate the data. Synthesize it. Group similar threats together (e.g., group all ransomware actors, group all weather events) and explain their overarching threat to business continuity, personnel safety, or infrastructure.
+    6. WORDING PRECISION — INTERNAL CYBER RISK: When describing the internal cyber risk exposure, use "continued attention" rather than "immediate attention". For example: "The convergence of these risk levels indicates a heightened threat landscape that requires continued attention."
 
     REQUIRED STRUCTURE:
     ## Executive OSINT Summary (BLUF)

@@ -336,7 +336,7 @@ export function AiopsRcaPage() {
   }, []);
 
   const handleMapClick = useCallback((info: any) => {
-    if (info.object && info.layer?.id === "sites") {
+    if (info.object && (info.layer?.id === "sites-ok" || info.layer?.id === "sites-alert")) {
       const d = info.object;
       openSiteDialog(d);
     }
@@ -427,10 +427,10 @@ export function AiopsRcaPage() {
   const mapTooltip = useCallback((info: any) => {
     if (!info.object) return null;
     const d = info.object;
-    if (info.layer?.id === "sites") {
+    if (info.layer?.id === "sites-ok" || info.layer?.id === "sites-alert") {
       return {
         html: `<b>${d.name}</b><br/>${d.status_text}`,
-        style: { background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.78rem", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.5rem" },
+        style: { background: "var(--bg-card)", color: "var(--text-primary)" },
       };
     }
     return null;
@@ -508,10 +508,13 @@ export function AiopsRcaPage() {
       }
     }
 
+    const okPts = pts.filter((d) => d.color[0] === 40 && d.color[1] === 167 && d.color[2] === 69);
+    const alertPts = pts.filter((d) => !(d.color[0] === 40 && d.color[1] === 167 && d.color[2] === 69));
+
     const baseLayers: any[] = [
       new ScatterplotLayer({
-        id: "sites",
-        data: pts,
+        id: "sites-ok",
+        data: okPts,
         getPosition: (d: any) => d.position,
         getFillColor: (d: any) => d.color,
         getRadius: (d: any) => d.radius,
@@ -521,6 +524,19 @@ export function AiopsRcaPage() {
         stroked: true,
         getLineColor: [255, 255, 255, 255],
         lineWidthMinPixels: 1,
+      }),
+      new ScatterplotLayer({
+        id: "sites-alert",
+        data: alertPts,
+        getPosition: (d: any) => d.position,
+        getFillColor: (d: any) => d.color,
+        getRadius: (d: any) => d.radius,
+        radiusMinPixels: 4,
+        radiusMaxPixels: 15,
+        pickable: true,
+        stroked: true,
+        getLineColor: [255, 255, 255, 200],
+        lineWidthMinPixels: 2,
       }),
     ];
 

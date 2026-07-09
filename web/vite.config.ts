@@ -7,7 +7,12 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    host: "0.0.0.0",
     allowedHosts: ["test.weasts.net"],
+    watch: {
+      usePolling: true,
+      interval: 500,
+    },
     proxy: {
       "/api": {
         target: apiUrl,

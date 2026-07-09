@@ -64,11 +64,13 @@ def generate_shift_summary(data: dict[str, Any] = Body({})):
     shift_period = data.get("shift_period", "Morning")
     timeframe_label = data.get("timeframe_label", shift_period + " Shift")
     auto_append = data.get("auto_append", False)
-    logger.info("POST /logbook/generate-summary role=%s shift=%s auto_append=%s", role_filter, shift_period, auto_append)
+    timeframe = data.get("timeframe", "shift")
+    logger.info("POST /logbook/generate-summary role=%s shift=%s auto_append=%s timeframe=%s", role_filter, shift_period, auto_append, timeframe)
     result = svc.trigger_shift_summary(
         role_filter=role_filter,
         shift_period=shift_period,
         timeframe_label=timeframe_label,
         auto_append=auto_append,
+        timeframe=timeframe,
     )
     return result

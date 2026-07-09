@@ -111,6 +111,7 @@ export function ShiftLogbookPage() {
   const [selectedLogDate, setSelectedLogDate] = useState(todayChicagoString());
   const [summaryRole, setSummaryRole] = useState(isAdmin ? "All" : userRole);
   const [summaryShiftPeriod, setSummaryShiftPeriod] = useState("Morning");
+  const [summaryTimeframe, setSummaryTimeframe] = useState("shift");
   const [summaryResult, setSummaryResult] = useState<string | null>(null);
 
   const [explorerSearch, setExplorerSearch] = useState("");
@@ -123,8 +124,9 @@ export function ShiftLogbookPage() {
       api.post("/logbook/generate-summary", {
         role_filter: summaryRole,
         shift_period: summaryShiftPeriod,
-        timeframe_label: summaryShiftPeriod + " Shift",
+        timeframe_label: summaryTimeframe === "week" ? "Current Week" : summaryShiftPeriod + " Shift",
         auto_append: true,
+        timeframe: summaryTimeframe,
       }),
     onSuccess: (res) => {
       const d = res.data;
@@ -294,7 +296,7 @@ export function ShiftLogbookPage() {
       const t = new Date(explorerDateTo + "T23:59:59");
       list = list.filter((e: any) => e.created_at && new Date(e.created_at) <= t);
     }
-    return list.reverse();
+    return list;
   }, [allEntries, explorerSearch, explorerRoleFilter, explorerDateFrom, explorerDateTo]);
 
   const dayLogs = useMemo(() => {
@@ -542,10 +544,35 @@ export function ShiftLogbookPage() {
               Generate an automated end-of-shift report and append it to the running log.
             </p>
             <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+              <div style={{ display: "flex", borderRadius: "var(--radius-sm)", overflow: "hidden", border: "1px solid var(--border-primary)" }}>
+                <button
+                  onClick={() => setSummaryTimeframe("shift")}
+                  style={{
+                    padding: "0.35rem 0.6rem", fontSize: "0.75rem", fontWeight: 600,
+                    background: summaryTimeframe === "shift" ? "var(--accent-cyan)" : "transparent",
+                    color: summaryTimeframe === "shift" ? "#fff" : "var(--text-secondary)",
+                    border: "none", cursor: "pointer", transition: "background 0.15s",
+                  }}
+                >
+                  Shift
+                </button>
+                <button
+                  onClick={() => setSummaryTimeframe("week")}
+                  style={{
+                    padding: "0.35rem 0.6rem", fontSize: "0.75rem", fontWeight: 600,
+                    background: summaryTimeframe === "week" ? "var(--accent-cyan)" : "transparent",
+                    color: summaryTimeframe === "week" ? "#fff" : "var(--text-secondary)",
+                    border: "none", cursor: "pointer", transition: "background 0.15s",
+                  }}
+                >
+                  Week
+                </button>
+              </div>
               <select
                 value={summaryShiftPeriod}
                 onChange={(e) => setSummaryShiftPeriod(e.target.value)}
                 style={{ ...inputBase, width: "auto", minWidth: "130px", flex: 1 }}
+                disabled={summaryTimeframe === "week"}
               >
                 <option value="Morning">Morning (06:00-14:30)</option>
                 <option value="Afternoon">Afternoon (14:30-22:00)</option>

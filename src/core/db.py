@@ -230,15 +230,17 @@ def init_db():
             analyst_role.allowed_pages = all_pages[:-1]
             analyst_role.allowed_actions = all_actions
 
-        if not session.query(User).first():
+        import os
+        admin_pw = os.environ.get("DEFAULT_ADMIN_PASSWORD", "").strip()
+        if admin_pw and not session.query(User).first():
             import bcrypt
-            hashed = bcrypt.hashpw(b"admin123", bcrypt.gensalt()).decode('utf-8')
+            hashed = bcrypt.hashpw(admin_pw.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
             session.add(User(
                 username="admin",
                 password_hash=hashed,
                 role="admin",
-                full_name="Preston",
-                job_title="Network Operations Analyst",
+                full_name="Administrator",
+                job_title="System Admin",
                 contact_info="NOC Desk"
             ))
 

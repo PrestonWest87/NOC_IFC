@@ -8,6 +8,7 @@ import {
   RefreshCw, FileText, TrendingUp, Award, BarChart3,
   ExternalLink, ChevronDown, ChevronRight, Info, RotateCw, Send,
   X, Check, Clock, MapPin, Server, Mail, Zap, Loader2,
+  Pin, PinOff, ThumbsUp, ThumbsDown,
 } from "lucide-react";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
@@ -108,7 +109,26 @@ const articleTitleStyle: React.CSSProperties = {
   fontWeight: 600, color: "var(--text-primary, #1e293b)", textDecoration: "none", margin: "0 0 0.2rem",
 };
 
-function ArticleItem({ article }: { article: any }) {
+const btnArticle: React.CSSProperties = {
+  background: "var(--bg-tertiary, #1e293b)",
+  border: "1px solid var(--border-primary, #334155)",
+  borderRadius: "var(--radius-sm, 4px)",
+  color: "var(--text-primary, #e2e8f0)",
+  cursor: "pointer",
+  padding: "0.2rem 0.45rem",
+  fontSize: "0.7rem",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.2rem",
+  lineHeight: 1,
+};
+
+function ArticleItem({ article, onPin, onBoost, onFeedback }: {
+  article: any;
+  onPin: (id: number) => void;
+  onBoost: (id: number) => void;
+  onFeedback: (id: number, fb: number) => void;
+}) {
   return (
     <div style={articleStyle}>
       <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.2rem" }}>
@@ -131,6 +151,20 @@ function ArticleItem({ article }: { article: any }) {
           BLUF: {article.ai_bluf.slice(0, 100)}
         </div>
       )}
+      <div style={{ display: "flex", gap: "0.3rem", marginTop: "0.3rem", flexWrap: "wrap" }}>
+        <button onClick={() => onPin(article.id)} style={{ ...btnArticle, color: article.is_pinned ? "var(--accent-red, #ef4444)" : "var(--text-primary, #e2e8f0)" }} title={article.is_pinned ? "Unpin" : "Pin"}>
+          {article.is_pinned ? <PinOff size={11} /> : <Pin size={11} />} {article.is_pinned ? "Unpin" : "Pin"}
+        </button>
+        <button onClick={() => onBoost(article.id)} style={btnArticle} title="+15 Score">
+          +15 Score
+        </button>
+        <button onClick={() => onFeedback(article.id, 2)} style={btnArticle} title="Keep">
+          <ThumbsUp size={11} /> Keep
+        </button>
+        <button onClick={() => onFeedback(article.id, 1)} style={{ ...btnArticle, color: "#f87171" }} title="Dismiss">
+          <ThumbsDown size={11} /> Dismiss
+        </button>
+      </div>
     </div>
   );
 }
@@ -189,6 +223,22 @@ export function DashboardPage() {
       queryClient.invalidateQueries({ queryKey: ["sys-config"] });
       queryClient.invalidateQueries({ queryKey: ["executive-intel"] });
     },
+  });
+
+  const togglePinMut = useMutation({
+    mutationFn: (articleId: number) => api.post("/dashboard/articles/toggle-pin", null, { params: { article_id: articleId } }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["pinned-articles"] }); queryClient.invalidateQueries({ queryKey: ["live-articles"] }); },
+  });
+
+  const boostScoreMut = useMutation({
+    mutationFn: (articleId: number) => api.post("/dashboard/articles/boost-score", null, { params: { article_id: articleId, amount: 15 } }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["pinned-articles"] }); queryClient.invalidateQueries({ queryKey: ["live-articles"] }); },
+  });
+
+  const feedbackMut = useMutation({
+    mutationFn: ({ articleId, feedback }: { articleId: number; feedback: number }) =>
+      api.post("/dashboard/articles/feedback", null, { params: { article_id: articleId, feedback } }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["pinned-articles"] }); queryClient.invalidateQueries({ queryKey: ["live-articles"] }); },
   });
 
   useEffect(() => {
@@ -411,7 +461,7 @@ export function DashboardPage() {
                   {(!pinnedArticles || pinnedArticles.length === 0) ? (
                     <div style={{ color: "var(--text-muted, #94a3b8)", fontSize: "0.85rem", padding: "1rem 0" }}>No pinned articles.</div>
                   ) : (
-                    pinnedArticles.map((a: any) => <ArticleItem key={a.id} article={a} />)
+                    pinnedArticles.map((a: any) => <ArticleItem key={a.id} article={a} onPin={(id) => togglePinMut.mutate(id)} onBoost={(id) => boostScoreMut.mutate(id)} onFeedback={(id, fb) => feedbackMut.mutate({ articleId: id, feedback: fb })} />)
                   )}
                 </div>
               </div>
@@ -423,7 +473,7 @@ export function DashboardPage() {
                   {(!liveArticles || liveArticles.length === 0) ? (
                     <div style={{ color: "var(--text-muted, #94a3b8)", fontSize: "0.85rem", padding: "1rem 0" }}>No live articles.</div>
                   ) : (
-                    liveArticles.map((a: any) => <ArticleItem key={a.id} article={a} />)
+                    liveArticles.map((a: any) => <ArticleItem key={a.id} article={a} onPin={(id) => togglePinMut.mutate(id)} onBoost={(id) => boostScoreMut.mutate(id)} onFeedback={(id, fb) => feedbackMut.mutate({ articleId: id, feedback: fb })} />)
                   )}
                 </div>
               </div>

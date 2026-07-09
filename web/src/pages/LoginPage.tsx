@@ -4,8 +4,8 @@ import { PAGE_ROUTE_MAP } from "../utils/routeConfig";
 
 export function LoginPage() {
   const { login } = useAuth();
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin123");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 

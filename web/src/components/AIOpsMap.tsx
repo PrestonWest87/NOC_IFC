@@ -31,6 +31,7 @@ const DARK_MATTER = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style
 export function AIOpsMap({ sites, viewState = INITIAL_VIEW, height = "100%", tabKey }: AIOpsMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [fs, setFs] = useState(false);
+  const [selectedSite, setSelectedSite] = useState<Site | null>(null);
 
   useEffect(() => {
     const onFsChange = () => setFs(document.fullscreenElement === containerRef.current);
@@ -54,6 +55,12 @@ export function AIOpsMap({ sites, viewState = INITIAL_VIEW, height = "100%", tab
       html: `<b>${d.name}</b><br/>Alerts: ${d.alert_count}<br/>Status: ${d.alert_count > 0 ? "\u26a0 Degraded" : "\u2713 Operational"}`,
       style: { background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.78rem", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.5rem" },
     };
+  }, []);
+
+  const handleClick = useCallback((info: any) => {
+    if (info.object && info.layer?.id === "sites") {
+      setSelectedSite(info.object as Site);
+    }
   }, []);
 
   const layers = useMemo(() => {
@@ -114,9 +121,50 @@ export function AIOpsMap({ sites, viewState = INITIAL_VIEW, height = "100%", tab
         {fs ? "Exit" : "Fullscreen"}
       </button>
       <DeckGL key={tabKey} layers={layers} initialViewState={viewState} controller={true}
-        style={{ height: "100%", width: "100%", position: "relative" }} getTooltip={tooltip}>
+        style={{ height: "100%", width: "100%", position: "relative" }} getTooltip={tooltip} onClick={handleClick}>
         <Map mapStyle={DARK_MATTER} />
       </DeckGL>
+
+      {selectedSite && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1000,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          background: "rgba(0,0,0,0.5)",
+        }} onClick={() => setSelectedSite(null)}>
+          <div onClick={(e) => e.stopPropagation()} style={{
+            background: "var(--bg-card)", color: "var(--text-primary)",
+            borderRadius: "var(--radius-md)", padding: "1.25rem",
+            minWidth: 280, maxWidth: 360,
+            boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+            border: "1px solid var(--border-primary)",
+            fontSize: "0.82rem", lineHeight: 1.5,
+          }}>
+            <div style={{ fontWeight: 700, marginBottom: "0.75rem", fontSize: "0.9rem", borderBottom: "1px solid var(--border-primary)", paddingBottom: "0.3rem" }}>
+              {selectedSite.name}
+            </div>
+            <div style={{ marginBottom: "0.3rem" }}>
+              <span style={{ color: "var(--text-muted)" }}>Status: </span>
+              <span style={{ color: selectedSite.alert_count > 0 ? "var(--accent-red)" : "var(--accent-green)", fontWeight: 600 }}>
+                {selectedSite.alert_count > 0 ? "Degraded" : "Operational"}
+              </span>
+            </div>
+            <div style={{ marginBottom: "0.3rem" }}>
+              <span style={{ color: "var(--text-muted)" }}>Active Alerts: </span>
+              <strong>{selectedSite.alert_count}</strong>
+            </div>
+            <div style={{ marginBottom: "0.3rem" }}>
+              <span style={{ color: "var(--text-muted)" }}>Coordinates: </span>
+              {selectedSite.lat.toFixed(4)}, {selectedSite.lon.toFixed(4)}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "0.75rem", borderTop: "1px solid var(--border-primary)", paddingTop: "0.5rem" }}>
+              <button onClick={() => setSelectedSite(null)}
+                style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer" }}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
