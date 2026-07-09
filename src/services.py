@@ -234,9 +234,15 @@ def get_shift_logs(role_filter="All", start_date=None, end_date=None):
             query = query.filter(ShiftLogEntry.author_role == role_filter)
             
         if start_date:
-            query = query.filter(ShiftLogEntry.created_at >= start_date)
+            if start_date.tzinfo is None:
+                start_date = start_date.replace(tzinfo=ZoneInfo("America/Chicago"))
+            start_utc = start_date.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+            query = query.filter(ShiftLogEntry.created_at >= start_utc)
         if end_date:
-            query = query.filter(ShiftLogEntry.created_at < end_date + timedelta(days=1))
+            if end_date.tzinfo is None:
+                end_date = end_date.replace(tzinfo=ZoneInfo("America/Chicago"))
+            end_utc = end_date.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+            query = query.filter(ShiftLogEntry.created_at < end_utc + timedelta(days=1))
             
         logs = query.order_by(ShiftLogEntry.created_at.desc()).all()
         return to_dotdict_list(logs)
@@ -2483,13 +2489,15 @@ def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning
 
         now_chicago = datetime.now(ZoneInfo("America/Chicago"))
         if timeframe == "week":
-            week_start = now_chicago - timedelta(days=7)
-            query = query.filter(ShiftLogEntry.created_at >= week_start)
+            week_start_chicago = now_chicago - timedelta(days=7)
+            week_start_utc = week_start_chicago.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+            query = query.filter(ShiftLogEntry.created_at >= week_start_utc)
             if not timeframe_label or timeframe_label == shift_period + " Shift":
                 timeframe_label = "Current Week"
         else:
-            today_start = now_chicago.replace(hour=0, minute=0, second=0, microsecond=0)
-            query = query.filter(ShiftLogEntry.created_at >= today_start)
+            today_start_chicago = now_chicago.replace(hour=0, minute=0, second=0, microsecond=0)
+            today_start_utc = today_start_chicago.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+            query = query.filter(ShiftLogEntry.created_at >= today_start_utc)
 
         logs = query.order_by(ShiftLogEntry.created_at.desc()).limit(200).all()
         logger.info("trigger_shift_summary: fetched %d logs", len(logs))
