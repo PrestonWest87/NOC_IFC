@@ -1277,6 +1277,25 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
     global_display = name_map.get(global_risk, global_risk)
     internal_display = name_map.get(internal_risk, internal_risk)
 
+    disclaimer_html = ""
+    disclaimer_match = re.search(
+        r'## \*\*OSINT CORRELATION DISCLAIMER\*\*\s*\n\*\*(.*?)\*\*',
+        markdown_content, re.DOTALL
+    )
+    if disclaimer_match:
+        disclaimer_text = disclaimer_match.group(1)
+        disclaimer_html = f'''
+        <div style="background:#fef2f2; border:2px solid #dc2626; border-radius:8px; padding:16px 20px; margin-bottom:24px;">
+            <h3 style="color:#991b1b; font-size:15px; font-weight:700; margin:0 0 8px 0; text-transform:uppercase; letter-spacing:0.5px;">
+                OSINT CORRELATION DISCLAIMER
+            </h3>
+            <p style="color:#7f1d1d; font-size:13px; line-height:1.5; margin:0; font-weight:600;">
+                {disclaimer_text}
+            </p>
+        </div>
+        '''
+        markdown_content = markdown_content.replace(disclaimer_match.group(0), "")
+
     def native_md_to_html(text):
         text = text.replace('\r', '').strip()
 
@@ -1302,7 +1321,7 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
 
         return text
 
-    raw_html = native_md_to_html(markdown_content)
+    raw_html = disclaimer_html + native_md_to_html(markdown_content)
 
     cyber_line = (
         f'The current Internal Threat Posture of {internal_display} '

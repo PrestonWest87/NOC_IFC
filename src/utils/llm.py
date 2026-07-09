@@ -225,22 +225,19 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     {deduped_vulns}
     """
 
-    master_sys_prompt = f"""You are the Chief Information Security Officer (CISO) delivering a high-impact, Unified OSINT Risk Digest to the Board of Directors and non-technical executives.
+    master_sys_prompt = f"""You are an intelligence analyst preparing a Unified OSINT Risk Digest for executive leadership.
 
-    CRITICAL FORMATTING & TONE DIRECTIVES:
-    1. VISUAL HIERARCHY: DO NOT use wall-of-text paragraphs. You MUST use bolding for emphasis, bulleted lists for all data points, and blockquotes for critical warnings. Make the report highly scannable.
-    2. OPERATIONAL TRANSLATION: For every vulnerability or threat, explicitly state the "So What?" (e.g., instead of just listing "ZDI-26-339", explain that it "could allow unauthorized users to gain administrative control over our Windows fleet, leading to data exfiltration").
-    3. MANDATORY DISCLAIMER: The very first thing under the Executive Summary must be this exact blockquote:
-        **OSINT CORRELATION DISCLAIMER:** This brief correlates external Open-Source Intelligence (OSINT) with our internal asset types to provide situational awareness. It highlights potential external exposures and does NOT represent confirmed internal breaches or active system compromises.
-    4. THREAT LEVEL TERMINOLOGY: When referring to threat levels or risk levels, you MUST strictly use the terms: Low, Guarded, Elevated, High, or Severe. Do NOT use colors (e.g., yellow, blue, red) to describe threat levels.
-    5. EXPAND THE NARRATIVE: Do not just regurgitate the data. Synthesize it. Group similar threats together (e.g., group all ransomware actors, group all weather events) and explain their overarching threat to business continuity, personnel safety, or infrastructure.
-    6. WORDING PRECISION — INTERNAL CYBER RISK: When describing the internal cyber risk exposure, use "continued attention" rather than "immediate attention". For example: "The convergence of these risk levels indicates a heightened threat landscape that requires continued attention."
+    FORMATTING & TONE DIRECTIVES:
+    1. VISUAL HIERARCHY: Use bolding for emphasis, bulleted lists for data points, and blockquotes for notable warnings.
+    2. OPERATIONAL TRANSLATION: For every vulnerability or threat, briefly state the business relevance (e.g., instead of just listing "ZDI-26-339", note that it "affects our Windows fleet and could allow unauthorized access").
+    3. THREAT LEVEL TERMINOLOGY: When referring to threat levels or risk levels, use the terms: Low, Guarded, Elevated, High, or Severe. Do NOT use colors (e.g., yellow, blue, red) to describe threat levels.
+    4. EXPAND THE NARRATIVE: Do not just list data. Synthesize it. Group similar threats together (e.g., group all ransomware actors, group all weather events) and explain their relevance to business continuity, personnel safety, or infrastructure.
+    5. WORDING PRECISION — INTERNAL CYBER RISK: When describing the internal cyber risk exposure, use "continued attention" rather than "immediate attention". For example: "The convergence of these risk levels indicates a heightened threat landscape that requires continued attention."
 
     REQUIRED STRUCTURE:
     ## Executive OSINT Summary (BLUF)
-    [Insert the Mandatory Disclaimer here]
-    * Provide a 3-4 sentence high-level narrative explaining the convergence of the Global and Internal risk levels (using only the terminology: Low, Guarded, Elevated, High, Severe).
-    * Follow with a bulleted list of the "Top 3 Immediate Concerns" across all domains.
+    * Provide a 3-4 sentence high-level narrative explaining the convergence of the Global and Internal risk levels (using the terminology: Low, Guarded, Elevated, High, Severe).
+    * Follow with a bulleted list of the top concerns across all domains.
 
     ## Internal Asset Threat Correlations (OSINT Overlaps)
     * Use a structured bulleted list for each exposed asset.
@@ -248,14 +245,14 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
 
     ## Global Cyber & Cloud Threat Landscape
     * Break this into two sub-bulleted sections: **Active Cyber Threats** (Ransomware, Malicious Campaigns) and **Cloud & Infrastructure Disruptions**.
-    * Detail the specific threat actors, CISA KEVs, and affected cloud providers. Explain how these trends threaten our specific industry or supply chain.
+    * Detail the specific threat actors, CISA KEVs, and affected cloud providers. Explain how these trends relate to our industry or supply chain.
 
     ## Physical, Weather & Perimeter Posture
     * Break into two sub-bulleted sections: **Regional Weather Hazards** and **Local Perimeter Crimes**.
-    * List exact distances, severity levels, and FBI categories. Explain the threat to facility operations, power stability, and personnel safety.
+    * List distances, severity levels, and FBI categories. Explain the relevance to facility operations, power stability, and personnel safety.
 
-    ## Strategic Defensive Recommendations
-    * Provide 3-5 highly actionable, executive-level directives (e.g., "Initiate emergency patching for Adobe products," "Review facility lockdown procedures due to perimeter crime spike").
+    ## Strategic Recommendations
+    * Provide 3-5 recommended next steps (e.g., "Prioritize patching for Adobe products," "Review facility lockdown procedures due to perimeter crime data").
     """
 
     logger.info("generate_unified_risk_brief: calling LLM with master prompt")
@@ -269,7 +266,17 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     else:
         logger.error("generate_unified_risk_brief: LLM returned error: %s", response[:200] if response else "None")
 
-    return response.strip() if response else "Brief generation failed."
+    if response and "Brief generation failed" not in response:
+        disclaimer = """
+## **OSINT CORRELATION DISCLAIMER**
+**This brief correlates external Open-Source Intelligence (OSINT) with our internal asset types to provide situational awareness. It highlights potential external exposures and does NOT represent confirmed internal breaches or active system compromises.**
+
+"""
+        response = disclaimer + response.strip()
+    else:
+        response = response.strip() if response else "Brief generation failed."
+
+    return response
 
 def generate_aggregated_shift_summary(session, logs, timeframe_label, target_role="All"):
     config = get_llm_config(session)
