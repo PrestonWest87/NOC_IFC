@@ -293,8 +293,8 @@ def generate_aggregated_shift_summary(session, logs, timeframe_label, target_rol
         logger.warning("generate_aggregated_shift_summary: no logs provided")
         return f"No logs available to generate a {timeframe_label} summary."
 
-    map_p = f"You are analyzing logs for the '{target_role.upper()}' department. Extract the most critical incidents, outages, resolutions, and ongoing operational issues from these shift log entries. Ignore routine noise. Output concise bullet points."
-    reduce_p = "Combine these batch extractions into a single, comprehensive incident digest, preserving all unique critical events and timelines."
+    map_p = f"You are a log analyst for the '{target_role.upper()}' team. Read these shift log entries and extract factual records of: incidents detected, actions taken, tickets dispatched, escalations, and any ongoing issues. Output concise bullet points — do not praise or characterize the work quality, just report what happened."
+    reduce_p = "Combine these extractions into a single chronological digest of events. Preserve all concrete facts: timestamps, asset names, ticket numbers, outage durations, and resolution actions. Do not add commentary about performance or team effectiveness."
 
     logger.info("generate_aggregated_shift_summary: running map-reduce on %d logs (chunk_size=20)", len(logs))
     log_digest = _map_reduce_summarize(
@@ -304,21 +304,22 @@ def generate_aggregated_shift_summary(session, logs, timeframe_label, target_rol
     )
     logger.info("generate_aggregated_shift_summary: map-reduce digest_length=%d", len(log_digest) if log_digest else 0)
 
-    master_sys_prompt = f"""You are a NOC Operations Manager for the {target_role.upper()} department.
-    Write an Executive '{timeframe_label}' Shift Summary specifically detailing the operations of the {target_role.upper()} team based on the provided log digest.
+    master_sys_prompt = f"""You are a NOC shift log summarizer generating a factual summary for the {target_role.upper()} team for '{timeframe_label}'.
 
-    Structure the response in Markdown with these EXACT headers:
+    Read the log entries and produce a neutral, data-driven summary. Do not praise performance, do not characterize work quality, do not use superlatives. Report only what the logs factually state.
 
-    ##  {timeframe_label} Operational Overview: {target_role.upper()}
-    [Write a 2-3 paragraph executive narrative of the team's operational tempo, major incidents, and overall stability during this period.]
+    Structure the response in Markdown with these exact headers:
 
-    ## [ALERT] Critical Incidents & Resolutions
-    [Provide bullet points of the most impactful outages or incidents handled by this team and explicitly detail how they were resolved.]
+    ## {timeframe_label} Log Summary — {target_role.upper()}
+    [2-3 sentences summarizing the scope: time period covered, number of entries, general nature of activity (e.g. "routine monitoring", "active outage remediation", "maintenance windows").]
 
-    ##  Ongoing / Unresolved Issues
-    [List any issues that appear to span across multiple shifts or remain active based on the logs. If none, state 'No major ongoing issues explicitly tracked.']
+    ## Events Logged
+    [Bulleted list of each discrete event mentioned in the logs. Format: timestamp — action/item (e.g. "14:30 — Dispatched ticket #4512 for MAIN-1 circuit flap"). Include asset names, ticket IDs, outage durations if recorded.]
 
-    Be professional, highly readable, and authoritative. Do NOT hallucinate incidents not present in the digest."""
+    ## Open Items
+    [Bulleted list of any issues noted as ongoing, unresolved, or carried over. If none, state "No open items reported."]
+
+    Stick strictly to what is in the logs. Do not infer events not recorded. Do not add praise or subjective assessment."""
 
     logger.info("generate_aggregated_shift_summary: calling final LLM for master summary")
     response = call_llm([

@@ -122,9 +122,9 @@ export function ShiftLogbookPage() {
   const generateSummaryMut = useMutation({
     mutationFn: () =>
       api.post("/logbook/generate-summary", {
-        role_filter: summaryRole,
+        role_filter: summaryTimeframe === "fullday" ? userRole : summaryRole,
         shift_period: summaryShiftPeriod,
-        timeframe_label: summaryTimeframe === "week" ? "Current Week" : summaryShiftPeriod + " Shift",
+        timeframe_label: summaryTimeframe === "week" ? "Current Week" : summaryTimeframe === "fullday" ? "End of Day" : summaryShiftPeriod + " Shift",
         auto_append: true,
         timeframe: summaryTimeframe,
       }),
@@ -557,6 +557,17 @@ export function ShiftLogbookPage() {
                   Shift
                 </button>
                 <button
+                  onClick={() => setSummaryTimeframe("fullday")}
+                  style={{
+                    padding: "0.35rem 0.6rem", fontSize: "0.75rem", fontWeight: 600,
+                    background: summaryTimeframe === "fullday" ? "var(--accent-cyan)" : "transparent",
+                    color: summaryTimeframe === "fullday" ? "#fff" : "var(--text-secondary)",
+                    border: "none", cursor: "pointer", transition: "background 0.15s",
+                  }}
+                >
+                  End of Day
+                </button>
+                <button
                   onClick={() => setSummaryTimeframe("week")}
                   style={{
                     padding: "0.35rem 0.6rem", fontSize: "0.75rem", fontWeight: 600,
@@ -572,7 +583,7 @@ export function ShiftLogbookPage() {
                 value={summaryShiftPeriod}
                 onChange={(e) => setSummaryShiftPeriod(e.target.value)}
                 style={{ ...inputBase, width: "auto", minWidth: "130px", flex: 1 }}
-                disabled={summaryTimeframe === "week"}
+                disabled={summaryTimeframe === "week" || summaryTimeframe === "fullday"}
               >
                 <option value="Morning">Morning (06:00-14:30)</option>
                 <option value="Afternoon">Afternoon (14:30-22:00)</option>
@@ -581,8 +592,8 @@ export function ShiftLogbookPage() {
               <select
                 value={summaryRole}
                 onChange={(e) => setSummaryRole(e.target.value)}
-                disabled={!isAdmin}
-                style={{ ...inputBase, width: "auto", minWidth: "100px", flex: 1, opacity: isAdmin ? 1 : 0.6 }}
+                disabled={!isAdmin || summaryTimeframe === "fullday"}
+                style={{ ...inputBase, width: "auto", minWidth: "100px", flex: 1, opacity: (!isAdmin || summaryTimeframe === "fullday") ? 0.6 : 1 }}
               >
                 <option value="All">All Roles</option>
                 {roleOpts.map(r => <option key={r} value={r}>{r}</option>)}

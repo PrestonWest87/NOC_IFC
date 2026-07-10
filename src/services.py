@@ -2506,11 +2506,19 @@ def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning
         query = session.query(ShiftLogEntry).filter(ShiftLogEntry.is_deleted == False)
         if role_filter != "All":
             query = query.filter(ShiftLogEntry.author_role == role_filter.lower())
-        if shift_period:
+        if shift_period and timeframe != "fullday":
             query = query.filter(ShiftLogEntry.shift_period == shift_period)
+        elif timeframe == "fullday":
+            shift_period = "End of Day"
 
         now_chicago = datetime.now(ZoneInfo("America/Chicago"))
-        if timeframe == "week":
+        if timeframe == "fullday":
+            today_start_chicago = now_chicago.replace(hour=0, minute=0, second=0, microsecond=0)
+            today_start_utc = today_start_chicago.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+            query = query.filter(ShiftLogEntry.created_at >= today_start_utc)
+            if not timeframe_label or timeframe_label == shift_period + " Shift":
+                timeframe_label = "End of Day"
+        elif timeframe == "week":
             week_start_chicago = now_chicago - timedelta(days=7)
             week_start_utc = week_start_chicago.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
             query = query.filter(ShiftLogEntry.created_at >= week_start_utc)
