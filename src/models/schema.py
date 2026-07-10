@@ -89,6 +89,7 @@ class SystemConfig(Base):
     global_risk_offset = Column(Integer, default=0)
     internal_risk_offset = Column(Integer, default=0)
     alerted_eq_ids = Column(Text, default="[]")
+    llm_context_window = Column(Integer, default=128000)
 
 
 class ShiftLogEntry(Base):
@@ -313,7 +314,7 @@ class MonitoredLocation(Base):
     lon = Column(Float)
     loc_type = Column(String, default="General", index=True)
     district = Column(String, default="Central", index=True)
-    priority = Column(Integer, default=3, index=True)
+    priority = Column(String, default="P3-Moderate", index=True)
     current_spc_risk = Column(String, default="None")
     last_updated = Column(DateTime, default=datetime.utcnow)
     under_maintenance = Column(Boolean, default=False)

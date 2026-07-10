@@ -73,6 +73,16 @@ class DotDict(dict):
     __setattr__ = dict.__setitem__
     __delattr__ = dict.__delitem__
 
+import re
+
+def priority_tier(p):
+    """Extract numeric tier (1-5) from a priority string like 'P1-Critical' or int."""
+    if p is None: return 3
+    if isinstance(p, (int, float)):
+        return int(p)
+    m = re.search(r'\d+', str(p))
+    return int(m.group()) if m else 3
+
 def to_dotdict(obj):
     if not obj: return None
     return DotDict({c.name: getattr(obj, c.name) for c in obj.__table__.columns})
@@ -1999,11 +2009,13 @@ def get_infrastructure_analytics(map_df, master_affected_sites):
 
 
 def generate_hazard_sitrep_html(analytics_df):
-    p1_count = len(analytics_df[analytics_df['Priority'] == 1]['Monitored Site'].unique())
+    analytics_df['_tier'] = analytics_df['Priority'].apply(lambda p: priority_tier(p))
+    p1_count = len(analytics_df[analytics_df['_tier'] == 1]['Monitored Site'].unique())
     rows_html = ""
-    for _, r in analytics_df.sort_values(by=['Priority', 'Monitored Site']).iterrows():
-        p_style = "background-color: #d9534f; color: white;" if r['Priority'] == 1 else "background-color: #f0ad4e; color: white;" if r['Priority'] == 2 else "background-color: #6c757d; color: white;"
-        rows_html += f"<tr><td style='padding: 12px; border-bottom: 1px solid #e0e0e0;'>{r['Monitored Site']}</td><td style='padding: 12px; border-bottom: 1px solid #e0e0e0;'>{r['Facility Type']}</td><td style='padding: 12px; border-bottom: 1px solid #e0e0e0; text-align: center;'><span style='{p_style} padding: 4px 8px; border-radius: 4px; font-weight: bold;'>P{r['Priority']}</span></td><td style='padding: 12px; border-bottom: 1px solid #e0e0e0; color: #d9534f; font-weight: bold;'>{r['Hazard']}</td></tr>"
+    for _, r in analytics_df.sort_values(by=['_tier', 'Monitored Site']).iterrows():
+        tier = r['_tier']
+        p_style = "background-color: #d9534f; color: white;" if tier == 1 else "background-color: #f0ad4e; color: white;" if tier == 2 else "background-color: #6c757d; color: white;"
+        rows_html += f"<tr><td style='padding: 12px; border-bottom: 1px solid #e0e0e0;'>{r['Monitored Site']}</td><td style='padding: 12px; border-bottom: 1px solid #e0e0e0;'>{r['Facility Type']}</td><td style='padding: 12px; border-bottom: 1px solid #e0e0e0; text-align: center;'><span style='{p_style} padding: 4px 8px; border-radius: 4px; font-weight: bold;'>{r['Priority']}</span></td><td style='padding: 12px; border-bottom: 1px solid #e0e0e0; color: #d9534f; font-weight: bold;'>{r['Hazard']}</td></tr>"
 
     return f"""
     <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -2035,27 +2047,53 @@ def generate_hazard_sitrep_html(analytics_df):
         </div>
     </div></body></html>""".replace("\n", "")
 
-def import_locations(data):
+def import_locations(data, mode="add"):
     with SessionLocal() as db:
-        added = 0
-        existing_names = {l[0] for l in db.query(MonitoredLocation.name).all()}
+        count = 0
+        if mode == "replace":
+            db.query(MonitoredLocation).delete(synchronize_session=False)
+            db.commit()
+            existing_names = set()
+        else:
+            existing_names = {l[0] for l in db.query(MonitoredLocation.name).all()}
         for item in data:
-            name, lat, lon = item.get("name"), item.get("lat"), item.get("lon")
-            if name and lat is not None and lon is not None and name not in existing_names:
-                # ADDED DISTRICT HERE
-                db.add(MonitoredLocation(name=name, lat=float(lat), lon=float(lon), loc_type=item.get("type", "General"), district=item.get("district", "Central"), priority=int(item.get("priority", 3))))
-                existing_names.add(name); added += 1
+            name = item.get("name")
+            if not name:
+                continue
+            lat, lon = item.get("lat"), item.get("lon")
+            if lat is None or lon is None:
+                continue
+            kwargs = {
+                "name": name,
+                "lat": float(lat),
+                "lon": float(lon),
+                "loc_type": item.get("type") or item.get("loc_type") or "General",
+                "district": item.get("district", "Central"),
+                "priority": item.get("priority", "P3-Moderate"),
+            }
+            if mode == "upsert" and name in existing_names:
+                db.query(MonitoredLocation).filter_by(name=name).update(kwargs)
+                count += 1
+            elif name not in existing_names:
+                db.add(MonitoredLocation(**kwargs))
+                existing_names.add(name)
+                count += 1
         db.commit()
     get_cached_locations.clear()
-    return added
+    return count
 
 def update_locations(edited_df):
+    cols = {k.lower(): k for k in edited_df.columns}
     with SessionLocal() as db:
         for _, row in edited_df.iterrows():
-            db_loc = db.query(MonitoredLocation).filter_by(id=row['id']).first()
+            db_loc = db.query(MonitoredLocation).filter_by(id=row.get(cols.get('id', 'id')) or row.get('id')).first()
             if db_loc:
-                # ADDED DISTRICT HERE
-                db_loc.name, db_loc.loc_type, db_loc.district, db_loc.priority, db_loc.lat, db_loc.lon = row['Name'], row['Type'], row['District'], row['Priority'], row['Lat'], row['Lon']
+                db_loc.name = row.get(cols.get('name', 'Name')) or db_loc.name
+                db_loc.loc_type = row.get(cols.get('loc_type', 'loc_type')) or row.get(cols.get('type', 'Type')) or db_loc.loc_type
+                db_loc.district = row.get(cols.get('district', 'District')) or db_loc.district
+                db_loc.priority = row.get(cols.get('priority', 'Priority')) or db_loc.priority
+                db_loc.lat = float(row.get(cols.get('lat', 'Lat')) or db_loc.lat)
+                db_loc.lon = float(row.get(cols.get('lon', 'Lon')) or db_loc.lon)
         db.commit()
     get_cached_locations.clear()
 
@@ -2624,7 +2662,7 @@ def restore_backup_data(data):
         for f in data.get("feeds", []):
             if not db.query(FeedSource).filter_by(url=f["url"]).first(): db.add(FeedSource(url=f["url"], name=f["name"])); added["feeds"] += 1
         for l in data.get("locations", []):
-            if not db.query(MonitoredLocation).filter_by(name=l["name"]).first(): db.add(MonitoredLocation(name=l["name"], lat=l["lat"], lon=l["lon"], loc_type=l.get("type", "General"), priority=l.get("prio", 3))); added["locs"] += 1
+            if not db.query(MonitoredLocation).filter_by(name=l["name"]).first(): db.add(MonitoredLocation(name=l["name"], lat=l["lat"], lon=l["lon"], loc_type=l.get("type", "General"), priority=str(l.get("prio", "P3-Moderate")))); added["locs"] += 1
         for a in data.get("aliases", []):
             if not db.query(NodeAlias).filter_by(node_pattern=a["pattern"]).first(): db.add(NodeAlias(node_pattern=a["pattern"], mapped_location_name=a["mapped"], confidence_score=a["conf"], is_verified=a["ver"])); added["alias"] += 1
         db.commit()

@@ -14,6 +14,11 @@ import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip as ReTooltip,
   ResponsiveContainer, CartesianGrid, Legend
 } from "recharts";
+function priorityTier(p: any): number {
+  const m = String(p ?? "").match(/\d+/);
+  return m ? parseInt(m[0], 10) : 3;
+}
+
 import {
   Map, LayoutDashboard, AlertTriangle, Table2, CloudSun, Activity,
   Layers, Filter, Target, Send, Sparkles, ChevronDown, ChevronUp,
@@ -509,7 +514,7 @@ export function RegionalGridPage() {
         getPosition: (d: any) => d.position,
         getFillColor: [255, 255, 255, 220] as [number, number, number, number],
         getLineColor: [0, 0, 0, 255] as [number, number, number, number],
-        getRadius: (d: any) => d.priority === 1 ? 12 : 6,
+        getRadius: (d: any) => priorityTier(d.priority) === 1 ? 12 : 6,
       }));
     }
 
@@ -526,7 +531,7 @@ export function RegionalGridPage() {
     try {
       const res = await api.post("/llm/executive-weather-brief", {
         analytics,
-        p1_at_risk: (masterAffectedSites || []).filter((s: any) => s.Priority === 1).length,
+        p1_at_risk: (masterAffectedSites || []).filter((s: any) => priorityTier(s.Priority) === 1).length,
       });
       setBriefing(res.data.brief || res.data || "Brief generated.");
     } catch {
@@ -746,7 +751,7 @@ function GeospatialTab({
 
       if (layerId === "facilities" || layerId?.startsWith("facilities")) {
         const name = d.name;
-        sites.push(`<b>${name}</b><br/>Priority: P${d.priority}`);
+        sites.push(`<b>${name}</b><br/>Priority: ${d.priority}`);
         for (const site of masterAffectedSites) {
           if (site["Monitored Site"] === name && site.Hazard && !alerts.includes(site.Hazard)) {
             alerts.push(site.Hazard);
@@ -802,8 +807,8 @@ function GeospatialTab({
 
   const affectedSitesSorted = useMemo(() => {
     return [...toggledAffectedSites].sort((a, b) => {
-      const pa = a.Priority || 999;
-      const pb = b.Priority || 999;
+      const pa = priorityTier(a.Priority) || 999;
+      const pb = priorityTier(b.Priority) || 999;
       if (pa !== pb) return pa - pb;
       return (a["Monitored Site"] || "").localeCompare(b["Monitored Site"] || "");
     });
@@ -964,7 +969,7 @@ function GeospatialTab({
                       <td style={TD_STYLE}>{site["Monitored Site"] || site.name || "-"}</td>
                       <td style={TD_STYLE}>{site.District || "-"}</td>
                       <td style={TD_STYLE}>{site["Facility Type"] || site.Type || "-"}</td>
-                      <td style={TD_STYLE}>P{site.Priority || "-"}</td>
+                      <td style={TD_STYLE}>{site.Priority || "-"}</td>
                       <td style={TD_STYLE}>{site["Intersecting Hazards"] || site.Hazards || "-"}</td>
                     </tr>
                   ))}
@@ -996,7 +1001,7 @@ function ExecutiveTab({
   const totalSites = analytics?.total_sites || 0;
   const atRisk = analytics?.at_risk_sites || 0;
   const riskPct = totalSites > 0 ? Math.round((atRisk / totalSites) * 1000) / 10 : 0;
-  const p1AtRisk = new Set((masterAffectedSites || []).filter((s: any) => s.Priority === 1).map((s: any) => s["Monitored Site"])).size;
+  const p1AtRisk = new Set((masterAffectedSites || []).filter((s: any) => priorityTier(s.Priority) === 1).map((s: any) => s["Monitored Site"])).size;
   const highestRisk = analytics?.highest_risk || "None";
 
   const spcDist = useMemo(() => {
@@ -1207,14 +1212,14 @@ function HazardTab({
   }, [masterAffectedSites]);
 
   const impactedSites = new Set(analyticsRows.map((s: any) => s["Monitored Site"]));
-  const p1Count = new Set(analyticsRows.filter((s: any) => s.Priority === 1).map((s: any) => s["Monitored Site"])).size;
-  const p2Count = new Set(analyticsRows.filter((s: any) => s.Priority === 2).map((s: any) => s["Monitored Site"])).size;
+  const p1Count = new Set(analyticsRows.filter((s: any) => priorityTier(s.Priority) === 1).map((s: any) => s["Monitored Site"])).size;
+  const p2Count = new Set(analyticsRows.filter((s: any) => priorityTier(s.Priority) === 2).map((s: any) => s["Monitored Site"])).size;
   const uniqueHazards = new Set(analyticsRows.map((s: any) => s.Hazard)).size;
 
   const sorted = useMemo(() => {
     return [...analyticsRows].sort((a, b) => {
-      const pa = a.Priority || 999;
-      const pb = b.Priority || 999;
+      const pa = priorityTier(a.Priority) || 999;
+      const pb = priorityTier(b.Priority) || 999;
       if (pa !== pb) return pa - pb;
       const sa = a.Severity || "";
       const sb = b.Severity || "";
@@ -1255,7 +1260,7 @@ function HazardTab({
                   {sorted.map((row: any, i: number) => (
                     <tr key={i} style={{ background: i % 2 === 0 ? "transparent" : "var(--bg-secondary)" }}>
                       {Object.keys(sorted[0]).map(k => (
-                        <td key={k} style={TD_STYLE}>{k === "Priority" ? `P${row[k]}` : String(row[k] ?? "")}</td>
+                        <td key={k} style={TD_STYLE}>{String(row[k] ?? "")}</td>
                       ))}
                     </tr>
                   ))}
@@ -1316,14 +1321,14 @@ function MatrixTab({ mapDf }: { mapDf: any[] }) {
                   const ra = riskOrder[a.current_spc_risk] ?? 99;
                   const rb = riskOrder[b.current_spc_risk] ?? 99;
                   if (ra !== rb) return ra - rb;
-                  return (a.priority || 99) - (b.priority || 99);
+                  return (priorityTier(a.priority) || 99) - (priorityTier(b.priority) || 99);
                 })
                 .map((row: any, i: number) => (
                   <tr key={i} style={{ background: i % 2 === 0 ? "transparent" : "var(--bg-secondary)" }}>
                     <td style={TD_STYLE}>{row.name}</td>
                     <td style={TD_STYLE}>{row.loc_type}</td>
                     <td style={TD_STYLE}>{row.district || "-"}</td>
-                    <td style={TD_STYLE}>P{row.priority}</td>
+                    <td style={TD_STYLE}>{row.priority}</td>
                     <td style={TD_STYLE}><RiskBadge level={row.current_spc_risk || "None"} /></td>
                   </tr>
                 ))}
@@ -1741,7 +1746,7 @@ function buildSitrepHtml(analytics: any, masterAffectedSites: any[], briefing: s
   const totalSites = analytics?.total_sites || 0;
   const atRisk = analytics?.at_risk_sites || 0;
   const riskPct = totalSites > 0 ? Math.round((atRisk / totalSites) * 1000) / 10 : 0;
-  const p1AtRisk = new Set((masterAffectedSites || []).filter((s: any) => s.Priority === 1).map((s: any) => s["Monitored Site"])).size;
+  const p1AtRisk = new Set((masterAffectedSites || []).filter((s: any) => priorityTier(s.Priority) === 1).map((s: any) => s["Monitored Site"])).size;
   const highestRisk = analytics?.highest_risk || "None";
 
   return `
@@ -1765,7 +1770,7 @@ function buildSitrepHtml(analytics: any, masterAffectedSites: any[], briefing: s
 
 function buildHazardHtml(masterAffectedSites: any[]) {
   const rows = (masterAffectedSites || []).slice(0, 50).map((s: any) =>
-    `<tr><td>${s["Monitored Site"] || ""}</td><td>P${s.Priority || ""}</td><td>${s.Hazard || ""}</td><td>${s.Severity || ""}</td></tr>`
+    `<tr><td>${s["Monitored Site"] || ""}</td><td>${s.Priority || ""}</td><td>${s.Hazard || ""}</td><td>${s.Severity || ""}</td></tr>`
   ).join("");
   return `
     <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">

@@ -316,14 +316,15 @@ function ProfileTab({ user, onProfileUpdated }: { user: any; onProfileUpdated: (
    ============================ */
 function FacilitiesTab({ locations, queryClient }: { locations: any; queryClient: any }) {
   const [importFile, setImportFile] = useState<File | null>(null);
+  const [importMode, setImportMode] = useState<"add" | "upsert" | "replace">("add");
   const [editData, setEditData] = useState<any[]>([]);
   const [mapSite, setMapSite] = useState<{ name: string; lat: number; lon: number; type: string } | null>(null);
 
   const importMutation = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async ({ file, mode }: { file: File; mode: string }) => {
       const text = await file.text();
       const data = JSON.parse(text);
-      return api.post("/admin/location/import", data);
+      return api.post("/admin/location/import", data, { params: { mode } });
     },
     onSuccess: () => {
       alert("Locations imported.");
@@ -455,13 +456,21 @@ function FacilitiesTab({ locations, queryClient }: { locations: any; queryClient
           onChange={e => setImportFile(e.target.files?.[0] || null)}
           style={{ marginBottom: "0.6rem", color: "var(--text-primary)", fontSize: "0.8rem" }}
         />
+        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", marginBottom: "0.6rem" }}>
+          {(["add", "upsert", "replace"] as const).map(m => (
+            <label key={m} style={{ fontSize: "0.78rem", color: "var(--text-secondary)", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+              <input type="radio" name="importMode" value={m} checked={importMode === m} onChange={() => setImportMode(m)} />
+              {m === "add" ? "Add new only" : m === "upsert" ? "Update existing" : "Replace all"}
+            </label>
+          ))}
+        </div>
         <button
-          onClick={() => importFile && importMutation.mutate(importFile)}
+          onClick={() => importFile && importMutation.mutate({ file: importFile, mode: importMode })}
           disabled={!importFile || importMutation.isPending}
-          style={btn("var(--accent-blue)")}
+          style={btn(importMode === "replace" ? "var(--accent-red)" : "var(--accent-blue)")}
         >
           <Upload size={14} />
-          {importMutation.isPending ? "Importing..." : "Import"}
+          {importMutation.isPending ? "Importing..." : `Import (${importMode})`}
         </button>
       </Card>
 
@@ -474,7 +483,7 @@ function FacilitiesTab({ locations, queryClient }: { locations: any; queryClient
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--border-primary)" }}>
-                    {["Name", "Type", "District", "Priority", "Lat", "Lon", "ID"].map(h => (
+                    {["Name", "Site Type", "District", "Priority", "Lat", "Lon", "ID"].map(h => (
                       <th key={h} style={{ padding: "0.4rem 0.5rem", textAlign: "left", color: "var(--text-secondary)" }}>{h}</th>
                     ))}
                   </tr>
@@ -486,13 +495,13 @@ function FacilitiesTab({ locations, queryClient }: { locations: any; queryClient
                         <input style={{ ...inputStyle, width: 110 }} value={row.name || ""} onChange={e => updateRow(i, "name", e.target.value)} />
                       </td>
                       <td style={{ padding: "0.25rem 0.3rem" }}>
-                        <input style={{ ...inputStyle, width: 90 }} value={row.type || ""} onChange={e => updateRow(i, "type", e.target.value)} />
+                        <input style={{ ...inputStyle, width: 90 }} value={row.loc_type || ""} onChange={e => updateRow(i, "loc_type", e.target.value)} />
                       </td>
                       <td style={{ padding: "0.25rem 0.3rem" }}>
                         <input style={{ ...inputStyle, width: 90 }} value={row.district || ""} onChange={e => updateRow(i, "district", e.target.value)} />
                       </td>
                       <td style={{ padding: "0.25rem 0.3rem" }}>
-                        <input style={{ ...inputStyle, width: 60 }} type="number" value={row.priority ?? ""} onChange={e => updateRow(i, "priority", Number(e.target.value))} />
+                        <input style={{ ...inputStyle, width: 90 }} value={row.priority ?? ""} onChange={e => updateRow(i, "priority", e.target.value)} />
                       </td>
                       <td style={{ padding: "0.25rem 0.3rem" }}>
                         <input style={{ ...inputStyle, width: 80 }} type="number" step="any" value={row.lat ?? ""} onChange={e => updateRow(i, "lat", Number(e.target.value))} />
@@ -810,6 +819,7 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation }: { config: any;
       llm_endpoint: config.llm_endpoint || "",
       llm_api_key: config.llm_api_key || "",
       llm_model_name: config.llm_model_name || "",
+      llm_context_window: config.llm_context_window ?? 128000,
       tech_stack: config.tech_stack || "",
       is_active: config.is_active ?? false,
       smtp_server: config.smtp_server || "",
@@ -861,6 +871,10 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation }: { config: any;
           <div>
             <SectionTitle text="Model Name" />
             <input style={inputStyle} value={form.llm_model_name} onChange={e => upd("llm_model_name", e.target.value)} placeholder="gpt-4" />
+          </div>
+          <div>
+            <SectionTitle text="Context Window" />
+            <input style={inputStyle} type="number" min={4096} step={4096} value={form.llm_context_window} onChange={e => upd("llm_context_window", Number(e.target.value))} placeholder="128000" />
           </div>
           <div>
             <SectionTitle text="Tech Stack" />

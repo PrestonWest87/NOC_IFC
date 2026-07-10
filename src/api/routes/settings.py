@@ -38,6 +38,7 @@ def get_config(db: Session = Depends(get_db)):
         "internal_risk_offset": config.internal_risk_offset,
         "sys_countermeasures": config.sys_countermeasures,
         "net_countermeasures": config.net_countermeasures,
+        "llm_context_window": config.llm_context_window,
         "unified_brief": config.unified_brief,
         "unified_brief_time": config.unified_brief_time.isoformat() if config.unified_brief_time else None,
         "rolling_summary": config.rolling_summary,

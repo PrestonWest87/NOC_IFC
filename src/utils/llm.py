@@ -10,6 +10,79 @@ from src.models.schema import SystemConfig, Article, CveItem, RegionalHazard, Cl
 logger = logging.getLogger(__name__)
 LOCAL_TZ = ZoneInfo("America/Chicago")
 
+_ollama_ctx_cache: dict[str, int] = {}
+
+MODEL_CONTEXT_WINDOWS = {
+    # OpenAI
+    "gpt-4o": 128000, "gpt-4o-2024-08-06": 128000, "gpt-4o-mini": 128000,
+    "gpt-4-turbo": 128000, "gpt-4": 8192, "gpt-3.5-turbo": 16384,
+    "o1-preview": 128000, "o1-mini": 128000,
+    # Anthropic
+    "claude-3-5-sonnet-20241022": 200000, "claude-3-opus-20240229": 200000,
+    "claude-3-haiku-20240307": 200000, "claude-2": 100000,
+    # Ollama / local
+    "llama3.1": 128000, "llama3": 8192, "llama2": 4096,
+    "mistral": 32768, "mistral-nemo": 128000, "mixtral": 32768,
+    "qwen2.5": 128000, "qwen2": 128000, "qwen": 32768,
+    "deepseek-r1": 128000, "deepseek-coder": 16384,
+    "codellama": 16384, "phi3": 128000, "phi": 128000,
+    "gemma2": 8192, "gemma": 8192,
+    "falcon": 2048, "falcon2": 8192,
+    "yi": 200000, "yi-coder": 128000,
+    "nemotron": 4096, "dbrx": 32768,
+}
+
+def _query_ollama_context_window(endpoint: str, model: str) -> int | None:
+    """Query Ollama /api/show for the model's context length. Returns None on failure."""
+    cache_key = f"{endpoint}|{model}"
+    if cache_key in _ollama_ctx_cache:
+        return _ollama_ctx_cache[cache_key]
+    try:
+        base = endpoint.rstrip("/").replace("/v1", "").replace("/chat/completions", "")
+        url = f"{base}/api/show"
+        resp = requests.post(url, json={"name": model}, timeout=10)
+        resp.raise_for_status()
+        info = resp.json().get("model_info", {})
+        # Iterate known context_length keys from different model architectures
+        for key in ("llama.context_length", "mistral.context_length", "qwen2.context_length",
+                     "deepseek2.context_length", "gemma2.context_length", "phi3.context_length",
+                     "mixtral.context_length", "yi.context_length", "command-r.context_length",
+                     "dbrx.context_length", "nemotron.context_length"):
+            if key in info:
+                val = int(info[key])
+                _ollama_ctx_cache[cache_key] = val
+                logger.info("Ollama /api/show: model=%s context_length=%d (key=%s)", model, val, key)
+                return val
+        logger.warning("Ollama /api/show: no known context_length key in model_info for %s", model)
+    except requests.ConnectionError:
+        logger.warning("Ollama /api/show: connection refused to %s — is Ollama running?", base)
+    except Exception as e:
+        logger.warning("Ollama /api/show: error for %s: %s", model, e)
+    return None
+
+def get_effective_context_window(config):
+    manual = getattr(config, 'llm_context_window', 128000) or 128000
+    api_key = getattr(config, 'llm_api_key', None) or getattr(config, 'llm_api_key', '')
+    model = getattr(config, 'llm_model_name', '') or ''
+    endpoint = getattr(config, 'llm_endpoint', '') or ''
+    # If API key is set, trust the manual setting (cloud API, user knows their model)
+    if api_key:
+        return manual
+    # No API key → likely Ollama → try lookup table first
+    model_lower = model.lower().strip()
+    if model_lower in MODEL_CONTEXT_WINDOWS:
+        return MODEL_CONTEXT_WINDOWS[model_lower]
+    # Strip version suffix (e.g. "llama3.1:8b" → "llama3.1")
+    base = model_lower.split(":")[0].split("-latest")[0].strip()
+    if base in MODEL_CONTEXT_WINDOWS:
+        return MODEL_CONTEXT_WINDOWS[base]
+    # Unknown model — query Ollama directly
+    ollama_ctx = _query_ollama_context_window(endpoint, model)
+    if ollama_ctx is not None:
+        return ollama_ctx
+    logger.warning("Unknown model '%s' with no API key — falling back to manual setting %d", model, manual)
+    return manual
+
 def get_llm_config(session):
     config = session.query(SystemConfig).filter_by(is_active=True).first()
     logger.debug("get_llm_config: found=%s endpoint=%s model=%s", config is not None,
@@ -17,17 +90,22 @@ def get_llm_config(session):
                  config.llm_model_name if config else 'N/A')
     return config
 
-def call_llm(messages, config, temperature=0.1):
+def call_llm(messages, config, temperature=0.1, max_tokens=None):
     if isinstance(config, dict):
         config = SimpleNamespace(**config)
     headers = {"Content-Type": "application/json"}
     if config.llm_api_key:
         headers["Authorization"] = f"Bearer {config.llm_api_key}"
 
+    ctx = get_effective_context_window(config)
+    if max_tokens is None:
+        max_tokens = min(ctx // 2, 8192)
+
     payload = {
         "model": config.llm_model_name,
         "messages": messages,
-        "temperature": temperature
+        "temperature": temperature,
+        "max_tokens": max_tokens
     }
 
     url = config.llm_endpoint.rstrip('/') + "/chat/completions"
@@ -61,9 +139,13 @@ def truncate_text(text, max_chars=300):
 def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size=6):
     if not items: return None
 
+    ctx = get_effective_context_window(config)
+    scale = max(1.0, ctx / 128000)
+    effective_chunk = max(1, int(chunk_size * scale))
+
     batch_summaries = []
 
-    for chunk in chunk_list(items, chunk_size):
+    for chunk in chunk_list(items, effective_chunk):
         context = "\n".join([formatter_func(x) for x in chunk])
         resp = call_llm([
             {"role": "system", "content": map_prompt},

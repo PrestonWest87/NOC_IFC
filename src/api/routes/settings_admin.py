@@ -142,11 +142,13 @@ def get_locations():
 
 
 @router.post("/location/import")
-def import_locations(data: list[dict] = Body([])):
-    logger.info("POST /admin/location/import count=%d", len(data))
-    svc.import_locations(data)
+def import_locations(data: list[dict] = Body([]), mode: str = Query("add")):
+    if mode not in ("add", "upsert", "replace"):
+        raise HTTPException(400, "mode must be 'add', 'upsert', or 'replace'")
+    logger.info("POST /admin/location/import mode=%s count=%d", mode, len(data))
+    count = svc.import_locations(data, mode=mode)
     svc.get_cached_locations.clear()
-    return {"status": "ok"}
+    return {"status": "ok", "mode": mode, "count": count}
 
 
 @router.put("/location")

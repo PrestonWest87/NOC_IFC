@@ -190,6 +190,28 @@ def init_db():
             except Exception:
                 pass
 
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN llm_context_window INTEGER DEFAULT 128000"))
+    except Exception:
+        pass
+
+    # Migrate priority from Integer to String
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text(
+                "UPDATE monitored_locations SET priority = CASE "
+                "WHEN priority = '1' OR priority = 1 THEN 'P1-Critical' "
+                "WHEN priority = '2' OR priority = 2 THEN 'P2-High' "
+                "WHEN priority = '3' OR priority = 3 THEN 'P3-Moderate' "
+                "WHEN priority = '4' OR priority = 4 THEN 'P4-Low' "
+                "WHEN priority = '5' OR priority = 5 THEN 'P5-Planning' "
+                "ELSE 'P3-Moderate' END "
+                "WHERE priority IS NOT NULL AND CAST(priority AS INTEGER) = priority"
+            ))
+    except Exception:
+        pass
+
     session = SessionLocal()
     try:
         from src.models.schema import Role, User
