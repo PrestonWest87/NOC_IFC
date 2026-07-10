@@ -94,7 +94,7 @@ export function ShiftLogbookPage() {
   const queryClient = useQueryClient();
 
   const [analyst, setAnalyst] = useState(user?.full_name ?? user?.username ?? "");
-  const [shiftPeriod, setShiftPeriod] = useState(user?.default_shift || "Morning");
+  const [shiftPeriod, setShiftPeriod] = useState(user?.default_shift || "No Shift");
   const [customDate, setCustomDate] = useState(todayChicagoString());
   const [role, setRole] = useState(user?.role ?? "analyst");
   const [content, setContent] = useState("");
@@ -398,7 +398,6 @@ export function ShiftLogbookPage() {
               >
                 <option value="Morning">Morning</option>
                 <option value="Afternoon">Afternoon</option>
-                <option value="Night">Night</option>
                 <option value="No Shift">No Shift (Custom Date)</option>
               </select>
             </div>
@@ -585,9 +584,8 @@ export function ShiftLogbookPage() {
                 style={{ ...inputBase, width: "auto", minWidth: "130px", flex: 1 }}
                 disabled={summaryTimeframe === "week" || summaryTimeframe === "fullday"}
               >
-                <option value="Morning">Morning (06:00-14:30)</option>
-                <option value="Afternoon">Afternoon (14:30-22:00)</option>
-                <option value="Night">Night (22:00-06:00)</option>
+                <option value="Morning">Morning</option>
+                <option value="Afternoon">Afternoon</option>
               </select>
               <select
                 value={summaryRole}

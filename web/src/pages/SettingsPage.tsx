@@ -133,7 +133,7 @@ function SectionTitle({ text }: { text: string }) {
 }
 
 export function SettingsPage() {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, refreshUser } = useAuth();
   const allowedSettingsTabs = getAllowedTabs(currentUser?.allowed_actions, "settings");
   const [tab, setTab] = useState("profile");
   const queryClient = useQueryClient();
@@ -204,7 +204,7 @@ export function SettingsPage() {
         ))}
       </div>
 
-      {tab === "profile" && <ProfileTab user={currentUser} />}
+      {tab === "profile" && <ProfileTab user={currentUser} onProfileUpdated={refreshUser} />}
       {tab === "theme" && <ThemeTab />}
       {tab === "facilities" && <FacilitiesTab locations={locations} queryClient={queryClient} />}
       {tab === "assets" && <AssetsTab />}
@@ -221,7 +221,7 @@ export function SettingsPage() {
 /* ============================
    0. PROFILE TAB
    ============================ */
-function ProfileTab({ user }: { user: any }) {
+function ProfileTab({ user, onProfileUpdated }: { user: any; onProfileUpdated: () => void }) {
   const [fullName, setFullName] = useState(user?.full_name || "");
   const [jobTitle, setJobTitle] = useState(user?.job_title || "");
   const [contactInfo, setContactInfo] = useState(user?.contact_info || "");
@@ -233,7 +233,7 @@ function ProfileTab({ user }: { user: any }) {
   const updateProfile = useMutation({
     mutationFn: (data: any) => api.post("/auth/update-profile", data, { params: { username: user?.username } }),
     onSuccess: () => {
-      alert("Profile updated!");
+      onProfileUpdated();
       setOldPwd("");
       setNewPwd("");
     },
@@ -274,7 +274,7 @@ function ProfileTab({ user }: { user: any }) {
           <div>
             <SectionTitle text="Default Shift" />
             <select style={inputStyle} value={defaultShift} onChange={e => setDefaultShift(e.target.value)}>
-              {["No Shift", "Day", "Swing", "Night", "Rotating"].map(s => <option key={s} value={s}>{s}</option>)}
+              {["No Shift", "Morning", "Afternoon"].map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
         </div>
