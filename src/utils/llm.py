@@ -341,7 +341,7 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     response = call_llm([
         {"role": "system", "content": master_sys_prompt},
         {"role": "user", "content": compiled_intel}
-    ], config, temperature=0.6)
+    ], config, temperature=0.5)
 
     if response and "[WARN]" not in response:
         logger.info("generate_unified_risk_brief: success, response_length=%d", len(response))
@@ -407,7 +407,7 @@ def generate_aggregated_shift_summary(session, logs, timeframe_label, target_rol
     response = call_llm([
         {"role": "system", "content": master_sys_prompt},
         {"role": "user", "content": f"--- LOG DIGEST ---\n{log_digest}"}
-    ], config, temperature=0.8)
+    ], config, temperature=0.6)
 
     if response and "[WARN]" not in response:
         logger.info("generate_aggregated_shift_summary: success, response_length=%d", len(response))
