@@ -2,158 +2,185 @@
 
 ## Overview
 
-Enterprise intelligence HUD for Network Operations Centers. Ingests RSS feeds, weather/telemetry data, crime incidents, and generates AI-powered reports.
+Enterprise intelligence HUD for Network Operations Centers. Ingests RSS feeds, weather/telemetry data, crime incidents, and SolarWinds alerts. Processes through an AI-powered correlation engine with CIS scoring, generates risk briefs, and provides real-time visualization via a React SPA with WebSocket updates.
 
 Branch `architecture/monolith-to-decoupled` — a complete rewrite from main's Streamlit monolithic app to a decoupled FastAPI + React SPA.
 
-## Architecture
+---
 
-- **Frontend** (`web/`): React + TypeScript + Vite SPA (port 5173 dev, nginx prod)
-- **API** (`src/api/main.py`): FastAPI REST + WebSocket on port 8101
-- **Worker** (`src/scheduler.py`): Background scheduler for data ingestion
-- **Webhook** (`src/webhook_listener.py`): FastAPI gateway on port 8100
-- **Database**: SQLite (default) or PostgreSQL (`DATABASE_URL` in `.env`)
+## Documentation Index
 
-## Developer Commands
+Comprehensive enterprise documentation is in `docs/`:
+
+| Document | Contents |
+|----------|----------|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System context, C4 container model, technology stack, data flow overview, security, scalability |
+| [API.md](docs/API.md) | Complete API reference — all 110+ endpoints with paths, methods, parameters, request/response schemas |
+| [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | All 27 tables with columns, types, constraints, indexes, relationships, migration strategy, retention policies |
+| [DATA_FLOWS.md](docs/DATA_FLOWS.md) | 8 complete pipelines with ASCII diagrams: RSS ingestion, CIS scoring, internal risk, brief generation, webhook, AIOps correlation, risk alerting, weather telemetry |
+| [TRIGGER_ACTION_FLOWS.md](docs/TRIGGER_ACTION_FLOWS.md) | Every trigger (webhook, scheduler, user action, WebSocket) mapped to its complete action flow |
+| [SERVICES.md](docs/SERVICES.md) | All 11 service modules with function signatures, class hierarchies, call chains, dependencies |
+| [SCHEDULER.md](docs/SCHEDULER.md) | All 12 background jobs with intervals, execution order, thread safety, retention policies |
+| [ESCALATION.md](docs/ESCALATION.md) | Tiered alert escalation: SLA dictionaries, business hours, dispatch channels, cascade detection, flapping logic |
+| [WEBHOOK.md](docs/WEBHOOK.md) | SolarWinds webhook gateway: payload normalization, device classification, resolution detection |
+| [FRONTEND.md](docs/FRONTEND.md) | React SPA: component tree, routing, hooks, state management, theme system, WebSocket client |
+| [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Docker Compose, environment variables, commands, production considerations, troubleshooting |
+
+---
+
+## Quick Reference
+
+### Containers
+
+| Service | Tech | Port | Purpose |
+|---------|------|------|---------|
+| `api` | FastAPI | 8101 | REST + WebSocket |
+| `worker` | Python scheduler | — | Background jobs (RSS, scoring, escalation) |
+| `webhook` | FastAPI | 8100 | SolarWinds webhook gateway |
+| `web` | nginx / Vite | 5173/8501 | React SPA |
+
+### Developer Commands
 
 ```bash
-# Build and run all services (production — nginx static build)
+# Production build and run
 docker compose up --build -d
 
-# Run with Vite dev server + hot reload
+# Dev mode with Vite hot reload
 docker compose --profile dev up --build -d
 
 # Monitor logs
-docker compose logs -f worker   # background scheduler
-docker compose logs -f api      # FastAPI + WebSocket
-docker compose logs -f web      # Frontend (nginx, no HMR)
+docker compose logs -f worker
+docker compose logs -f api
+docker compose logs -f web
+docker compose logs -f webhook
 
-# Restart services
-docker compose restart api                           # API changes
-docker compose up --build -d --force-recreate web    # Frontend changes (rebuild needed)
+# Restart single service
+docker compose restart api
 
-# Frontend dev standalone
+# Rebuild frontend
+docker compose up --build -d --force-recreate web
+
+# Standalone frontend
 cd web && npm run dev
 ```
 
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `web/src/App.tsx` | React app entrypoint |
-| `web/src/pages/*.tsx` | Page components |
-| `web/src/components/Layout.tsx` | Sidebar navigation layout |
-| `web/src/components/AIOpsMap.tsx` | AIOps map visualization |
-| `web/src/components/MapContainer.tsx` | Geospatial map container |
-| `web/src/components/ThemeSelector.tsx` | Dark/light theme toggle |
-| `web/src/components/BidirectionalCommands.tsx` | WebSocket command interface |
-| `web/src/hooks/useAIOpsWebSocket.ts` | WebSocket real-time hook |
-| `web/src/utils/api.ts` | API client (axios) |
-| `web/src/utils/AuthContext.tsx` | Auth state management |
-| `web/src/utils/timezone.ts` | America/Chicago timezone formatting |
-| `web/src/utils/routeConfig.ts` | Route/permission config |
-| `web/src/styles/theme.css` | Dark theme CSS variables |
-| `web/src/themes/themes.css` | Full theme system |
-| `src/api/main.py` | FastAPI + WebSocket broadcaster |
-| `src/api/routes/` | API route modules |
-| `src/services.py` | Data Access Layer (DAL) |
-| `src/services/aiops_engine.py` | Enterprise AIOps correlation engine |
-| `src/services/logic.py` | Scoring logic |
-| `src/services/categorizer.py` | Article categorization |
-| `src/services/ioc_extractor.py` | IOC extraction engine |
-| `src/services/threat_hunter.py` | Threat hunting logic |
-| `src/core/db.py` | SQLAlchemy engine and session |
-| `src/core/config.py` | Pydantic settings + logging setup |
-| `src/models/schema.py` | Database models |
-| `src/scheduler.py` | Background task scheduler |
-| `src/webhook_listener.py` | SolarWinds webhook gateway on port 8100 |
-| `src/utils/llm.py` | LLM interaction utilities |
-| `src/utils/mailer.py` | Email sending utilities |
-| `src/utils/risk_alert.py` | Risk alert checking |
-
-## Environment Variables (`.env`)
+### Environment Variables (`.env`)
 
 ```
 DATABASE_URL=sqlite:////app/data/noc_fusion.db   # Required
 RISK_ALERT_RECIPIENTS=email1,email2               # Risk alerts
 REMEDYFORCE_TICKET_EMAIL=ticket@solarwinds.com    # Tiered escalation
+NOC_NOTIFY_EMAIL=noc@example.com                  # After-hours NOC notification
+NOC_ONPAGE_EMAIL=noc-page@example.com             # NOC oncall paging
+ITNETWORK_ONPAGE_EMAIL=net-page@example.com       # IT Network oncall
+CRIME_ALERT_SMS=sms@gateway.com                   # Crime alert SMS via email
+DEFAULT_ADMIN_PASSWORD=admin123                   # First-run admin password
 ```
 
-## Default Credentials
+### Default Credentials
 
 - Login: `admin` / `admin123`
-- Webhook: `POST http://localhost:8100/webhook/solarwinds`
+- Webhook target: `POST http://host:8100/webhook/solarwinds`
 
-## Frontend Routes
+### Risk Levels
 
-| Route | Page | Description |
-|-------|------|-------------|
-| `/login` | LoginPage | Authentication |
-| `/` | DashboardPage | Global Dashboards (Operational, Risk, Internal, Brief) |
-| `/threat-telemetry` | ThreatTelemetryPage | RSS, KEV, Cloud, Crime map |
-| `/regional-grid` | RegionalGridPage | Geospatial map, hazards, weather |
-| `/threat-hunting` | ThreatHuntingPage | IOC matrix, deep hunt builder |
-| `/aiops-rca` | AiopsRcaPage | Active board, patterns, global correlation |
-| `/shift-logbook` | ShiftLogbookPage | Shift logs and history |
-| `/reporting` | ReportingPage | Daily fusion, report builder, library |
-| `/settings` | SettingsPage | Admin: facilities, assets, RSS, AI, users, backup |
+`GREEN < BLUE < YELLOW < ORANGE < RED`
 
-## API Endpoints
+### Infrastructure Ontology (7 domains)
 
-Prefix: `/api/v1/`
+| Domain | Examples |
+|--------|----------|
+| `PRIMARY_INTERNET` | VSAT, cellular, SD-WAN, modem, radio, ISP link |
+| `COMMS_EQUIPMENT` | Firewall, router, switch, AP, gateway, WLC |
+| `POWER_SUPPLIES` | UPS, PDU, ATS, battery, generator, HVAC |
+| `RTU` | RTU, remote terminal unit |
+| `SCADA` | PLC, meter, substation, relay, SEL |
+| `COMPUTE` | VM, host, server, storage, SAN, NAS |
+| `FACILITIES` | Physical facility/site infrastructure |
 
-| Group | Prefix | Description |
-|-------|--------|-------------|
-| Auth | `/auth` | Login, logout, profile |
-| Dashboard | `/dashboard` | Metrics, intel, articles |
-| Threat | `/threat` | CVEs, cloud outages, crime, articles |
-| Regional | `/regional` | Locations, geojson, analytics, weather |
-| Hunting | `/hunting` | IOCs, OSINT pivot, article search |
-| RCA | `/rca` | Dashboard, analyze, acknowledge, dispatch, send-ticket |
-| AIOps | `/aiops` | Dashboard, sitrep, sites |
-| Logbook | `/logbook` | Shift entries |
-| Reporting | `/reporting` | Briefings, saved reports |
-| LLM | `/llm` | Connection test, weather brief |
-| Email | `/email` | Send emails, broadcast brief |
-| Settings | `/settings` | Config, users |
-| Admin | `/admin` | Roles, locations, backup, nuke, assets |
+### Permission Strings (must match exactly)
+
+- `Action: Dispatch RCA Tickets`
+- `Action: Manage Site Maintenance`
+- `Tab: Settings -> Internal Assets`
+- `Tab: Dashboards -> Unified Brief`
+- All permission strings must match between backend Role model and frontend routeConfig.ts
+
+### Frontend Routes
+
+| Route | Page | Component File |
+|-------|------|----------------|
+| `/login` | LoginPage | `web/src/pages/LoginPage.tsx` |
+| `/` | DashboardPage | `web/src/pages/DashboardPage.tsx` |
+| `/threat-telemetry` | ThreatTelemetryPage | `web/src/pages/ThreatTelemetryPage.tsx` |
+| `/regional-grid` | RegionalGridPage | `web/src/pages/RegionalGridPage.tsx` |
+| `/threat-hunting` | ThreatHuntingPage | `web/src/pages/ThreatHuntingPage.tsx` |
+| `/aiops-rca` | AiopsRcaPage | `web/src/pages/AiopsRcaPage.tsx` |
+| `/shift-logbook` | ShiftLogbookPage | `web/src/pages/ShiftLogbookPage.tsx` |
+| `/reporting` | ReportingPage | `web/src/pages/ReportingPage.tsx` |
+| `/settings` | SettingsPage | `web/src/pages/SettingsPage.tsx` |
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/api/main.py` | FastAPI app entry, router mounting, WebSocket manager |
+| `src/api/routes/*.py` | 13 route modules (auth, dashboard, threat, regional, hunting, rca, aiops, logbook, reporting, settings, admin, llm, email) |
+| `src/services.py` | Central Data Access Layer (~3270 lines) |
+| `src/services/aiops_engine.py` | EnterpriseAIOpsEngine — clustering, patient zero, RCA |
+| `src/services/logic.py` | HybridScorer — keyword + ML scoring |
+| `src/services/categorizer.py` | Article categorization (8 categories via regex) |
+| `src/services/ioc_extractor.py` | Enterprise IOC extraction (18 types, 5 categories) |
+| `src/services/threat_hunter.py` | Legacy IOC extraction |
+| `src/core/db.py` | DB engine + session + init_db() (schema + seed data) |
+| `src/core/config.py` | Pydantic settings + logging |
+| `src/models/schema.py` | 27 SQLAlchemy models |
+| `src/scheduler.py` | Background job orchestrator (12 jobs) |
+| `src/webhook_listener.py` | SolarWinds webhook gateway (port 8100) |
+| `src/utils/llm.py` | LLM interaction (OpenAI/Ollama), map-reduce brief pipeline |
+| `src/utils/mailer.py` | SMTP email sending |
+| `src/utils/risk_alert.py` | Risk level change detection + alerting |
+| `web/src/pages/DashboardPage.tsx` | Dashboard with brief generation progress polling |
 
 ## Scheduler Jobs
 
-| Job | Interval | Notes |
-|-----|----------|-------|
-| RSS Feed Fetch | 15 min | — |
-| Crime Fetch | 3 min | — |
-| Regional Hazards | 2 min | — |
-| Cloud Outages | 5 min | — |
-| CISA KEV | 6 hours | — |
-| Internal Risk | 1 hour | Matches main |
-| Unified Brief | 30 min | Matches main |
-| DB Maintenance | 60 min | Dedup + purge old data |
-| ML Retrain | Sunday 02:00 | — |
-| Tiered Alert Escalation | 1 min | P1-P5 SLA, cascade, flapping detection |
+| Job | Interval | Description |
+|-----|----------|-------------|
+| RSS Feed Fetch | 15 min | Async RSS ingestion → score → categorize → extract IOCs → dedup |
+| Crime Fetch | 3 min | Crime API data + perimeter alert dispatch |
+| Regional Hazards | 2 min | NWS weather, USGS earthquakes, site intersections |
+| Cloud Outages | 5 min | Google Cloud status |
+| Telemetry Sync | 5 min | BGP anomalies, elastic events |
+| CISA KEV | 6 hours | Known Exploited Vulnerabilities catalog |
+| Internal Risk | 1 hour | Internal CIS scoring pipeline |
+| Unified Brief | 30 min | AI map-reduce brief generation |
+| Tiered Escalation | 1 min | P1-P5 SLA, cascade, flapping, oncall paging |
+| DB Maintenance | 60 min | Dedup + data purge per retention policy |
+| ML Retrain | Sunday 02:00 | scikit-learn model training + hot reload |
+| Daily Email Brief | 07:00 CST | Email unified brief to recipients |
 
-## Risk Levels
+## Critical Context
 
-GREEN < BLUE < YELLOW < ORANGE < RED
+- **Keywords must be seeded for scorer**: `init_db()` seeds 70 keywords + rescales all existing articles. Rebuild API container after DB reset.
+- **compile-map response format**: `[layers[], viewState{}, diagnostics[], toggled_affected[], master_affected[], analytics{}]` — frontend accesses by index.
+- **Web container has source mount with hot reload** in dev mode: changes to `web/` files reflected instantly via Vite HMR.
+- **Brief generation_id persisted in sessionStorage**: survives SPA navigation; polling resumes on return.
+- **All changes on `architecture/monolith-to-decoupled`**, pushed to `origin/architecture/monolith-to-decoupled`.
 
-## WebSocket
+## What's Been Done (Changelog)
 
-- Connect to `ws://localhost:8101/ws`
-- Receives `dashboard_update` payloads every 5 seconds
-- Send JSON commands back for bidirectional control
+### Brief Generation Progress
+- Async background thread with 5-stage progress (gathering, cyber_map, phys_map, synthesizing, complete)
+- Frontend polls `/dashboard/brief-generation-status` every 2 seconds
+- Progress persisted in `sessionStorage` across SPA navigation
+- Progress bar with stage message, item counts, percent
 
-## Theme
-
-CSS custom properties in `web/src/styles/theme.css` and `web/src/themes/themes.css`. Variables:
-- `--bg-primary`, `--bg-secondary`, `--bg-card`
-- `--text-primary`, `--text-secondary`, `--text-muted`
-- `--accent-blue`, `--accent-cyan`, `--accent-green`, etc.
-- `--risk-green`, `--risk-blue`, `--risk-yellow`, `--risk-orange`, `--risk-red`
-
----
-
-## What's Been Done
+### Inline Keyword Weight Editing
+- Click `w:N` label on any keyword row → inline number input (1-100)
+- Enter/blur saves, Escape cancels
+- Frontend + backend validation (1-100)
+- `force_reload_scorer()` on edit so changes take effect immediately
+- Bulk add also validates weight range
 
 ### Shift Logbook
 - Layout overhaul, day-stepper navigation, independent explorer tab
@@ -165,83 +192,55 @@ CSS custom properties in `web/src/styles/theme.css` and `web/src/themes/themes.c
 - Asset CSV import endpoints for hardware/software assets
 - Site types pulled from DB (`get_all_site_types()` merges DB `loc_type` values with defaults)
 - Frontend fetches site types from `/regional/site-types` for role management
-- Missing assets tab visibility fixed
-- `Tab: Settings -> Internal Assets` permission added
 
 ### Settings — CIS Scoring Configuration
 - Scoring overrides (manual/hybrid/auto modes) with C/I/L override columns
-- `Scoring Configuration` card in Settings page
 - Global/Internal Risk override panels in DashboardPage
 
 ### Unified Brief
 - Map-reduce pipeline ported from main (replaces single-pass generation)
 - Mandatory OSINT correlation disclaimer in executive summary
-- Feeds 30 cyber articles, 20 phys articles, 20 crimes, 20 HW/SW assets + DB telemetry
 - Temperature 0.35, improved prompt for operational translation
-- Email formatting aligned with main: CIS alert level names (not color codes), Cyber Security Director line
+- Email formatting aligned with main: CIS alert level names, Cyber Security Director line
 - `POST /email/broadcast-brief` endpoint
 
 ### RCA Dispatch Tickets
-- `generate_rca_ticket_text` ported from main — dynamic domains, compact alerts, clearer descriptions
-- Cluster data used for trigger time, alert details
-- District line in ticket header
-- Manual dispatch email format matches auto-scheduler (same subject, body wrapper, plain text)
-- `POST /rca/send-ticket` endpoint
-- Cascade indentation bug fixed (non-cascade tickets were blocked)
-
-### Email System
-- SMTP field mapping fixed in `/email/send`
-- Broadcast brief endpoint added
-- CIS alert level names used throughout
-- Comprehensive logging added across all email modules
+- `generate_rca_ticket_text` ported from main — dynamic domains, compact alerts, district header
+- Manual dispatch email format matches auto-scheduler
+- Cascade indentation bug fixed
 
 ### AIOps RCA Page
 - Site type filtering via `user.allowed_site_types`
 - Color logic: investigating > dispatched > maintenance > action required
-- Window-fill fullscreen (CSS fixed positioning, not Fullscreen API)
-- Green when no active alerts, coloring only when alerts present
-- Auto-clear investigating transition guard (prevents clearing all on dashboard refetch)
-- Maintenance is sticky (auto-clear removed; must be manually cleared)
-- Save-site race condition fixed (sequential mutations, not `Promise.allSettled`)
+- Window-fill fullscreen (CSS fixed positioning)
+- Auto-clear investigating transition guard
+- Maintenance is sticky (must be manually cleared)
+- Save-site race condition fixed (sequential mutations)
 - UTC date rollover maintenance wipe fixed
 
 ### RCA Tracking Display
-- `status_modified_by`, `status_modified_at` columns on `MonitoredLocation`
-- Tracking info (acknowledged/dispatched/modified by user @ time) in correlation cards, maintenance banner, site dialog
-- Forwarded through scatterplot data to map popups
+- `status_modified_by`, `status_modified_at` on `MonitoredLocation`
+- Tracking info in correlation cards, maintenance banner, site dialog, map popups
 
-### Timezone
-- All frontend times converted to America/Chicago
-- `web/src/utils/timezone.ts` — centralized formatting
+### Tiered Alert Escalation
+- 1-min loop, P1-P5 SLA, business hours (M-F 0600-2000 Central)
+- Dual SLA dictionaries (day shift vs after hours)
+- On-call paging (NOC / ITNETWORK based on device type)
+- Flapping detection via node cooldown
+- Cascade detection (sibling alert priority escalation)
+- Site-level mute (1h cooldown from last escalation)
 
-### DB & Migration
-- `NullPool` for SQLite to avoid `QueuePool` contention
-- ALTER TABLE split into per-column try/except (prevents silent skips)
-- Missing `monitored_locations` columns added
-- `alerted_eq_ids` column race condition fixed
+### Correlation Engine
+- 7-domain ontology, patient-zero tier scoring
+- SLA/P1-P5 mapping, fleet outage detection (≥5 sites same provider)
+- Chronic insights (60-day historical analysis)
+- 7-stage RCA correlation chain
 
 ### Other Fixes
 - Blank screen on login for single-page users — redirect to first allowed page
-- Email sending field mapping
-- Regional grid tooltips respect toggles, earthquake tooltip enhanced with depth/time
+- Regional grid tooltips respect toggles, earthquake tooltip with depth/time
 - Earthquake email alerts deduplicated
-- DB pool exhaustion, production nginx allows 10.0.0.0/8 + test.weasts.net
-
----
-
-## Completed Earlier
-
-- **Tiered Alert Escalation**: 1-min loop, P1-P5 SLA, business hours, on-call paging, flapping detection, cascade handling, site-level mute
-- **Correlation Engine**: 7-domain ontology, patient-zero tier scoring, SLA/P1-P5 mapping, fleet outage detection, chronic insights
-- **Regional Grid**: PDS detection, compile-map response `[layers, viewState, diagnostics, toggled_affected, master_affected, analytics]`, executive dash analytics embedded
-- **Google Cloud outage date filtering**, RSS deduplication, scheduler intervals matched to main
-- **Webhook alert level normalization**, article pagination/category filter, keyword seeding + rescoring
-
-## Critical Context
-
-- **Keywords must be seeded for scorer**: `init_db()` seeds 70 keywords + rescales all existing articles. Rebuild API container after DB reset.
-- **Domain names**: `PRIMARY_INTERNET`, `COMMS_EQUIPMENT`, `POWER_SUPPLIES`, `RTU`, `SCADA`, `COMPUTE`, `FACILITIES` — must be consistent everywhere.
-- **Permission strings**: `Action: Dispatch RCA Tickets`, `Action: Manage Site Maintenance`, `Tab: Settings -> Internal Assets`, `Tab: Dashboards -> Unified Brief` must match exactly in backend and frontend.
-- **`web` container has source mount with hot reload**: changes to `web/` files are reflected instantly via Vite HMR.
-- **compile-map response**: `[layers[], viewState{}, diagnostics[], toggled_affected[], master_affected[], analytics{}]` — frontend accesses by index.
-- **All changes on `architecture/monolith-to-decoupled`**, pushed to `origin/architecture/monolith-to-decoupled`.
+- DB pool exhaustion (NullPool for SQLite)
+- Production nginx allows 10.0.0.0/8 + test.weasts.net
+- Missing `monitored_locations` columns added via migration
+- `alerted_eq_ids` column race condition fixed

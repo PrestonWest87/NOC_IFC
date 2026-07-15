@@ -1,125 +1,244 @@
-# NOC Intelligence Fusion Center — Deployment Guide
+# NOC Intelligence Fusion Center — Enterprise Deployment Guide
 
-## Production Deployment
+## 1. Prerequisites
 
-### System Requirements
+| Requirement | Details |
+|-------------|---------|
+| Docker Engine | v24.0+ with Docker Compose v2 (`docker compose`) |
+| Git | v2.30+ for repository cloning |
+| RAM | Minimum 2 GB available (4 GB+ recommended for production) |
+| Disk | Minimum 10 GB free (20 GB+ recommended for data retention) |
+| LLM Endpoint | OpenAI API key or local Ollama instance |
+| Network | Ports 8100, 8101, 8501 (production) or 5173 (dev) must be available |
 
-| Environment | Spec | Notes |
-|-------------|------|-------|
-| Production Server | 4 vCPU, 8 GB RAM, 20 GB SSD | Linux x86_64 recommended |
-| Development Machine | 2 vCPU, 4 GB RAM, 10 GB SSD | Docker Desktop (WSL2 on Windows) |
-| Network | Ports 5173 (public), 8100-8101 (internal) | Use reverse proxy for TLS |
-
-### Recommended Architecture
-
-```
-Internet
-    │
-    ▼
-┌──────────────┐     ┌──────────────┐
-│  Reverse     │────▶│  nginx:5173  │
-│  Proxy       │     │  (web svc)   │
-│  (TLS term)  │     └──────┬───────┘
-└──────────────┘            │
-                     ┌──────▼───────┐
-                     │  API:8101    │
-                     │  (FastAPI)   │
-                     └──┬───┬───┬───┘
-                        │   │   │
-              ┌─────────┘   │   └──────────┐
-              ▼             ▼              ▼
-       ┌──────────┐  ┌──────────┐  ┌──────────────┐
-       │ Worker   │  │ Webhook  │  │ PostgreSQL   │
-       │ :8101    │  │ :8100    │  │ :5432        │
-       └──────────┘  └──────────┘  └──────────────┘
-```
-
-### Step-by-Step Production Deployment
-
-#### 1. Prepare the Server
+Verify prerequisites:
 
 ```bash
-# Install Docker Engine
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER
-
-# Verify installation
-docker --version
-docker compose version
+docker --version          # Docker version 24.0+
+docker compose version    # Docker Compose v2
+git --version             # git version 2.30+
 ```
 
-#### 2. Clone and Configure
+---
+
+## 2. Quick Start
 
 ```bash
-git clone <repository-url> /opt/noc-ifc
-cd /opt/noc-ifc
+git clone <repository-url>
+cd NOC_IFC
+
+# Create environment file from template
+cp .env.example .env      # Edit with your configuration (see Section 4)
+
+# Build and start all services
+docker compose up --build -d
+
+# Verify services are running
+docker compose ps
+
+# Test API health
+curl http://localhost:8101/health
+```
+
+Once running, access the UI at `http://localhost:8501` and log in with `admin` / `admin123`.
+
+---
+
+## 3. Docker Services
+
+### api — FastAPI REST + WebSocket
+
+| Property | Value |
+|----------|-------|
+| Dockerfile | Project root (`./Dockerfile`) |
+| Base image | `python:3.11-slim` |
+| Command | `uvicorn src.api.main:app --host 0.0.0.0 --port 8101 --reload` |
+| Port | `8101` |
+| Volumes | `./src:/app/src` (hot reload), `./data:/app/data` |
+| Environment | `.env` file |
+| WebSocket | `ws://localhost:8101/ws` |
+
+### worker — Background Scheduler
+
+| Property | Value |
+|----------|-------|
+| Dockerfile | Project root (`./Dockerfile`) |
+| Base image | `python:3.11-slim` |
+| Command | `python -u src/scheduler.py` |
+| Port | None (internal only) |
+| Volumes | `./src:/app/src`, `./data:/app/data` |
+| Memory limit | 1 GB |
+| Environment | `.env` file |
+
+Runs all scheduled jobs: RSS feed fetch, crime data, hazard monitoring, cloud outage tracking, CISA KEV updates, internal risk assessments, unified brief generation, DB maintenance, ML retraining, and tiered alert escalation.
+
+### webhook — SolarWinds Gateway
+
+| Property | Value |
+|----------|-------|
+| Dockerfile | Project root (`./Dockerfile`) |
+| Base image | `python:3.11-slim` |
+| Command | `python -u src/webhook_listener.py` |
+| Port | `8100` |
+| Volumes | `./src:/app/src`, `./data:/app/data` |
+| Environment | `.env` file |
+
+Receives SolarWinds alerts at `POST http://localhost:8100/webhook/solarwinds`.
+
+### web — Production Frontend (nginx)
+
+| Property | Value |
+|----------|-------|
+| Dockerfile | `web/Dockerfile` (multi-stage: `node:20-alpine` build + `nginx:alpine` serve) |
+| Port | `8501` → internal `5173` |
+| Env | `VITE_API_URL=http://localhost:8101` |
+| Depends on | `api` |
+| Static build | No HMR; rebuild required for frontend changes |
+
+### web-dev — Development Frontend (Vite, profile: dev)
+
+| Property | Value |
+|----------|-------|
+| Image | `node:20-alpine` |
+| Command | `sh -c "npm ci && npm run dev -- --host 0.0.0.0"` |
+| Port | `5173` |
+| Env | `VITE_API_URL=http://api:8101` |
+| Volumes | `./web:/app` (hot reload via Vite HMR) |
+| Profile | `dev` — activated via `docker compose --profile dev up` |
+
+---
+
+## 4. Environment Variables (.env)
+
+Create `.env` from the template and configure as needed:
+
+```bash
 cp .env.example .env
 ```
 
-#### 3. Configure PostgreSQL (Optional but Recommended)
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DATABASE_URL` | Yes | `sqlite:////app/data/noc_fusion.db` | SQLite (default) or PostgreSQL connection string |
+| `RISK_ALERT_RECIPIENTS` | For alerts | (empty) | Comma-separated email addresses for risk alerts |
+| `REMEDYFORCE_TICKET_EMAIL` | For RCA | (empty) | Email target for RCA ticket dispatch |
+| `NOC_NOTIFY_EMAIL` | For after-hours | (empty) | NOC team notification email |
+| `NOC_ONPAGE_EMAIL` | For after-hours | (empty) | NOC on-call paging email |
+| `ITNETWORK_ONPAGE_EMAIL` | For after-hours | (empty) | IT Network on-call paging email |
+| `CRIME_ALERT_SMS` | For crime alerts | (empty) | SMS gateway email for crime notifications |
+| `DEFAULT_ADMIN_PASSWORD` | First run | (empty) | Sets initial admin password on first boot |
+| `ELASTIC_URL` | Optional | `https://localhost:9200` | Elasticsearch endpoint |
+| `ELASTIC_API_KEY` | Optional | (empty) | Elasticsearch read-only API key |
 
-Add to `.env`:
+**Example production `.env`:**
+
 ```bash
 DATABASE_URL=postgresql://noc_user:secure_password@postgres:5432/noc_fusion
+RISK_ALERT_RECIPIENTS=noc-manager@example.com,soc@example.com
+REMEDYFORCE_TICKET_EMAIL=tickets@example.com
+NOC_NOTIFY_EMAIL=noc-team@example.com
+NOC_ONPAGE_EMAIL=noc-oncall@example.com
+ITNETWORK_ONPAGE_EMAIL=network-oncall@example.com
+CRIME_ALERT_SMS=gateway@sms-provider.com
+DEFAULT_ADMIN_PASSWORD=Ch@ng3M3!nPr0d
 ```
 
-Create a `docker-compose.override.yml`:
-```yaml
-services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: noc_user
-      POSTGRES_PASSWORD: secure_password
-      POSTGRES_DB: noc_fusion
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U noc_user -d noc_fusion"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+**PostgreSQL URL format:**
 
-  api:
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      - DATABASE_URL=postgresql://noc_user:secure_password@postgres:5432/noc_fusion
-
-  worker:
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      - DATABASE_URL=postgresql://noc_user:secure_password@postgres:5432/noc_fusion
-
-  webhook:
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      - DATABASE_URL=postgresql://noc_user:secure_password@postgres:5432/noc_fusion
-
-volumes:
-  postgres_data:
+```
+postgresql://username:password@hostname:5432/database_name
 ```
 
-#### 4. Configure TLS (Reverse Proxy)
+---
 
-Example nginx reverse proxy configuration:
+## 5. Commands Reference
+
+### Production Build and Run
+
+```bash
+docker compose up --build -d
+```
+
+### Development Mode (Hot Reload)
+
+```bash
+docker compose --profile dev up --build -d
+```
+
+### View Logs
+
+```bash
+docker compose logs -f api       # API + WebSocket logs
+docker compose logs -f worker    # Scheduler logs
+docker compose logs -f web       # Frontend (nginx, no HMR)
+docker compose logs -f webhook   # Webhook listener logs
+docker compose logs -f           # All services
+```
+
+### Restart Services
+
+```bash
+docker compose restart api                           # API only
+docker compose restart worker                        # Worker only
+docker compose restart                               # All services
+```
+
+### Rebuild a Single Service
+
+```bash
+docker compose up --build -d --force-recreate api   # API
+docker compose up --build -d --force-recreate web    # Frontend
+docker compose up --build -d --force-recreate worker # Worker
+```
+
+### Frontend Standalone Dev (Without Docker)
+
+```bash
+cd web
+npm ci
+npm run dev
+```
+
+### Service Status
+
+```bash
+docker compose ps               # List running services
+docker compose stats            # Live resource usage
+```
+
+### Database Operations
+
+```bash
+# Shell into API container
+docker compose exec api bash
+
+# Reinitialize database (caution: destructive)
+docker compose exec api python -c "from src.core.db import init_db; init_db()"
+```
+
+---
+
+## 6. Production Considerations
+
+### Database
+
+- **Use PostgreSQL** instead of SQLite for multi-instance or high-concurrency deployments
+- SQLite uses `NullPool` to avoid `QueuePool` contention — acceptable for single-instance only
+- Configure automated backups (see Section 7)
+
+### Reverse Proxy and TLS
+
+Deploy nginx or similar reverse proxy in front of the application:
 
 ```nginx
 server {
     listen 443 ssl http2;
-    server_name noc.aecc.com;
+    server_name noc.example.com;
 
-    ssl_certificate /etc/letsencrypt/live/noc.aecc.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/noc.aecc.com/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/noc.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/noc.example.com/privkey.pem;
 
     location / {
-        proxy_pass http://127.0.0.1:5173;
+        proxy_pass http://127.0.0.1:8501;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -127,338 +246,177 @@ server {
     }
 
     location /ws {
-        proxy_pass http://127.0.0.1:5173;
+        proxy_pass http://127.0.0.1:8101;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
+        proxy_read_timeout 86400;
+    }
+
+    location /api {
+        proxy_pass http://127.0.0.1:8101;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 
 server {
     listen 80;
-    server_name noc.aecc.com;
+    server_name noc.example.com;
     return 301 https://$server_name$request_uri;
 }
 ```
 
-#### 5. Configure Environment
+### Resource Limits
 
-```bash
-# Production .env
-DATABASE_URL=sqlite:////app/data/noc_fusion.db  # or postgresql://...
-SECRET_KEY=<random-64-char-string>
-RISK_ALERT_RECIPIENTS=noc-manager@aecc.com, soc@aecc.com
-REMEDYFORCE_TICKET_EMAIL=remedyforce@aecc.com
-NOC_NOTIFY_EMAIL=noc-team@aecc.com
-NOC_ONPAGE_EMAIL=noc-oncall@aecc.com
-ITNETWORK_ONPAGE_EMAIL=network-oncall@aecc.com
-LLM_API_URL=https://api.openai.com/v1
-```
-
-> Generate a secure SECRET_KEY: `openssl rand -hex 32`
-
-#### 6. Build and Launch
-
-```bash
-docker compose up --build -d
-```
-
-#### 7. Verify Deployment
-
-```bash
-# Check all services are healthy
-docker compose ps
-
-# Test API health
-curl http://localhost:8101/health
-
-# Test webhook
-curl -X POST http://localhost:8100/webhook/solarwinds \
-  -H "Content-Type: application/json" \
-  -d '{"AlertName":"Test Alert","severity":"INFO"}'
-
-# Check logs for any errors
-docker compose logs --tail=50
-```
-
-#### 8. Post-Deployment Tasks
-
-1. **Login** with admin credentials
-2. **Change default passwords** (Settings > Users & Roles)
-3. **Configure AI** (Settings > AI & SMTP)
-4. **Configure SMTP** (Settings > AI & SMTP)
-5. **Add facilities** (Settings > Facilities)
-6. **Add RSS sources** (Settings > RSS Sources)
-7. **Verify data ingestion** (check worker logs)
-8. **Configure webhook** in your ITSM tool
-
----
-
-## Environment-Specific Deployments
-
-### Single Server (Small NOC)
-
-```
-One machine, all containers, SQLite
-```
-
-```bash
-docker compose up --build -d
-```
-
-**Pros**: Simple, minimal dependencies
-**Cons**: No high availability, SQLite concurrency limits
-
-### Two-Tier (Medium NOC)
-
-```
-App Server: API + Worker + Webhook + Web
-Database Server: PostgreSQL
-```
-
-1. Deploy PostgreSQL on database server
-2. Configure `DATABASE_URL` pointing to the database server
-3. Ensure network connectivity between servers
-
-### Three-Tier (Enterprise NOC)
-
-```
-Load Balancer: nginx (TLS, routing)
-App Servers (x2): API + Worker + Webhook
-Web Server: nginx + static assets
-Database: PostgreSQL with replication
-```
-
-**Considerations:**
-- Use Redis for WebSocket state sharing across API instances
-- Configure sticky sessions or use WebSocket-compatible load balancer
-- Set up read replicas for analytics queries
-- Implement health checks and auto-scaling
-
----
-
-## CI/CD Pipeline
-
-### Example GitHub Actions Workflow
+The worker service has a 1 GB memory limit by default. For production, consider adding limits to other services:
 
 ```yaml
-name: Deploy NOC Fusion
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build and push images
-        run: |
-          docker build -t noc-api:latest .
-          docker build -t noc-web:latest ./web
-
-      - name: Deploy to server
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_KEY }}
-          script: |
-            cd /opt/noc-ifc
-            git pull
-            docker compose up --build -d
+services:
+  api:
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+  worker:
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 ```
+
+### Logging and Monitoring
+
+- Configure external log aggregation (ELK, Datadog, Splunk)
+- Monitor container health via `docker compose ps` or Docker healthchecks
+- Set up alerting on API `/health` endpoint
+- Track database size growth over time
+
+### Secrets Management
+
+- Use Docker secrets or an external vault for sensitive values
+- SMTP credentials are stored in the `SystemConfig` database table (encrypted at rest)
+- LLM API keys are stored in environment variables and `SystemConfig`
 
 ---
 
-## Monitoring & Maintenance
+## 7. Network Architecture
 
-### Monitoring Checklist
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Docker Network                           │
+│                                                             │
+│  ┌──────────┐    ┌──────────┐    ┌──────────┐              │
+│  │   api    │◄───│   web    │    │ webhook  │              │
+│  │  :8101   │    │  :5173   │    │  :8100   │              │
+│  └────┬─────┘    └──────────┘    └──────────┘              │
+│       │                                                     │
+│  ┌────┴─────┐         ┌──────────┐                         │
+│  │  worker  │         │ web-dev  │ (dev profile only)      │
+│  │  :???    │         │  :5173   │                         │
+│  └──────────┘         └──────────┘                         │
+└─────────────────────────────────────────────────────────────┘
 
-| What to Monitor | How | Frequency |
-|----------------|-----|-----------|
-| Container health | `docker compose ps` | Every 5 min |
-| API health | `curl /health` | Every 1 min |
-| Worker logs | `docker compose logs worker --tail=20` | Every 15 min |
-| Database size | `du -sh data/noc_fusion.db` | Daily |
-| Disk usage | `df -h` | Daily |
-| Memory usage | `docker stats --no-stream` | Daily |
-
-### Routine Maintenance
-
-**Daily:**
-- Review worker logs for errors
-- Check database size growth
-- Monitor memory usage of all containers
-
-**Weekly:**
-- Review and purge old log entries (Settings > Danger Zone)
-- Check for stuck/unresolved alerts
-- Update RSS feed sources as needed
-
-**Monthly:**
-- Review and clean up internal assets
-- Archive old shift log data
-- Update LLM configuration if needed
-- Review user accounts and roles
-
-**Quarterly:**
-- Full database backup
-- Review and update keyword weights
-- Retrain ML model with accumulated feedback
-- Update incident response procedures
-
-### Backup & Recovery
-
-#### Automatic Backups
-Add a cron job on the host:
-
-```bash
-# Daily database backup
-0 2 * * * docker compose exec -T api python -c "
-from src.services import export_backup
-export_backup('/tmp/backup.json')
-" && docker cp $(docker compose ps -q api):/tmp/backup.json /backups/noc-$(date +\%Y\%m\%d).json
+External Access:
+  localhost:8501  → web (production, nginx static)
+  localhost:5173  → web-dev (development, Vite HMR)
+  localhost:8101  → api (FastAPI + WebSocket)
+  localhost:8100  → webhook (SolarWinds gateway)
+  ws://localhost:8101/ws → WebSocket real-time updates
 ```
 
-#### Manual Backup
-```bash
-# Via Settings > Backup & Restore
-curl -X POST http://localhost:5173/api/v1/admin/backup -o backup.json
+**SolarWinds Integration:**
 
-# Or directly
-docker compose exec api python -c "
-from src.services import export_backup
-export_backup('/app/data/backup.json')
-print('Backup saved')
-"
-docker cp $(docker compose ps -q api):/app/data/backup.json ./backup.json
+```
+SolarWinds → POST http://<host>:8100/webhook/solarwinds → webhook service → database
 ```
 
-#### Recovery
-```bash
-# Via Settings > Backup & Restore
-curl -X POST http://localhost:5173/api/v1/admin/restore \
-  -H "Content-Type: application/json" \
-  -d @backup.json
-
-# Or full database reset with restore
-docker compose down
-rm data/noc_fusion.db
-docker compose up -d
-docker compose exec api python -c "
-from src.services import import_backup
-with open('/app/data/backup.json') as f:
-    import json
-    import_backup(json.load(f))
-print('Restore complete')
-"
-```
-
-### Scaling Considerations
-
-| Bottleneck | Solution |
-|------------|----------|
-| SQLite concurrency | Migrate to PostgreSQL |
-| Worker throughput | Increase `chunk_size` in feed fetcher |
-| API response time | Add Redis caching layer |
-| WebSocket connections | Use dedicated WebSocket server |
-| Storage growth | Configure retention policies in scheduler |
-| LLM rate limits | Configure multiple LLM endpoints |
+All containers communicate on the same Docker bridge network. Internal service-to-service communication uses container names (e.g., `http://api:8101`).
 
 ---
 
-## Security Hardening
+## 8. Security Notes
 
-### Network Security
+| Area | Status | Notes |
+|------|--------|-------|
+| Authentication | Token-based per endpoint | No global auth middleware |
+| Admin endpoints | Unprotected | Assumed internal network access only |
+| RCA dispatch | Permission-gated | Requires `Action: Dispatch RCA Tickets` |
+| CORS | Permissive | Allows all origins by default; restrict in `main.py` for production |
+| SMTP credentials | Database-stored | `SystemConfig` table, not in env vars |
+| API keys | Env vars + DB | LLM keys in `.env` and `SystemConfig` |
+| Default password | `admin123` | Must be changed post-deployment |
+| WebSocket | No auth | Connects without authentication |
 
-1. **Firewall rules**:
-   - Allow 5173 (frontend) from NOC subnet only
-   - Allow 8100 (webhook) from monitoring tools only
-   - Allow 8101 (API) from frontend only (or use internal Docker network)
-   - Restrict SSH access
+**Recommended hardening:**
 
-2. **Webhook authentication**: Add HMAC signature verification in production (modify `webhook_listener.py`)
-
-3. **API rate limiting**: Add middleware for production API endpoints
-
-4. **CORS**: Restrict `allow_origins` in `main.py` to specific domains
-
-### Authentication
-
-1. **Change default passwords immediately**
-2. **Use strong passwords**: Minimum 12 characters with complexity requirements
-3. **Session management**: JWT tokens expire on browser close (sessionStorage)
-4. **Audit logging**: User actions are logged in timeline_events and shift_logs
-
-### Data Security
-
-1. **Encryption at rest**: Database file permissions should be 600
-2. **HTTPS**: Always use TLS in production
-3. **API keys**: LLM and SMTP credentials stored in the database (not in containers)
-4. **Backup encryption**: Encrypt backup JSON files for offsite storage
-
-### Container Security
-
-1. **Non-root user**: Modify Dockerfiles to run as non-root user
-2. **Read-only filesystem**: Where possible, mount volumes as read-only
-3. **Resource limits**: Already configured for worker (`memory: 1G`)
-4. **Image scanning**: Regular vulnerability scanning of Docker images
-5. **Secrets**: Use Docker secrets or external vault for sensitive values
+1. Restrict CORS `allow_origins` in `src/api/main.py` to your domain
+2. Add HMAC signature verification to the webhook endpoint
+3. Implement API rate limiting via middleware
+4. Use firewall rules to limit port access by source IP
+5. Enable HTTPS via reverse proxy — never expose services on plain HTTP
 
 ---
 
-## Upgrade Procedure
-
-### In-Place Upgrade
-
-```bash
-# 1. Backup
-docker compose exec api python -c "
-from src.services import export_backup
-export_backup('/app/data/pre-upgrade-backup.json')
-print('Pre-upgrade backup saved')
-"
-
-# 2. Pull latest code
-git pull
-
-# 3. Rebuild and restart
-docker compose up --build -d
-
-# 4. Verify
-docker compose ps
-curl http://localhost:8101/health
-
-# 5. Check data integrity
-docker compose logs --tail=30 worker
-```
-
-### Blue-Green Deployment
-
-1. Deploy new version alongside existing on different ports
-2. Run database migrations
-3. Switch reverse proxy to new version
-4. Verify functionality
-5. Tear down old version
-
----
-
-## Troubleshooting Production Issues
+## 9. Troubleshooting
 
 | Symptom | Likely Cause | Resolution |
 |---------|-------------|-----------|
-| API won't start | Database connection issue | Check `DATABASE_URL` and database server connectivity |
-| Worker errors on startup | Database not seeded | `docker compose exec api python -c "from src.core.db import init_db; init_db()"` |
-| Webhook returns 500 | Invalid payload format | Check SolarWinds payload structure |
-| Frontend blank page | Build cache or proxy issue | Clear browser cache, restart web container |
-| WebSocket disconnects | Network timeout | Adjust nginx proxy_read_timeout |
-| Memory exhaustion | SQLite with many concurrent connections | Switch to PostgreSQL or reduce worker threads |
-| Slow page loads | Large database tables | Run maintenance from Settings > Danger Zone |
-| Emails not sending | SMTP configuration | Verify SMTP settings in Settings > AI & SMTP |
-| AI features not working | LLM configuration | Check LLM endpoint, API key, and `is_active` flag |
-| No RSS data | Feed sources not configured | Add feeds in Settings > RSS Sources |
-| Score all zero | Keywords not seeded | Run `init_db()` or rebuild API container |
+| DB pool exhaustion | SQLite `QueuePool` contention | Already mitigated with `NullPool`; switch to PostgreSQL for high concurrency |
+| LLM timeout / errors | Wrong endpoint or model | Verify LLM endpoint URL and API key in Settings > AI & SMTP |
+| WebSocket not connecting | API container issue or port conflict | Check `docker compose logs api` for startup errors |
+| Emails not sending | SMTP misconfiguration | Verify SMTP settings in Settings > AI & SMTP |
+| No articles / feeds | Scheduler not running or no sources | Check `docker compose logs worker`; add RSS sources in Settings |
+| Scores all zero | Keywords not seeded | Run `init_db()` or rebuild API container (keywords seed on startup) |
+| Frontend blank screen | Build cache issue | `docker compose up --build -d --force-recreate web` |
+| Webhook returns 500 | Invalid SolarWinds payload | Check payload format matches expected schema |
+| Worker memory spike | Large feed batch | Increase memory limit or reduce `chunk_size` |
+| Port conflict on 8101 | Another process using port | `lsof -i :8101` to identify and stop conflicting process |
+| `init_db()` missing tables | Schema migration needed | Run `docker compose exec api python -c "from src.core.db import init_db; init_db()"` |
+
+**Log locations:**
+
+```bash
+# All service logs
+docker compose logs api | worker | webhook | web
+
+# Last 100 lines
+docker compose logs --tail=100 api
+
+# Follow logs in real time
+docker compose logs -f api worker
+```
+
+---
+
+## Appendix: Upgrade Procedure
+
+```bash
+# 1. Backup database
+docker compose exec api python -c "
+from src.services import export_backup
+export_backup('/app/data/pre-upgrade-backup.json')
+"
+
+# 2. Pull latest code
+git pull origin <branch>
+
+# 3. Rebuild and restart all services
+docker compose up --build -d
+
+# 4. Verify deployment
+docker compose ps
+curl http://localhost:8101/health
+docker compose logs --tail=30 worker
+```
+
+**Post-upgrade checklist:**
+
+- Verify API health endpoint returns 200
+- Check worker logs for scheduler job initialization
+- Confirm WebSocket connects in browser (developer console)
+- Test a SolarWinds webhook POST
+- Verify frontend loads and login works
