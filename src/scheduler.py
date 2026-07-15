@@ -249,6 +249,26 @@ def job_unified_brief():
     except Exception as e:
         log(f"[ERROR] Unified Brief Error: {e}", "SYSTEM")
 
+def job_global_brief():
+    """Auto-generates the Global Threat Brief every 1 hour."""
+    log("[AI] Generating Global Threat Brief (US Critical Infrastructure Focus)...", "SYSTEM")
+    try:
+        from src.services import trigger_global_brief
+        trigger_global_brief()
+        log("[OK] Global Threat Brief generated and saved.", "SYSTEM")
+    except Exception as e:
+        log(f"[ERROR] Global Brief Error: {e}", "SYSTEM")
+
+def job_internal_brief():
+    """Auto-generates the Internal Asset Risk Brief every 2 hours."""
+    log("[AI] Generating Internal Asset Risk Brief...", "SYSTEM")
+    try:
+        from src.services import trigger_internal_brief
+        trigger_internal_brief()
+        log("[OK] Internal Asset Risk Brief generated and saved.", "SYSTEM")
+    except Exception as e:
+        log(f"[ERROR] Internal Brief Error: {e}", "SYSTEM")
+
 def job_internal_risk():
     """Wrapper to safely execute and log the internal risk calculation."""
     log("[SYSTEM] Generating Internal Risk Snapshot...", "SYSTEM")
@@ -693,6 +713,8 @@ if __name__ == "__main__":
     schedule.every().sunday.at("02:00").do(run_threaded, job_retrain_ml)
     schedule.every(60).minutes.do(run_threaded, run_database_maintenance)
     schedule.every(30).minutes.do(run_threaded, job_unified_brief)
+    schedule.every(1).hours.do(run_threaded, job_global_brief)
+    schedule.every(2).hours.do(run_threaded, job_internal_brief)
     schedule.every(15).minutes.do(run_threaded, fetch_feeds)
     schedule.every(3).minutes.do(run_threaded, fetch_live_crimes)
     schedule.every(6).hours.do(run_threaded, fetch_cisa_kev)
@@ -722,7 +744,9 @@ if __name__ == "__main__":
     fetch_live_crimes, 
     fetch_feeds, 
     job_internal_risk,   # Ensure this runs first
-    job_unified_brief    # Add this so the brief generates immediately after internal risk
+    job_unified_brief,   # Add this so the brief generates immediately after internal risk
+    job_global_brief,    # Global threat brief on boot
+    job_internal_brief   # Internal asset risk brief on boot
     ]
     for job in boot_jobs:
         run_threaded(job)

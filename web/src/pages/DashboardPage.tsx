@@ -189,6 +189,14 @@ export function DashboardPage() {
   const [briefProgress, setBriefProgress] = useState<any>(null);
   const briefPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const [globalBriefGenId, setGlobalBriefGenId] = useState<string | null>(() => sessionStorage.getItem("global_brief_gen_id"));
+  const [globalBriefProgress, setGlobalBriefProgress] = useState<any>(null);
+  const globalBriefPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [internalBriefGenId, setInternalBriefGenId] = useState<string | null>(() => sessionStorage.getItem("internal_brief_gen_id"));
+  const [internalBriefProgress, setInternalBriefProgress] = useState<any>(null);
+  const internalBriefPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const [globalOverrideForm, setGlobalOverrideForm] = useState<any>(null);
   const [internalOverrideForm, setInternalOverrideForm] = useState<any>(null);
   const rotateRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -229,6 +237,78 @@ export function DashboardPage() {
       }
     };
   }, [briefGenId, queryClient]);
+
+  useEffect(() => {
+    if (globalBriefGenId) {
+      globalBriefPollRef.current = setInterval(async () => {
+        try {
+          const { data } = await api.get("/dashboard/global-brief-generation-status", { params: { generation_id: globalBriefGenId } });
+          setGlobalBriefProgress(data);
+          if (data.stage === "complete" || data.stage === "error" || data.status === "unknown") {
+            if (globalBriefPollRef.current) clearInterval(globalBriefPollRef.current);
+            globalBriefPollRef.current = null;
+            setGlobalBriefGenId(null);
+            sessionStorage.removeItem("global_brief_gen_id");
+            if (data.stage === "complete") {
+              queryClient.invalidateQueries({ queryKey: ["sys-config"] });
+              queryClient.refetchQueries({ queryKey: ["sys-config"] });
+              setForceRefreshKey((k) => k + 1);
+            }
+            if (data.stage === "error") {
+              setGlobalBriefProgress(data);
+            }
+          }
+        } catch {
+          if (globalBriefPollRef.current) clearInterval(globalBriefPollRef.current);
+          globalBriefPollRef.current = null;
+          setGlobalBriefGenId(null);
+          sessionStorage.removeItem("global_brief_gen_id");
+        }
+      }, 2000);
+    }
+    return () => {
+      if (globalBriefPollRef.current) {
+        clearInterval(globalBriefPollRef.current);
+        globalBriefPollRef.current = null;
+      }
+    };
+  }, [globalBriefGenId, queryClient]);
+
+  useEffect(() => {
+    if (internalBriefGenId) {
+      internalBriefPollRef.current = setInterval(async () => {
+        try {
+          const { data } = await api.get("/dashboard/internal-brief-generation-status", { params: { generation_id: internalBriefGenId } });
+          setInternalBriefProgress(data);
+          if (data.stage === "complete" || data.stage === "error" || data.status === "unknown") {
+            if (internalBriefPollRef.current) clearInterval(internalBriefPollRef.current);
+            internalBriefPollRef.current = null;
+            setInternalBriefGenId(null);
+            sessionStorage.removeItem("internal_brief_gen_id");
+            if (data.stage === "complete") {
+              queryClient.invalidateQueries({ queryKey: ["sys-config"] });
+              queryClient.refetchQueries({ queryKey: ["sys-config"] });
+              setForceRefreshKey((k) => k + 1);
+            }
+            if (data.stage === "error") {
+              setInternalBriefProgress(data);
+            }
+          }
+        } catch {
+          if (internalBriefPollRef.current) clearInterval(internalBriefPollRef.current);
+          internalBriefPollRef.current = null;
+          setInternalBriefGenId(null);
+          sessionStorage.removeItem("internal_brief_gen_id");
+        }
+      }, 2000);
+    }
+    return () => {
+      if (internalBriefPollRef.current) {
+        clearInterval(internalBriefPollRef.current);
+        internalBriefPollRef.current = null;
+      }
+    };
+  }, [internalBriefGenId, queryClient]);
 
   const refreshBriefingMut = useMutation({
     mutationFn: () => api.post("/rca/sitrep", { action: "refresh_briefing" }),
@@ -444,6 +524,34 @@ export function DashboardPage() {
       if (data.status === "ok") alert("Brief transmitted to " + ubEmail);
       else alert("Broadcast error: " + (data.message || "Unknown error"));
     } catch (e: any) { alert("Failed to transmit brief: " + (e.response?.data?.detail || e.message)); }
+  };
+
+  const handleGenerateGlobalBrief = async () => {
+    try {
+      setGlobalBriefProgress({ stage: "starting", message: "Starting generation...", percent: 0 });
+      const { data } = await api.post("/dashboard/generate-global-brief");
+      if (data.generation_id) {
+        sessionStorage.setItem("global_brief_gen_id", data.generation_id);
+        setGlobalBriefGenId(data.generation_id);
+      }
+    } catch (e: any) {
+      setGlobalBriefProgress(null);
+      alert("Failed to start global brief generation: " + (e.response?.data?.detail || e.message));
+    }
+  };
+
+  const handleGenerateInternalBrief = async () => {
+    try {
+      setInternalBriefProgress({ stage: "starting", message: "Starting generation...", percent: 0 });
+      const { data } = await api.post("/dashboard/generate-internal-brief");
+      if (data.generation_id) {
+        sessionStorage.setItem("internal_brief_gen_id", data.generation_id);
+        setInternalBriefGenId(data.generation_id);
+      }
+    } catch (e: any) {
+      setInternalBriefProgress(null);
+      alert("Failed to start internal brief generation: " + (e.response?.data?.detail || e.message));
+    }
   };
 
   const getScoreForLevel = (level: string) => {
@@ -1037,6 +1145,99 @@ export function DashboardPage() {
               </div>
             )}
           </div>
+
+          {/* Global Threat Brief Section */}
+          <div style={{ marginTop: "1.5rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "1.1rem" }}>Global Threat Brief — US Critical Infrastructure</h3>
+                    <p style={{ margin: "0.2rem 0 0", fontSize: "0.82rem", color: "var(--text-muted, #94a3b8)" }}>
+                      AI-generated synthesis of global threats targeting US CI (oil, gas, electric, water, telecom), local weather hazards, and perimeter crimes. APT-focused. Auto-updates hourly.
+                    </p>
+              </div>
+              <button
+                onClick={handleGenerateGlobalBrief}
+                disabled={!!globalBriefGenId}
+                style={{
+                  padding: "0.4rem 0.75rem", border: "1px solid var(--accent-blue, #3b82f6)",
+                  borderRadius: "var(--radius-sm, 4px)", background: "transparent",
+                  color: "var(--accent-blue, #3b82f6)", cursor: globalBriefGenId ? "not-allowed" : "pointer", fontSize: "0.8rem",
+                  fontWeight: 500, display: "flex", alignItems: "center", gap: "0.3rem",
+                  opacity: globalBriefGenId ? 0.6 : 1,
+                }}
+              >
+                {globalBriefGenId ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} Force Refresh Global Brief
+              </button>
+            </div>
+
+            {globalBriefGenId && globalBriefProgress && globalBriefProgress.stage !== "complete" && globalBriefProgress.stage !== "error" && (
+              <div style={{
+                background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.5rem",
+                border: "1px solid var(--border-primary, #e2e8f0)", marginBottom: "1.5rem",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.75rem" }}>
+                  <Loader2 size={18} className="spin" style={{ color: "var(--accent-blue, #3b82f6)" }} />
+                  <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary, #1e293b)" }}>
+                    Generating Global Threat Brief...
+                  </span>
+                </div>
+                <div style={{ fontSize: "0.8rem", color: "var(--text-secondary, #64748b)", marginBottom: "0.6rem" }}>
+                  {globalBriefProgress.message || "Working..."}
+                </div>
+                <div style={{
+                  width: "100%", height: "8px", background: "var(--bg-tertiary, #e2e8f0)",
+                  borderRadius: "4px", overflow: "hidden",
+                }}>
+                  <div style={{
+                    width: `${Math.min(100, globalBriefProgress.percent || 0)}%`, height: "100%",
+                    background: globalBriefProgress.stage === "error" ? "var(--accent-red, #ef4444)" : "linear-gradient(90deg, #3b82f6, #06b6d4)",
+                    borderRadius: "4px", transition: "width 0.5s ease",
+                  }} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.3rem", fontSize: "0.72rem", color: "var(--text-muted, #94a3b8)" }}>
+                  <span>{globalBriefProgress.stage === "cyber_map" ? `Processed: ${globalBriefProgress.processed_items ?? 0} / ${globalBriefProgress.total_items ?? 0} items` : ""}</span>
+                  <span>{globalBriefProgress.percent ?? 0}%</span>
+                </div>
+              </div>
+            )}
+
+            {globalBriefProgress?.stage === "error" && (
+              <div style={{
+                background: "rgba(239,68,68,0.1)", border: "1px solid var(--accent-red, #ef4444)",
+                borderRadius: "var(--radius-md, 8px)", padding: "1rem", marginBottom: "1rem",
+                color: "var(--accent-red, #ef4444)", fontSize: "0.85rem",
+              }}>
+                Global brief generation failed: {globalBriefProgress.message || "Unknown error"}
+              </div>
+            )}
+
+            {!sysConfig?.global_brief && !globalBriefGenId ? (
+              <div style={{
+                background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)",
+                padding: "2rem", textAlign: "center", border: "1px solid var(--border-primary, #e2e8f0)",
+              }}>
+                <p style={{ color: "var(--text-muted, #94a3b8)", fontSize: "0.9rem" }}>
+                  Global brief is currently being generated by the background scheduler. Please check back shortly or click Force Refresh.
+                </p>
+              </div>
+            ) : (
+              <div style={{
+                background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
+                border: "1px solid var(--border-primary, #e2e8f0)",
+              }}>
+                <div style={{ fontSize: "0.78rem", color: "var(--text-muted, #94a3b8)", marginBottom: "0.75rem" }}>
+                  <Clock size={12} style={{ verticalAlign: "middle", marginRight: "0.25rem" }} />
+                  Last Auto-Generated: {sysConfig.global_brief_time ? formatInChicago(sysConfig.global_brief_time) : "Unknown"}
+                </div>
+                <div style={{
+                  fontSize: "0.85rem", lineHeight: 1.7, whiteSpace: "pre-wrap",
+                  color: "var(--text-primary, #1e293b)",
+                }}>
+                  {sysConfig.global_brief}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1280,6 +1481,99 @@ export function DashboardPage() {
                     >
                       {saveOverrideConfigMut.isPending ? <Loader2 size={14} className="spin" /> : null} Save Internal Overrides
                     </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Internal Asset Risk Brief Section */}
+              <div style={{ marginTop: "1.5rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: "1.1rem" }}>Internal Asset Risk Brief</h3>
+                    <p style={{ margin: "0.2rem 0 0", fontSize: "0.82rem", color: "var(--text-muted, #94a3b8)" }}>
+                      AI-generated correlation of internal hardware/software assets against OSINT feeds and CISA KEVs. Auto-updates every 2 hours.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleGenerateInternalBrief}
+                    disabled={!!internalBriefGenId}
+                    style={{
+                      padding: "0.4rem 0.75rem", border: "1px solid var(--accent-blue, #3b82f6)",
+                      borderRadius: "var(--radius-sm, 4px)", background: "transparent",
+                      color: "var(--accent-blue, #3b82f6)", cursor: internalBriefGenId ? "not-allowed" : "pointer", fontSize: "0.8rem",
+                      fontWeight: 500, display: "flex", alignItems: "center", gap: "0.3rem",
+                      opacity: internalBriefGenId ? 0.6 : 1,
+                    }}
+                  >
+                    {internalBriefGenId ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} Force Refresh Internal Brief
+                  </button>
+                </div>
+
+                {internalBriefGenId && internalBriefProgress && internalBriefProgress.stage !== "complete" && internalBriefProgress.stage !== "error" && (
+                  <div style={{
+                    background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.5rem",
+                    border: "1px solid var(--border-primary, #e2e8f0)", marginBottom: "1.5rem",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.75rem" }}>
+                      <Loader2 size={18} className="spin" style={{ color: "var(--accent-blue, #3b82f6)" }} />
+                      <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary, #1e293b)" }}>
+                        Generating Internal Asset Risk Brief...
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "0.8rem", color: "var(--text-secondary, #64748b)", marginBottom: "0.6rem" }}>
+                      {internalBriefProgress.message || "Working..."}
+                    </div>
+                    <div style={{
+                      width: "100%", height: "8px", background: "var(--bg-tertiary, #e2e8f0)",
+                      borderRadius: "4px", overflow: "hidden",
+                    }}>
+                      <div style={{
+                        width: `${Math.min(100, internalBriefProgress.percent || 0)}%`, height: "100%",
+                        background: internalBriefProgress.stage === "error" ? "var(--accent-red, #ef4444)" : "linear-gradient(90deg, #3b82f6, #06b6d4)",
+                        borderRadius: "4px", transition: "width 0.5s ease",
+                      }} />
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.3rem", fontSize: "0.72rem", color: "var(--text-muted, #94a3b8)" }}>
+                      <span>{internalBriefProgress.stage === "map" ? `Processed: ${internalBriefProgress.processed_items ?? 0} / ${internalBriefProgress.total_items ?? 0} assets` : ""}</span>
+                      <span>{internalBriefProgress.percent ?? 0}%</span>
+                    </div>
+                  </div>
+                )}
+
+                {internalBriefProgress?.stage === "error" && (
+                  <div style={{
+                    background: "rgba(239,68,68,0.1)", border: "1px solid var(--accent-red, #ef4444)",
+                    borderRadius: "var(--radius-md, 8px)", padding: "1rem", marginBottom: "1rem",
+                    color: "var(--accent-red, #ef4444)", fontSize: "0.85rem",
+                  }}>
+                    Internal brief generation failed: {internalBriefProgress.message || "Unknown error"}
+                  </div>
+                )}
+
+                {!sysConfig?.internal_brief && !internalBriefGenId ? (
+                  <div style={{
+                    background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)",
+                    padding: "2rem", textAlign: "center", border: "1px solid var(--border-primary, #e2e8f0)",
+                  }}>
+                    <p style={{ color: "var(--text-muted, #94a3b8)", fontSize: "0.9rem" }}>
+                      Internal asset risk brief is currently being generated by the background scheduler. Please check back shortly or click Force Refresh.
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{
+                    background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
+                    border: "1px solid var(--border-primary, #e2e8f0)",
+                  }}>
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-muted, #94a3b8)", marginBottom: "0.75rem" }}>
+                      <Clock size={12} style={{ verticalAlign: "middle", marginRight: "0.25rem" }} />
+                      Last Auto-Generated: {sysConfig.internal_brief_time ? formatInChicago(sysConfig.internal_brief_time) : "Unknown"}
+                    </div>
+                    <div style={{
+                      fontSize: "0.85rem", lineHeight: 1.7, whiteSpace: "pre-wrap",
+                      color: "var(--text-primary, #1e293b)",
+                    }}>
+                      {sysConfig.internal_brief}
+                    </div>
                   </div>
                 )}
               </div>

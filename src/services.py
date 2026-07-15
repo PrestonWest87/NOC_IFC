@@ -2490,6 +2490,61 @@ def trigger_unified_brief(progress_generation_id=None):
     _progress(stage="error", message=brief_text or "AI is disabled or generation failed.", percent=0)
     return {"status": "error", "message": brief_text or "AI is disabled or generation failed."}
 
+def trigger_global_brief(progress_generation_id=None):
+    """Force-generate the global threat brief focused on US critical infrastructure."""
+    from src.utils.llm import generate_global_threat_brief, update_brief_progress
+    from src.services import save_global_config
+    logger = logging.getLogger(__name__)
+    logger.info("trigger_global_brief: starting manual generation")
+
+    def _progress(**kw):
+        if progress_generation_id:
+            update_brief_progress(progress_generation_id, **kw)
+
+    _progress(stage="gathering", message="Gathering global threat intelligence...", percent=0)
+
+    with SessionLocal() as session:
+        brief_text = generate_global_threat_brief(session, progress_callback=_progress)
+
+    if brief_text and "AI is currently disabled" not in brief_text and "generate_global_threat_brief" not in str(type(brief_text)):
+        save_global_config({"global_brief": brief_text, "global_brief_time": datetime.utcnow()})
+        logger.info("trigger_global_brief: saved successfully (len=%d)", len(brief_text))
+        _progress(stage="complete", message="Global brief generation complete.", percent=100)
+        return {"status": "ok", "brief": brief_text}
+    logger.warning("trigger_global_brief: generation failed or AI disabled")
+    _progress(stage="error", message=brief_text or "AI is disabled or generation failed.", percent=0)
+    return {"status": "error", "message": brief_text or "AI is disabled or generation failed."}
+
+def trigger_internal_brief(progress_generation_id=None):
+    """Force-generate the internal asset risk brief tuned to OSINT correlations."""
+    from src.utils.llm import generate_internal_risk_brief, update_brief_progress
+    from src.services import save_global_config
+    from src.database import InternalRiskSnapshot
+    logger = logging.getLogger(__name__)
+    logger.info("trigger_internal_brief: starting manual generation")
+
+    def _progress(**kw):
+        if progress_generation_id:
+            update_brief_progress(progress_generation_id, **kw)
+
+    _progress(stage="gathering", message="Gathering internal asset data...", percent=0)
+
+    with SessionLocal() as session:
+        latest_internal = session.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
+        if not latest_internal:
+            _progress(stage="error", message="No internal risk snapshot available.", percent=0)
+            return {"status": "error", "message": "No internal risk snapshot available. Trigger an internal risk calculation first."}
+        brief_text = generate_internal_risk_brief(session, latest_internal, progress_callback=_progress)
+
+    if brief_text and "AI is currently disabled" not in brief_text and "generate_internal_risk_brief" not in str(type(brief_text)):
+        save_global_config({"internal_brief": brief_text, "internal_brief_time": datetime.utcnow()})
+        logger.info("trigger_internal_brief: saved successfully (len=%d)", len(brief_text))
+        _progress(stage="complete", message="Internal brief generation complete.", percent=100)
+        return {"status": "ok", "brief": brief_text}
+    logger.warning("trigger_internal_brief: generation failed or AI disabled")
+    _progress(stage="error", message=brief_text or "AI is disabled or generation failed.", percent=0)
+    return {"status": "error", "message": brief_text or "AI is disabled or generation failed."}
+
 def trigger_rolling_summary():
     """Force-generate and save the rolling shift handover summary."""
     from src.utils.llm import generate_rolling_summary

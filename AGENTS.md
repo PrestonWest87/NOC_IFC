@@ -154,6 +154,8 @@ DEFAULT_ADMIN_PASSWORD=admin123                   # First-run admin password
 | CISA KEV | 6 hours | Known Exploited Vulnerabilities catalog |
 | Internal Risk | 1 hour | Internal CIS scoring pipeline |
 | Unified Brief | 30 min | AI map-reduce brief generation |
+| Global Brief | 1 hour | AI map-reduce US critical infrastructure threat brief (incl. weather & crime) |
+| Internal Brief | 2 hours | AI map-reduce internal asset OSINT correlation brief |
 | Tiered Escalation | 1 min | P1-P5 SLA, cascade, flapping, oncall paging |
 | DB Maintenance | 60 min | Dedup + data purge per retention policy |
 | ML Retrain | Sunday 02:00 | scikit-learn model training + hot reload |
@@ -203,6 +205,33 @@ DEFAULT_ADMIN_PASSWORD=admin123                   # First-run admin password
 - Temperature 0.35, improved prompt for operational translation
 - Email formatting aligned with main: CIS alert level names, Cyber Security Director line
 - `POST /email/broadcast-brief` endpoint
+
+### Global Threat Brief (US Critical Infrastructure)
+- Embedded in Global Risk tab below the CIS scoring panels
+- Map-reduce pipeline with larger chunk size (20 items) covering ALL relevant articles
+- CI-relevance filtering via 30+ sector keywords
+- APT/nation-state keyword detection for dedicated section
+- US vs Global article classification
+- Separate sections: US CI Threat Assessment, APT & Nation-State Activity, Global Threat Landscape, Vulnerability & Exploit Intelligence, Local Weather & Perimeter Posture
+- Local weather hazards (NWS, SPC, earthquakes) and perimeter crime data included via physical map-reduce
+- No internal risk coverage (unlike Unified Brief)
+- Same progress bar UI as Unified Brief with session persistence
+- Scheduler: runs every 1 hour via `job_global_brief`
+- DB: `global_brief` / `global_brief_time` columns on SystemConfig
+- API: `POST /dashboard/generate-global-brief`, `GET /dashboard/global-brief-generation-status`
+
+### Internal Asset Risk Brief
+- Embedded in Internal Risk tab below the scoring overrides
+- Map-reduce pipeline correlating hardware/software assets against OSINT feeds and CISA KEVs
+- Uses `InternalRiskSnapshot` data (hw_data/sw_data JSON blobs) as input
+- Analyzes each asset against recent OSINT/CISA KEVs, correlates CVEs to exact deployed versions
+- Groups by risk tier, provides patching recommendations
+- Three-part structure: map (per-asset correlation), reduce (synthesis), master prompt (executive risk assessment)
+- Same progress bar UI as Global/Unified Brief with session persistence (`internal_brief_gen_id` in sessionStorage)
+- Scheduler: runs every 2 hours via `job_internal_brief`
+- DB: `internal_brief` / `internal_brief_time` columns on SystemConfig
+- API: `POST /dashboard/generate-internal-brief`, `GET /dashboard/internal-brief-generation-status`
+- Dummy assets seeded for testing: 15 hardware (Cisco, Palo Alto, Microsoft, Schneider Electric, Rockwell) + 30 software (Windows, SQL Server, Exchange, VMware, Ubuntu, RHEL, Docker, etc.)
 
 ### RCA Dispatch Tickets
 - `generate_rca_ticket_text` ported from main — dynamic domains, compact alerts, district header

@@ -99,6 +99,58 @@ def brief_generation_status(generation_id: str = Query(...)):
     return progress
 
 
+@router.post("/generate-global-brief")
+def generate_global_brief():
+    logger.info("POST /generate-global-brief: manual trigger (async)")
+    generation_id = str(uuid.uuid4())
+    init_brief_progress(generation_id)
+
+    def _run():
+        try:
+            svc.trigger_global_brief(progress_generation_id=generation_id)
+        except Exception as e:
+            update_brief_progress(generation_id, stage="error", message=str(e), percent=0)
+            logger.error("Background global brief generation failed: %s", e)
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return {"status": "started", "generation_id": generation_id}
+
+
+@router.get("/global-brief-generation-status")
+def global_brief_generation_status(generation_id: str = Query(...)):
+    progress = get_brief_progress(generation_id)
+    if not progress:
+        return {"status": "unknown"}
+    return progress
+
+
+@router.post("/generate-internal-brief")
+def generate_internal_brief():
+    logger.info("POST /generate-internal-brief: manual trigger (async)")
+    generation_id = str(uuid.uuid4())
+    init_brief_progress(generation_id)
+
+    def _run():
+        try:
+            svc.trigger_internal_brief(progress_generation_id=generation_id)
+        except Exception as e:
+            update_brief_progress(generation_id, stage="error", message=str(e), percent=0)
+            logger.error("Background internal brief generation failed: %s", e)
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return {"status": "started", "generation_id": generation_id}
+
+
+@router.get("/internal-brief-generation-status")
+def internal_brief_generation_status(generation_id: str = Query(...)):
+    progress = get_brief_progress(generation_id)
+    if not progress:
+        return {"status": "unknown"}
+    return progress
+
+
 @router.post("/generate-rolling-summary")
 def generate_rolling_summary():
     logger.info("POST /generate-rolling-summary: manual trigger")

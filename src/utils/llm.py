@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from src.models.schema import SystemConfig, Article, CveItem, RegionalHazard, CloudOutage
+from src.models.schema import SystemConfig, Article, CveItem, RegionalHazard, CloudOutage, CrimeIncident
 
 logger = logging.getLogger(__name__)
 LOCAL_TZ = ZoneInfo("America/Chicago")
@@ -432,6 +432,495 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot, progre
         progress_callback(stage="complete", message="Brief generation complete.", percent=100)
 
     return response
+
+def generate_global_threat_brief(session, progress_callback=None):
+    """Generates a global threat brief focused on US critical infrastructure.
+
+    Map-reduce pipeline covering ALL relevant articles from the last 24 hours.
+    Heavy focus on APTs targeting CI sectors: oil, gas, electric, water, telecom.
+    Includes local weather hazards and perimeter crime intelligence.
+    Separate global (non-US) section. No internal risk coverage.
+    """
+    config = get_llm_config(session)
+    if not config:
+        logger.warning("generate_global_threat_brief: AI is disabled, skipping")
+        return "AI is currently disabled in settings."
+
+    logger.info("generate_global_threat_brief: starting generation")
+    if progress_callback:
+        progress_callback(stage="gathering", message="Gathering global threat intelligence...", percent=0)
+
+    t24 = datetime.utcnow() - timedelta(hours=24)
+
+    recent_cves = session.query(CveItem).filter(CveItem.date_added >= t24).limit(300).all()
+    cloud_outages = session.query(CloudOutage).filter(CloudOutage.updated_at >= t24).limit(30).all()
+    active_hazards = session.query(RegionalHazard).filter(RegionalHazard.updated_at >= t24).limit(30).all()
+
+    from src.services import get_recent_crimes
+    crime_data = get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
+
+    all_cyber = session.query(Article).filter(
+        Article.published_date >= t24,
+        Article.score > 0,
+    ).order_by(Article.score.desc()).all()
+    logger.info("generate_global_threat_brief: found %d articles in last 24h", len(all_cyber))
+
+    if progress_callback:
+        progress_callback(stage="filtering", message="Filtering articles for CI relevance...", percent=1)
+
+    ci_keywords = [
+        "critical infrastructure", "water", "wastewater", "electric", "power grid", "power",
+        "oil", "gas", "pipeline", "energy", "telecom", "nuclear", "dams", "dam",
+        "transportation", "rail", "port", "aviation", "chemical", "healthcare", "hospital",
+        "food", "agriculture", "defense", "military", "government", "federal", "municipal",
+        "scada", "ics", "ot", "operational technology", "supervisory control",
+        "grid", "substation", "transmission", "distribution", "natural gas",
+        "petroleum", "refinery", "lng", "propane", "sewage", "drinking water",
+        "treatment plant", "water authority", "electric authority", "power authority",
+        "tvaa", "twcd", "tarrant", "dfw", "texas", "ERCOT",
+    ]
+
+    ci_relevant = []
+    non_ci_articles = []
+    for art in all_cyber:
+        text = f"{art.title} {art.summary or ''}".lower()
+        if any(kw in text for kw in ci_keywords):
+            ci_relevant.append(art)
+        else:
+            non_ci_articles.append(art)
+
+    logger.info("generate_global_threat_brief: %d CI-relevant, %d non-CI", len(ci_relevant), len(non_ci_articles))
+
+    apt_keywords = [
+        "apt", "apt1", "apt28", "apt29", "apt38", "lazarus", "cozy bear", "fancy bear",
+        "sandworm", "turla", "darkside", "revil", "blackcat", "alphv", "cl0p", "clop",
+        "lockbit", "ransomware", "nation-state", "state-sponsored", "kyberpandit",
+        "volt typhoon", "salt typhoon", "flax typhoon", "brass typhoon",
+        "kimsuky", "gamaredon", "apt41", "winnti", "stone panda", "mustang panda",
+        "earth preta", "aqua blizzard", "bluebreeze", "voodoo bear",
+    ]
+
+    apt_relevant = []
+    for art in all_cyber:
+        text = f"{art.title} {art.summary or ''}".lower()
+        if any(kw in text for kw in apt_keywords):
+            if art.id not in [a.id for a in ci_relevant]:
+                apt_relevant.append(art)
+
+    us_keywords = ["united states", "us ", "u.s.", "american", "domestic", "homeland", "dhs", "cisa", "fbi", "nsa", "white house"]
+    us_articles = []
+    global_articles = []
+    combined_pool = ci_relevant + apt_relevant
+    seen_ids = set()
+    for art in combined_pool:
+        if art.id in seen_ids:
+            continue
+        seen_ids.add(art.id)
+        text = f"{art.title} {art.summary or ''}".lower()
+        if any(kw in text for kw in us_keywords):
+            us_articles.append(art)
+        else:
+            global_articles.append(art)
+
+    for art in non_ci_articles:
+        if art.id not in seen_ids:
+            text = f"{art.title} {art.summary or ''}".lower()
+            if any(kw in text for kw in us_keywords):
+                us_articles.append(art)
+            else:
+                global_articles.append(art)
+            seen_ids.add(art.id)
+
+    logger.info("generate_global_threat_brief: US=%d Global=%d", len(us_articles), len(global_articles))
+
+    cyber_payload = []
+    for a in us_articles:
+        cyber_payload.append(f"[US-CI] Article - Title: {a.title} | Source: {a.source} | Score: {a.score:.0f} | Summary: {truncate_text(a.summary, 1200)}")
+    for a in global_articles:
+        cyber_payload.append(f"[GLOBAL] Article - Title: {a.title} | Source: {a.source} | Score: {a.score:.0f} | Summary: {truncate_text(a.summary, 1200)}")
+    for c in recent_cves:
+        cyber_payload.append(f"CISA KEV - CVE: {c.cve_id} | Vendor: {c.vendor} | Product: {c.product} | Vuln: {c.vulnerability_name}")
+    for cl in cloud_outages:
+        state = "Resolved" if cl.is_resolved else "Active/Ongoing"
+        cyber_payload.append(f"Cloud Outage - Provider: {cl.provider} | Service: {cl.service} | Status: {state} | Details: {cl.title}")
+
+    if not cyber_payload:
+        logger.warning("generate_global_threat_brief: no intelligence data available")
+        if progress_callback:
+            progress_callback(stage="complete", message="No intelligence data available.", percent=100)
+        return "No significant global threat intelligence data available in the last 24 hours."
+
+    if progress_callback:
+        progress_callback(stage="cyber_map", message=f"Processing global intelligence ({len(cyber_payload)} items)...", total_items=len(cyber_payload), processed_items=0, percent=5)
+
+    map_p = """You are a senior threat intelligence analyst focused on US critical infrastructure protection.
+
+Extract factual data points from these intelligence items. For each item, identify:
+- Threat actor names (especially APT groups)
+- CVEs, vulnerabilities, and exploit details
+- Targeted sectors (oil, gas, electric, water, telecom, transportation, etc.)
+- Geographic scope (US domestic vs international)
+- MITRE ATT&CK techniques if mentioned
+- Active exploits, campaigns, or incidents
+
+Be precise. Preserve all CVE IDs, actor names, TTPs, and sector references. Do NOT embellish."""
+
+    reduce_p = """Compile an exhaustive global cyber threat intelligence digest focused on critical infrastructure.
+
+Structure your output as:
+## US Critical Infrastructure Threats
+- Group by affected sector (Oil & Gas, Electric/Power, Water/Wastewater, Telecom, Transportation, etc.)
+- For each sector, list specific threats, actors, and CVEs
+- Highlight any active campaigns targeting multiple CI sectors
+
+## APT & Nation-State Activity
+- List all identified APT groups and their observed TTPs
+- Note any targeting of critical infrastructure
+- Include attribution confidence levels if available
+
+## Global Threat Landscape
+- International threats with potential US supply chain impact
+- Global malware campaigns, ransomware operations, and botnet activity
+- Notable vulnerabilities and exploit chains
+
+## Active CVEs & Exploited Vulnerabilities
+- List all CISA KEVs and high-impact CVEs with affected products
+- Note any actively exploited in the wild
+
+## Cloud & Infrastructure Disruptions
+- Major cloud outages and service degradations
+- Supply chain impacts
+
+Do NOT include internal asset correlations or risk assessments. This is a global threat landscape briefing."""
+
+    def _global_progress(done, total_chunks, total_items, processed):
+        if progress_callback:
+            pct = int((done / total_chunks) * 89) + 5
+            progress_callback(stage="cyber_map", message=f"Global intelligence map-reduce: chunk {done}/{total_chunks} ({total_items} items)", total_items=total_items, processed_items=processed, percent=pct)
+
+    global_digest = _map_reduce_summarize(
+        cyber_payload, lambda x: x, map_p, reduce_p, config, chunk_size=20, progress_callback=_global_progress
+    )
+
+    if not global_digest or "[WARN]" in global_digest:
+        logger.error("generate_global_threat_brief: map-reduce failed: %s", (global_digest or "None")[:200])
+        if progress_callback:
+            progress_callback(stage="error", message="Map-reduce processing failed.", percent=0)
+        return "Brief generation failed during intelligence processing."
+
+    phys_payload = []
+    for h in active_hazards:
+        phys_payload.append(f"Weather/Hazard - Alert: {h.title} | Severity: {h.severity} | Location: {h.location} | Details: {truncate_text(h.description, 500)}")
+    for c in crime_data:
+        phys_payload.append(f"Perimeter Crime - Type: {c.get('raw_title', 'Unknown')} | Distance from HQ: {c.get('distance_miles', 0)} miles | Category: {c.get('category', 'Unknown')} | Severity: {c.get('severity', 'Unknown')}")
+
+    if phys_payload:
+        if progress_callback:
+            progress_callback(stage="phys_map", message=f"Processing physical intelligence ({len(phys_payload)} items)...", total_items=len(phys_payload), processed_items=0, percent=90)
+        phys_map_p = "Extract precise factual details regarding weather severity, regional infrastructure hazards, and local perimeter crimes. Be purely objective. Retain exact distances, locations, severity classifications, and crime categories."
+        phys_reduce_p = "Compile a concise physical risk digest covering: 1) Severe Weather & Regional Hazards (NWS alerts, earthquakes, SPC outlooks) and 2) Local Perimeter Crimes (distance, category, severity). Retain exact distances and severity levels. DO NOT embellish."
+
+        def _phys_progress(done, total_chunks, total_items, processed):
+            if progress_callback:
+                pct = int((done / total_chunks) * 8) + 90
+                progress_callback(stage="phys_map", message=f"Physical intelligence map-reduce: chunk {done}/{total_chunks} ({total_items} items)", total_items=total_items, processed_items=processed, percent=pct)
+
+        phys_digest = _map_reduce_summarize(
+            phys_payload, lambda x: x, phys_map_p, phys_reduce_p, config, chunk_size=15, progress_callback=_phys_progress
+        )
+    else:
+        phys_digest = "No significant weather hazards, regional disruptions, or perimeter crimes reported in the last 24 hours."
+
+    master_sys_prompt = f"""You are a senior intelligence analyst preparing a Global Threat Brief for executive leadership at a US critical infrastructure organization.
+
+FORMATTING & TONE DIRECTIVES:
+1. VISUAL HIERARCHY: Use bolding for emphasis, bulleted lists for data points, and blockquotes for notable warnings.
+2. OPERATIONAL TRANSLATION: For every vulnerability or threat, briefly state the business relevance to our CI operations.
+3. THREAT LEVEL TERMINOLOGY: When referring to threat levels, use: Low, Guarded, Elevated, High, or Severe. Do NOT use colors.
+4. EXPAND THE NARRATIVE: Group similar threats (all ransomware actors, all APT campaigns, all sector-specific threats) and explain relevance to US critical infrastructure continuity.
+5. APT FOCUS: Dedicate significant attention to nation-state and APT activity targeting CI sectors. Include actor names, TTPs, and sector targeting patterns.
+6. SECTOR COVERAGE: Explicitly cover Oil & Gas, Electric/Power, Water/Wastewater, Telecom, Transportation, and other CI sectors.
+
+REQUIRED STRUCTURE:
+## Executive Summary (BLUF)
+* Provide a 5-6 sentence high-level narrative of the global threat landscape as it relates to US critical infrastructure.
+* Identify the top 3-5 most significant threats requiring leadership attention.
+* Use threat level terminology (Low/Guarded/Elevated/High/Severe).
+
+## US Critical Infrastructure Threat Assessment
+* Break into sub-sections by CI sector: Oil & Gas, Electric/Power Grid, Water & Wastewater, Telecommunications, Transportation, Other CI.
+* For each sector, detail specific threats, threat actors, and vulnerabilities targeting that sector.
+* Include any sector-specific TTPs or campaign patterns.
+
+## Advanced Persistent Threat (APT) & Nation-State Activity
+* Detail all identified APT groups and nation-state actors with their observed campaigns.
+* Include TTPs, targeting patterns, and attribution confidence.
+* Highlight any convergence of APT activity with CI targeting.
+* Note any new or evolving campaigns.
+
+## Global Threat Landscape
+* International threats with potential US or supply chain impact.
+* Ransomware operations, malware campaigns, and botnet activity.
+* Emerging threat trends and threat actor evolution.
+
+## Vulnerability & Exploit Intelligence
+* List CISA KEVs and high-impact CVEs with affected products and CI relevance.
+* Note any actively exploited vulnerabilities in CI-relevant software/hardware.
+* Include exploit availability and weaponization status.
+
+## Local Weather & Perimeter Posture
+* Break into two sub-sections: **Regional Weather Hazards** and **Local Perimeter Crimes**.
+* List distances, severity levels, and crime categories.
+* Explain relevance to facility operations, power grid stability, personnel safety, and CI continuity.
+* Highlight any weather events that could cause infrastructure disruptions (ice storms, flooding, tornadoes, extreme heat affecting grid load).
+
+## Strategic Recommendations
+* Provide 3-5 actionable recommendations for CI protection.
+* Prioritize by sector impact and threat severity.
+* Include monitoring, patching, and hardening guidance specific to CI environments.
+
+---
+**OSINT CORRELATION DISCLAIMER:** This brief synthesizes external Open-Source Intelligence (OSINT) to provide situational awareness of the global threat landscape affecting US critical infrastructure. It does NOT represent confirmed compromises of our systems or facilities.
+
+**AI-GENERATED CONTENT:** This brief was generated by the internal NOC AIOps system using automated intelligence analysis. This report has not been thoroughly reviewed by a Human Security Analyst.
+"""
+
+    if progress_callback:
+        progress_callback(stage="synthesizing", message="Synthesizing executive global brief...", percent=96)
+
+    logger.info("generate_global_threat_brief: calling LLM with master prompt")
+    compiled_intel = f"""=== CYBER & THREAT INTELLIGENCE DIGEST ===
+{global_digest}
+
+=== LOCAL WEATHER & PERIMETER INTELLIGENCE DIGEST ===
+{phys_digest}
+"""
+    response = call_llm([
+        {"role": "system", "content": master_sys_prompt},
+        {"role": "user", "content": compiled_intel}
+    ], config, temperature=0.35)
+
+    if response and "[WARN]" not in response:
+        logger.info("generate_global_threat_brief: success, response_length=%d", len(response))
+    else:
+        logger.error("generate_global_threat_brief: LLM returned error: %s", response[:200] if response else "None")
+        if progress_callback:
+            progress_callback(stage="error", message="LLM synthesis failed.", percent=0)
+        return "Brief generation failed during synthesis."
+
+    if progress_callback:
+        progress_callback(stage="complete", message="Global brief generation complete.", percent=100)
+
+    return response.strip()
+
+def generate_internal_risk_brief(session, internal_snapshot, progress_callback=None):
+    """Generates an internal asset risk brief focused on OSINT correlations to our infrastructure.
+
+    This brief is heavily tuned to:
+    - Analyze each hardware/software asset against recent OSINT and CISA KEVs
+    - Identify which specific threats are targeting our exact asset stack
+    - Prioritize by risk score and criticality
+    - Provide actionable patching/hardening guidance per asset
+    """
+    config = get_llm_config(session)
+    if not config:
+        logger.warning("generate_internal_risk_brief: AI is disabled, skipping")
+        return "AI is currently disabled in settings."
+
+    logger.info("generate_internal_risk_brief: starting generation")
+    if progress_callback:
+        progress_callback(stage="gathering", message="Gathering internal asset intelligence...", percent=0)
+
+    if not internal_snapshot:
+        logger.warning("generate_internal_risk_brief: no internal snapshot available")
+        return "No internal risk snapshot available. Trigger an internal risk calculation first."
+
+    import json
+    hw_data = json.loads(internal_snapshot.hw_data_json) if internal_snapshot.hw_data_json else []
+    sw_data = json.loads(internal_snapshot.sw_data_json) if internal_snapshot.sw_data_json else []
+    risk_level = internal_snapshot.risk_level or "UNKNOWN"
+    score = internal_snapshot.score or 0
+    total_assets = internal_snapshot.total_assets or 0
+    total_osint = internal_snapshot.total_osint_hits or 0
+    critical_osint = internal_snapshot.critical_osint_hits or 0
+
+    t24 = datetime.utcnow() - timedelta(hours=24)
+    recent_cves = session.query(CveItem).filter(CveItem.date_added >= t24).limit(200).all()
+
+    hw_with_matches = [h for h in hw_data if h.get("OSINT Threat Matches", 0) > 0]
+    hw_clean = [h for h in hw_data if h.get("OSINT Threat Matches", 0) == 0]
+    sw_with_matches = [s for s in sw_data if s.get("Active OSINT Matches", 0) > 0]
+    sw_clean = [s for s in sw_data if s.get("Active OSINT Matches", 0) == 0]
+
+    if progress_callback:
+        progress_callback(stage="asset_analysis", message=f"Analyzing {len(hw_data)} hardware and {len(sw_data)} software assets...", percent=5)
+
+    asset_payload = []
+    for hw in hw_data:
+        name = hw.get("Identifier", "Unknown")
+        ip = hw.get("IP Address", "N/A")
+        os_info = hw.get("OS", "Unknown")
+        risk = hw.get("OSINT Risk Score", 0)
+        matches = hw.get("OSINT Threat Matches", 0)
+        top_ref = hw.get("Top Threat Reference", "None")
+        asset_payload.append(f"[HW] {name} ({ip}) | OS: {os_info} | OSINT Risk: {risk}/100 | Matches: {matches} | Top Ref: {top_ref}")
+
+    for sw in sw_data:
+        name = sw.get("Software Name", "Unknown")
+        risk = sw.get("OSINT Risk Score", 0)
+        matches = sw.get("Active OSINT Matches", 0)
+        top_ref = sw.get("Top Threat Reference", "None")
+        risk_level_sw = sw.get("risk_level", "LOW")
+        asset_payload.append(f"[SW] {name} | Risk Level: {risk_level_sw} | OSINT Risk: {risk}/100 | Matches: {matches} | Top Ref: {top_ref}")
+
+    cve_payload = []
+    for c in recent_cves:
+        cve_payload.append(f"CISA KEV - CVE: {c.cve_id} | Vendor: {c.vendor} | Product: {c.product} | Vuln: {c.vulnerability_name}")
+
+    combined_payload = asset_payload + cve_payload
+
+    if not combined_payload:
+        if progress_callback:
+            progress_callback(stage="complete", message="No asset data to analyze.", percent=100)
+        return "No internal assets or CVE data available for analysis."
+
+    if progress_callback:
+        progress_callback(stage="correlation", message=f"Running OSINT correlation analysis ({len(combined_payload)} items)...", total_items=len(combined_payload), processed_items=0, percent=10)
+
+    map_p = """You are an internal infrastructure security analyst performing OSINT correlation analysis.
+
+For each asset listed below, identify:
+- Specific CVEs or vulnerabilities that affect THIS EXACT asset (match vendor + product + version)
+- Threat actors or campaigns known to target this technology
+- Risk severity: CRITICAL if actively exploited, HIGH if CVE exists, MEDIUM if potential, LOW if no direct correlation
+- Whether the asset is internet-facing or contains sensitive data (infer from type: firewall, server, SCADA = high value)
+
+Preserve all CVE IDs, vendor names, product names, and version numbers exactly.
+Group findings by asset. Be specific about which CVE applies to which asset version.
+Do NOT list assets with zero correlations — only report assets with confirmed or high-probability matches."""
+
+    reduce_p = """Compile an exhaustive Internal Asset Risk Correlation Report.
+
+Structure your output as:
+
+## Executive Internal Risk Summary
+- Overall internal posture based on asset-OSINT correlations
+- Number of assets at risk vs total assets
+- Critical risk drivers (top 3 assets requiring immediate attention)
+
+## Hardware Asset Threat Correlations
+- Group by risk tier: CRITICAL > HIGH > MEDIUM
+- For each asset: specific CVEs, threat actors, exploit availability, and business impact
+- Include IP, OS version, and exact vulnerability references
+- SCADA/RTU/ICS assets get dedicated section if present
+
+## Software Asset Threat Correlations
+- Group by risk tier: CRITICAL > HIGH > MEDIUM
+- For each software: CVEs, known exploits, active campaigns, patch availability
+- Include version-specific applicability
+
+## Vulnerability Reference Matrix
+- Deduplicated list of all CVEs correlated to our stack
+- For each: affected asset(s), CVSS if available, exploit status, recommended action
+
+## Patching & Hardening Recommendations
+- Prioritized action items grouped by urgency
+- Specific version upgrades or patches to apply
+- Compensating controls if patches are unavailable
+- Network segmentation recommendations for high-risk assets
+
+Do NOT include global threat landscape or external OSINT — focus ONLY on correlations to our specific internal assets."""
+
+    def _corr_progress(done, total_chunks, total_items, processed):
+        if progress_callback:
+            pct = int((done / total_chunks) * 79) + 10
+            progress_callback(stage="correlation", message=f"Asset correlation map-reduce: chunk {done}/{total_chunks} ({total_items} items)", total_items=total_items, processed_items=processed, percent=pct)
+
+    correlation_digest = _map_reduce_summarize(
+        combined_payload, lambda x: x, map_p, reduce_p, config, chunk_size=15, progress_callback=_corr_progress
+    )
+
+    if not correlation_digest or "[WARN]" in correlation_digest:
+        logger.error("generate_internal_risk_brief: map-reduce failed: %s", (correlation_digest or "None")[:200])
+        if progress_callback:
+            progress_callback(stage="error", message="Correlation processing failed.", percent=0)
+        return "Internal brief generation failed during correlation analysis."
+
+    master_sys_prompt = f"""You are a senior infrastructure security analyst preparing an Internal Asset Risk Brief for executive and technical leadership.
+
+CONTEXT:
+- Total Assets Monitored: {total_assets}
+- Assets with OSINT Correlations: {len(hw_with_matches) + len(sw_with_matches)}
+- Internal CIS Risk Level: {risk_level} (Score: {score})
+- Critical OSINT Hits: {critical_osint}
+- Total OSINT Correlations: {total_osint}
+
+FORMATTING & TONE DIRECTIVES:
+1. ASSET-CENTRIC: Every finding must be tied to a specific internal asset (name, IP, OS/version).
+2. RISK PRIORITIZATION: Lead with CRITICAL and HIGH risk assets. Low-risk assets get a brief mention.
+3. OPERATIONAL TRANSLATION: For every CVE/threat, state the business impact (e.g., "PA-5260 vulnerability could allow remote code execution on our core firewall, potentially compromising all network traffic").
+4. ACTIONABLE: Every section must end with specific remediation steps.
+5. VERSION-SPECIFIC: Only report CVEs that apply to the exact versions we run.
+
+REQUIRED STRUCTURE:
+## Executive Internal Risk Assessment (BLUF)
+* 4-5 sentence summary of internal asset posture
+* Top 3 critical risk assets requiring immediate leadership attention
+* Overall risk trajectory (improving/stable/deteriorating)
+
+## Critical Hardware Asset Vulnerabilities
+* Dedicate a sub-section to each CRITICAL risk hardware asset
+* Format: **[Asset Name]** (IP, OS Version) — Risk Score: X/100
+  - Applicable CVEs with business impact
+  - Threat actors/campaigns targeting this technology
+  - Recommended action (patch version, upgrade path, or compensating control)
+
+## SCADA/ICS/OT Asset Exposure (if applicable)
+* Dedicated section for any SCADA, RTU, PLC, or OT assets
+* Emphasize safety and operational continuity impact
+* Recommend network segmentation if not already segmented
+
+## Software Stack Vulnerability Analysis
+* Group by risk tier (CRITICAL > HIGH > MEDIUM)
+* For each: exact version applicability, CVE references, exploit status
+* Patch availability and recommended version
+
+## Deduplicated CVE Reference Table
+* All correlated CVEs in a structured list
+* Columns: CVE ID | Affected Asset | Severity | Exploit Status | Recommended Action
+
+## Recommended Actions (Prioritized)
+1. IMMEDIATE (next 24 hours): Critical patches, network isolation
+2. SHORT-TERM (next 7 days): High-risk patches, config hardening
+3. MEDIUM-TERM (next 30 days): Medium-risk items, architecture review
+
+---
+**OSINT CORRELATION DISCLAIMER:** This brief correlates external Open-Source Intelligence (OSINT) with our internal asset inventory to identify potential exposures. It does NOT represent confirmed breaches or active compromises.
+
+**AI-GENERATED CONTENT:** This brief was generated by the internal NOC AIOps system. Review by a qualified security analyst is recommended before taking action.
+"""
+
+    if progress_callback:
+        progress_callback(stage="synthesizing", message="Synthesizing internal risk brief...", percent=92)
+
+    logger.info("generate_internal_risk_brief: calling LLM with master prompt")
+    response = call_llm([
+        {"role": "system", "content": master_sys_prompt},
+        {"role": "user", "content": correlation_digest}
+    ], config, temperature=0.35)
+
+    if response and "[WARN]" not in response:
+        logger.info("generate_internal_risk_brief: success, response_length=%d", len(response))
+    else:
+        logger.error("generate_internal_risk_brief: LLM returned error: %s", response[:200] if response else "None")
+        if progress_callback:
+            progress_callback(stage="error", message="LLM synthesis failed.", percent=0)
+        return "Internal brief generation failed during synthesis."
+
+    if progress_callback:
+        progress_callback(stage="complete", message="Internal brief generation complete.", percent=100)
+
+    return response.strip()
 
 def generate_aggregated_shift_summary(session, logs, timeframe_label, target_role="All"):
     config = get_llm_config(session)

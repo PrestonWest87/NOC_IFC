@@ -135,6 +135,20 @@ def init_db():
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN global_brief TEXT"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN global_brief_time DATETIME"))
+    except Exception:
+        pass
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN internal_brief TEXT"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN internal_brief_time DATETIME"))
+    except Exception:
+        pass
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN default_shift VARCHAR DEFAULT 'No Shift'"))
     except Exception:
         pass
@@ -349,6 +363,74 @@ def init_db():
         session_cfg.close()
     except Exception as e:
         logger.warning(f"Could not seed default SystemConfig: {e}")
+
+    # Seed dummy internal assets for testing (only if empty)
+    try:
+        from src.models.schema import HardwareAsset, SoftwareAsset
+        session_assets = SessionLocal()
+
+        if session_assets.query(HardwareAsset).count() == 0:
+            dummy_hw = [
+                HardwareAsset(ip_address="10.0.1.10", asset_name="FW-CORE-01", operating_system="PAN-OS", os_vendor="Palo Alto Networks", os_product="PA-5260", os_version="11.1.2", host_type="Firewall", instances=1, critical_instances=1, vulnerabilities=3, critical_vulnerabilities=1, severe_vulnerabilities=1, exploit_count=1, raw_risk_score=85.0, risk_score=85.0),
+                HardwareAsset(ip_address="10.0.1.20", asset_name="FW-BRANCH-01", operating_system="PAN-OS", os_vendor="Palo Alto Networks", os_product="PA-460", os_version="11.0.4", host_type="Firewall", instances=1, critical_instances=0, vulnerabilities=2, critical_vulnerabilities=0, severe_vulnerabilities=1, exploit_count=0, raw_risk_score=45.0, risk_score=45.0),
+                HardwareAsset(ip_address="10.0.1.30", asset_name="RTR-CORE-01", operating_system="IOS-XE", os_vendor="Cisco", os_product="Catalyst 9300", os_version="17.9.4", host_type="Router", instances=1, critical_instances=0, vulnerabilities=4, critical_vulnerabilities=2, severe_vulnerabilities=1, exploit_count=1, raw_risk_score=72.0, risk_score=72.0),
+                HardwareAsset(ip_address="10.0.1.40", asset_name="SW-DIST-01", operating_system="IOS-XE", os_vendor="Cisco", os_product="Catalyst 9500", os_version="17.6.3", host_type="Switch", instances=1, critical_instances=0, vulnerabilities=2, critical_vulnerabilities=0, severe_vulnerabilities=1, exploit_count=0, raw_risk_score=35.0, risk_score=35.0),
+                HardwareAsset(ip_address="10.0.1.50", asset_name="SW-ACCESS-01", operating_system="IOS", os_vendor="Cisco", os_product="Catalyst 2960", os_version="15.2(2)E", host_type="Switch", instances=1, critical_instances=0, vulnerabilities=1, critical_vulnerabilities=0, severe_vulnerabilities=0, exploit_count=0, raw_risk_score=15.0, risk_score=15.0),
+                HardwareAsset(ip_address="10.0.2.10", asset_name="SRV-DC-01", operating_system="Windows Server 2022", os_vendor="Microsoft", os_product="Windows Server", os_version="21H2", host_type="Server", instances=1, critical_instances=1, vulnerabilities=8, critical_vulnerabilities=3, severe_vulnerabilities=2, exploit_count=2, raw_risk_score=92.0, risk_score=92.0),
+                HardwareAsset(ip_address="10.0.2.20", asset_name="SRV-DC-02", operating_system="Windows Server 2022", os_vendor="Microsoft", os_product="Windows Server", os_version="21H2", host_type="Server", instances=1, critical_instances=1, vulnerabilities=8, critical_vulnerabilities=3, severe_vulnerabilities=2, exploit_count=2, raw_risk_score=90.0, risk_score=90.0),
+                HardwareAsset(ip_address="10.0.2.30", asset_name="SRV-APP-01", operating_system="Ubuntu 22.04 LTS", os_vendor="Canonical", os_product="Ubuntu", os_version="22.04", host_type="Server", instances=1, critical_instances=0, vulnerabilities=5, critical_vulnerabilities=1, severe_vulnerabilities=2, exploit_count=1, raw_risk_score=65.0, risk_score=65.0),
+                HardwareAsset(ip_address="10.0.2.40", asset_name="SRV-DB-01", operating_system="Red Hat Enterprise Linux 9", os_vendor="Red Hat", os_product="RHEL", os_version="9.3", host_type="Server", instances=1, critical_instances=1, vulnerabilities=3, critical_vulnerabilities=1, severe_vulnerabilities=1, exploit_count=0, raw_risk_score=55.0, risk_score=55.0),
+                HardwareAsset(ip_address="10.0.3.10", asset_name="UPS-IDF-01", operating_system="Network Management Card", os_vendor="APC", os_product="APC UPS", os_version="6.2.0", host_type="UPS", instances=1, critical_instances=0, vulnerabilities=1, critical_vulnerabilities=0, severe_vulnerabilities=0, exploit_count=0, raw_risk_score=20.0, risk_score=20.0),
+                HardwareAsset(ip_address="10.0.3.20", asset_name="HVAC-CTRL-01", operating_system="BACnet", os_vendor="Honeywell", os_product="Tridium Niagara", os_version="4.12", host_type="HVAC", instances=1, critical_instances=0, vulnerabilities=2, critical_vulnerabilities=1, severe_vulnerabilities=0, exploit_count=0, raw_risk_score=40.0, risk_score=40.0),
+                HardwareAsset(ip_address="10.0.4.10", asset_name="RTU-SITE-01", operating_system="RTOS", os_vendor="Schneider Electric", os_product="Modicon M340", os_version="3.20", host_type="RTU", instances=1, critical_instances=1, vulnerabilities=2, critical_vulnerabilities=1, severe_vulnerabilities=1, exploit_count=1, raw_risk_score=78.0, risk_score=78.0),
+                HardwareAsset(ip_address="10.0.4.20", asset_name="PLC-PROCESS-01", operating_system="ControlLogix", os_vendor="Rockwell Automation", os_product="Allen-Bradley ControlLogix", os_version="33.011", host_type="SCADA", instances=1, critical_instances=1, vulnerabilities=3, critical_vulnerabilities=2, severe_vulnerabilities=1, exploit_count=1, raw_risk_score=88.0, risk_score=88.0),
+                HardwareAsset(ip_address="10.0.5.10", asset_name="WLC-CAMPUS-01", operating_system="AireOS", os_vendor="Cisco", os_product="Catalyst 9800", os_version="17.9.3", host_type="Wireless Controller", instances=1, critical_instances=0, vulnerabilities=3, critical_vulnerabilities=1, severe_vulnerabilities=1, exploit_count=0, raw_risk_score=50.0, risk_score=50.0),
+                HardwareAsset(ip_address="10.0.5.20", asset_name="AP-LOBBY-01", operating_system="IOS-XE", os_vendor="Cisco", os_product="Catalyst 9130", os_version="17.6.3", host_type="Access Point", instances=1, critical_instances=0, vulnerabilities=1, critical_vulnerabilities=0, severe_vulnerabilities=0, exploit_count=0, raw_risk_score=10.0, risk_score=10.0),
+            ]
+            session_assets.add_all(dummy_hw)
+            session_assets.commit()
+            logger.info("Seeded %d dummy hardware assets.", len(dummy_hw))
+
+        if session_assets.query(SoftwareAsset).count() == 0:
+            dummy_sw = [
+                SoftwareAsset(name="Windows Server 2022"),
+                SoftwareAsset(name="Windows 11 Enterprise"),
+                SoftwareAsset(name="Windows 10 Pro"),
+                SoftwareAsset(name="Microsoft SQL Server 2022"),
+                SoftwareAsset(name="Microsoft Exchange Server 2019"),
+                SoftwareAsset(name="Microsoft Office LTSC 2024"),
+                SoftwareAsset(name="Microsoft Defender for Endpoint"),
+                SoftwareAsset(name="Active Directory Domain Services"),
+                SoftwareAsset(name="Palo Alto PAN-OS"),
+                SoftwareAsset(name="Cisco IOS-XE"),
+                SoftwareAsset(name="Cisco IOS"),
+                SoftwareAsset(name="VMware vSphere 8"),
+                SoftwareAsset(name="VMware ESXi 8"),
+                SoftwareAsset(name="Ubuntu 22.04 LTS"),
+                SoftwareAsset(name="Red Hat Enterprise Linux 9"),
+                SoftwareAsset(name="Apache HTTP Server 2.4"),
+                SoftwareAsset(name="nginx 1.24"),
+                SoftwareAsset(name="OpenSSH 9.3"),
+                SoftwareAsset(name="OpenSSL 3.1"),
+                SoftwareAsset(name="Google Chrome 125"),
+                SoftwareAsset(name="Mozilla Firefox 126"),
+                SoftwareAsset(name="Fortinet FortiGate 7.4"),
+                SoftwareAsset(name="SolarWinds Orion 2024"),
+                SoftwareAsset(name="Docker Engine 26"),
+                SoftwareAsset(name="Kubernetes 1.30"),
+                SoftwareAsset(name="PostgreSQL 16"),
+                SoftwareAsset(name="Redis 7.2"),
+                SoftwareAsset(name="BIND 9.18"),
+                SoftwareAsset(name="Tridium Niagara 4.12"),
+                SoftwareAsset(name="Wireshark 4.2"),
+            ]
+            session_assets.add_all(dummy_sw)
+            session_assets.commit()
+            logger.info("Seeded %d dummy software assets.", len(dummy_sw))
+
+        session_assets.close()
+    except Exception as e:
+        logger.warning(f"Could not seed dummy assets: {e}")
 
     try:
         from src.services import rescore_all_articles

@@ -41,6 +41,10 @@ def get_config(db: Session = Depends(get_db)):
         "llm_context_window": config.llm_context_window,
         "unified_brief": config.unified_brief,
         "unified_brief_time": config.unified_brief_time.isoformat() if config.unified_brief_time else None,
+        "global_brief": config.global_brief,
+        "global_brief_time": config.global_brief_time.isoformat() if config.global_brief_time else None,
+        "internal_brief": config.internal_brief,
+        "internal_brief_time": config.internal_brief_time.isoformat() if config.internal_brief_time else None,
         "rolling_summary": config.rolling_summary,
         "rolling_summary_time": config.rolling_summary_time.isoformat() if config.rolling_summary_time else None,
     }
