@@ -221,7 +221,7 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
 
     t24 = datetime.utcnow() - timedelta(hours=24)
 
-    recent_cves = session.query(CveItem).filter(CveItem.date_added >= t24).limit(30).all()
+    recent_cves = session.query(CveItem).filter(CveItem.date_added >= t24).limit(200).all()
     active_hazards = session.query(RegionalHazard).filter(RegionalHazard.updated_at >= t24).limit(30).all()
     cloud_outages = session.query(CloudOutage).filter(CloudOutage.updated_at >= t24).limit(20).all()
 
@@ -230,13 +230,13 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     top_hw = hw_data[:20]
     top_sw = sw_data[:20]
 
-    cyber_arts = global_intel.get('raw_cyber_articles', [])[:30]
-    phys_arts = global_intel.get('raw_phys_articles', [])[:20]
+    cyber_arts = global_intel.get('raw_cyber_articles', [])[:150]
+    phys_arts = global_intel.get('raw_phys_articles', [])[:100]
     crimes = global_intel.get('recent_crimes', [])[:20]
 
     cyber_payload = []
     for a in cyber_arts:
-        cyber_payload.append(f"OSINT Article - Title: {a.title} | Source: {a.source} | Summary: {truncate_text(a.summary, 300)}")
+        cyber_payload.append(f"OSINT Article - Title: {a.title} | Source: {a.source} | Summary: {truncate_text(a.summary, 1200)}")
     for c in recent_cves:
         cyber_payload.append(f"CISA KEV - CVE: {c.cve_id} | Vendor: {c.vendor} | Product: {c.product} | Vuln: {c.vulnerability_name}")
     for cl in cloud_outages:
@@ -244,8 +244,8 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
         cyber_payload.append(f"Cloud Outage - Provider: {cl.provider} | Service: {cl.service} | Status: {state} | Details: {cl.title}")
 
     if cyber_payload:
-        map_p = "Extract factual data points regarding threat actors, vulnerabilities (CVEs), cloud service disruptions, and active exploits. DO NOT embellish. Use strict bullet points."
-        reduce_p = "Compile an exhaustive, purely factual Cyber Threat Intelligence digest. Preserve all CVE IDs, specific threat actor names, targeted vendors, and cloud providers. Do not extrapolate risks; report only what is explicitly stated in the data."
+        map_p = "Extract factual data points regarding threat actors, vulnerabilities (CVEs), cloud service disruptions, and active exploits. Provide reason why an item is applicable. DO NOT embellish. Use strict bullet points."
+        reduce_p = "Compile an exhaustive, purely factual Cyber Threat Intelligence digest. Preserve all CVE IDs, specific threat actor names, targeted vendors, and cloud providers. Do not extrapolate risks; report only what is explicitly stated in the data. Provide reason why item is applicable."
         cyber_digest = _map_reduce_summarize(
             cyber_payload, lambda x: x, map_p, reduce_p, config, chunk_size=15
         )
@@ -256,7 +256,7 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     for a in phys_arts:
         phys_payload.append(f"Physical Intel - Title: {a.title} | Source: {a.source}")
     for h in active_hazards:
-        phys_payload.append(f"Weather/Hazard - Alert: {h.title} | Severity: {h.severity} | Location: {h.location} | Details: {truncate_text(h.description, 200)}")
+        phys_payload.append(f"Weather/Hazard - Alert: {h.title} | Severity: {h.severity} | Location: {h.location} | Details: {truncate_text(h.description, 500)}")
     for c in crimes:
         phys_payload.append(f"Perimeter Crime - Type: {c.get('raw_title', 'Unknown')} | Distance from HQ: {c.get('distance_miles', 0)} miles | FBI Category: {c.get('fbi_category', 'Unknown')}")
 
@@ -318,12 +318,12 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
 
     REQUIRED STRUCTURE:
     ## Executive OSINT Summary (BLUF)
-    * Provide a 3-4 sentence high-level narrative explaining the convergence of the Global and Internal risk levels (using the terminology: Low, Guarded, Elevated, High, Severe).
+    * Provide a 5-6 sentence high-level narrative explaining the convergence of the Global and Internal risk levels (using the terminology: Low, Guarded, Elevated, High, Severe).
     * Follow with a bulleted list of the top concerns across all domains.
 
     ## Internal Asset Threat Correlations (OSINT Overlaps)
     * Use a structured bulleted list for each exposed asset.
-    * Format as: **[Asset Name]**: [Vulnerability/CVE] - *[Specific Business/Operational Impact]*
+    * Format as: **[Asset Name]**: [Vulnerability/CVE] - Reason this is applicable - *[Specific Business/Operational Impact]*
 
     ## Global Cyber & Cloud Threat Landscape
     * Break this into two sub-bulleted sections: **Active Cyber Threats** (Ransomware, Malicious Campaigns) and **Cloud & Infrastructure Disruptions**.
