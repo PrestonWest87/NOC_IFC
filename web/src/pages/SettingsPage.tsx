@@ -613,6 +613,8 @@ function AssetsTab() {
 function RssTab({ lists, queryClient }: { lists: any; queryClient: any }) {
   const [kwText, setKwText] = useState("");
   const [feedText, setFeedText] = useState("");
+  const [editingKwId, setEditingKwId] = useState<number | null>(null);
+  const [editWeight, setEditWeight] = useState("");
 
   const kwBulk = useMutation({
     mutationFn: (text: string) => {
@@ -633,6 +635,12 @@ function RssTab({ lists, queryClient }: { lists: any; queryClient: any }) {
   const delKw = useMutation({
     mutationFn: (id: number) => api.delete(`/admin/keywords/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-lists"] }),
+  });
+
+  const patchKw = useMutation({
+    mutationFn: ({ id, weight }: { id: number; weight: number }) => api.patch(`/admin/keywords/${id}`, { weight }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["admin-lists"] }); setEditingKwId(null); },
+    onError: (e: any) => alert("Error updating weight: " + (e.response?.data?.detail || e.message)),
   });
 
   const delFeed = useMutation({
@@ -684,7 +692,48 @@ function RssTab({ lists, queryClient }: { lists: any; queryClient: any }) {
           <div style={{ marginTop: "1rem", maxHeight: 220, overflowY: "auto" }}>
             {keywords.map((kw: any) => (
               <div key={kw.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.3rem 0", borderBottom: "1px solid var(--border-primary)", fontSize: "0.8rem" }}>
-                <span style={{ color: "var(--text-primary)" }}>{kw.word} <span style={{ color: "var(--text-muted)", fontSize: "0.7rem" }}>(w:{kw.weight})</span></span>
+                <span style={{ color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                  {kw.word}
+                  {editingKwId === kw.id ? (
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={editWeight}
+                      onChange={e => setEditWeight(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") {
+                          const w = parseInt(editWeight, 10);
+                          if (isNaN(w) || w < 1 || w > 100) { alert("Weight must be 1-100"); return; }
+                          patchKw.mutate({ id: kw.id, weight: w });
+                        }
+                        if (e.key === "Escape") setEditingKwId(null);
+                      }}
+                      onBlur={() => {
+                        const w = parseInt(editWeight, 10);
+                        if (!isNaN(w) && w >= 1 && w <= 100) {
+                          patchKw.mutate({ id: kw.id, weight: w });
+                        } else {
+                          setEditingKwId(null);
+                        }
+                      }}
+                      autoFocus
+                      style={{
+                        width: 50, background: "var(--bg-primary)", color: "var(--text-primary)",
+                        border: "1px solid var(--accent-cyan)", borderRadius: "var(--radius-sm)",
+                        padding: "0.1rem 0.25rem", fontSize: "0.75rem", textAlign: "center",
+                      }}
+                    />
+                  ) : (
+                    <span
+                      onClick={() => { setEditingKwId(kw.id); setEditWeight(String(kw.weight)); }}
+                      style={{ color: "var(--accent-cyan)", cursor: "pointer", fontSize: "0.7rem", borderBottom: "1px dashed var(--text-muted)" }}
+                      title="Click to edit weight"
+                    >
+                      w:{kw.weight}
+                    </span>
+                  )}
+                </span>
                 <button onClick={() => delKw.mutate(kw.id)} style={{ background: "none", border: "none", color: "var(--accent-red)", cursor: "pointer", padding: 2 }}>
                   <Trash2 size={13} />
                 </button>

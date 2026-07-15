@@ -185,10 +185,50 @@ export function DashboardPage() {
   const [ubEmail, setUbEmail] = useState("");
   const [forceRefreshKey, setForceRefreshKey] = useState(0);
 
+  const [briefGenId, setBriefGenId] = useState<string | null>(() => sessionStorage.getItem("brief_gen_id"));
+  const [briefProgress, setBriefProgress] = useState<any>(null);
+  const briefPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const [globalOverrideForm, setGlobalOverrideForm] = useState<any>(null);
   const [internalOverrideForm, setInternalOverrideForm] = useState<any>(null);
   const rotateRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (briefGenId) {
+      briefPollRef.current = setInterval(async () => {
+        try {
+          const { data } = await api.get("/dashboard/brief-generation-status", { params: { generation_id: briefGenId } });
+          setBriefProgress(data);
+          if (data.stage === "complete" || data.stage === "error" || data.status === "unknown") {
+            if (briefPollRef.current) clearInterval(briefPollRef.current);
+            briefPollRef.current = null;
+            setBriefGenId(null);
+            sessionStorage.removeItem("brief_gen_id");
+            if (data.stage === "complete") {
+              queryClient.invalidateQueries({ queryKey: ["sys-config"] });
+              queryClient.refetchQueries({ queryKey: ["sys-config"] });
+              setForceRefreshKey((k) => k + 1);
+            }
+            if (data.stage === "error") {
+              setBriefProgress(data);
+            }
+          }
+        } catch {
+          if (briefPollRef.current) clearInterval(briefPollRef.current);
+          briefPollRef.current = null;
+          setBriefGenId(null);
+          sessionStorage.removeItem("brief_gen_id");
+        }
+      }, 2000);
+    }
+    return () => {
+      if (briefPollRef.current) {
+        clearInterval(briefPollRef.current);
+        briefPollRef.current = null;
+      }
+    };
+  }, [briefGenId, queryClient]);
 
   const refreshBriefingMut = useMutation({
     mutationFn: () => api.post("/rca/sitrep", { action: "refresh_briefing" }),
@@ -203,13 +243,6 @@ export function DashboardPage() {
     onSuccess: (res) => {
       const d = res.data;
       if (d.status === "ok") { setScoringOverview(d.report); setScoringOverviewRisk(executiveIntel?.unified_risk); }
-    },
-  });
-  const generateUnifiedBriefMut = useMutation({
-    mutationFn: () => api.post("/dashboard/generate-unified-brief"),
-    onSuccess: () => {
-      setForceRefreshKey((k) => k + 1);
-      queryClient.invalidateQueries({ queryKey: ["sys-config"] });
     },
   });
   const generateInternalMut = useMutation({
@@ -390,8 +423,18 @@ export function DashboardPage() {
     generateInternalMut.mutate();
   };
 
-  const handleGenerateUnifiedBrief = () => {
-    generateUnifiedBriefMut.mutate();
+  const handleGenerateUnifiedBrief = async () => {
+    try {
+      setBriefProgress({ stage: "starting", message: "Starting generation...", percent: 0 });
+      const { data } = await api.post("/dashboard/generate-unified-brief");
+      if (data.generation_id) {
+        sessionStorage.setItem("brief_gen_id", data.generation_id);
+        setBriefGenId(data.generation_id);
+      }
+    } catch (e: any) {
+      setBriefProgress(null);
+      alert("Failed to start brief generation: " + (e.response?.data?.detail || e.message));
+    }
   };
 
   const handleBroadcastBrief = async () => {
@@ -1257,20 +1300,63 @@ export function DashboardPage() {
             </div>
             <button
               onClick={handleGenerateUnifiedBrief}
-              disabled={generateUnifiedBriefMut.isPending}
+              disabled={!!briefGenId}
               style={{
                 padding: "0.4rem 0.75rem", border: "1px solid var(--accent-blue, #3b82f6)",
                 borderRadius: "var(--radius-sm, 4px)", background: "transparent",
-                color: "var(--accent-blue, #3b82f6)", cursor: generateUnifiedBriefMut.isPending ? "not-allowed" : "pointer", fontSize: "0.8rem",
+                color: "var(--accent-blue, #3b82f6)", cursor: briefGenId ? "not-allowed" : "pointer", fontSize: "0.8rem",
                 fontWeight: 500, display: "flex", alignItems: "center", gap: "0.3rem",
-                opacity: generateUnifiedBriefMut.isPending ? 0.6 : 1,
+                opacity: briefGenId ? 0.6 : 1,
               }}
             >
-              {generateUnifiedBriefMut.isPending ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} Force Refresh Brief
+              {briefGenId ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} Force Refresh Brief
             </button>
           </div>
 
-          {!sysConfig?.unified_brief ? (
+          {/* Progress indicator during generation */}
+          {briefGenId && briefProgress && briefProgress.stage !== "complete" && briefProgress.stage !== "error" && (
+            <div style={{
+              background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.5rem",
+              border: "1px solid var(--border-primary, #e2e8f0)", marginBottom: "1.5rem",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.75rem" }}>
+                <Loader2 size={18} className="spin" style={{ color: "var(--accent-blue, #3b82f6)" }} />
+                <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary, #1e293b)" }}>
+                  Generating Unified Risk Brief...
+                </span>
+              </div>
+              <div style={{ fontSize: "0.8rem", color: "var(--text-secondary, #64748b)", marginBottom: "0.6rem" }}>
+                {briefProgress.message || "Working..."}
+              </div>
+              <div style={{
+                width: "100%", height: "8px", background: "var(--bg-tertiary, #e2e8f0)",
+                borderRadius: "4px", overflow: "hidden",
+              }}>
+                <div style={{
+                  width: `${Math.min(100, briefProgress.percent || 0)}%`, height: "100%",
+                  background: briefProgress.stage === "error" ? "var(--accent-red, #ef4444)" : "linear-gradient(90deg, #3b82f6, #06b6d4)",
+                  borderRadius: "4px", transition: "width 0.5s ease",
+                }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.3rem", fontSize: "0.72rem", color: "var(--text-muted, #94a3b8)" }}>
+                <span>{briefProgress.stage === "cyber_map" || briefProgress.stage === "phys_map" ? `Processed: ${briefProgress.processed_items ?? 0} / ${briefProgress.total_items ?? 0} items` : ""}</span>
+                <span>{briefProgress.percent ?? 0}%</span>
+              </div>
+            </div>
+          )}
+
+          {/* Error state */}
+          {briefProgress?.stage === "error" && (
+            <div style={{
+              background: "rgba(239,68,68,0.1)", border: "1px solid var(--accent-red, #ef4444)",
+              borderRadius: "var(--radius-md, 8px)", padding: "1rem", marginBottom: "1rem",
+              color: "var(--accent-red, #ef4444)", fontSize: "0.85rem",
+            }}>
+              Brief generation failed: {briefProgress.message || "Unknown error"}
+            </div>
+          )}
+
+          {!sysConfig?.unified_brief && !briefGenId ? (
             <div style={{
               background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)",
               padding: "2rem", textAlign: "center", border: "1px solid var(--border-primary, #e2e8f0)",

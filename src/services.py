@@ -2458,13 +2458,19 @@ def get_internal_risk_history(days: int = 28):
             for s in snaps
         ]
 
-def trigger_unified_brief():
+def trigger_unified_brief(progress_generation_id=None):
     """Force-generate the unified risk brief (same logic as scheduler's job_unified_brief)."""
-    from src.utils.llm import generate_unified_risk_brief
+    from src.utils.llm import generate_unified_risk_brief, update_brief_progress
     from src.database import InternalRiskSnapshot, RegionalHazard
     from src.services import get_executive_grid_intel, get_recent_crimes, save_global_config
     logger = logging.getLogger(__name__)
     logger.info("trigger_unified_brief: starting manual generation")
+
+    def _progress(**kw):
+        if progress_generation_id:
+            update_brief_progress(progress_generation_id, **kw)
+
+    _progress(stage="gathering", message="Gathering telemetry data...", percent=0)
 
     with SessionLocal() as session:
         latest_internal = session.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
@@ -2473,13 +2479,15 @@ def trigger_unified_brief():
     global_intel = get_executive_grid_intel(active_nws, crime_data)
 
     with SessionLocal() as session:
-        brief_text = generate_unified_risk_brief(session, global_intel, latest_internal)
+        brief_text = generate_unified_risk_brief(session, global_intel, latest_internal, progress_callback=_progress)
 
     if brief_text and "AI is currently disabled" not in brief_text and "generate_unified_risk_brief" not in str(type(brief_text)):
         save_global_config({"unified_brief": brief_text, "unified_brief_time": datetime.utcnow()})
         logger.info("trigger_unified_brief: saved successfully (len=%d)", len(brief_text))
+        _progress(stage="complete", message="Brief generation complete.", percent=100)
         return {"status": "ok", "brief": brief_text}
     logger.warning("trigger_unified_brief: generation failed or AI disabled")
+    _progress(stage="error", message=brief_text or "AI is disabled or generation failed.", percent=0)
     return {"status": "error", "message": brief_text or "AI is disabled or generation failed."}
 
 def trigger_rolling_summary():
@@ -2617,9 +2625,28 @@ def add_bulk_keywords(raw_text):
             if line.strip():
                 parts = line.split(',')
                 word = parts[0].strip().lower()
-                weight = int(parts[1].strip()) if len(parts) > 1 and parts[1].strip().isdigit() else 10
+                raw_weight = parts[1].strip() if len(parts) > 1 else "10"
+                try:
+                    weight = int(raw_weight)
+                    if weight < 1 or weight > 100:
+                        weight = 10
+                except ValueError:
+                    weight = 10
                 if not db.query(Keyword).filter_by(word=word).first(): db.add(Keyword(word=word, weight=weight))
         db.commit()
+
+def update_keyword_weight(keyword_id: int, weight: int):
+    if not isinstance(weight, int) or weight < 1 or weight > 100:
+        raise ValueError("Weight must be an integer between 1 and 100")
+    with SessionLocal() as db:
+        kw = db.query(Keyword).filter_by(id=keyword_id).first()
+        if not kw:
+            raise ValueError(f"Keyword with id {keyword_id} not found")
+        kw.weight = weight
+        db.commit()
+        from src.services.logic import force_reload_scorer
+        force_reload_scorer()
+        return {"id": kw.id, "word": kw.word, "weight": kw.weight}
 
 def add_bulk_feeds(raw_text):
     with SessionLocal() as db:

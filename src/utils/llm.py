@@ -1,4 +1,5 @@
 import logging
+import threading
 import requests
 import json
 from types import SimpleNamespace
@@ -11,6 +12,46 @@ logger = logging.getLogger(__name__)
 LOCAL_TZ = ZoneInfo("America/Chicago")
 
 _ollama_ctx_cache: dict[str, int] = {}
+
+_brief_progress_store: dict[str, dict] = {}
+_brief_progress_lock = threading.Lock()
+
+def init_brief_progress(generation_id: str):
+    with _brief_progress_lock:
+        _brief_progress_store[generation_id] = {
+            "stage": "starting",
+            "message": "Starting generation...",
+            "total_items": 0,
+            "processed_items": 0,
+            "percent": 0,
+            "error": None,
+        }
+
+def update_brief_progress(generation_id: str, *, stage: str = None, message: str = None, total_items: int = None, processed_items: int = None, percent: int = None):
+    with _brief_progress_lock:
+        entry = _brief_progress_store.get(generation_id)
+        if not entry:
+            return
+        if stage is not None:
+            entry["stage"] = stage
+        if message is not None:
+            entry["message"] = message
+        if total_items is not None:
+            entry["total_items"] = total_items
+        if processed_items is not None:
+            entry["processed_items"] = processed_items
+        if percent is not None:
+            entry["percent"] = percent
+        elif entry["total_items"] > 0 and entry["processed_items"] > 0:
+            entry["percent"] = min(99, int((entry["processed_items"] / entry["total_items"]) * 100))
+
+def get_brief_progress(generation_id: str) -> dict | None:
+    with _brief_progress_lock:
+        return _brief_progress_store.get(generation_id)
+
+def clear_brief_progress(generation_id: str):
+    with _brief_progress_lock:
+        _brief_progress_store.pop(generation_id, None)
 
 MODEL_CONTEXT_WINDOWS = {
     # OpenAI
@@ -136,7 +177,7 @@ def truncate_text(text, max_chars=300):
     if not text: return "No details provided."
     return text if len(text) <= max_chars else text[:max_chars] + "..."
 
-def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size=6):
+def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size=6, progress_callback=None):
     if not items: return None
 
     ctx = get_effective_context_window(config)
@@ -144,8 +185,14 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
     effective_chunk = max(1, int(chunk_size * scale))
 
     batch_summaries = []
+    chunks = list(chunk_list(items, effective_chunk))
+    total_chunks = len(chunks)
+    total_items = len(items)
 
-    for chunk in chunk_list(items, effective_chunk):
+    for idx, chunk in enumerate(chunks):
+        if progress_callback:
+            progress_callback(idx + 1, total_chunks, total_items, idx * effective_chunk)
+
         context = "\n".join([formatter_func(x) for x in chunk])
         resp = call_llm([
             {"role": "system", "content": map_prompt},
@@ -158,6 +205,8 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
     if not batch_summaries: return "AI failed to process batch."
 
     if len(batch_summaries) > 1:
+        if progress_callback:
+            progress_callback(total_chunks, total_chunks, total_items, total_items)
         final_context = "\n\n".join(batch_summaries)
         return call_llm([
             {"role": "system", "content": reduce_prompt},
@@ -205,7 +254,7 @@ def analyze_cascading_impacts(articles, session):
         map_p, reduce_p, config, chunk_size=8
     )
 
-def generate_unified_risk_brief(session, global_intel, internal_snapshot):
+def generate_unified_risk_brief(session, global_intel, internal_snapshot, progress_callback=None):
     """Generates an exhaustive, unembellished OSINT risk brief translated for an executive audience."""
     import json
 
@@ -218,6 +267,9 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     internal_risk = internal_snapshot.risk_level if internal_snapshot else 'NONE'
 
     logger.info("generate_unified_risk_brief: global_risk=%s internal_risk=%s", global_risk, internal_risk)
+
+    if progress_callback:
+        progress_callback(stage="gathering", message="Gathering threat intelligence data...", percent=0)
 
     t24 = datetime.utcnow() - timedelta(hours=24)
 
@@ -244,10 +296,16 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
         cyber_payload.append(f"Cloud Outage - Provider: {cl.provider} | Service: {cl.service} | Status: {state} | Details: {cl.title}")
 
     if cyber_payload:
+        if progress_callback:
+            progress_callback(stage="cyber_map", message=f"Processing cyber intelligence ({len(cyber_payload)} items)...", total_items=len(cyber_payload), processed_items=0, percent=1)
         map_p = "Extract factual data points regarding threat actors, vulnerabilities (CVEs), cloud service disruptions, and active exploits. Provide reason why an item is applicable. DO NOT embellish. Use strict bullet points."
         reduce_p = "Compile an exhaustive, purely factual Cyber Threat Intelligence digest. Preserve all CVE IDs, specific threat actor names, targeted vendors, and cloud providers. Do not extrapolate risks; report only what is explicitly stated in the data. Provide reason why item is applicable."
+        def _cyber_progress(done, total_chunks, total_items, processed):
+            if progress_callback:
+                pct = int((done / total_chunks) * 49) + 1
+                progress_callback(stage="cyber_map", message=f"Cyber intelligence map-reduce: chunk {done}/{total_chunks} ({total_items} items)", total_items=total_items, processed_items=processed, percent=pct)
         cyber_digest = _map_reduce_summarize(
-            cyber_payload, lambda x: x, map_p, reduce_p, config, chunk_size=15
+            cyber_payload, lambda x: x, map_p, reduce_p, config, chunk_size=15, progress_callback=_cyber_progress
         )
     else:
         cyber_digest = "No active cyber OSINT, KEVs, or cloud outages reported in the last 48 hours."
@@ -261,10 +319,16 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
         phys_payload.append(f"Perimeter Crime - Type: {c.get('raw_title', 'Unknown')} | Distance from HQ: {c.get('distance_miles', 0)} miles | FBI Category: {c.get('fbi_category', 'Unknown')}")
 
     if phys_payload:
+        if progress_callback:
+            progress_callback(stage="phys_map", message=f"Processing physical intelligence ({len(phys_payload)} items)...", total_items=len(phys_payload), processed_items=0, percent=50)
         map_p = "Extract precise factual details regarding weather severity, regional infrastructure hazards, and perimeter crimes (including distance and FBI categories). Be purely objective."
         reduce_p = "Compile an exhaustive physical risk digest. Categorize strictly into: 1) Severe Weather/Geospatial Hazards and 2) Local Perimeter Crimes. Retain exact distances, locations, and severity classifications. DO NOT embellish."
+        def _phys_progress(done, total_chunks, total_items, processed):
+            if progress_callback:
+                pct = int((done / total_chunks) * 49) + 50
+                progress_callback(stage="phys_map", message=f"Physical intelligence map-reduce: chunk {done}/{total_chunks} ({total_items} items)", total_items=total_items, processed_items=processed, percent=pct)
         phys_digest = _map_reduce_summarize(
-            phys_payload, lambda x: x, map_p, reduce_p, config, chunk_size=15
+            phys_payload, lambda x: x, map_p, reduce_p, config, chunk_size=15, progress_callback=_phys_progress
         )
     else:
         phys_digest = "No significant weather hazards, regional disruptions, or perimeter crimes reported."
@@ -337,6 +401,9 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
     * Provide 3-5 recommended next steps (e.g., "Prioritize patching for Adobe products," "Review facility lockdown procedures due to perimeter crime data").
     """
 
+    if progress_callback:
+        progress_callback(stage="synthesizing", message="Synthesizing executive brief...", percent=99)
+
     logger.info("generate_unified_risk_brief: calling LLM with master prompt")
     response = call_llm([
         {"role": "system", "content": master_sys_prompt},
@@ -360,6 +427,9 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot):
         response = disclaimer + response.strip()
     else:
         response = response.strip() if response else "Brief generation failed."
+
+    if progress_callback:
+        progress_callback(stage="complete", message="Brief generation complete.", percent=100)
 
     return response
 

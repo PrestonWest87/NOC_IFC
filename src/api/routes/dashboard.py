@@ -1,8 +1,11 @@
 import logging
+import uuid
+import threading
 from fastapi import APIRouter, Query, Body
 from typing import Any
 
 from src import services as svc
+from src.utils.llm import init_brief_progress, get_brief_progress, update_brief_progress, clear_brief_progress
 
 logger = logging.getLogger(__name__)
 
@@ -72,9 +75,28 @@ def generate_internal_risk():
 
 @router.post("/generate-unified-brief")
 def generate_unified_brief():
-    logger.info("POST /generate-unified-brief: manual trigger")
-    result = svc.trigger_unified_brief()
-    return result
+    logger.info("POST /generate-unified-brief: manual trigger (async)")
+    generation_id = str(uuid.uuid4())
+    init_brief_progress(generation_id)
+
+    def _run():
+        try:
+            svc.trigger_unified_brief(progress_generation_id=generation_id)
+        except Exception as e:
+            update_brief_progress(generation_id, stage="error", message=str(e), percent=0)
+            logger.error("Background brief generation failed: %s", e)
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return {"status": "started", "generation_id": generation_id}
+
+
+@router.get("/brief-generation-status")
+def brief_generation_status(generation_id: str = Query(...)):
+    progress = get_brief_progress(generation_id)
+    if not progress:
+        return {"status": "unknown"}
+    return progress
 
 
 @router.post("/generate-rolling-summary")

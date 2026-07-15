@@ -32,6 +32,19 @@ def add_feeds(raw_text: str = ""):
     return {"status": "ok"}
 
 
+@router.patch("/keywords/{keyword_id}")
+def patch_keyword(keyword_id: int, data: dict[str, Any] = Body({})):
+    weight = data.get("weight")
+    if weight is None or not isinstance(weight, int) or weight < 1 or weight > 100:
+        raise HTTPException(400, "weight must be an integer between 1 and 100")
+    logger.info("PATCH /admin/keywords/%d weight=%d", keyword_id, weight)
+    try:
+        updated = svc.update_keyword_weight(keyword_id, weight)
+        return {"status": "ok", "keyword": updated}
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
 @router.delete("/keywords/{keyword_id}")
 def delete_keyword(keyword_id: int):
     logger.info("DELETE /admin/keywords/%d", keyword_id)
