@@ -219,6 +219,7 @@ DEFAULT_ADMIN_PASSWORD=admin123                   # First-run admin password
 - Scheduler: runs every 1 hour via `job_global_brief`
 - DB: `global_brief` / `global_brief_time` columns on SystemConfig
 - API: `POST /dashboard/generate-global-brief`, `GET /dashboard/global-brief-generation-status`
+- Email: `POST /email/broadcast-global-brief` (sends formatted HTML with red header, US CI focus)
 
 ### Internal Asset Risk Brief
 - Embedded in Internal Risk tab below the scoring overrides
@@ -231,6 +232,7 @@ DEFAULT_ADMIN_PASSWORD=admin123                   # First-run admin password
 - Scheduler: runs every 2 hours via `job_internal_brief`
 - DB: `internal_brief` / `internal_brief_time` columns on SystemConfig
 - API: `POST /dashboard/generate-internal-brief`, `GET /dashboard/internal-brief-generation-status`
+- Email: `POST /email/broadcast-internal-brief` (sends formatted HTML with purple header, asset risk focus)
 - Dummy assets seeded for testing: 15 hardware (Cisco, Palo Alto, Microsoft, Schneider Electric, Rockwell) + 30 software (Windows, SQL Server, Exchange, VMware, Ubuntu, RHEL, Docker, etc.)
 
 ### RCA Dispatch Tickets

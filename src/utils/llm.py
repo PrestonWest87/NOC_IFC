@@ -177,7 +177,7 @@ def truncate_text(text, max_chars=300):
     if not text: return "No details provided."
     return text if len(text) <= max_chars else text[:max_chars] + "..."
 
-def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size=6, progress_callback=None):
+def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size=6, progress_callback=None, map_temperature=0.1, reduce_temperature=0.2):
     if not items: return None
 
     ctx = get_effective_context_window(config)
@@ -201,7 +201,7 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
         resp = call_llm([
             {"role": "system", "content": map_prompt},
             {"role": "user", "content": context}
-        ], config, temperature=0.1)
+        ], config, temperature=map_temperature)
         chunk_elapsed = time.time() - chunk_start
 
         if resp and "[WARN]" not in resp:
@@ -223,7 +223,7 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
         reduce_resp = call_llm([
             {"role": "system", "content": reduce_prompt},
             {"role": "user", "content": final_context}
-        ], config, temperature=0.2)
+        ], config, temperature=reduce_temperature)
         reduce_elapsed = time.time() - reduce_start
         if reduce_resp and "[WARN]" not in reduce_resp:
             logger.info("_map_reduce_summarize: reduce OK in %.1fs, response_length=%d", reduce_elapsed, len(reduce_resp))
@@ -618,7 +618,8 @@ Do NOT include internal asset correlations or risk assessments. This is a global
             progress_callback(stage="cyber_map", message=f"Global intelligence map-reduce: chunk {done}/{total_chunks} ({total_items} items)", total_items=total_items, processed_items=processed, percent=pct)
 
     global_digest = _map_reduce_summarize(
-        cyber_payload, lambda x: x, map_p, reduce_p, config, chunk_size=20, progress_callback=_global_progress
+        cyber_payload, lambda x: x, map_p, reduce_p, config, chunk_size=8, progress_callback=_global_progress,
+        map_temperature=0.6, reduce_temperature=0.5
     )
 
     if not global_digest or "[WARN]" in global_digest:
@@ -645,7 +646,8 @@ Do NOT include internal asset correlations or risk assessments. This is a global
                 progress_callback(stage="phys_map", message=f"Physical intelligence map-reduce: chunk {done}/{total_chunks} ({total_items} items)", total_items=total_items, processed_items=processed, percent=pct)
 
         phys_digest = _map_reduce_summarize(
-            phys_payload, lambda x: x, phys_map_p, phys_reduce_p, config, chunk_size=15, progress_callback=_phys_progress
+            phys_payload, lambda x: x, phys_map_p, phys_reduce_p, config, chunk_size=6, progress_callback=_phys_progress,
+            map_temperature=0.6, reduce_temperature=0.5
         )
     else:
         phys_digest = "No significant weather hazards, regional disruptions, or perimeter crimes reported in the last 24 hours."
@@ -717,7 +719,7 @@ REQUIRED STRUCTURE:
     response = call_llm([
         {"role": "system", "content": master_sys_prompt},
         {"role": "user", "content": compiled_intel}
-    ], config, temperature=0.35)
+    ], config, temperature=0.7)
 
     if response and "[WARN]" not in response:
         logger.info("generate_global_threat_brief: success, response_length=%d", len(response))

@@ -1413,6 +1413,130 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
 
     return formatted_html
     
+def generate_global_brief_email_html(report_time, markdown_content):
+    import re
+    
+    def native_md_to_html(text):
+        text = text.replace('\r', '').strip()
+        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#111827; font-size:22px; font-weight:600; margin-bottom:10px; margin-top:0;">\1</h1>', text, flags=re.MULTILINE)
+        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#111827; font-size:18px; font-weight:600; border-bottom:2px solid #e5e7eb; padding-bottom:8px; margin-top:25px; margin-bottom:12px;">\1</h2>', text, flags=re.MULTILINE)
+        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#374151; font-size:16px; margin-bottom:5px; margin-top:15px;">\1</h3>', text, flags=re.MULTILINE)
+        text = re.sub(r'\*\*(.*?)\*\*', r'<strong style="color:#111827;">\1</strong>', text)
+        text = re.sub(r'^\* (.*?)$', r'<div style="margin-bottom:6px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
+        text = re.sub(r'^- (.*?)$', r'<div style="margin-bottom:6px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = text.replace('\n', '<br>')
+        text = re.sub(r'(<br>)*<h', '<h', text)
+        text = re.sub(r'</h[123]>(<br>)*', '</h2>', text)
+        text = re.sub(r'(<br>)*<div style="margin-bottom: 6px', '<div style="margin-bottom: 6px', text)
+        text = re.sub(r'</div>(<br>)*', '</div>', text)
+        return text
+
+    raw_html = native_md_to_html(markdown_content)
+
+    formatted_html = f"""
+    <div style="margin:0; padding:20px; background-color:#f3f4f6;">
+        <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width:850px; margin:0 auto; background-color:#ffffff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);">
+            <div style="background-color:#dc2626; padding:25px 30px; text-align:left;">
+                <h1 style="color:#ffffff; margin:0 0 5px 0; font-size:22px; font-weight:600; letter-spacing:-0.5px;">Global Threat Brief - US Critical Infrastructure</h1>
+                <p style="color:#fecaca; margin:0; font-size:13px;">Generated: {report_time}</p>
+            </div>
+            <div style="padding:30px 30px 10px 30px; font-size:14px; line-height:1.6; color:#374151;">
+                <p style="font-size:14px; line-height:1.6; color:#374151; margin:0 0 15px 0;">
+                    <strong>Global threat intelligence assessment focused on US critical infrastructure protection, including oil &amp; gas, electric, water, telecom, and transportation sectors.</strong>
+                </p>
+                <div>{raw_html}</div>
+            </div>
+            <br>
+            <div style="background-color:#f9fafb; padding:14px 30px; text-align:center; border-top:1px solid #e5e7eb;">
+                <p style="margin:0; font-size:11px; color:#9ca3af; line-height:1.5;">
+                    NOC Intelligence Fusion Center &middot; Internal Use Only
+                </p>
+            </div>
+        </div>
+    </div>
+    """
+    return formatted_html.replace('\xa0', ' ').strip()
+
+
+def generate_internal_brief_email_html(report_time, markdown_content, internal_risk=None):
+    import re
+    
+    if not internal_risk:
+        session = SessionLocal()
+        try:
+            config = session.query(SystemConfig).first()
+            internal_risk = (config.last_internal_risk or "UNKNOWN").upper() if config else "UNKNOWN"
+        finally:
+            session.close()
+    else:
+        internal_risk = internal_risk.upper()
+
+    risk_tiers = {"GREEN": 1, "BLUE": 2, "YELLOW": 3, "ORANGE": 4, "RED": 5}
+    color_map = {
+        "GREEN": "#01a46d", "BLUE": "#377fc7", "YELLOW": "#f5d800",
+        "ORANGE": "#ff9b2b", "RED": "#ec3e40", "UNKNOWN": "#6c757d"
+    }
+    name_map = {
+        "GREEN": "LOW", "BLUE": "GUARDED",
+        "YELLOW": "ELEVATED", "ORANGE": "HIGH", "RED": "SEVERE"
+    }
+    internal_color = color_map.get(internal_risk, "#6c757d")
+    internal_display = name_map.get(internal_risk, internal_risk)
+
+    def native_md_to_html(text):
+        text = text.replace('\r', '').strip()
+        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#111827; font-size:22px; font-weight:600; margin-bottom:10px; margin-top:0;">\1</h1>', text, flags=re.MULTILINE)
+        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#111827; font-size:18px; font-weight:600; border-bottom:2px solid #e5e7eb; padding-bottom:8px; margin-top:25px; margin-bottom:12px;">\1</h2>', text, flags=re.MULTILINE)
+        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#374151; font-size:16px; margin-bottom:5px; margin-top:15px;">\1</h3>', text, flags=re.MULTILINE)
+        text = re.sub(r'\*\*(.*?)\*\*', r'<strong style="color:#111827;">\1</strong>', text)
+        text = re.sub(r'^\* (.*?)$', r'<div style="margin-bottom:6px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
+        text = re.sub(r'^- (.*?)$', r'<div style="margin-bottom:6px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = text.replace('\n', '<br>')
+        text = re.sub(r'(<br>)*<h', '<h', text)
+        text = re.sub(r'</h[123]>(<br>)*', '</h2>', text)
+        text = re.sub(r'(<br>)*<div style="margin-bottom: 6px', '<div style="margin-bottom: 6px', text)
+        text = re.sub(r'</div>(<br>)*', '</div>', text)
+        return text
+
+    raw_html = native_md_to_html(markdown_content)
+
+    formatted_html = f"""
+    <div style="margin:0; padding:20px; background-color:#f3f4f6;">
+        <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width:850px; margin:0 auto; background-color:#ffffff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);">
+            <div style="background-color:#7c3aed; padding:25px 30px; text-align:left;">
+                <h1 style="color:#ffffff; margin:0 0 5px 0; font-size:22px; font-weight:600; letter-spacing:-0.5px;">Internal Asset Risk Brief</h1>
+                <p style="color:#ddd6fe; margin:0; font-size:13px;">Generated: {report_time}</p>
+            </div>
+            <div style="padding:30px 30px 10px 30px; font-size:14px; line-height:1.6; color:#374151;">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20px;">
+                    <tr>
+                        <td align="center" style="padding:12px;">
+                            <div style="background:#f8f9fa; border:1px solid #e5e7eb; border-radius:8px; padding:15px; text-align:center;">
+                                <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:8px;">Internal Cyber Risk</div>
+                                <div style="background-color:{internal_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{internal_display}</div>
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+                <p style="font-size:14px; line-height:1.6; color:#374151; margin:0 0 15px 0;">
+                    <strong>Internal asset risk assessment correlating deployed hardware and software against OSINT feeds and CISA Known Exploited Vulnerabilities.</strong>
+                </p>
+                <div>{raw_html}</div>
+            </div>
+            <br>
+            <div style="background-color:#f9fafb; padding:14px 30px; text-align:center; border-top:1px solid #e5e7eb;">
+                <p style="margin:0; font-size:11px; color:#9ca3af; line-height:1.5;">
+                    NOC Intelligence Fusion Center &middot; Internal Use Only
+                </p>
+            </div>
+        </div>
+    </div>
+    """
+    return formatted_html.replace('\xa0', ' ').strip()
+
+
 def generate_outlook_html_report(intel):
     """Generates the static fallback report if the LLM generation fails or is bypassed."""
     color_map = {

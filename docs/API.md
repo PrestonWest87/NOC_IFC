@@ -349,6 +349,12 @@ Body: `{to, subject, html_body}`. Sends email via SMTP.
 ### POST /email/broadcast-brief
 Body: `{email}`. Sends the current unified brief via email.
 
+### POST /email/broadcast-global-brief
+Body: `{email}`. Sends the current global threat brief via email (red header, US CI focus).
+
+### POST /email/broadcast-internal-brief
+Body: `{email}`. Sends the current internal asset risk brief via email (purple header, asset risk focus).
+
 ## WebSocket
 
 Connect to `ws://localhost:8101/ws`.

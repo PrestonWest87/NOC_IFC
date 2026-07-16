@@ -183,6 +183,8 @@ export function DashboardPage() {
   const [scoringOverviewRisk, setScoringOverviewRisk] = useState<string | null>(null);
   const [dispatchEmail, setDispatchEmail] = useState("");
   const [ubEmail, setUbEmail] = useState("");
+  const [globalBriefEmail, setGlobalBriefEmail] = useState("");
+  const [internalBriefEmail, setInternalBriefEmail] = useState("");
   const [forceRefreshKey, setForceRefreshKey] = useState(0);
 
   const [briefGenId, setBriefGenId] = useState<string | null>(() => sessionStorage.getItem("brief_gen_id"));
@@ -524,6 +526,24 @@ export function DashboardPage() {
       if (data.status === "ok") alert("Brief transmitted to " + ubEmail);
       else alert("Broadcast error: " + (data.message || "Unknown error"));
     } catch (e: any) { alert("Failed to transmit brief: " + (e.response?.data?.detail || e.message)); }
+  };
+
+  const handleBroadcastGlobalBrief = async () => {
+    if (!globalBriefEmail) return;
+    try {
+      const { data } = await api.post("/email/broadcast-global-brief", { email: globalBriefEmail });
+      if (data.status === "ok") alert("Global Brief transmitted to " + globalBriefEmail);
+      else alert("Broadcast error: " + (data.message || "Unknown error"));
+    } catch (e: any) { alert("Failed to transmit global brief: " + (e.response?.data?.detail || e.message)); }
+  };
+
+  const handleBroadcastInternalBrief = async () => {
+    if (!internalBriefEmail) return;
+    try {
+      const { data } = await api.post("/email/broadcast-internal-brief", { email: internalBriefEmail });
+      if (data.status === "ok") alert("Internal Brief transmitted to " + internalBriefEmail);
+      else alert("Broadcast error: " + (data.message || "Unknown error"));
+    } catch (e: any) { alert("Failed to transmit internal brief: " + (e.response?.data?.detail || e.message)); }
   };
 
   const handleGenerateGlobalBrief = async () => {
@@ -1221,6 +1241,7 @@ export function DashboardPage() {
                 </p>
               </div>
             ) : (
+              <>
               <div style={{
                 background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
                 border: "1px solid var(--border-primary, #e2e8f0)",
@@ -1236,6 +1257,39 @@ export function DashboardPage() {
                   {sysConfig.global_brief}
                 </div>
               </div>
+
+              <div style={{
+                background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
+                border: "1px solid var(--border-primary, #e2e8f0)", marginTop: "1rem",
+              }}>
+                <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                  <Send size={16} /> Broadcast Global Threat Brief
+                </h3>
+                <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+                  <input
+                    type="email" placeholder="Recipient Email(s)"
+                    value={globalBriefEmail}
+                    onChange={(e) => setGlobalBriefEmail(e.target.value)}
+                    style={{
+                      flex: 1, minWidth: 200, padding: "0.5rem 0.75rem", borderRadius: "var(--radius-sm, 4px)",
+                      border: "1px solid var(--border-primary, #e2e8f0)", background: "var(--bg-input, #fff)",
+                      color: "var(--text-primary, #1e293b)", fontSize: "0.85rem",
+                    }}
+                  />
+                  <button
+                    onClick={handleBroadcastGlobalBrief}
+                    disabled={!globalBriefEmail}
+                    style={{
+                      padding: "0.5rem 1rem", border: "none", borderRadius: "var(--radius-sm, 4px)",
+                      background: "#dc2626", color: "#fff", cursor: "pointer", fontWeight: 600, fontSize: "0.85rem",
+                      opacity: globalBriefEmail ? 1 : 0.5, display: "flex", alignItems: "center", gap: "0.4rem",
+                    }}
+                  >
+                    <Mail size={16} /> Transmit Global Brief
+                  </button>
+                </div>
+              </div>
+              </>
             )}
           </div>
         </div>
@@ -1560,6 +1614,7 @@ export function DashboardPage() {
                     </p>
                   </div>
                 ) : (
+                  <>
                   <div style={{
                     background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
                     border: "1px solid var(--border-primary, #e2e8f0)",
@@ -1575,6 +1630,39 @@ export function DashboardPage() {
                       {sysConfig.internal_brief}
                     </div>
                   </div>
+
+                  <div style={{
+                    background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
+                    border: "1px solid var(--border-primary, #e2e8f0)", marginTop: "1rem",
+                  }}>
+                    <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                      <Send size={16} /> Broadcast Internal Asset Risk Brief
+                    </h3>
+                    <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+                      <input
+                        type="email" placeholder="Recipient Email(s)"
+                        value={internalBriefEmail}
+                        onChange={(e) => setInternalBriefEmail(e.target.value)}
+                        style={{
+                          flex: 1, minWidth: 200, padding: "0.5rem 0.75rem", borderRadius: "var(--radius-sm, 4px)",
+                          border: "1px solid var(--border-primary, #e2e8f0)", background: "var(--bg-input, #fff)",
+                          color: "var(--text-primary, #1e293b)", fontSize: "0.85rem",
+                        }}
+                      />
+                      <button
+                        onClick={handleBroadcastInternalBrief}
+                        disabled={!internalBriefEmail}
+                        style={{
+                          padding: "0.5rem 1rem", border: "none", borderRadius: "var(--radius-sm, 4px)",
+                          background: "#7c3aed", color: "#fff", cursor: "pointer", fontWeight: 600, fontSize: "0.85rem",
+                          opacity: internalBriefEmail ? 1 : 0.5, display: "flex", alignItems: "center", gap: "0.4rem",
+                        }}
+                      >
+                        <Mail size={16} /> Transmit Internal Brief
+                      </button>
+                    </div>
+                  </div>
+                  </>
                 )}
               </div>
             </>
