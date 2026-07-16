@@ -153,15 +153,15 @@ def call_llm(messages, config, temperature=0.1, max_tokens=None):
     logger.debug("call_llm: url=%s model=%s messages_count=%d", url, config.llm_model_name, len(messages))
 
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=180)
+        response = requests.post(url, headers=headers, json=payload, timeout=300)
         response.raise_for_status()
         result = response.json()['choices'][0]['message']['content']
         logger.debug("call_llm: success, response_length=%d", len(result))
         return result
 
     except requests.exceptions.Timeout:
-        logger.error("call_llm: timeout after 180s to %s (model=%s, max_tokens=%d)", url, config.llm_model_name, max_tokens)
-        return "[WARN] **AI NETWORK ERROR:** Request timed out after 180 seconds. Is the LLM online?"
+        logger.error("call_llm: timeout after 300s to %s (model=%s, max_tokens=%d)", url, config.llm_model_name, max_tokens)
+        return "[WARN] **AI NETWORK ERROR:** Request timed out after 300 seconds. Is the LLM online?"
     except requests.exceptions.ConnectionError:
         logger.error("call_llm: connection refused to %s", url)
         return "[WARN] **AI NETWORK ERROR:** Connection Refused. Check your Endpoint URL."
