@@ -153,15 +153,15 @@ def call_llm(messages, config, temperature=0.1, max_tokens=None):
     logger.debug("call_llm: url=%s model=%s messages_count=%d", url, config.llm_model_name, len(messages))
 
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=120)
+        response = requests.post(url, headers=headers, json=payload, timeout=180)
         response.raise_for_status()
         result = response.json()['choices'][0]['message']['content']
         logger.debug("call_llm: success, response_length=%d", len(result))
         return result
 
     except requests.exceptions.Timeout:
-        logger.error("call_llm: timeout after 120s to %s", url)
-        return "[WARN] **AI NETWORK ERROR:** Request timed out after 120 seconds. Is the LLM online?"
+        logger.error("call_llm: timeout after 180s to %s (model=%s, max_tokens=%d)", url, config.llm_model_name, max_tokens)
+        return "[WARN] **AI NETWORK ERROR:** Request timed out after 180 seconds. Is the LLM online?"
     except requests.exceptions.ConnectionError:
         logger.error("call_llm: connection refused to %s", url)
         return "[WARN] **AI NETWORK ERROR:** Connection Refused. Check your Endpoint URL."
@@ -194,25 +194,44 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
             progress_callback(idx + 1, total_chunks, total_items, idx * effective_chunk)
 
         context = "\n".join([formatter_func(x) for x in chunk])
+        logger.info("_map_reduce_summarize: chunk %d/%d, items=%d, context_length=%d", idx + 1, total_chunks, len(chunk), len(context))
+
+        import time
+        chunk_start = time.time()
         resp = call_llm([
             {"role": "system", "content": map_prompt},
             {"role": "user", "content": context}
         ], config, temperature=0.1)
+        chunk_elapsed = time.time() - chunk_start
 
         if resp and "[WARN]" not in resp:
+            logger.info("_map_reduce_summarize: chunk %d/%d OK in %.1fs, response_length=%d", idx + 1, total_chunks, chunk_elapsed, len(resp))
             batch_summaries.append(resp)
+        else:
+            logger.error("_map_reduce_summarize: chunk %d/%d FAILED in %.1fs: %s", idx + 1, total_chunks, chunk_elapsed, (resp[:300] if resp else "empty"))
 
-    if not batch_summaries: return "AI failed to process batch."
+    if not batch_summaries: 
+        logger.error("_map_reduce_summarize: all chunks failed, returning error")
+        return "AI failed to process batch."
 
     if len(batch_summaries) > 1:
         if progress_callback:
             progress_callback(total_chunks, total_chunks, total_items, total_items)
         final_context = "\n\n".join(batch_summaries)
-        return call_llm([
+        logger.info("_map_reduce_summarize: reduce step, summaries=%d, final_context_length=%d", len(batch_summaries), len(final_context))
+        reduce_start = time.time()
+        reduce_resp = call_llm([
             {"role": "system", "content": reduce_prompt},
             {"role": "user", "content": final_context}
         ], config, temperature=0.2)
+        reduce_elapsed = time.time() - reduce_start
+        if reduce_resp and "[WARN]" not in reduce_resp:
+            logger.info("_map_reduce_summarize: reduce OK in %.1fs, response_length=%d", reduce_elapsed, len(reduce_resp))
+        else:
+            logger.error("_map_reduce_summarize: reduce FAILED in %.1fs: %s", reduce_elapsed, (reduce_resp[:300] if reduce_resp else "empty"))
+        return reduce_resp
     else:
+        logger.info("_map_reduce_summarize: single chunk, skipping reduce step")
         return batch_summaries[0]
 
 def generate_bluf(article, session):
@@ -904,17 +923,32 @@ REQUIRED STRUCTURE:
         progress_callback(stage="synthesizing", message="Synthesizing internal risk brief...", percent=92)
 
     logger.info("generate_internal_risk_brief: calling LLM with master prompt")
-    response = call_llm([
-        {"role": "system", "content": master_sys_prompt},
-        {"role": "user", "content": correlation_digest}
-    ], config, temperature=0.35)
+    logger.info("generate_internal_risk_brief: master_prompt_length=%d correlation_digest_length=%d", len(master_sys_prompt), len(correlation_digest))
+    logger.info("generate_internal_risk_brief: combined payload total=%d chars", len(master_sys_prompt) + len(correlation_digest))
+
+    import time
+    synthesis_start = time.time()
+    try:
+        response = call_llm([
+            {"role": "system", "content": master_sys_prompt},
+            {"role": "user", "content": correlation_digest}
+        ], config, temperature=0.35)
+    except Exception as e:
+        elapsed = time.time() - synthesis_start
+        logger.error("generate_internal_risk_brief: synthesis EXCEPTION after %.1fs: %s", elapsed, str(e), exc_info=True)
+        if progress_callback:
+            progress_callback(stage="error", message=f"LLM synthesis exception after {elapsed:.0f}s: {str(e)}", percent=0)
+        return "Internal brief generation failed during synthesis."
+
+    elapsed = time.time() - synthesis_start
+    logger.info("generate_internal_risk_brief: LLM responded in %.1fs, response_type=%s", elapsed, type(response).__name__)
 
     if response and "[WARN]" not in response:
         logger.info("generate_internal_risk_brief: success, response_length=%d", len(response))
     else:
-        logger.error("generate_internal_risk_brief: LLM returned error: %s", response[:200] if response else "None")
+        logger.error("generate_internal_risk_brief: LLM returned error after %.1fs: %s", elapsed, response[:500] if response else "None (empty response)")
         if progress_callback:
-            progress_callback(stage="error", message="LLM synthesis failed.", percent=0)
+            progress_callback(stage="error", message=f"LLM synthesis failed after {elapsed:.0f}s: {(response[:200] if response else 'empty response')}", percent=0)
         return "Internal brief generation failed during synthesis."
 
     if progress_callback:
