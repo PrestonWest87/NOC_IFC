@@ -84,8 +84,14 @@ def broadcast_global_brief(req: BroadcastBriefRequest):
         return {"status": "error", "message": "No global brief available. Generate one first."}
 
     brief_time = datetime.now(ZoneInfo("America/Chicago")).strftime("%A, %B %d, %Y at %I:%M %p %Z")
+    global_risk = config.get("last_global_risk", "UNKNOWN")
+    internal_risk = config.get("last_internal_risk", "UNKNOWN")
 
-    formatted_html = generate_global_brief_email_html(brief_time, brief)
+    formatted_html = generate_global_brief_email_html(
+        brief_time, brief,
+        global_risk=global_risk,
+        internal_risk=internal_risk,
+    )
 
     success, msg = send_alert_email(
         "Global Threat Brief - US Critical Infrastructure", formatted_html,
@@ -113,10 +119,13 @@ def broadcast_internal_brief(req: BroadcastBriefRequest):
         return {"status": "error", "message": "No internal brief available. Generate one first."}
 
     brief_time = datetime.now(ZoneInfo("America/Chicago")).strftime("%A, %B %d, %Y at %I:%M %p %Z")
+    global_risk = config.get("last_global_risk", "UNKNOWN")
     internal_risk = config.get("last_internal_risk", "UNKNOWN")
 
     formatted_html = generate_internal_brief_email_html(
-        brief_time, brief, internal_risk=internal_risk,
+        brief_time, brief,
+        global_risk=global_risk,
+        internal_risk=internal_risk,
     )
 
     success, msg = send_alert_email(

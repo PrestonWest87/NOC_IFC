@@ -1413,26 +1413,120 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
 
     return formatted_html
     
-def generate_global_brief_email_html(report_time, markdown_content):
+def generate_global_brief_email_html(report_time, markdown_content, global_risk=None, internal_risk=None):
     import re
-    
+
+    if not global_risk or not internal_risk:
+        session = SessionLocal()
+        try:
+            config = session.query(SystemConfig).first()
+            if not global_risk:
+                global_risk = (config.last_global_risk or "UNKNOWN").upper()
+            if not internal_risk:
+                internal_risk = (config.last_internal_risk or "UNKNOWN").upper()
+        finally:
+            session.close()
+    else:
+        global_risk = global_risk.upper()
+        internal_risk = internal_risk.upper()
+
+    risk_tiers = {"GREEN": 1, "BLUE": 2, "YELLOW": 3, "ORANGE": 4, "RED": 5}
+    g_tier = risk_tiers.get(global_risk, 0)
+    i_tier = risk_tiers.get(internal_risk, 0)
+
+    if g_tier == 0 and i_tier == 0:
+        overall_risk = "UNKNOWN"
+    elif g_tier >= i_tier:
+        overall_risk = global_risk
+    else:
+        overall_risk = internal_risk
+
+    name_map = {
+        "GREEN": "LOW", "BLUE": "GUARDED",
+        "YELLOW": "ELEVATED", "ORANGE": "HIGH", "RED": "SEVERE"
+    }
+
+    color_map = {
+        "GREEN": "#01a46d", "BLUE": "#377fc7", "YELLOW": "#f5d800",
+        "ORANGE": "#ff9b2b", "RED": "#ec3e40", "UNKNOWN": "#6c757d"
+    }
+    global_color = color_map.get(global_risk, "#6c757d")
+    internal_color = color_map.get(internal_risk, "#6c757d")
+
+    global_display = name_map.get(global_risk, global_risk)
+    internal_display = name_map.get(internal_risk, internal_risk)
+
+    disclaimer_html = ""
+    disclaimer_match = re.search(
+        r'^---\s*\n\*\*OSINT CORRELATION DISCLAIMER:\*\*\s*(.*?)\n\s*\n\*\*AI-GENERATED CONTENT:\*\*\s*(.*?)\n---',
+        markdown_content, re.DOTALL | re.MULTILINE
+    )
+    if disclaimer_match:
+        osint_text = disclaimer_match.group(1).strip()
+        ai_text = disclaimer_match.group(2).strip()
+        disclaimer_html = f'''
+        <div style="background:#f8f9fa; border-left:4px solid #6b7280; border-radius:4px; padding:14px 18px; margin-bottom:24px;">
+            <p style="font-size:11px; font-weight:700; color:#6b7280; margin:0 0 8px 0; text-transform:uppercase; letter-spacing:0.5px;">
+                Disclaimers
+            </p>
+            <p style="font-size:12.5px; color:#4b5563; line-height:1.5; margin:0 0 8px 0;">
+                <strong>OSINT Correlation:</strong> {osint_text}
+            </p>
+            <p style="font-size:12.5px; color:#4b5563; line-height:1.5; margin:0;">
+                <strong>AI-Generated Content:</strong> {ai_text}
+            </p>
+        </div>
+        '''
+        markdown_content = markdown_content.replace(disclaimer_match.group(0), "").strip()
+
     def native_md_to_html(text):
         text = text.replace('\r', '').strip()
         text = re.sub(r'^# (.*?)$', r'<h1 style="color:#111827; font-size:22px; font-weight:600; margin-bottom:10px; margin-top:0;">\1</h1>', text, flags=re.MULTILINE)
         text = re.sub(r'^## (.*?)$', r'<h2 style="color:#111827; font-size:18px; font-weight:600; border-bottom:2px solid #e5e7eb; padding-bottom:8px; margin-top:25px; margin-bottom:12px;">\1</h2>', text, flags=re.MULTILINE)
         text = re.sub(r'^### (.*?)$', r'<h3 style="color:#374151; font-size:16px; margin-bottom:5px; margin-top:15px;">\1</h3>', text, flags=re.MULTILINE)
         text = re.sub(r'\*\*(.*?)\*\*', r'<strong style="color:#111827;">\1</strong>', text)
+        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#3498db; text-decoration:none;">\1</a>', text)
         text = re.sub(r'^\* (.*?)$', r'<div style="margin-bottom:6px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
         text = re.sub(r'^- (.*?)$', r'<div style="margin-bottom:6px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
         text = re.sub(r'\n{3,}', '\n\n', text)
         text = text.replace('\n', '<br>')
         text = re.sub(r'(<br>)*<h', '<h', text)
-        text = re.sub(r'</h[123]>(<br>)*', '</h2>', text)
+        text = re.sub(r'</h1>(<br>)*', '</h1>', text)
+        text = re.sub(r'</h2>(<br>)*', '</h2>', text)
+        text = re.sub(r'</h3>(<br>)*', '</h3>', text)
         text = re.sub(r'(<br>)*<div style="margin-bottom: 6px', '<div style="margin-bottom: 6px', text)
         text = re.sub(r'</div>(<br>)*', '</div>', text)
         return text
 
-    raw_html = native_md_to_html(markdown_content)
+    raw_html = disclaimer_html + native_md_to_html(markdown_content)
+
+    cyber_line = (
+        f'The current Global Threat Posture of {global_display} '
+        f'is assessed and determined by the AECC/CI Cyber Security Director.'
+    )
+
+    banners_html = f"""
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:25px; table-layout:fixed;">
+        <tr>
+            <td width="50%" align="center" valign="top" style="padding:5px;">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fa; border:1px solid #e5e7eb; border-radius:8px;">
+                    <tr><td align="center" style="padding:15px 10px;">
+                        <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Global Threat Posture</div>
+                        <div style="background-color:{global_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{global_display}</div>
+                    </td></tr>
+                </table>
+            </td>
+            <td width="50%" align="center" valign="top" style="padding:5px;">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fa; border:1px solid #e5e7eb; border-radius:8px;">
+                    <tr><td align="center" style="padding:15px 10px;">
+                        <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Internal Cyber Risk</div>
+                        <div style="background-color:{internal_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{internal_display}</div>
+                    </td></tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+    """
 
     formatted_html = f"""
     <div style="margin:0; padding:20px; background-color:#f3f4f6;">
@@ -1442,8 +1536,9 @@ def generate_global_brief_email_html(report_time, markdown_content):
                 <p style="color:#fecaca; margin:0; font-size:13px;">Generated: {report_time}</p>
             </div>
             <div style="padding:30px 30px 10px 30px; font-size:14px; line-height:1.6; color:#374151;">
+                {banners_html}
                 <p style="font-size:14px; line-height:1.6; color:#374151; margin:0 0 15px 0;">
-                    <strong>Global threat intelligence assessment focused on US critical infrastructure protection, including oil &amp; gas, electric, water, telecom, and transportation sectors.</strong>
+                    <strong>{cyber_line}</strong>
                 </p>
                 <div>{raw_html}</div>
             </div>
@@ -1456,33 +1551,77 @@ def generate_global_brief_email_html(report_time, markdown_content):
         </div>
     </div>
     """
-    return formatted_html.replace('\xa0', ' ').strip()
+    formatted_html = formatted_html.replace('\xa0', ' ')
+    formatted_html = re.sub(r'>\s+<', '><', formatted_html)
+    formatted_html = formatted_html.strip()
+    return formatted_html
 
 
-def generate_internal_brief_email_html(report_time, markdown_content, internal_risk=None):
+def generate_internal_brief_email_html(report_time, markdown_content, global_risk=None, internal_risk=None):
     import re
-    
-    if not internal_risk:
+
+    if not global_risk or not internal_risk:
         session = SessionLocal()
         try:
             config = session.query(SystemConfig).first()
-            internal_risk = (config.last_internal_risk or "UNKNOWN").upper() if config else "UNKNOWN"
+            if not global_risk:
+                global_risk = (config.last_global_risk or "UNKNOWN").upper()
+            if not internal_risk:
+                internal_risk = (config.last_internal_risk or "UNKNOWN").upper()
         finally:
             session.close()
     else:
+        global_risk = global_risk.upper()
         internal_risk = internal_risk.upper()
 
     risk_tiers = {"GREEN": 1, "BLUE": 2, "YELLOW": 3, "ORANGE": 4, "RED": 5}
-    color_map = {
-        "GREEN": "#01a46d", "BLUE": "#377fc7", "YELLOW": "#f5d800",
-        "ORANGE": "#ff9b2b", "RED": "#ec3e40", "UNKNOWN": "#6c757d"
-    }
+    g_tier = risk_tiers.get(global_risk, 0)
+    i_tier = risk_tiers.get(internal_risk, 0)
+
+    if g_tier == 0 and i_tier == 0:
+        overall_risk = "UNKNOWN"
+    elif i_tier >= g_tier:
+        overall_risk = internal_risk
+    else:
+        overall_risk = global_risk
+
     name_map = {
         "GREEN": "LOW", "BLUE": "GUARDED",
         "YELLOW": "ELEVATED", "ORANGE": "HIGH", "RED": "SEVERE"
     }
+
+    color_map = {
+        "GREEN": "#01a46d", "BLUE": "#377fc7", "YELLOW": "#f5d800",
+        "ORANGE": "#ff9b2b", "RED": "#ec3e40", "UNKNOWN": "#6c757d"
+    }
+    global_color = color_map.get(global_risk, "#6c757d")
     internal_color = color_map.get(internal_risk, "#6c757d")
+
+    global_display = name_map.get(global_risk, global_risk)
     internal_display = name_map.get(internal_risk, internal_risk)
+
+    disclaimer_html = ""
+    disclaimer_match = re.search(
+        r'^---\s*\n\*\*OSINT CORRELATION DISCLAIMER:\*\*\s*(.*?)\n\s*\n\*\*AI-GENERATED CONTENT:\*\*\s*(.*?)\n---',
+        markdown_content, re.DOTALL | re.MULTILINE
+    )
+    if disclaimer_match:
+        osint_text = disclaimer_match.group(1).strip()
+        ai_text = disclaimer_match.group(2).strip()
+        disclaimer_html = f'''
+        <div style="background:#f8f9fa; border-left:4px solid #6b7280; border-radius:4px; padding:14px 18px; margin-bottom:24px;">
+            <p style="font-size:11px; font-weight:700; color:#6b7280; margin:0 0 8px 0; text-transform:uppercase; letter-spacing:0.5px;">
+                Disclaimers
+            </p>
+            <p style="font-size:12.5px; color:#4b5563; line-height:1.5; margin:0 0 8px 0;">
+                <strong>OSINT Correlation:</strong> {osint_text}
+            </p>
+            <p style="font-size:12.5px; color:#4b5563; line-height:1.5; margin:0;">
+                <strong>AI-Generated Content:</strong> {ai_text}
+            </p>
+        </div>
+        '''
+        markdown_content = markdown_content.replace(disclaimer_match.group(0), "").strip()
 
     def native_md_to_html(text):
         text = text.replace('\r', '').strip()
@@ -1490,17 +1629,48 @@ def generate_internal_brief_email_html(report_time, markdown_content, internal_r
         text = re.sub(r'^## (.*?)$', r'<h2 style="color:#111827; font-size:18px; font-weight:600; border-bottom:2px solid #e5e7eb; padding-bottom:8px; margin-top:25px; margin-bottom:12px;">\1</h2>', text, flags=re.MULTILINE)
         text = re.sub(r'^### (.*?)$', r'<h3 style="color:#374151; font-size:16px; margin-bottom:5px; margin-top:15px;">\1</h3>', text, flags=re.MULTILINE)
         text = re.sub(r'\*\*(.*?)\*\*', r'<strong style="color:#111827;">\1</strong>', text)
+        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#3498db; text-decoration:none;">\1</a>', text)
         text = re.sub(r'^\* (.*?)$', r'<div style="margin-bottom:6px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
         text = re.sub(r'^- (.*?)$', r'<div style="margin-bottom:6px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
         text = re.sub(r'\n{3,}', '\n\n', text)
         text = text.replace('\n', '<br>')
         text = re.sub(r'(<br>)*<h', '<h', text)
-        text = re.sub(r'</h[123]>(<br>)*', '</h2>', text)
+        text = re.sub(r'</h1>(<br>)*', '</h1>', text)
+        text = re.sub(r'</h2>(<br>)*', '</h2>', text)
+        text = re.sub(r'</h3>(<br>)*', '</h3>', text)
         text = re.sub(r'(<br>)*<div style="margin-bottom: 6px', '<div style="margin-bottom: 6px', text)
         text = re.sub(r'</div>(<br>)*', '</div>', text)
         return text
 
-    raw_html = native_md_to_html(markdown_content)
+    raw_html = disclaimer_html + native_md_to_html(markdown_content)
+
+    cyber_line = (
+        f'The current Internal Threat Posture of {internal_display} '
+        f'is assessed and determined by the AECC/CI Cyber Security Director.'
+    )
+
+    banners_html = f"""
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:25px; table-layout:fixed;">
+        <tr>
+            <td width="50%" align="center" valign="top" style="padding:5px;">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fa; border:1px solid #e5e7eb; border-radius:8px;">
+                    <tr><td align="center" style="padding:15px 10px;">
+                        <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Internal Cyber Risk</div>
+                        <div style="background-color:{internal_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{internal_display}</div>
+                    </td></tr>
+                </table>
+            </td>
+            <td width="50%" align="center" valign="top" style="padding:5px;">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fa; border:1px solid #e5e7eb; border-radius:8px;">
+                    <tr><td align="center" style="padding:15px 10px;">
+                        <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Global Threat Posture</div>
+                        <div style="background-color:{global_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{global_display}</div>
+                    </td></tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+    """
 
     formatted_html = f"""
     <div style="margin:0; padding:20px; background-color:#f3f4f6;">
@@ -1510,18 +1680,9 @@ def generate_internal_brief_email_html(report_time, markdown_content, internal_r
                 <p style="color:#ddd6fe; margin:0; font-size:13px;">Generated: {report_time}</p>
             </div>
             <div style="padding:30px 30px 10px 30px; font-size:14px; line-height:1.6; color:#374151;">
-                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20px;">
-                    <tr>
-                        <td align="center" style="padding:12px;">
-                            <div style="background:#f8f9fa; border:1px solid #e5e7eb; border-radius:8px; padding:15px; text-align:center;">
-                                <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; margin-bottom:8px;">Internal Cyber Risk</div>
-                                <div style="background-color:{internal_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{internal_display}</div>
-                            </div>
-                        </td>
-                    </tr>
-                </table>
+                {banners_html}
                 <p style="font-size:14px; line-height:1.6; color:#374151; margin:0 0 15px 0;">
-                    <strong>Internal asset risk assessment correlating deployed hardware and software against OSINT feeds and CISA Known Exploited Vulnerabilities.</strong>
+                    <strong>{cyber_line}</strong>
                 </p>
                 <div>{raw_html}</div>
             </div>
@@ -1534,7 +1695,10 @@ def generate_internal_brief_email_html(report_time, markdown_content, internal_r
         </div>
     </div>
     """
-    return formatted_html.replace('\xa0', ' ').strip()
+    formatted_html = formatted_html.replace('\xa0', ' ')
+    formatted_html = re.sub(r'>\s+<', '><', formatted_html)
+    formatted_html = formatted_html.strip()
+    return formatted_html
 
 
 def generate_outlook_html_report(intel):
