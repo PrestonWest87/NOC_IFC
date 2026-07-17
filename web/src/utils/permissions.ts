@@ -44,6 +44,7 @@ export const TAB_PERMISSION_MAP: Record<string, Record<string, string>> = {
     "Tab: Settings -> Backup & Restore": "backup",
     "Tab: Settings -> Danger Zone": "danger",
   },
+  keywordAnalysis: {},
 };
 
 export function getAllowedTabs(

@@ -7,6 +7,7 @@ export const PAGE_PERMISSION_MAP: Record<string, string> = {
   "/shift-logbook": "Shift Logbook",
   "/reporting": "Reporting & Briefings",
   "/settings": "Settings & Admin",
+  "/keyword-analysis": "Keyword Analysis",
 };
 
 export const PAGE_ROUTE_MAP: Record<string, string> = Object.fromEntries(

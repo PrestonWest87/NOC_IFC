@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAuth } from "../utils/AuthContext";
 import {
   Activity, Globe, Crosshair, Shield, Radio, BookOpen,
-  FileText, Settings, LogOut, Menu, User, ChevronLeft
+  FileText, Settings, LogOut, Menu, User, ChevronLeft, Search
 } from "lucide-react";
 
 const navItems = [
@@ -13,6 +13,7 @@ const navItems = [
   { label: "AIOps RCA", icon: Radio, href: "/aiops-rca" },
   { label: "Shift Logbook", icon: BookOpen, href: "/shift-logbook" },
   { label: "Reporting & Briefings", icon: FileText, href: "/reporting" },
+  { label: "Keyword Analysis", icon: Search, href: "/keyword-analysis" },
   { label: "Settings & Admin", icon: Settings, href: "/settings" },
 ];
 

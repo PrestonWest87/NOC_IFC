@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.core.db import init_db
 from src.core.config import setup_logging
 from src.api.ws_manager import ConnectionManager
-from src.api.routes import aiops, threat, settings, reporting, auth, dashboard, regional, hunting, rca, logbook, settings_admin, llm, email
+from src.api.routes import aiops, threat, settings, reporting, auth, dashboard, regional, hunting, rca, logbook, settings_admin, llm, email, keyword_analysis
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -73,6 +73,7 @@ app.include_router(logbook.router)
 app.include_router(settings_admin.router)
 app.include_router(llm.router)
 app.include_router(email.router)
+app.include_router(keyword_analysis.router)
 
 @app.get("/health")
 def health():

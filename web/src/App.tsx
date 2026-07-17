@@ -11,6 +11,7 @@ import { AiopsRcaPage } from "./pages/AiopsRcaPage";
 import { ShiftLogbookPage } from "./pages/ShiftLogbookPage";
 import { ReportingPage } from "./pages/ReportingPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { KeywordAnalysisPage } from "./pages/KeywordAnalysisPage";
 import { PAGE_PERMISSION_MAP, PAGE_ROUTE_MAP } from "./utils/routeConfig";
 
 const queryClient = new QueryClient();
@@ -40,6 +41,7 @@ function AppRoutes() {
       <Route path="/shift-logbook" element={<ProtectedRoute path="/shift-logbook"><ShiftLogbookPage /></ProtectedRoute>} />
       <Route path="/reporting" element={<ProtectedRoute path="/reporting"><ReportingPage /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute path="/settings"><SettingsPage /></ProtectedRoute>} />
+      <Route path="/keyword-analysis" element={<ProtectedRoute path="/keyword-analysis"><KeywordAnalysisPage /></ProtectedRoute>} />
     </Routes>
   );
 }
