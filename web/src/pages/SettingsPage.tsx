@@ -19,7 +19,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 const ALL_PAGES = [
   "Global Dashboards", "Threat Telemetry", "Regional Grid",
   "Threat Hunting & IOCs", "AIOps RCA", "Shift Logbook",
-  "Reporting & Briefings", "Settings & Admin",
+  "Reporting & Briefings", "Keyword Analysis", "Settings & Admin",
 ];
 
 const ALL_ACTIONS = [

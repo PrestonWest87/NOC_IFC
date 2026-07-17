@@ -232,7 +232,8 @@ def init_db():
         all_pages = [
             "Global Dashboards", "Threat Telemetry", "Regional Grid",
             "Threat Hunting & IOCs", "AIOps RCA", "Shift Logbook",
-            "Reporting & Briefings", "Settings & Admin"
+            "Reporting & Briefings", "Settings & Admin",
+            "Keyword Analysis"
         ]
 
         all_actions = [

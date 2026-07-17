@@ -405,7 +405,8 @@ def get_role_permissions(role_name):
             "allowed_pages": [
                 "Global Dashboards", "Threat Telemetry", "Regional Grid",
                 "Threat Hunting & IOCs", "AIOps RCA", "Shift Logbook",
-                "Reporting & Briefings", "Settings & Admin"
+                "Reporting & Briefings", "Settings & Admin",
+                "Keyword Analysis"
             ],
             "allowed_actions": [
                 "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score",
