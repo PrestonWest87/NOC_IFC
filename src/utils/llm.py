@@ -346,8 +346,9 @@ IMPORTANT: If the input contains NO cyber threats, CVEs, threat actors, security
     phys_payload = []
     for a in phys_arts:
         phys_payload.append(f"Physical Intel - Title: {a.title} | Source: {a.source}")
-    for h in active_hazards:
-        phys_payload.append(f"Weather/Hazard - Alert: {h.title} | Severity: {h.severity} | Location: {h.location} | Details: {truncate_text(h.description, 500)}")
+    consolidated = _consolidate_hazards(active_hazards)
+    for h in consolidated:
+        phys_payload.append(f"Weather/Hazard - Alert: {h['title']} | Severity: {h['severity']} | Location: {h['location']} | Details: {h['description']}")
     for c in crimes:
         phys_payload.append(f"Perimeter Crime - Type: {c.get('raw_title', 'Unknown')} | Distance from HQ: {c.get('distance_miles', 0)} miles | FBI Category: {c.get('fbi_category', 'Unknown')}")
 
@@ -465,6 +466,68 @@ IMPORTANT: If the input contains NO cyber threats, CVEs, threat actors, security
         progress_callback(stage="complete", message="Brief generation complete.", percent=100)
 
     return response
+
+def _consolidate_hazards(hazards):
+    """Merge hazards with the same title into a single entry listing all affected locations."""
+    from collections import OrderedDict
+    grouped = OrderedDict()
+    for h in hazards:
+        key = (h.title.strip(), h.severity.strip())
+        if key not in grouped:
+            grouped[key] = {
+                'title': h.title.strip(),
+                'severity': h.severity.strip(),
+                'locations': set(),
+                'descriptions': [],
+            }
+        if h.location:
+            for part in h.location.split(';'):
+                part = part.strip()
+                if part:
+                    grouped[key]['locations'].add(part)
+        if h.description and h.description not in grouped[key]['descriptions']:
+            grouped[key]['descriptions'].append(h.description)
+
+    consolidated = []
+    for entry in grouped.values():
+        locs = '; '.join(sorted(entry['locations'])) if entry['locations'] else 'Multiple regions'
+        desc = entry['descriptions'][0] if entry['descriptions'] else ''
+        consolidated.append({
+            'title': entry['title'],
+            'severity': entry['severity'],
+            'location': locs,
+            'description': truncate_text(desc, 300),
+        })
+    return consolidated
+
+def _dedup_phys_outputs(phys_outputs):
+    """Deduplicate physical map outputs by merging lines with the same hazard type prefix."""
+    import re
+    all_lines = []
+    for chunk in phys_outputs:
+        for line in chunk.split('\n'):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            all_lines.append(stripped)
+
+    seen_hazard_keys = {}
+    deduped = []
+    for line in all_lines:
+        match = re.match(r'^(?:TYPE|HAZARD)[:\s]+(.+?)(?:\s*[-|]\s*|$)', line, re.IGNORECASE)
+        if match:
+            key = match.group(1).strip().lower()
+            if key in seen_hazard_keys:
+                existing_idx = seen_hazard_keys[key]
+                existing_line = deduped[existing_idx]
+                if 'LOCATION:' in line.upper() and 'LOCATION:' not in existing_line.upper():
+                    deduped[existing_idx] = existing_line.rstrip('.') + '; ' + line
+                elif 'SEVERITY:' in line.upper() and 'SEVERITY:' not in existing_line.upper():
+                    deduped[existing_idx] = existing_line.rstrip('.') + '; ' + line
+                continue
+            seen_hazard_keys[key] = len(deduped)
+        deduped.append(line)
+    return deduped
 
 def _assemble_global_brief_from_maps(map_outputs, phys_map_outputs, config):
     """Assemble a global threat brief from map outputs using programmatic classification.
@@ -702,7 +765,9 @@ def _assemble_global_brief_from_maps(map_outputs, phys_map_outputs, config):
 
     report_parts.append('## Local Weather & Perimeter Posture\n')
     if phys_map_outputs and phys_map_outputs != ["No hazards or perimeter crimes reported."]:
-        phys_combined = '\n\n'.join([p for p in phys_map_outputs if p and '[WARN]' not in p])
+        phys_valid = [p for p in phys_map_outputs if p and '[WARN]' not in p]
+        phys_deduped = _dedup_phys_outputs(phys_valid)
+        phys_combined = '\n\n'.join(phys_deduped)
         if phys_combined.strip():
             report_parts.append(phys_combined)
         else:
@@ -892,7 +957,9 @@ def generate_global_threat_brief(session, progress_callback=None):
 - SEVERITY: [Critical/High/Medium/Low]
 Include every detail from the source. No filler. One bullet set per item.
 
-IMPORTANT: If the input contains NO cyber threats, CVEs, threat actors, security vulnerabilities, or CI-relevant content, respond with ONLY the word NO_THREATS and nothing else. Do NOT describe what articles are about. Do NOT explain that no threats were found. Do NOT summarize non-threat content. Just output: NO_THREATS"""
+IMPORTANT RULES:
+1. If the input contains NO cyber threats, CVEs, threat actors, security vulnerabilities, or CI-relevant content, respond with ONLY the word NO_THREATS and nothing else. Do NOT describe what articles are about. Do NOT summarize non-threat content. Just output: NO_THREATS
+2. SKIP any items about weather, severe weather alerts, natural disasters, heat warnings, storms, flooding, or environmental hazards. These are processed separately. Do not include them in your output."""
 
     reduce_p = """Compile ALL bullet points into a comprehensive intelligence summary organized into these groups:
 
@@ -939,9 +1006,10 @@ Include EVERY bullet point from the input. Do not summarize, skip, or deduplicat
         total_cyber_chars = sum(len(s) for s in cyber_map_outputs)
         logger.info("generate_global_threat_brief: cyber map completed, %d chunks, %d total chars", len(cyber_map_outputs), total_cyber_chars)
 
+    consolidated_hazards = _consolidate_hazards(active_hazards)
     phys_payload = []
-    for h in active_hazards:
-        phys_payload.append(f"HAZARD: {h.title} | Severity: {h.severity} | Location: {h.location} | {truncate_text(h.description, 300)}")
+    for h in consolidated_hazards:
+        phys_payload.append(f"HAZARD: {h['title']} | Severity: {h['severity']} | Location: {h['location']} | {h['description']}")
     for c in crime_data:
         phys_payload.append(f"CRIME: {c.get('raw_title', 'Unknown')} | Distance: {c.get('distance_miles', 0)}mi | Category: {c.get('category', 'Unknown')} | Severity: {c.get('severity', 'Unknown')}")
 
@@ -963,7 +1031,9 @@ DISTANCE: [distance from facility in miles]
 SEVERITY: [threat level]
 TIME: [when reported]
 
-Be specific with every number, location name, and time. No generalizations."""
+Be specific with every number, location name, and time. No generalizations.
+
+IMPORTANT: If multiple items describe the same type of hazard (e.g., multiple "Excessive Heat Warning" entries), COMBINE them into a single entry listing all affected locations. Do NOT repeat the same hazard type as separate entries."""
 
         def _phys_progress(done, total_chunks, total_items, processed):
             if progress_callback:
