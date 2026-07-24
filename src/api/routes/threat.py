@@ -41,6 +41,15 @@ def list_articles(
     return {"items": items, "total": total, "total_pages": total_pages, "page": current}
 
 
+@router.get("/articles/{article_id}")
+def get_article(article_id: int):
+    logger.debug("GET /threat/articles/%d", article_id)
+    article = svc.get_article_detail(article_id)
+    if not article:
+        return {"error": "Article not found"}
+    return article
+
+
 @router.post("/fetch-feeds")
 def fetch_feeds():
     logger.info("POST /threat/fetch-feeds: manual trigger")

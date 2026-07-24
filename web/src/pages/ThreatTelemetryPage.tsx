@@ -9,7 +9,7 @@ import type { MapViewState } from "@deck.gl/core";
 import {
   Bug, ShieldAlert, Cpu, Cloud, Shield, CloudSun, Globe, Bot, FileText,
   Pin, PinOff, ThumbsUp, ThumbsDown, Brain, ChevronLeft, ChevronRight,
-  RefreshCw, AlertTriangle, CheckCircle, MapPin, Activity,
+  RefreshCw, AlertTriangle, CheckCircle, MapPin, Activity, ChevronDown, ChevronUp,
 } from "lucide-react";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
@@ -241,6 +241,14 @@ export function ThreatTelemetryPage() {
 
   const [radiusFilter, setRadiusFilter] = useState(1);
   const [selectedCrimeId, setSelectedCrimeId] = useState<number | null>(null);
+
+  const [expandedArticleId, setExpandedArticleId] = useState<number | null>(null);
+
+  const articleDetailQuery = useQuery({
+    queryKey: ["article-detail", expandedArticleId],
+    queryFn: () => api.get(`/threat/articles/${expandedArticleId}`).then(r => r.data),
+    enabled: expandedArticleId !== null,
+  });
 
   const feedType = SUB_TABS[subTab].toLowerCase();
 
@@ -534,63 +542,210 @@ ${d.category ? `<b>Category:</b> ${d.category}` : ""}`,
     if (items.length === 0) {
       return <div style={{ ...s.card, textAlign: "center", color: "var(--text-secondary, #94a3b8)" }}>No articles found.</div>;
     }
-    return items.map((art: any) => (
-      <div key={art.id} style={s.card}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", marginBottom: "0.3rem" }}>
-          <ScoreBadge score={art.score} />
-          <div style={{ flex: 1 }}>
-            <a href={art.link} target="_blank" rel="noopener noreferrer" style={s.articleTitle}>
-              {art.title}
-            </a>
+    return items.map((art: any) => {
+      const isExpanded = expandedArticleId === art.id;
+      const detail: any = isExpanded ? articleDetailQuery.data : null;
+      return (
+        <div key={art.id} style={{ ...s.card, padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "1rem", cursor: "pointer" }} onClick={() => setExpandedArticleId(isExpanded ? null : art.id)}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", marginBottom: "0.3rem" }}>
+              <ScoreBadge score={art.score} />
+              <div style={{ flex: 1 }}>
+                <a href={art.link} target="_blank" rel="noopener noreferrer" style={s.articleTitle} onClick={e => e.stopPropagation()}>
+                  {art.title}
+                </a>
+              </div>
+              {isExpanded ? <ChevronUp size={16} style={{ color: "var(--text-secondary, #94a3b8)", flexShrink: 0 }} /> : <ChevronDown size={16} style={{ color: "var(--text-secondary, #94a3b8)", flexShrink: 0 }} />}
+            </div>
+            <div style={{ ...s.caption, marginBottom: "0.3rem" }}>
+              {formatDate(art.published_date)} | {art.source} | {CATEGORY_ICONS[art.category]}{" "}
+              <span style={{ marginLeft: "0.15rem" }}>{art.category}</span>
+            </div>
+            {art.ai_bluf && !isExpanded && (
+              <div
+                style={{
+                  ...s.card,
+                  padding: "0.4rem 0.6rem",
+                  background: "var(--bg-success-dim, rgba(34,197,94,0.1))",
+                  borderColor: "var(--border-success, #22c55e)",
+                  fontSize: "0.8rem",
+                  marginBottom: "0.4rem",
+                }}
+              >
+                <strong>AI BLUF:</strong> {art.ai_bluf}
+              </div>
+            )}
+            <div style={{ ...s.caption, fontSize: "0.8rem" }}>
+              {truncate(art.summary, isExpanded ? 9999 : 500)}
+            </div>
           </div>
-        </div>
-        <div style={{ ...s.caption, marginBottom: "0.3rem" }}>
-          {formatDate(art.published_date)} | {art.source} | {CATEGORY_ICONS[art.category]}{" "}
-          <span style={{ marginLeft: "0.15rem" }}>{art.category}</span>
-        </div>
-        {art.ai_bluf && (
-          <div
-            style={{
-              ...s.card,
-              padding: "0.4rem 0.6rem",
-              background: "var(--bg-success-dim, rgba(34,197,94,0.1))",
-              borderColor: "var(--border-success, #22c55e)",
-              fontSize: "0.8rem",
-              marginBottom: "0.4rem",
-            }}
-          >
-            <strong>AI BLUF:</strong> {art.ai_bluf}
-          </div>
-        )}
-        <div style={{ ...s.caption, fontSize: "0.8rem", marginBottom: "0.5rem" }}>
-          {truncate(art.summary, 500)}
-        </div>
-        <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
-          <button
-            onClick={() => togglePinMut.mutate(art.id)}
-            style={art.is_pinned ? s.btnDanger : s.btn}
-            title={art.is_pinned ? "Unpin" : "Pin"}
-          >
-            {art.is_pinned ? <PinOff size={12} style={{ verticalAlign: "middle" }} /> : <Pin size={12} style={{ verticalAlign: "middle" }} />}
-            {" "}{art.is_pinned ? "Unpin" : "Pin"}
-          </button>
-          <button onClick={() => boostScoreMut.mutate(art.id)} style={s.btn} title="+15 Score">
-            +15 Score
-          </button>
-          <button onClick={() => feedbackMut.mutate({ articleId: art.id, feedback: 2 })} style={s.btn} title="Keep">
-            <ThumbsUp size={12} style={{ verticalAlign: "middle" }} /> Keep
-          </button>
-          <button onClick={() => feedbackMut.mutate({ articleId: art.id, feedback: 1 })} style={{ ...s.btn, color: "#f87171" }} title="Dismiss">
-            <ThumbsDown size={12} style={{ verticalAlign: "middle" }} /> Dismiss
-          </button>
-          {!art.ai_bluf && (
-            <button onClick={() => blufMut.mutate(art.id)} style={{ ...s.btn, color: "var(--accent-blue, #38bdf8)" }} title="Generate BLUF">
-              <Brain size={12} style={{ verticalAlign: "middle" }} /> BLUF
-            </button>
+
+          {isExpanded && (
+            <div style={{ padding: "0 1rem 1rem", borderTop: "1px solid var(--border-primary, #334155)" }}>
+              {articleDetailQuery.isLoading ? (
+                <div style={{ textAlign: "center", padding: "1.5rem", color: "var(--text-secondary, #94a3b8)" }}>
+                  <RefreshCw size={18} className="spin" style={{ margin: "0 auto", opacity: 0.5 }} />
+                </div>
+              ) : detail && !detail.error ? (
+                <>
+                  {art.ai_bluf && (
+                    <div
+                      style={{
+                        ...s.card,
+                        padding: "0.6rem 0.8rem",
+                        background: "var(--bg-success-dim, rgba(34,197,94,0.1))",
+                        borderColor: "var(--border-success, #22c55e)",
+                        fontSize: "0.8rem",
+                        marginTop: "0.75rem",
+                        marginBottom: "0.75rem",
+                      }}
+                    >
+                      <strong>AI BLUF:</strong> {art.ai_bluf}
+                    </div>
+                  )}
+
+                  <div style={{ ...s.card, padding: "0.75rem", marginTop: "0.5rem", marginBottom: "0.75rem" }}>
+                    <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-secondary, #94a3b8)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "0.5rem" }}>
+                      Score Breakdown
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.5rem" }}>
+                      <div style={{ fontSize: "1.4rem", fontWeight: 700, color: getScoreColor(art.score) }}>{Math.round(art.score)}</div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ background: "var(--bg-tertiary, #0f172a)", borderRadius: "4px", height: "8px", overflow: "hidden" }}>
+                          <div style={{ width: `${Math.min(100, art.score)}%`, height: "100%", background: getScoreColor(art.score), borderRadius: "4px", transition: "width 0.3s" }} />
+                        </div>
+                      </div>
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-secondary, #94a3b8)" }}>Keyword Total: {detail.total_keyword_score}</div>
+                    </div>
+                    {detail.keywords_with_weights && detail.keywords_with_weights.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginTop: "0.4rem" }}>
+                        {detail.keywords_with_weights.map((kw: any, i: number) => (
+                          <span
+                            key={i}
+                            style={{
+                              padding: "0.15rem 0.5rem",
+                              borderRadius: "3px",
+                              fontSize: "0.7rem",
+                              fontWeight: 600,
+                              background: kw.weight >= 80 ? "#dc2626" : kw.weight >= 50 ? "#f59e0b" : kw.weight >= 25 ? "#3b82f6" : "#6b7280",
+                              color: "#fff",
+                            }}
+                            title={`Keyword: "${kw.word}" | Weight: ${kw.weight}`}
+                          >
+                            {kw.word} ({kw.weight})
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {(!detail.keywords_with_weights || detail.keywords_with_weights.length === 0) && (
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-secondary, #94a3b8)", fontStyle: "italic" }}>No keywords matched</div>
+                    )}
+                  </div>
+
+                  {detail.iocs && detail.iocs.length > 0 && (
+                    <div style={{ ...s.card, padding: "0.75rem", marginBottom: "0.75rem" }}>
+                      <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-secondary, #94a3b8)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "0.5rem" }}>
+                        Indicators of Compromise ({detail.iocs.length})
+                      </div>
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.75rem" }}>
+                          <thead>
+                            <tr style={{ borderBottom: "1px solid var(--border-primary, #334155)" }}>
+                              <th style={{ padding: "0.3rem 0.4rem", textAlign: "left", color: "var(--text-secondary, #94a3b8)", fontWeight: 600 }}>Type</th>
+                              <th style={{ padding: "0.3rem 0.4rem", textAlign: "left", color: "var(--text-secondary, #94a3b8)", fontWeight: 600 }}>Value</th>
+                              <th style={{ padding: "0.3rem 0.4rem", textAlign: "left", color: "var(--text-secondary, #94a3b8)", fontWeight: 600 }}>Context</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {detail.iocs.map((ioc: any, i: number) => (
+                              <tr key={i} style={{ borderBottom: "1px solid var(--border-primary, #1e293b)" }}>
+                                <td style={{ padding: "0.3rem 0.4rem" }}>
+                                  <span style={{ ...s.badge, background: ioc.indicator_type?.includes("IP") ? "#ef4444" : ioc.indicator_type?.includes("DOMAIN") ? "#f97316" : ioc.indicator_type?.includes("CVE") ? "#a855f7" : "#6366f1" }}>
+                                    {ioc.indicator_type}
+                                  </span>
+                                </td>
+                                <td style={{ padding: "0.3rem 0.4rem", fontFamily: "monospace", fontSize: "0.72rem", color: "var(--accent-blue, #38bdf8)" }}>{ioc.indicator_value}</td>
+                                <td style={{ padding: "0.3rem 0.4rem", color: "var(--text-secondary, #94a3b8)", maxWidth: "300px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ioc.context || "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {(detail.full_content || art.summary) && (
+                    <div style={{ ...s.card, padding: "0.75rem", marginBottom: "0.75rem" }}>
+                      <div style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-secondary, #94a3b8)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "0.5rem" }}>
+                        {detail.full_content ? "Full Content Preview" : "Summary"}
+                      </div>
+                      <div style={{ fontSize: "0.8rem", color: "var(--text-primary, #e2e8f0)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                        {truncate(detail.full_content || art.summary, 2000)}
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); togglePinMut.mutate(art.id); }}
+                      style={art.is_pinned ? s.btnDanger : s.btn}
+                      title={art.is_pinned ? "Unpin" : "Pin"}
+                    >
+                      {art.is_pinned ? <PinOff size={12} style={{ verticalAlign: "middle" }} /> : <Pin size={12} style={{ verticalAlign: "middle" }} />}
+                      {" "}{art.is_pinned ? "Unpin" : "Pin"}
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); boostScoreMut.mutate(art.id); }} style={s.btn} title="+15 Score">
+                      +15 Score
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); feedbackMut.mutate({ articleId: art.id, feedback: 2 }); }} style={s.btn} title="Keep">
+                      <ThumbsUp size={12} style={{ verticalAlign: "middle" }} /> Keep
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); feedbackMut.mutate({ articleId: art.id, feedback: 1 }); }} style={{ ...s.btn, color: "#f87171" }} title="Dismiss">
+                      <ThumbsDown size={12} style={{ verticalAlign: "middle" }} /> Dismiss
+                    </button>
+                    {!art.ai_bluf && (
+                      <button onClick={(e) => { e.stopPropagation(); blufMut.mutate(art.id); }} style={{ ...s.btn, color: "var(--accent-blue, #38bdf8)" }} title="Generate BLUF">
+                        <Brain size={12} style={{ verticalAlign: "middle" }} /> BLUF
+                      </button>
+                    )}
+                    <a href={art.link} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ ...s.btn, color: "var(--accent-blue, #38bdf8)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
+                      Read Full Article ↗
+                    </a>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          )}
+
+          {!isExpanded && (
+            <div style={{ padding: "0 1rem 0.75rem", display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+              <button
+                onClick={(e) => { e.stopPropagation(); togglePinMut.mutate(art.id); }}
+                style={art.is_pinned ? s.btnDanger : s.btn}
+                title={art.is_pinned ? "Unpin" : "Pin"}
+              >
+                {art.is_pinned ? <PinOff size={12} style={{ verticalAlign: "middle" }} /> : <Pin size={12} style={{ verticalAlign: "middle" }} />}
+                {" "}{art.is_pinned ? "Unpin" : "Pin"}
+              </button>
+              <button onClick={(e) => { e.stopPropagation(); boostScoreMut.mutate(art.id); }} style={s.btn} title="+15 Score">
+                +15 Score
+              </button>
+              <button onClick={(e) => { e.stopPropagation(); feedbackMut.mutate({ articleId: art.id, feedback: 2 }); }} style={s.btn} title="Keep">
+                <ThumbsUp size={12} style={{ verticalAlign: "middle" }} /> Keep
+              </button>
+              <button onClick={(e) => { e.stopPropagation(); feedbackMut.mutate({ articleId: art.id, feedback: 1 }); }} style={{ ...s.btn, color: "#f87171" }} title="Dismiss">
+                <ThumbsDown size={12} style={{ verticalAlign: "middle" }} /> Dismiss
+              </button>
+              {!art.ai_bluf && (
+                <button onClick={(e) => { e.stopPropagation(); blufMut.mutate(art.id); }} style={{ ...s.btn, color: "var(--accent-blue, #38bdf8)" }} title="Generate BLUF">
+                  <Brain size={12} style={{ verticalAlign: "middle" }} /> BLUF
+                </button>
+              )}
+            </div>
           )}
         </div>
-      </div>
-    ));
+      );
+    });
   };
 
   useEffect(() => {

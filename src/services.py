@@ -1855,6 +1855,35 @@ def get_paginated_articles(feed_type, cat_filter, page, page_size, search_term=N
         items = q.offset((page - 1) * page_size).limit(page_size).all()
         return to_dotdict_list(items), total_items, total_pages, page
 
+def get_article_detail(article_id):
+    with SessionLocal() as db:
+        art = db.query(Article).filter_by(id=article_id).first()
+        if not art:
+            return None
+
+        article_dict = to_dotdict(art)
+
+        kw_dict = {k.word.lower(): k.weight for k in db.query(Keyword).all()}
+        matched_keywords = []
+        total_kw_score = 0
+        if art.keywords_found and isinstance(art.keywords_found, list):
+            for w in art.keywords_found:
+                wt = kw_dict.get(w.lower(), 0)
+                total_kw_score += wt
+                matched_keywords.append({"word": w, "weight": wt})
+
+        article_dict["keywords_with_weights"] = matched_keywords
+        article_dict["total_keyword_score"] = total_kw_score
+
+        iocs = db.query(ExtractedIOC).filter_by(article_id=art.id).all()
+        article_dict["iocs"] = [
+            {"indicator_type": i.indicator_type, "indicator_value": i.indicator_value, "context": i.context}
+            for i in iocs
+        ]
+
+        return article_dict
+
+
 def get_cves(limit=15, days_back=None):
     with SessionLocal() as db:
         q = db.query(CveItem)
