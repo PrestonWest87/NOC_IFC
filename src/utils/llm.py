@@ -207,8 +207,22 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
 
         if resp and "[WARN]" not in resp:
             stripped = resp.strip()
-            if re.match(r'^\s*NO_THREATS\s*$', stripped, re.IGNORECASE):
-                logger.info("_map_reduce_summarize: chunk %d/%d returned NO_THREATS — skipping (no relevant threats in batch)", idx + 1, total_chunks)
+            no_threat_patterns = [
+                r'no[\s_-]*threat',
+                r'there\s+are\s+no\s+threat',
+                r'not\s+contain.*threat',
+                r'no\s+specific\s+threat',
+                r'does\s+not\s+contain.*threat',
+                r'only\s+news\s+articles',
+                r'can\s+extract\s+some\s+general',
+                r'if\s+you[\s\']?d\s+like',
+                r'let\s+me\s+know',
+                r'here\s+are\s+the\s+extracted',
+                r'note\s+that\s+the\s+other',
+                r'i\s+can\s+provide\s+a\s+general',
+            ]
+            if any(re.search(pat, stripped, re.IGNORECASE) for pat in no_threat_patterns):
+                logger.info("_map_reduce_summarize: chunk %d/%d returned no-threat noise — skipping", idx + 1, total_chunks)
             else:
                 logger.info("_map_reduce_summarize: chunk %d/%d OK in %.1fs, response_length=%d", idx + 1, total_chunks, chunk_elapsed, len(resp))
                 batch_summaries.append(resp)
@@ -529,7 +543,7 @@ def _dedup_phys_outputs(phys_outputs):
         deduped.append(line)
     return deduped
 
-def _assemble_global_brief_from_maps(map_outputs, phys_map_outputs, config):
+def _assemble_global_brief_from_maps(map_outputs, phys_map_outputs, config, kev_items=None):
     """Assemble a global threat brief from map outputs using programmatic classification.
 
     Instead of relying on an LLM reduce step that collapses data, this function:
@@ -610,6 +624,28 @@ def _assemble_global_brief_from_maps(map_outputs, phys_map_outputs, config):
         r'^\s*CVSS score:',
         r'^\s*No exploit code',
         r'^\s*\d+\.\s*\*\*[A-Z]',  # Numbered section headers
+        r'no[\s_-]*threat\s+item',
+        r'there\s+are\s+no\s+threat',
+        r'not\s+contain.*threat',
+        r'does\s+not\s+contain.*threat',
+        r'only\s+news\s+articles',
+        r'can\s+extract\s+some\s+general',
+        r'if\s+you[\s\']?d\s+like\s+me',
+        r'let\s+me\s+know\s+if',
+        r'here\s+are\s+the\s+extracted',
+        r'note\s+that\s+the\s+other',
+        r'i\s+can\s+provide\s+a\s+general',
+        r'^\s*THREAT:\s*None\b',
+        r'^\s*THREAT:\s*Not\s+(applicable|specified|a\s+threat)',
+        r'^\s*SCOPE:\s*$',
+        r'^\s*SEVERITY:\s*(?:Not\s+applicable|None|Not\s+specified)\s*$',
+        r'^\s*SECTOR:\s*(?:Not\s+applicable|Not\s+specified)\s*$',
+        r'^\s*CVE:\s*(?:None|Not\s+(?:applicable|specified))\s*$',
+        r'^\s*Note:\s+(?:This\s+is\s+not|An?\s+Arkansas)',
+        r'^\s*-\s*SCOPE:\s+US\s+domestic\s*$',  # bare SCOPE lines
+        r'^\s*-\s*SEVERITY:\s+\w+\s*$',  # bare SEVERITY lines
+        r'^\s*\*\*THREAT\*\*:\s*None',
+        r'^\s*Note\s+that\s+there\s+are\s+duplicate',
     ]
 
     all_items = []
@@ -627,6 +663,15 @@ def _assemble_global_brief_from_maps(map_outputs, phys_map_outputs, config):
             if any(re.match(pat, text, re.IGNORECASE) for pat in ignore_patterns):
                 continue
             if len(text) < 15:
+                continue
+            text_lower = text.lower()
+            if text_lower.startswith('scope:') and 'threat' not in text_lower:
+                continue
+            if text_lower.startswith('severity:') and 'threat' not in text_lower:
+                continue
+            if text_lower.startswith('sector:') and 'threat' not in text_lower:
+                continue
+            if text_lower.startswith('cve:') and 'threat' not in text_lower:
                 continue
             all_items.append(text)
 
@@ -744,15 +789,28 @@ def _assemble_global_brief_from_maps(map_outputs, phys_map_outputs, config):
     if non_actor_global:
         report_parts.append('## Global Threat Landscape\n')
         for item in non_actor_global[:25]:
-            report_parts.append(f"- {item['text']}")
+            t = item['text']
+            if re.match(r'^(?:SECTOR|SCOPE|SEVERITY|CVE)\s*:', t, re.IGNORECASE) and len(t) < 60:
+                continue
+            if re.search(r'threat:\s*none|not\s+a\s+threat|not\s+applicable', t, re.IGNORECASE):
+                continue
+            report_parts.append(f"- {t}")
         report_parts.append('')
 
     if all_cves or any(i['sector'] in ('IT/Technology', 'Financial Services') for i in classified_items):
         report_parts.append('## Vulnerability & Exploit Intelligence\n')
         if all_cves:
             report_parts.append('### CISA Known Exploited Vulnerabilities\n')
+            kev_lookup = {}
+            if kev_items:
+                for k in kev_items:
+                    kev_lookup[k.cve_id.upper()] = k
             for cve in all_cves[:25]:
-                report_parts.append(f"- **{cve}**")
+                kev = kev_lookup.get(cve.upper())
+                if kev:
+                    report_parts.append(f"- **{cve}** — {kev.vendor}/{kev.product}: {kev.vulnerability_name}")
+                else:
+                    report_parts.append(f"- **{cve}**")
             report_parts.append('')
         report_parts.append('### Ransomware & Cybercriminal Operations\n')
         ransomware_items = [i for i in classified_items if any(rw in ' '.join(i['actors']).lower() for rw in ['lockbit', 'blackcat', 'alphv', 'cl0p', 'clop', 'darkside', 'revil', 'chaos'])]
@@ -1053,7 +1111,7 @@ IMPORTANT: If multiple items describe the same type of hazard (e.g., multiple "E
     if progress_callback:
         progress_callback(stage="synthesizing", message="Assembling brief from map outputs...", percent=96)
 
-    response = _assemble_global_brief_from_maps(cyber_map_outputs, phys_map_outputs, config)
+    response = _assemble_global_brief_from_maps(cyber_map_outputs, phys_map_outputs, config, kev_items=recent_cves)
 
     if response and len(response) > 100:
         logger.info("generate_global_threat_brief: assembled brief, response_length=%d", len(response))
