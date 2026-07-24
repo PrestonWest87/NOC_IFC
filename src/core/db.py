@@ -87,9 +87,15 @@ def init_db():
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN under_maintenance BOOLEAN DEFAULT 0"))
-            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN maintenance_etr DATETIME"))
-            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN maintenance_reason TEXT"))
+            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN status_modified_by VARCHAR"))
+            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN status_modified_at DATETIME"))
+            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN last_auto_ticket DATETIME"))
+    except Exception:
+        pass
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE articles ADD COLUMN full_content TEXT"))
     except Exception:
         pass
 

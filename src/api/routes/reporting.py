@@ -1,4 +1,7 @@
 import logging
+import uuid
+import threading
+from typing import Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -6,6 +9,10 @@ from src import services as svc
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/reporting", tags=["reporting"])
+
+_report_progress_store: dict[str, dict] = {}
+_report_result_store: dict[str, dict] = {}
+_report_lock = threading.Lock()
 
 
 class BroadcastRequest(BaseModel):
@@ -23,6 +30,7 @@ class SaveReportRequest(BaseModel):
 class GenerateCustomRequest(BaseModel):
     target: str = ""
     days_back: int = 7
+    article_ids: Optional[list[int]] = None
     objective: str = ""
     analyst: str = "Unknown"
 
@@ -96,28 +104,141 @@ def delete_saved_report(report_id: int):
     return {"status": "ok"}
 
 
-@router.post("/generate-custom")
-def generate_custom_report(data: GenerateCustomRequest):
-    logger.info("POST /reporting/generate-custom target=%s days_back=%d", data.target, data.days_back)
-    from datetime import datetime, timedelta
+class SearchArticlesRequest(BaseModel):
+    target: str = ""
+    days_back: int = 7
+
+
+@router.post("/search-articles")
+def search_articles_for_report(data: SearchArticlesRequest):
+    logger.info("POST /reporting/search-articles target=%s days_back=%d", data.target, data.days_back)
+    if not data.target or not data.target.strip():
+        return {"status": "error", "message": "Please enter a search target.", "articles": []}
+    articles = svc.search_articles_for_hunting(data.target.strip(), data.days_back)
+    results = []
+    for a in articles:
+        results.append({
+            "id": a.get("id"),
+            "title": a.get("title", ""),
+            "source": a.get("source", ""),
+            "score": a.get("score", 0),
+            "published_date": a.get("published_date", ""),
+            "summary": (a.get("summary") or "")[:300],
+            "category": a.get("category", ""),
+        })
+    return {"status": "ok", "articles": results}
+
+
+def _run_custom_report_generation(generation_id, target, days_back, article_ids, objective, analyst):
+    """Background thread for custom report generation."""
+    from datetime import datetime
     from zoneinfo import ZoneInfo
     from src.core.db import SessionLocal
     from src.utils.llm import build_custom_intel_report
 
-    articles = svc.search_articles_for_hunting(data.target, data.days_back)
-    if not articles:
-        logger.warning("POST /reporting/generate-custom: no articles found for target=%s", data.target)
-        return {"status": "error", "message": "No articles found for the given target."}
+    def _progress(stage, message, percent=0):
+        with _report_lock:
+            _report_progress_store[generation_id] = {
+                "stage": stage, "message": message, "percent": percent
+            }
 
-    with SessionLocal() as session:
-        report_md = build_custom_intel_report(articles, data.objective, session)
+    try:
+        _progress("searching", "Searching for matching articles...", 5)
 
-    if not report_md:
-        logger.warning("POST /reporting/generate-custom: AI report generation failed")
-        return {"status": "error", "message": "Report generation failed or AI is disabled."}
+        if article_ids:
+            articles = svc.get_articles_by_ids(article_ids)
+        else:
+            articles = svc.search_articles_for_hunting(target, days_back)
 
-    now = datetime.now(ZoneInfo("America/Chicago")).strftime("%A, %B %d, %Y at %I:%M %p %Z")
-    full_report = f"# \U0001f4cb NOC Custom Intel Report\n**Target:** {data.target}\n**Date:** {now}\n**Analyst:** {data.analyst}\n\n---\n\n{report_md}"
+        if not articles:
+            _progress("error", f"No articles found.", 0)
+            with _report_lock:
+                _report_result_store[generation_id] = {
+                    "status": "error", "message": "No articles found for the given target."
+                }
+            return
 
-    logger.info("POST /reporting/generate-custom success")
-    return {"status": "ok", "content": full_report}
+        _progress("generating", f"Processing {len(articles)} articles through AI...", 20)
+
+        with SessionLocal() as session:
+            def _llm_progress(done, total_chunks, total_items, processed):
+                pct = int((done / total_chunks) * 75) + 20
+                _progress("generating", f"AI map-reduce: chunk {done}/{total_chunks}", pct)
+
+            report_md = build_custom_intel_report(articles, objective, session,
+                                                   progress_callback=_llm_progress)
+
+        if not report_md or "[WARN]" in (report_md or ""):
+            _progress("error", "AI report generation failed.", 0)
+            with _report_lock:
+                _report_result_store[generation_id] = {
+                    "status": "error", "message": "Report generation failed or AI is disabled."
+                }
+            return
+
+        _progress("assembling", "Assembling final report...", 95)
+
+        now = datetime.now(ZoneInfo("America/Chicago")).strftime("%A, %B %d, %Y at %I:%M %p %Z")
+        full_report = (
+            f"# \U0001f4cb NOC Custom Intel Report\n"
+            f"**Target:** {target or ', '.join(str(i) for i in article_ids)}\n"
+            f"**Date:** {now}\n"
+            f"**Analyst:** {analyst}\n\n"
+            f"---\n\n{report_md}"
+        )
+
+        _progress("complete", "Report generation complete.", 100)
+        with _report_lock:
+            _report_result_store[generation_id] = {
+                "status": "ok", "content": full_report
+            }
+
+    except Exception as e:
+        logger.error("_run_custom_report_generation: error: %s", str(e), exc_info=True)
+        _progress("error", f"Report generation failed: {str(e)}", 0)
+        with _report_lock:
+            _report_result_store[generation_id] = {
+                "status": "error", "message": f"Report generation failed: {str(e)}"
+            }
+
+
+@router.post("/generate-custom")
+def generate_custom_report(data: GenerateCustomRequest):
+    logger.info("POST /reporting/generate-custom target=%s days_back=%d article_ids=%s", data.target, data.days_back, data.article_ids)
+
+    has_target = data.target and data.target.strip()
+    has_ids = data.article_ids and len(data.article_ids) > 0
+    if not has_target and not has_ids:
+        return {"status": "error", "message": "Please enter a target entity or select articles."}
+
+    generation_id = str(uuid.uuid4())
+
+    with _report_lock:
+        _report_progress_store[generation_id] = {
+            "stage": "starting", "message": "Initializing report generation...", "percent": 0
+        }
+        _report_result_store.pop(generation_id, None)
+
+    thread = threading.Thread(
+        target=_run_custom_report_generation,
+        args=(generation_id, data.target.strip() if has_target else "", data.days_back, data.article_ids if has_ids else None, data.objective, data.analyst),
+        daemon=True
+    )
+    thread.start()
+
+    return {"status": "started", "generation_id": generation_id}
+
+
+@router.get("/generate-custom-status")
+def get_custom_report_status(generation_id: str):
+    with _report_lock:
+        progress = _report_progress_store.get(generation_id, {})
+        result = _report_result_store.get(generation_id)
+
+    if result:
+        with _report_lock:
+            _report_progress_store.pop(generation_id, None)
+            _report_result_store.pop(generation_id, None)
+        return result
+
+    return {"status": "in_progress", "progress": progress}

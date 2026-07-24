@@ -1,4 +1,5 @@
 import logging
+import re
 import threading
 import requests
 import json
@@ -177,7 +178,7 @@ def truncate_text(text, max_chars=300):
     if not text: return "No details provided."
     return text if len(text) <= max_chars else text[:max_chars] + "..."
 
-def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size=6, progress_callback=None, map_temperature=0.1, reduce_temperature=0.2):
+def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size=6, progress_callback=None, map_temperature=0.1, reduce_temperature=0.2, skip_reduce=False):
     if not items: return None
 
     ctx = get_effective_context_window(config)
@@ -214,6 +215,10 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
         logger.error("_map_reduce_summarize: all chunks failed, returning error")
         return "AI failed to process batch."
 
+    if skip_reduce:
+        logger.info("_map_reduce_summarize: skip_reduce=True, returning %d map outputs (total %d chars)", len(batch_summaries), sum(len(s) for s in batch_summaries))
+        return batch_summaries
+
     if len(batch_summaries) > 1:
         if progress_callback:
             progress_callback(total_chunks, total_chunks, total_items, total_items)
@@ -238,7 +243,11 @@ def generate_bluf(article, session):
     config = get_llm_config(session)
     if not config: return None
 
-    article_context = f"Title: {article.title}\nSummary: {str(article.summary)[:1500]}"
+    fc = getattr(article, 'full_content', None)
+    if fc and len(fc) > 200:
+        article_context = f"Title: {article.title}\nContent: {str(fc)[:3000]}"
+    else:
+        article_context = f"Title: {article.title}\nSummary: {str(article.summary)[:1500]}"
 
     sys_prompt = """You are a Senior Threat Intelligence Analyst providing a BLUF (Bottom Line Up Front) for a NOC dashboard. 
     Analyze the intelligence and output EXACTLY four concise, hard-hitting bullet points. 
@@ -452,22 +461,307 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot, progre
 
     return response
 
-def generate_global_threat_brief(session, progress_callback=None):
-    """Generates a global threat brief focused on US critical infrastructure.
+def _assemble_global_brief_from_maps(map_outputs, phys_map_outputs, config):
+    """Assemble a global threat brief from map outputs using programmatic classification.
 
-    Map-reduce pipeline covering ALL relevant articles from the last 24 hours.
-    Heavy focus on APTs targeting CI sectors: oil, gas, electric, water, telecom.
+    Instead of relying on an LLM reduce step that collapses data, this function:
+    1. Extracts all bullet points from map outputs
+    2. Classifies items by sector, actor, region using keyword matching
+    3. Builds markdown report structure programmatically
+    4. Uses LLM only for the BLUF executive summary
+    """
+    import re
+
+    sector_keywords = {
+        "ICS/SCADA/OT": ["scada", "ics", "ot network", "operational technology", "supervisory control", "plc", "rtu", "siemens", "rockwell", "schneider", "ge electric", "abb", "honeywell", "emerson", "wonderware", "allen-bradley", "substation", "grid control"],
+        "Oil & Gas": ["oil", "gas pipeline", "pipeline", "petroleum", "refinery", "lng", "propane", "barrel", "crude", "drilling"],
+        "Electric/Power Grid": ["electric", "power grid", "power company", "energy supplier", "energy company", "grid", "transmission", "distribution", "generat", "utility", "outage"],
+        "Water & Wastewater": ["water", "wastewater", "sewage", "drinking water", "treatment plant"],
+        "Telecommunications": ["telecom", "telecommunications", "broadband", "isp", "cellular", "5g", "mobile network", "satellite"],
+        "Transportation": ["transportation", "rail", "railway", "port", "aviation", "airport", "shipping", "freight", "logistics", "train", "maritime"],
+        "Healthcare": ["healthcare", "hospital", "medical", "health", "pharma", "biotech", "clinic", "patient"],
+        "Government": ["government", "federal", "municipal", "state department", "dhs", "cisa", "fbi", "nsa", "white house", "congress", "ministry", "embassy", "agency"],
+        "Defense": ["defense", "military", "pentagon", "dod", "army", "navy", "air force", "defense contractor", "weapon"],
+        "Financial Services": ["financial", "bank", "finance", "fintech", "payment", "swift", "stock", "exchange", "crypto", "bitcoin", "blockchain", "swiss"],
+        "IT/Technology": ["microsoft", "google", "aws", "azure", "cloud", "saas", "data center", "github", "openai", "anthropic", "check point", "cisco", "vmware", "oracle", "linux", "kernel", "android", "apple", "samsung"],
+    }
+
+    actor_patterns = [
+        (r'\bapt[\s-]?\d+\b', None),
+        (r'lazarus\b', 'LAZARUS'),
+        (r'cozy\s+bear\b', 'COZY BEAR'),
+        (r'fancy\s+bear\b', 'FANCY BEAR'),
+        (r'sandworm\b', 'SANDWORM'),
+        (r'turla\b', 'TURLA'),
+        (r'darkside\b', 'DARKSIDE'),
+        (r'revil\b', 'REVIL'),
+        (r'blackcat\b', 'BLACKCAT'),
+        (r'alphv\b', 'ALPHV'),
+        (r'cl0p\b', 'CLOP'),
+        (r'clop\b', 'CLOP'),
+        (r'lockbit\b', 'LOCKBIT'),
+        (r'volt\s+typhoon\b', 'VOLT TYPHOON'),
+        (r'salt\s+typhoon\b', 'SALT TYPHOON'),
+        (r'flax\s+typhoon\b', 'FLAX TYPHOON'),
+        (r'brass\s+typhoon\b', 'BRASS TYPHOON'),
+        (r'kimsuky\b', 'KIMSUKY'),
+        (r'gamaredon\b', 'GAMAREDON'),
+        (r'apt41\b', 'APT41'),
+        (r'winnti\b', 'WINNTI'),
+        (r'mustang\s+panda\b', 'MUSTANG PANDA'),
+        (r'earth\s+preta\b', 'EARTH PRETA'),
+        (r'voodoo\s+bear\b', 'VOODOO BEAR'),
+        (r'laundry\s+bear\b', 'LAUNDRY BEAR'),
+        (r'kyberpandit\b', 'KYBERPANDIT'),
+        (r'jade[\s-]?prox?\b', 'JADEPROX'),
+        (r'chaos\s+ransomware\b', 'CHAOS RANSOMWARE'),
+        (r'china[\s-]nexus\b', 'CHINA-NEXUS'),
+        (r'china[\s-]linked\b', 'CHINA-LINKED'),
+        (r'russia[\s-]linked\b', 'RUSSIA-LINKED'),
+        (r'krebston\b', 'RUSSIA-LINKED'),
+        (r'kremlin[\s-]backed\b', 'RUSSIA-LINKED'),
+        (r'iran[\s-]linked\b', 'IRAN-LINKED'),
+        (r'north\s+korea\b', 'DPRK'),
+        (r'lazarus\s+group\b', 'LAZARUS'),
+    ]
+
+    us_indicators = [
+        'united states', 'u.s.', 'us ', 'american', 'domestic', 'homeland',
+        'dhs', 'cisa', 'fbi', 'nsa', 'white house', 'state department',
+        'texas', 'california', 'florida', 'new york', 'chicago',
+        'washington dc', 'colorado', 'oklahoma', 'ohio', 'virginia',
+    ]
+
+    cve_pattern = re.compile(r'CVE-\d{4}-\d+', re.IGNORECASE)
+
+    ignore_patterns = [
+        r'^\s*\*\*[^*]+\*\*\s*$',  # Section headers like **Security Vulnerabilities**
+        r'^\s*Exploit code available:',
+        r'^\s*Requires:',
+        r'^\s*Fixed by',
+        r'^\s*CVSS score:',
+        r'^\s*No exploit code',
+        r'^\s*\d+\.\s*\*\*[A-Z]',  # Numbered section headers
+    ]
+
+    all_items = []
+    for chunk_output in map_outputs:
+        if not chunk_output or "[WARN]" in chunk_output:
+            continue
+        lines = chunk_output.split('\n')
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            text = stripped.lstrip('-*•').strip()
+            if not text:
+                continue
+            if any(re.match(pat, text, re.IGNORECASE) for pat in ignore_patterns):
+                continue
+            if len(text) < 15:
+                continue
+            all_items.append(text)
+
+    logger.info("_assemble_global_brief_from_maps: extracted %d bullet items from %d map chunks", len(all_items), len(map_outputs))
+
+    classified_items = []
+    for text in all_items:
+        text_lower = text.lower()
+
+        matched_sector = "General"
+        for sector_name, keywords in sector_keywords.items():
+            if any(kw in text_lower for kw in keywords):
+                matched_sector = sector_name
+                break
+
+        found_actors = []
+        for pattern, name in actor_patterns:
+            if re.search(pattern, text_lower):
+                actor_name = name or re.search(pattern, text_lower).group(0).upper()
+                if actor_name not in found_actors:
+                    found_actors.append(actor_name)
+
+        found_cves = [m.upper() for m in cve_pattern.findall(text)]
+
+        is_us = any(ind in text_lower for ind in us_indicators)
+
+        classified_items.append({
+            'text': text,
+            'sector': matched_sector,
+            'actors': found_actors,
+            'cves': found_cves,
+            'is_us': is_us,
+        })
+
+    us_items = [i for i in classified_items if i['is_us']]
+    global_items = [i for i in classified_items if not i['is_us']]
+
+    sector_groups = {}
+    for item in us_items:
+        sector_groups.setdefault(item['sector'], []).append(item)
+
+    actor_groups = {}
+    for item in classified_items:
+        for actor in item['actors']:
+            actor_groups.setdefault(actor, []).append(item)
+
+    all_cves = []
+    seen_cves = set()
+    for item in classified_items:
+        for cve in item['cves']:
+            if cve not in seen_cves:
+                seen_cves.add(cve)
+                all_cves.append(cve)
+
+    total = len(classified_items)
+    us_count = len(us_items)
+    global_count = len(global_items)
+    sector_count = len(sector_groups)
+    actor_count = len(actor_groups)
+    cve_count = len(all_cves)
+
+    threat_level = "ELEVATED"
+    if actor_count >= 3 and cve_count >= 5:
+        threat_level = "HIGH"
+    elif actor_count >= 2 or cve_count >= 3:
+        threat_level = "ELEVATED"
+    elif total >= 5:
+        threat_level = "ELEVATED"
+    else:
+        threat_level = "MODERATE"
+
+    report_parts = []
+
+    bluf_points = []
+    if actor_count > 0:
+        top_actors = sorted(actor_groups.keys())[:5]
+        bluf_points.append(f"Active threat actors tracked: **{', '.join(top_actors)}**")
+    if sector_count > 1:
+        top_sectors = sorted(sector_groups.keys())[:5]
+        bluf_points.append(f"Targeted CI sectors: **{', '.join(top_sectors)}**")
+    if cve_count > 0:
+        bluf_points.append(f"**{cve_count} CVE indicators** tracked in the current threat landscape")
+    if us_count > 0:
+        us_sectors = sorted(set(i['sector'] for i in us_items))
+        bluf_points.append(f"**{us_count} US domestic threats** identified across: {', '.join(us_sectors[:4])}")
+    if global_count > 0:
+        bluf_points.append(f"**{global_count} international threats** under active monitoring")
+    if not bluf_points:
+        bluf_points.append(f"**{total} total threat indicators** processed across the intelligence cycle")
+
+    report_parts.append(f"## Executive Summary (BLUF)\n")
+    report_parts.append(f"**THREAT LEVEL: {threat_level}**\n")
+    report_parts.append('\n'.join(f"- {p}" for p in bluf_points))
+    report_parts.append('')
+
+    if us_items:
+        report_parts.append('## US Critical Infrastructure Threat Assessment\n')
+        for sector in sorted(sector_groups.keys()):
+            items = sector_groups[sector]
+            report_parts.append(f"### {sector}\n")
+            for item in items[:15]:
+                report_parts.append(f"- {item['text']}")
+            report_parts.append('')
+
+    if actor_groups:
+        report_parts.append('## Advanced Persistent Threat (APT) & Nation-State Activity\n')
+        for actor in sorted(actor_groups.keys()):
+            items = actor_groups[actor]
+            report_parts.append(f"### {actor}\n")
+            for item in items[:10]:
+                report_parts.append(f"- {item['text']}")
+            report_parts.append('')
+
+    non_actor_global = [i for i in global_items if not i['actors']]
+    if non_actor_global:
+        report_parts.append('## Global Threat Landscape\n')
+        for item in non_actor_global[:25]:
+            report_parts.append(f"- {item['text']}")
+        report_parts.append('')
+
+    if all_cves or any(i['sector'] in ('IT/Technology', 'Financial Services') for i in classified_items):
+        report_parts.append('## Vulnerability & Exploit Intelligence\n')
+        if all_cves:
+            report_parts.append('### CISA Known Exploited Vulnerabilities\n')
+            for cve in all_cves[:25]:
+                report_parts.append(f"- **{cve}**")
+            report_parts.append('')
+        report_parts.append('### Ransomware & Cybercriminal Operations\n')
+        ransomware_items = [i for i in classified_items if any(rw in ' '.join(i['actors']).lower() for rw in ['lockbit', 'blackcat', 'alphv', 'cl0p', 'clop', 'darkside', 'revil', 'chaos'])]
+        if ransomware_items:
+            for item in ransomware_items[:10]:
+                report_parts.append(f"- {item['text']}")
+        else:
+            report_parts.append("- No named ransomware operations tracked in current window.")
+        report_parts.append('')
+
+    report_parts.append('## Local Weather & Perimeter Posture\n')
+    if phys_map_outputs and phys_map_outputs != ["No hazards or perimeter crimes reported."]:
+        phys_combined = '\n\n'.join([p for p in phys_map_outputs if p and '[WARN]' not in p])
+        if phys_combined.strip():
+            report_parts.append(phys_combined)
+        else:
+            report_parts.append("No significant weather hazards or perimeter crimes reported in the last 24 hours.")
+    else:
+        report_parts.append("No significant weather hazards or perimeter crimes reported in the last 24 hours.")
+
+    main_report = '\n'.join(report_parts)
+    logger.info("_assemble_global_brief_from_maps: assembled %d chars from %d items, %d sectors, %d actors, %d CVEs, US=%d Global=%d",
+                len(main_report), total, sector_count, actor_count, cve_count, us_count, global_count)
+
+    if config:
+        condensed = f"THREAT LEVEL: {threat_level}\n"
+        condensed += f"Total items: {total}, US: {us_count}, Global: {global_count}\n"
+        condensed += f"Sectors: {', '.join(sorted(sector_groups.keys())[:8])}\n"
+        condensed += f"Actors: {', '.join(sorted(actor_groups.keys())[:8])}\n"
+        condensed += f"CVEs: {', '.join(all_cves[:10])}\n\n"
+        for sector in sorted(sector_groups.keys())[:6]:
+            condensed += f"\n{sector}:\n"
+            for item in sector_groups[sector][:3]:
+                condensed += f"- {item['text'][:150]}\n"
+        for actor in sorted(actor_groups.keys())[:5]:
+            condensed += f"\n{actor}:\n"
+            for item in actor_groups[actor][:2]:
+                condensed += f"- {item['text'][:150]}\n"
+
+        bluf_prompt = f"""You are a NOC intelligence analyst. Write a 4-6 sentence BLUF (Bottom Line Up Front) executive summary for a threat brief.
+Include: specific threats, actors, CVEs, affected sectors. Highlight OT/SCADA/ICS if present.
+Use threat terminology: Critical, High, Elevated, Moderate, Low.
+Do NOT use colors. Be direct and specific. One paragraph only, no headers."""
+
+        bluf_response = call_llm([
+            {"role": "system", "content": bluf_prompt},
+            {"role": "user", "content": condensed}
+        ], config, temperature=0.3, max_tokens=min(config.llm_context_window or 128000 // 4, 512))
+
+        if bluf_response and "[WARN]" not in bluf_response:
+            report_parts_with_bluf = [f"## Executive Summary (BLUF)\n{bluf_response.strip()}\n"]
+            report_parts_with_bluf.extend(report_parts[1:])
+            main_report = '\n'.join(report_parts_with_bluf)
+            logger.info("_assemble_global_brief_from_maps: BLUF generated, final report %d chars", len(main_report))
+        else:
+            logger.warning("_assemble_global_brief_from_maps: BLUF LLM call failed, using template summary")
+
+    return main_report
+
+
+def generate_global_threat_brief(session, progress_callback=None):
+    """Generates a global threat brief with US focus and global section.
+
+    Map-reduce pipeline covering relevant articles from the last 24 hours.
+    US-focused primary structure with a dedicated global threats section.
     Includes local weather hazards and perimeter crime intelligence.
-    Separate global (non-US) section. No internal risk coverage.
+    Uses programmatic assembly from map outputs (skips LLM reduce step).
     """
     config = get_llm_config(session)
     if not config:
         logger.warning("generate_global_threat_brief: AI is disabled, skipping")
         return "AI is currently disabled in settings."
 
-    logger.info("generate_global_threat_brief: starting generation")
+    ctx = get_effective_context_window(config)
+    logger.info("generate_global_threat_brief: starting generation (context_window=%d)", ctx)
     if progress_callback:
-        progress_callback(stage="gathering", message="Gathering global threat intelligence...", percent=0)
+        progress_callback(stage="gathering", message="Gathering threat intelligence...", percent=0)
 
     t24 = datetime.utcnow() - timedelta(hours=24)
 
@@ -480,12 +774,12 @@ def generate_global_threat_brief(session, progress_callback=None):
 
     all_cyber = session.query(Article).filter(
         Article.published_date >= t24,
-        Article.score > 0,
+        Article.score >= 30,
     ).order_by(Article.score.desc()).all()
-    logger.info("generate_global_threat_brief: found %d articles in last 24h", len(all_cyber))
+    logger.info("generate_global_threat_brief: found %d articles in last 24h (score>=30)", len(all_cyber))
 
     if progress_callback:
-        progress_callback(stage="filtering", message="Filtering articles for CI relevance...", percent=1)
+        progress_callback(stage="filtering", message="Filtering articles for relevance...", percent=1)
 
     ci_keywords = [
         "critical infrastructure", "water", "wastewater", "electric", "power grid", "power",
@@ -496,7 +790,6 @@ def generate_global_threat_brief(session, progress_callback=None):
         "grid", "substation", "transmission", "distribution", "natural gas",
         "petroleum", "refinery", "lng", "propane", "sewage", "drinking water",
         "treatment plant", "water authority", "electric authority", "power authority",
-        "tvaa", "twcd", "tarrant", "dfw", "texas", "ERCOT",
     ]
 
     ci_relevant = []
@@ -520,13 +813,18 @@ def generate_global_threat_brief(session, progress_callback=None):
     ]
 
     apt_relevant = []
+    ci_ids = {a.id for a in ci_relevant}
     for art in all_cyber:
         text = f"{art.title} {art.summary or ''}".lower()
         if any(kw in text for kw in apt_keywords):
-            if art.id not in [a.id for a in ci_relevant]:
+            if art.id not in ci_ids:
                 apt_relevant.append(art)
 
-    us_keywords = ["united states", "us ", "u.s.", "american", "domestic", "homeland", "dhs", "cisa", "fbi", "nsa", "white house"]
+    us_patterns = re.compile(
+        r'\b(?:united\s+states|u\.s\.|american|domestic|homeland|dhs|cisa|fbi|nsa|white\s+house|'
+        r'california|texas|florida|new\s+york|chicago|washington\s+dc)\b',
+        re.IGNORECASE
+    )
     us_articles = []
     global_articles = []
     combined_pool = ci_relevant + apt_relevant
@@ -535,16 +833,16 @@ def generate_global_threat_brief(session, progress_callback=None):
         if art.id in seen_ids:
             continue
         seen_ids.add(art.id)
-        text = f"{art.title} {art.summary or ''}".lower()
-        if any(kw in text for kw in us_keywords):
+        text = f"{art.title} {art.summary or ''}"
+        if us_patterns.search(text):
             us_articles.append(art)
         else:
             global_articles.append(art)
 
     for art in non_ci_articles:
         if art.id not in seen_ids:
-            text = f"{art.title} {art.summary or ''}".lower()
-            if any(kw in text for kw in us_keywords):
+            text = f"{art.title} {art.summary or ''}"
+            if us_patterns.search(text):
                 us_articles.append(art)
             else:
                 global_articles.append(art)
@@ -552,185 +850,144 @@ def generate_global_threat_brief(session, progress_callback=None):
 
     logger.info("generate_global_threat_brief: US=%d Global=%d", len(us_articles), len(global_articles))
 
+    max_summary = 400 if ctx < 4000 else 800
+    max_content = 600 if ctx < 4000 else 1200
+
+    def _article_content(art):
+        content = getattr(art, 'full_content', None)
+        if content and len(content) > 200:
+            return truncate_text(content, max_content)
+        return truncate_text(art.summary, max_summary)
+
     cyber_payload = []
     for a in us_articles:
-        cyber_payload.append(f"[US-CI] Article - Title: {a.title} | Source: {a.source} | Score: {a.score:.0f} | Summary: {truncate_text(a.summary, 1200)}")
+        cyber_payload.append(f"[US] {a.title} | {a.source} | {_article_content(a)}")
     for a in global_articles:
-        cyber_payload.append(f"[GLOBAL] Article - Title: {a.title} | Source: {a.source} | Score: {a.score:.0f} | Summary: {truncate_text(a.summary, 1200)}")
+        cyber_payload.append(f"[GLOBAL] {a.title} | {a.source} | {_article_content(a)}")
     for c in recent_cves:
-        cyber_payload.append(f"CISA KEV - CVE: {c.cve_id} | Vendor: {c.vendor} | Product: {c.product} | Vuln: {c.vulnerability_name}")
+        cyber_payload.append(f"KEV: {c.cve_id} {c.vendor}/{c.product} - {c.vulnerability_name}")
     for cl in cloud_outages:
-        state = "Resolved" if cl.is_resolved else "Active/Ongoing"
-        cyber_payload.append(f"Cloud Outage - Provider: {cl.provider} | Service: {cl.service} | Status: {state} | Details: {cl.title}")
+        state = "Down" if not cl.is_resolved else "Resolved"
+        cyber_payload.append(f"Cloud: {cl.provider}/{cl.service} {state} - {cl.title}")
 
     if not cyber_payload:
         logger.warning("generate_global_threat_brief: no intelligence data available")
         if progress_callback:
             progress_callback(stage="complete", message="No intelligence data available.", percent=100)
-        return "No significant global threat intelligence data available in the last 24 hours."
+        return "No significant threat intelligence data available in the last 24 hours."
 
     if progress_callback:
-        progress_callback(stage="cyber_map", message=f"Processing global intelligence ({len(cyber_payload)} items)...", total_items=len(cyber_payload), processed_items=0, percent=5)
+        progress_callback(stage="cyber_map", message=f"Processing intelligence ({len(cyber_payload)} items)...", total_items=len(cyber_payload), processed_items=0, percent=5)
 
-    map_p = """You are a senior threat intelligence analyst focused on US critical infrastructure protection.
+    map_p = """For EACH threat item, extract these key facts as bullet points:
+- THREAT: [actor if known] targeting [specific target/product] using [method/technique]
+- SECTOR: [which CI sector: Energy, Water, Telecom, Healthcare, Transport, Gov, Defense, Finance, IT, Oil&Gas, SCADA/ICS/OT, or General]
+- CVE: [CVE-ID if any, with product name]
+- SCOPE: [US domestic or International]
+- SEVERITY: [Critical/High/Medium/Low]
+Include every detail from the source. No filler. One bullet set per item."""
 
-Extract factual data points from these intelligence items. For each item, identify:
-- Threat actor names (especially APT groups)
-- CVEs, vulnerabilities, and exploit details
-- Targeted sectors (oil, gas, electric, water, telecom, transportation, etc.)
-- Geographic scope (US domestic vs international)
-- MITRE ATT&CK techniques if mentioned
-- Active exploits, campaigns, or incidents
+    reduce_p = """Compile ALL bullet points into a comprehensive intelligence summary organized into these groups:
 
-Be precise. Preserve all CVE IDs, actor names, TTPs, and sector references. Do NOT embellish."""
+GROUP 1 - US CRITICAL INFRASTRUCTURE THREATS:
+For each CI sector that has threats, list ALL threats to that sector with full detail. Include actor, method, target, CVE, severity. Do not skip any sector with even one threat.
 
-    reduce_p = """Compile an exhaustive global cyber threat intelligence digest focused on critical infrastructure.
+GROUP 2 - APT AND NATION-STATE ACTORS:
+Every named actor group, their targets, methods, and campaigns.
 
-Structure your output as:
-## US Critical Infrastructure Threats
-- Group by affected sector (Oil & Gas, Electric/Power, Water/Wastewater, Telecom, Transportation, etc.)
-- For each sector, list specific threats, actors, and CVEs
-- Highlight any active campaigns targeting multiple CI sectors
+GROUP 3 - INTERNATIONAL THREATS:
+All non-US threats organized by region.
 
-## APT & Nation-State Activity
-- List all identified APT groups and their observed TTPs
-- Note any targeting of critical infrastructure
-- Include attribution confidence levels if available
+GROUP 4 - VULNERABILITIES:
+Every CVE with product, severity, and affected sector.
 
-## Global Threat Landscape
-- International threats with potential US supply chain impact
-- Global malware campaigns, ransomware operations, and botnet activity
-- Notable vulnerabilities and exploit chains
+GROUP 5 - RANSOMWARE AND CRIMINAL OPERATIONS:
+Every named group and their activity.
 
-## Active CVEs & Exploited Vulnerabilities
-- List all CISA KEVs and high-impact CVEs with affected products
-- Note any actively exploited in the wild
+GROUP 6 - CLOUD AND SERVICE DISRUPTIONS:
+Every provider outage with affected services.
 
-## Cloud & Infrastructure Disruptions
-- Major cloud outages and service degradations
-- Supply chain impacts
-
-Do NOT include internal asset correlations or risk assessments. This is a global threat landscape briefing."""
+Include EVERY bullet point from the input. Do not summarize, skip, or deduplicate. Specific details matter: exact CVE numbers, exact product names, exact actor names."""
 
     def _global_progress(done, total_chunks, total_items, processed):
         if progress_callback:
             pct = int((done / total_chunks) * 89) + 5
-            progress_callback(stage="cyber_map", message=f"Global intelligence map-reduce: chunk {done}/{total_chunks} ({total_items} items)", total_items=total_items, processed_items=processed, percent=pct)
+            progress_callback(stage="cyber_map", message=f"Intelligence map: chunk {done}/{total_chunks}", total_items=total_items, processed_items=processed, percent=pct)
 
-    global_digest = _map_reduce_summarize(
+    cyber_map_outputs = _map_reduce_summarize(
         cyber_payload, lambda x: x, map_p, reduce_p, config, chunk_size=8, progress_callback=_global_progress,
-        map_temperature=0.6, reduce_temperature=0.5
+        map_temperature=0.3, reduce_temperature=0.2, skip_reduce=True
     )
 
-    if not global_digest or "[WARN]" in global_digest:
-        logger.error("generate_global_threat_brief: map-reduce failed: %s", (global_digest or "None")[:200])
+    if not cyber_map_outputs or (isinstance(cyber_map_outputs, list) and len(cyber_map_outputs) == 0):
+        logger.error("generate_global_threat_brief: cyber map failed")
         if progress_callback:
-            progress_callback(stage="error", message="Map-reduce processing failed.", percent=0)
+            progress_callback(stage="error", message="Intelligence processing failed.", percent=0)
         return "Brief generation failed during intelligence processing."
+
+    if isinstance(cyber_map_outputs, str):
+        logger.info("generate_global_threat_brief: cyber map returned single output (%d chars)", len(cyber_map_outputs))
+        cyber_map_outputs = [cyber_map_outputs]
+    else:
+        total_cyber_chars = sum(len(s) for s in cyber_map_outputs)
+        logger.info("generate_global_threat_brief: cyber map completed, %d chunks, %d total chars", len(cyber_map_outputs), total_cyber_chars)
 
     phys_payload = []
     for h in active_hazards:
-        phys_payload.append(f"Weather/Hazard - Alert: {h.title} | Severity: {h.severity} | Location: {h.location} | Details: {truncate_text(h.description, 500)}")
+        phys_payload.append(f"HAZARD: {h.title} | Severity: {h.severity} | Location: {h.location} | {truncate_text(h.description, 300)}")
     for c in crime_data:
-        phys_payload.append(f"Perimeter Crime - Type: {c.get('raw_title', 'Unknown')} | Distance from HQ: {c.get('distance_miles', 0)} miles | Category: {c.get('category', 'Unknown')} | Severity: {c.get('severity', 'Unknown')}")
+        phys_payload.append(f"CRIME: {c.get('raw_title', 'Unknown')} | Distance: {c.get('distance_miles', 0)}mi | Category: {c.get('category', 'Unknown')} | Severity: {c.get('severity', 'Unknown')}")
 
+    phys_map_outputs = []
     if phys_payload:
         if progress_callback:
             progress_callback(stage="phys_map", message=f"Processing physical intelligence ({len(phys_payload)} items)...", total_items=len(phys_payload), processed_items=0, percent=90)
-        phys_map_p = "Extract precise factual details regarding weather severity, regional infrastructure hazards, and local perimeter crimes. Be purely objective. Retain exact distances, locations, severity classifications, and crime categories."
-        phys_reduce_p = "Compile a concise physical risk digest covering: 1) Severe Weather & Regional Hazards (NWS alerts, earthquakes, SPC outlooks) and 2) Local Perimeter Crimes (distance, category, severity). Retain exact distances and severity levels. DO NOT embellish."
+        phys_map_p = """Extract EVERY detail from each item. For weather hazards:
+TYPE: [exact hazard type - e.g. "Extreme Heat Warning", "Severe Thunderstorm Warning", "Tropical Storm Watch"]
+SEVERITY: [exact severity level from NWS]
+LOCATION: [exact counties/regions affected]
+TIMESTAMP: [issue and expiry times]
+IMPACT: [potential infrastructure impact]
+
+For perimeter crimes:
+TYPE: [exact crime category]
+LOCATION: [specific area or zone]
+DISTANCE: [distance from facility in miles]
+SEVERITY: [threat level]
+TIME: [when reported]
+
+Be specific with every number, location name, and time. No generalizations."""
 
         def _phys_progress(done, total_chunks, total_items, processed):
             if progress_callback:
                 pct = int((done / total_chunks) * 8) + 90
-                progress_callback(stage="phys_map", message=f"Physical intelligence map-reduce: chunk {done}/{total_chunks} ({total_items} items)", total_items=total_items, processed_items=processed, percent=pct)
+                progress_callback(stage="phys_map", message=f"Physical intel: chunk {done}/{total_chunks}", total_items=total_items, processed_items=processed, percent=pct)
 
-        phys_digest = _map_reduce_summarize(
-            phys_payload, lambda x: x, phys_map_p, phys_reduce_p, config, chunk_size=6, progress_callback=_phys_progress,
-            map_temperature=0.6, reduce_temperature=0.5
+        phys_map_outputs = _map_reduce_summarize(
+            phys_payload, lambda x: x, phys_map_p, "", config, chunk_size=6, progress_callback=_phys_progress,
+            map_temperature=0.3, reduce_temperature=0.2, skip_reduce=True
         )
+        if isinstance(phys_map_outputs, str):
+            phys_map_outputs = [phys_map_outputs]
+        logger.info("generate_global_threat_brief: physical map completed, %d chunks", len(phys_map_outputs) if phys_map_outputs else 0)
     else:
-        phys_digest = "No significant weather hazards, regional disruptions, or perimeter crimes reported in the last 24 hours."
-
-    master_sys_prompt = f"""You are a senior intelligence analyst preparing a Global Threat Brief for executive leadership at a US critical infrastructure organization.
-
-FORMATTING & TONE DIRECTIVES:
-1. VISUAL HIERARCHY: Use bolding for emphasis, bulleted lists for data points, and blockquotes for notable warnings.
-2. OPERATIONAL TRANSLATION: For every vulnerability or threat, briefly state the business relevance to our CI operations.
-3. THREAT LEVEL TERMINOLOGY: When referring to threat levels, use: Low, Guarded, Elevated, High, or Severe. Do NOT use colors.
-4. EXPAND THE NARRATIVE: Group similar threats (all ransomware actors, all APT campaigns, all sector-specific threats) and explain relevance to US critical infrastructure continuity.
-5. APT FOCUS: Dedicate significant attention to nation-state and APT activity targeting CI sectors. Include actor names, TTPs, and sector targeting patterns.
-6. SECTOR COVERAGE: Explicitly cover Oil & Gas, Electric/Power, Water/Wastewater, Telecom, Transportation, and other CI sectors.
-
-REQUIRED STRUCTURE:
-## Executive Summary (BLUF)
-* Provide a 5-6 sentence high-level narrative of the global threat landscape as it relates to US critical infrastructure.
-* Identify the top 3-5 most significant threats requiring leadership attention.
-* Use threat level terminology (Low/Guarded/Elevated/High/Severe).
-
-## US Critical Infrastructure Threat Assessment
-* Break into sub-sections by CI sector: Oil & Gas, Electric/Power Grid, Water & Wastewater, Telecommunications, Transportation, Other CI.
-* For each sector, detail specific threats, threat actors, and vulnerabilities targeting that sector.
-* Include any sector-specific TTPs or campaign patterns.
-
-## Advanced Persistent Threat (APT) & Nation-State Activity
-* Detail all identified APT groups and nation-state actors with their observed campaigns.
-* Include TTPs, targeting patterns, and attribution confidence.
-* Highlight any convergence of APT activity with CI targeting.
-* Note any new or evolving campaigns.
-
-## Global Threat Landscape
-* International threats with potential US or supply chain impact.
-* Ransomware operations, malware campaigns, and botnet activity.
-* Emerging threat trends and threat actor evolution.
-
-## Vulnerability & Exploit Intelligence
-* List CISA KEVs and high-impact CVEs with affected products and CI relevance.
-* Note any actively exploited vulnerabilities in CI-relevant software/hardware.
-* Include exploit availability and weaponization status.
-
-## Local Weather & Perimeter Posture
-* Break into two sub-sections: **Regional Weather Hazards** and **Local Perimeter Crimes**.
-* List distances, severity levels, and crime categories.
-* Explain relevance to facility operations, power grid stability, personnel safety, and CI continuity.
-* Highlight any weather events that could cause infrastructure disruptions (ice storms, flooding, tornadoes, extreme heat affecting grid load).
-
-## Strategic Recommendations
-* Provide 3-5 actionable recommendations for CI protection.
-* Prioritize by sector impact and threat severity.
-* Include monitoring, patching, and hardening guidance specific to CI environments.
-
----
-**OSINT CORRELATION DISCLAIMER:** This brief synthesizes external Open-Source Intelligence (OSINT) to provide situational awareness of the global threat landscape affecting US critical infrastructure. It does NOT represent confirmed compromises of our systems or facilities.
-
-**AI-GENERATED CONTENT:** This brief was generated by the internal NOC AIOps system using automated intelligence analysis. This report has not been thoroughly reviewed by a Human Security Analyst.
-"""
+        phys_map_outputs = ["No hazards or perimeter crimes reported."]
 
     if progress_callback:
-        progress_callback(stage="synthesizing", message="Synthesizing executive global brief...", percent=96)
+        progress_callback(stage="synthesizing", message="Assembling brief from map outputs...", percent=96)
 
-    logger.info("generate_global_threat_brief: calling LLM with master prompt")
-    compiled_intel = f"""=== CYBER & THREAT INTELLIGENCE DIGEST ===
-{global_digest}
+    response = _assemble_global_brief_from_maps(cyber_map_outputs, phys_map_outputs, config)
 
-=== LOCAL WEATHER & PERIMETER INTELLIGENCE DIGEST ===
-{phys_digest}
-"""
-    response = call_llm([
-        {"role": "system", "content": master_sys_prompt},
-        {"role": "user", "content": compiled_intel}
-    ], config, temperature=0.7)
-
-    if response and "[WARN]" not in response:
-        logger.info("generate_global_threat_brief: success, response_length=%d", len(response))
+    if response and len(response) > 100:
+        logger.info("generate_global_threat_brief: assembled brief, response_length=%d", len(response))
     else:
-        logger.error("generate_global_threat_brief: LLM returned error: %s", response[:200] if response else "None")
+        logger.error("generate_global_threat_brief: assembly produced thin output: %d chars", len(response) if response else 0)
         if progress_callback:
-            progress_callback(stage="error", message="LLM synthesis failed.", percent=0)
-        return "Brief generation failed during synthesis."
+            progress_callback(stage="error", message="Brief assembly produced thin output.", percent=0)
+        return "Brief generation produced insufficient output."
 
     if progress_callback:
-        progress_callback(stage="complete", message="Global brief generation complete.", percent=100)
+        progress_callback(stage="complete", message="Brief generation complete.", percent=100)
 
     return response.strip()
 
@@ -1109,7 +1366,7 @@ def generate_executive_weather_brief(analytics, p1_count, sys_config):
         {"role": "user", "content": prompt}
     ], sys_config, temperature=0.2)
 
-def build_custom_intel_report(articles, objective, session):
+def build_custom_intel_report(articles, objective, session, progress_callback=None):
     config = get_llm_config(session)
     if not config or not articles: return None
 
@@ -1126,10 +1383,18 @@ def build_custom_intel_report(articles, objective, session):
     ## Defensive Posture & Remediation
     STRICT RULES: Use ONLY the provided data. Do not hallucinate."""
 
+    def _format_article(a):
+        content = getattr(a, 'full_content', None) or getattr(a, 'summary', '') or ''
+        if content and len(content) > 200:
+            text = truncate_text(content, 2000)
+        else:
+            text = truncate_text(content, 800)
+        return f"SOURCE: {a.source} | TITLE: {a.title}\nCONTENT: {text}\n\n"
+
     return _map_reduce_summarize(
         articles,
-        lambda a: f"SOURCE: {a.source} | TITLE: {a.title}\nCONTENT: {truncate_text(a.summary, 600)}\n\n",
-        map_p, reduce_p, config, chunk_size=3
+        _format_article,
+        map_p, reduce_p, config, chunk_size=8, progress_callback=progress_callback
     )
 
 def generate_rolling_summary(session):

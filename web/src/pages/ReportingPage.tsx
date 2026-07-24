@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
@@ -7,7 +7,7 @@ import { formatDateInChicago, chicagoDateString, formatInChicago } from "../util
 import {
   FileText, Calendar, Mail, Send, BookOpen, Search, Plus, Eye,
   Trash2, Loader2, AlertCircle, CheckCircle, Target, Layers, Save,
-  User, ChevronDown, ChevronRight, Clock
+  User, ChevronDown, ChevronRight, Clock, Square, SquareCheck
 } from "lucide-react";
 
 const btn = (color: string): React.CSSProperties => ({
@@ -303,17 +303,105 @@ function CustomReportBuilder() {
   const queryClient = useQueryClient();
   const [target, setTarget] = useState("");
   const [daysBack, setDaysBack] = useState(7);
-  const [generated, setGenerated] = useState<string | null>(null);
+  const [generated, setGenerated] = useState<string | null>(
+    () => sessionStorage.getItem("custom_report_content")
+  );
   const [saveTitle, setSaveTitle] = useState("");
+  const [reportGenId, setReportGenId] = useState<string | null>(
+    () => sessionStorage.getItem("custom_report_gen_id")
+  );
+  const [reportProgress, setReportProgress] = useState<any>(null);
+  const pollRef = useRef<any>(null);
+
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!reportGenId) return;
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await api.get("/reporting/generate-custom-status", {
+          params: { generation_id: reportGenId }
+        });
+        const data = res.data;
+        if (data.status === "ok") {
+          setGenerated(data.content);
+          sessionStorage.setItem("custom_report_content", data.content);
+          setReportGenId(null);
+          sessionStorage.removeItem("custom_report_gen_id");
+          setReportProgress(null);
+          if (pollRef.current) clearInterval(pollRef.current);
+        } else if (data.status === "error") {
+          alert("Error: " + (data.message || "Generation failed."));
+          setReportGenId(null);
+          sessionStorage.removeItem("custom_report_gen_id");
+          setReportProgress(null);
+          if (pollRef.current) clearInterval(pollRef.current);
+        } else {
+          setReportProgress(data.progress);
+        }
+      } catch {
+        // keep polling
+      }
+    }, 2000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [reportGenId]);
+
+  const handleSearch = async () => {
+    if (!target.trim()) { alert("Please enter a search target."); return; }
+    setGenerated(null);
+    sessionStorage.removeItem("custom_report_content");
+    setSearchLoading(true);
+    setSearchError(null);
+    try {
+      const res = await api.post("/reporting/search-articles", {
+        target: target.trim(),
+        days_back: daysBack,
+      });
+      const data = res.data;
+      if (data.status === "ok") {
+        setSearchResults(data.articles);
+        setSelectedIds(new Set(data.articles.map((a: any) => a.id)));
+      } else {
+        setSearchError(data.message || "Search failed.");
+        setSearchResults([]);
+      }
+    } catch (e: any) {
+      setSearchError(e.response?.data?.detail || e.message || "Search failed.");
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  const toggleId = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selectedIds.size === searchResults.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(searchResults.map((a: any) => a.id)));
+    }
+  };
 
   const genMutation = useMutation({
-    mutationFn: (data: { target: string; days_back: number; objective: string; analyst: string }) =>
+    mutationFn: (data: { article_ids: number[]; target: string; days_back: number; objective: string; analyst: string }) =>
       api.post("/reporting/generate-custom", data),
     onSuccess: (r: any) => {
-      if (r.data.status === "ok") {
-        setGenerated(r.data.content);
+      if (r.data.status === "started" && r.data.generation_id) {
+        setReportGenId(r.data.generation_id);
+        sessionStorage.setItem("custom_report_gen_id", r.data.generation_id);
         setSaveTitle(`Custom Report - ${formatInChicago(new Date(), { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}`);
-      } else {
+      } else if (r.data.status === "error") {
         alert("Error: " + (r.data.message || "Generation failed."));
       }
     },
@@ -330,6 +418,15 @@ function CustomReportBuilder() {
     onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
   });
 
+  const isGenerating = !!reportGenId;
+  const hasResults = searchResults.length > 0;
+
+  const getScoreColor = (score: number) => {
+    if (score >= 70) return "var(--accent-red)";
+    if (score >= 40) return "var(--accent-orange, #f59e0b)";
+    return "var(--text-muted)";
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
       <div style={cardStyle}>
@@ -338,19 +435,20 @@ function CustomReportBuilder() {
           Custom Intel Report Builder
         </h3>
         <p style={{ margin: "0 0 1rem", fontSize: "0.8rem", color: "var(--text-muted)" }}>
-          Search and compile intelligence articles into a formatted report.
+          Search for articles, select which ones to include, then generate an AI-synthesized report.
         </p>
         <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" }}>
           <div style={{ flex: 2, minWidth: 200 }}>
             <div style={sectionTitle}>
               <Target size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />
-              Target Entity
+              Search Target
             </div>
             <input
               style={inputStyle}
               placeholder="e.g. LockBit, critical infrastructure, APT29"
               value={target}
               onChange={e => setTarget(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleSearch()}
             />
           </div>
           <div style={{ flex: 1, minWidth: 120 }}>
@@ -368,57 +466,170 @@ function CustomReportBuilder() {
               ))}
             </select>
           </div>
-          <div style={{ flex: 1, minWidth: 140 }}>
-            <div style={sectionTitle}>
-              <User size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />
-              Analyst
-            </div>
-            <input
-              style={inputStyle}
-              placeholder="Your name"
-              defaultValue={(() => {
-                const stored = sessionStorage.getItem("noc_user");
-                if (!stored) return "";
-                try { const p = JSON.parse(stored); return p.full_name || p.username || ""; }
-                catch { return stored; }
-              })()}
-              id="analyst-name"
-            />
-          </div>
-        </div>
-        <div style={{ marginTop: "0.75rem" }}>
-          <div style={sectionTitle}>
-            <MessageSquare size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />
-            AI Objective
-          </div>
-          <textarea
-            style={textareaStyle}
-            placeholder="Generate an exhaustive technical report..."
-            defaultValue="Generate an exhaustive technical report covering threat actors, TTPs, IOCs, and defensive recommendations."
-            id="ai-objective"
-          />
-        </div>
-        <div style={{ marginTop: "0.75rem" }}>
           <button
-            onClick={() => {
-              const analyst = (document.getElementById("analyst-name") as HTMLInputElement)?.value || "Unknown";
-              const objective = (document.getElementById("ai-objective") as HTMLTextAreaElement)?.value || "Generate an exhaustive technical report.";
-              if (!target.trim()) { alert("Please enter a target entity."); return; }
-              genMutation.mutate({ target: target.trim(), days_back: daysBack, objective, analyst });
-            }}
-            disabled={genMutation.isPending || !target.trim()}
+            onClick={handleSearch}
+            disabled={searchLoading || !target.trim()}
             style={btn("var(--accent-blue)")}
           >
-            {genMutation.isPending ? <Spinner /> : <Search size={14} />}
-            {genMutation.isPending ? "Compiling..." : "Compile Custom Report"}
+            {searchLoading ? <Spinner /> : <Search size={14} />}
+            {searchLoading ? "Searching..." : "Search Articles"}
           </button>
-          {genMutation.isError && (
-            <span style={{ marginLeft: "0.75rem", fontSize: "0.8rem", color: "var(--accent-red)" }}>
-              {(genMutation.error as any)?.response?.data?.detail || "Failed"}
-            </span>
-          )}
         </div>
+        {searchError && (
+          <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "var(--accent-red)" }}>
+            {searchError}
+          </div>
+        )}
       </div>
+
+      {hasResults && !isGenerating && (
+        <div style={cardStyle}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+            <h4 style={{ margin: 0, fontSize: "0.9rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+              <Eye size={15} />
+              Search Results ({searchResults.length} articles)
+            </h4>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+              <button onClick={toggleAll} style={{ ...btn("transparent"), color: "var(--accent-blue)", border: "1px solid var(--accent-blue)", fontSize: "0.75rem", padding: "0.3rem 0.6rem" }}>
+                {selectedIds.size === searchResults.length ? "Deselect All" : "Select All"}
+              </button>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                {selectedIds.size} selected
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", maxHeight: 420, overflowY: "auto", marginBottom: "0.75rem" }}>
+            {searchResults.map((article: any) => {
+              const isSelected = selectedIds.has(article.id);
+              return (
+                <div
+                  key={article.id}
+                  onClick={() => toggleId(article.id)}
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "0.6rem",
+                    padding: "0.55rem 0.65rem",
+                    background: isSelected ? "rgba(59,130,246,0.08)" : "var(--bg-secondary)",
+                    border: `1px solid ${isSelected ? "var(--accent-blue)" : "var(--border-primary)"}`,
+                    borderRadius: "var(--radius-sm)",
+                    cursor: "pointer",
+                    transition: "border-color 0.15s, background 0.15s",
+                  }}
+                >
+                  <div style={{ marginTop: 2, flexShrink: 0, color: isSelected ? "var(--accent-blue)" : "var(--text-muted)" }}>
+                    {isSelected ? <SquareCheck size={16} /> : <Square size={16} />}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.15rem" }}>
+                      <span style={{
+                        fontSize: "0.65rem",
+                        fontWeight: 700,
+                        color: getScoreColor(article.score),
+                        minWidth: 32,
+                        textAlign: "right",
+                      }}>
+                        {Math.round(article.score || 0)}
+                      </span>
+                      <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {article.title}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                      <span>{article.source}</span>
+                      <span>{article.published_date ? formatDateInChicago(article.published_date) : ""}</span>
+                      {article.category && <span style={{ opacity: 0.7 }}>({article.category})</span>}
+                    </div>
+                    {article.summary && (
+                      <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "0.2rem", lineHeight: 1.4, opacity: 0.8 }}>
+                        {article.summary}...
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <div style={sectionTitle}>
+                <User size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />
+                Analyst
+              </div>
+              <input
+                style={inputStyle}
+                placeholder="Your name"
+                defaultValue={(() => {
+                  const stored = sessionStorage.getItem("noc_user");
+                  if (!stored) return "";
+                  try { const p = JSON.parse(stored); return p.full_name || p.username || ""; }
+                  catch { return stored; }
+                })()}
+                id="analyst-name"
+              />
+            </div>
+            <div style={{ flex: 2, minWidth: 200 }}>
+              <div style={sectionTitle}>
+                <MessageSquare size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />
+                AI Objective
+              </div>
+              <textarea
+                style={textareaStyle}
+                placeholder="Generate an exhaustive technical report..."
+                defaultValue="Generate an exhaustive technical report covering threat actors, TTPs, IOCs, and defensive recommendations."
+                id="ai-objective"
+              />
+            </div>
+            <button
+              onClick={() => {
+                if (selectedIds.size === 0) { alert("Please select at least one article."); return; }
+                const analyst = (document.getElementById("analyst-name") as HTMLInputElement)?.value || "Unknown";
+                const objective = (document.getElementById("ai-objective") as HTMLTextAreaElement)?.value || "Generate an exhaustive technical report.";
+                genMutation.mutate({ article_ids: Array.from(selectedIds), target: target.trim(), days_back: daysBack, objective, analyst });
+              }}
+              disabled={isGenerating || selectedIds.size === 0}
+              style={btn("var(--accent-blue)")}
+            >
+              {isGenerating ? <Spinner /> : <FileText size={14} />}
+              {isGenerating ? "Generating..." : `Generate Report from ${selectedIds.size} Articles`}
+            </button>
+            {genMutation.isError && (
+              <span style={{ fontSize: "0.8rem", color: "var(--accent-red)" }}>
+                {(genMutation.error as any)?.response?.data?.detail || "Failed"}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {isGenerating && reportProgress && (
+        <div style={cardStyle}>
+          <div style={{
+            background: "var(--bg-secondary)",
+            borderRadius: "var(--radius-sm)",
+            padding: "0.75rem 1rem",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
+                {reportProgress.message || "Processing..."}
+              </span>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                {reportProgress.percent || 0}%
+              </span>
+            </div>
+            <div style={{ height: 4, background: "var(--border-primary)", borderRadius: 2, overflow: "hidden" }}>
+              <div style={{
+                height: "100%", width: `${reportProgress.percent || 0}%`,
+                background: "linear-gradient(90deg, var(--accent-blue), var(--accent-green))",
+                borderRadius: 2, transition: "width 0.3s ease",
+              }} />
+            </div>
+          </div>
+        </div>
+      )}
 
       {generated && (
         <div style={cardStyle}>
@@ -461,6 +672,14 @@ function CustomReportBuilder() {
             >
               {saveMutation.isPending ? <Spinner /> : <Save size={14} />}
               {saveMutation.isPending ? "Saving..." : "Save to Library"}
+            </button>
+          </div>
+          <div style={{ marginTop: "0.75rem" }}>
+            <button
+              onClick={() => { setGenerated(null); sessionStorage.removeItem("custom_report_content"); }}
+              style={{ ...btn("var(--bg-secondary)"), color: "var(--text-secondary)", border: "1px solid var(--border-primary)", fontSize: "0.78rem" }}
+            >
+              Back to Search
             </button>
           </div>
         </div>

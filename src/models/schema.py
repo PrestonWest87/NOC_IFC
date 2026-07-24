@@ -170,6 +170,7 @@ class Article(Base):
     is_bubbled = Column(Boolean, default=False)
     story_group = Column(String, nullable=True)
     human_feedback = Column(Integer, default=0)
+    full_content = Column(Text, nullable=True)
     ai_bluf = Column(Text, nullable=True)
     is_pinned = Column(Boolean, default=False, index=True)
 

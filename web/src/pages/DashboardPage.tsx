@@ -1170,9 +1170,9 @@ export function DashboardPage() {
           <div style={{ marginTop: "1.5rem" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: "1.1rem" }}>Global Threat Brief — US Critical Infrastructure</h3>
+                <h3 style={{ margin: 0, fontSize: "1.1rem" }}>Global Threat Brief</h3>
                     <p style={{ margin: "0.2rem 0 0", fontSize: "0.82rem", color: "var(--text-muted, #94a3b8)" }}>
-                      AI-generated synthesis of global threats targeting US CI (oil, gas, electric, water, telecom), local weather hazards, and perimeter crimes. APT-focused. Auto-updates hourly.
+                      AI-generated threat brief covering US critical infrastructure and global threats. APT activity, ransomware, CVEs, weather, and perimeter crimes. Auto-updates hourly.
                     </p>
               </div>
               <button

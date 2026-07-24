@@ -18,6 +18,15 @@ import asyncio
 import aiohttp
 import threading
 import gc
+import concurrent.futures
+from typing import List, Dict, Tuple, Optional
+
+try:
+    import trafilatura
+    HAS_TRAFILATURA = True
+except ImportError:
+    HAS_TRAFILATURA = False
+    logging.getLogger(__name__).warning("trafilatura not installed — full article content fetching disabled")
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 from datetime import datetime, timedelta
@@ -81,6 +90,19 @@ async def fetch_all_feeds_chunked(feed_data, chunk_size=5):
             await asyncio.sleep(0.1)
     return results
 
+def _fetch_full_content(url: str, timeout: int = 10) -> Optional[str]:
+    """Fetch and extract full article content from URL using trafilatura."""
+    if not HAS_TRAFILATURA:
+        return None
+    try:
+        downloaded = trafilatura.fetch_url(url)
+        if downloaded:
+            return trafilatura.extract(downloaded, include_comments=False, include_tables=True,
+                                        no_fallback=False, favor_recall=True)
+    except Exception:
+        pass
+    return None
+
 def parse_and_score_feed(f_name, content, known_links):
     """Parse RSS feed content and score articles for relevance."""
     from src.services.ioc_extractor import ioc_engine
@@ -114,8 +136,34 @@ def parse_and_score_feed(f_name, content, known_links):
         new_articles_data.append({
             "title": title, "link": link, "summary": summary, "source": f_name,
             "score": float(score), "category": category, "keywords_found": reasons,
-            "is_bubbled": (score >= ALERT_THRESHOLD), "iocs": extracted_iocs
+            "is_bubbled": (score >= ALERT_THRESHOLD), "iocs": extracted_iocs,
+            "full_content": None
         })
+
+    if HAS_TRAFILATURA and new_articles_data:
+        urls_to_fetch = [(i, d["link"]) for i, d in enumerate(new_articles_data)
+                         if d["score"] >= 40.0]
+        def _fetch_batch(batch):
+            results = {}
+            for idx, url in batch:
+                content_text = _fetch_full_content(url)
+                if content_text:
+                    results[idx] = content_text
+            return results
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            batch_size = 5
+            for start in range(0, len(urls_to_fetch), batch_size):
+                batch = urls_to_fetch[start:start + batch_size]
+                futures = [executor.submit(_fetch_batch, [b]) for b in batch]
+                for future in concurrent.futures.as_completed(futures):
+                    try:
+                        results = future.result()
+                        for idx, fc in results.items():
+                            new_articles_data[idx]["full_content"] = fc
+                    except Exception:
+                        pass
+
     return f_name, new_articles_data
 
 def bulk_save_to_db(db_session, arts_data):
@@ -129,7 +177,8 @@ def bulk_save_to_db(db_session, arts_data):
         art = Article(
             title=d["title"], link=d["link"], summary=d["summary"], source=d["source"],
             published_date=datetime.utcnow(), score=d["score"], category=d["category"],
-            keywords_found=d["keywords_found"], is_bubbled=d["is_bubbled"]
+            keywords_found=d["keywords_found"], is_bubbled=d["is_bubbled"],
+            full_content=d.get("full_content")
         )
         batch.append(art)
 
@@ -137,13 +186,13 @@ def bulk_save_to_db(db_session, arts_data):
             db_session.add_all(batch)
             try:
                 db_session.flush()
-                for item in batch:
-                    if d.get("iocs"):
+                for item, art_data in zip(batch, arts_data[len(batch)-batch_size:]):
+                    if art_data.get("iocs"):
                         ioc_objs = [
                             ExtractedIOC(
                                 article_id=item.id, indicator_type=ioc["Type"],
                                 indicator_value=ioc["Indicator"], context=ioc["Context"]
-                            ) for ioc in d["iocs"]
+                            ) for ioc in art_data["iocs"]
                         ]
                         db_session.add_all(ioc_objs)
                 db_session.commit()
@@ -156,13 +205,14 @@ def bulk_save_to_db(db_session, arts_data):
         db_session.add_all(batch)
         try:
             db_session.flush()
-            for item in batch:
-                if d.get("iocs"):
+            remaining_data = arts_data[len(arts_data) - len(batch):]
+            for item, art_data in zip(batch, remaining_data):
+                if art_data.get("iocs"):
                     ioc_objs = [
                         ExtractedIOC(
                             article_id=item.id, indicator_type=ioc["Type"],
                             indicator_value=ioc["Indicator"], context=ioc["Context"]
-                        ) for ioc in d["iocs"]
+                        ) for ioc in art_data["iocs"]
                     ]
                     db_session.add_all(ioc_objs)
             db_session.commit()

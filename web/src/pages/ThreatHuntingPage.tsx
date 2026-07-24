@@ -196,6 +196,7 @@ export function ThreatHuntingPage() {
 function IocMatrixTab() {
   const [typeFilter, setTypeFilter] = useState<string[]>(["IPv4", "SHA256", "Domain", "CVE", "MITRE ATT&CK"]);
   const [expandedFilter, setExpandedFilter] = useState(false);
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
 
   const { data: iocs = [], isLoading } = useQuery({
     queryKey: ["hunting-iocs"],
@@ -217,6 +218,15 @@ function IocMatrixTab() {
     const sorted = [...types].sort();
     return sorted.length > 0 ? sorted : IOC_TYPE_OPTIONS;
   }, [data]);
+
+  const toggleRow = useCallback((idx: number) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  }, []);
 
   const handleExport = useCallback(() => {
     const ts = chicagoDateString().replace(/-/g, "");
@@ -316,6 +326,9 @@ function IocMatrixTab() {
                   const detected = i.Detected || i.detected_at || "";
                   const sourceLink = i["Source Article"] || i.source_article || i.source_link || "";
                   const pivotLink = osintPivotLink(type, value);
+                  const sources = i.sources || [];
+                  const articleCount = i.article_count || 1;
+                  const isExpanded = expandedRows.has(idx);
                   return (
                     <tr key={i.id || idx} style={{ background: idx % 2 === 0 ? "transparent" : "var(--bg-secondary)" }}>
                       <td style={TD}><Badge label={type} /></td>
@@ -324,7 +337,7 @@ function IocMatrixTab() {
                       </td>
                       <td style={{ ...TD, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", fontSize: "0.78rem" }}>
                         {typeof context === "string" ? context.slice(0, 120) : JSON.stringify(context).slice(0, 120)}
-                        {typeof context === "string" && context.length > 120 ? "…" : ""}
+                        {typeof context === "string" && context.length > 120 ? "..." : ""}
                       </td>
                       <td style={{ ...TD, whiteSpace: "nowrap", fontSize: "0.78rem" }}>
                         <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
@@ -333,7 +346,19 @@ function IocMatrixTab() {
                         </span>
                       </td>
                       <td style={TD}>
-                        {sourceLink ? (
+                        {sources.length > 1 ? (
+                          <button
+                            onClick={() => toggleRow(idx)}
+                            style={{
+                              background: "rgba(59,130,246,0.1)", border: "1px solid var(--accent-blue)",
+                              borderRadius: "var(--radius-sm)", padding: "0.2rem 0.5rem", cursor: "pointer",
+                              color: "var(--accent-blue)", fontSize: "0.75rem", fontWeight: 600,
+                              display: "inline-flex", alignItems: "center", gap: "0.25rem",
+                            }}
+                          >
+                            {articleCount} articles {isExpanded ? "\u25B2" : "\u25BC"}
+                          </button>
+                        ) : sourceLink ? (
                           <a href={sourceLink} target="_blank" rel="noopener noreferrer" style={{
                             color: "var(--accent-blue)", textDecoration: "none", fontSize: "0.78rem",
                             display: "inline-flex", alignItems: "center", gap: "0.25rem",
@@ -341,7 +366,7 @@ function IocMatrixTab() {
                             <ExternalLink size={11} /> Article
                           </a>
                         ) : (
-                          <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>—</span>
+                          <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>--</span>
                         )}
                       </td>
                       <td style={TD}>
@@ -353,7 +378,7 @@ function IocMatrixTab() {
                             <ExternalLink size={11} /> Open Tool
                           </a>
                         ) : (
-                          <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>—</span>
+                          <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>--</span>
                         )}
                       </td>
                     </tr>
