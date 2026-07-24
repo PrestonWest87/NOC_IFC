@@ -178,7 +178,7 @@ def truncate_text(text, max_chars=300):
     if not text: return "No details provided."
     return text if len(text) <= max_chars else text[:max_chars] + "..."
 
-def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size=6, progress_callback=None, map_temperature=0.1, reduce_temperature=0.2, skip_reduce=False):
+def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size=6, progress_callback=None, map_temperature=0.1, reduce_temperature=0.2, skip_reduce=False, skip_noise_filter=False):
     if not items: return None
 
     ctx = get_effective_context_window(config)
@@ -207,25 +207,29 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
 
         if resp and "[WARN]" not in resp:
             stripped = resp.strip()
-            no_threat_patterns = [
-                r'no[\s_-]*threat',
-                r'there\s+are\s+no\s+threat',
-                r'not\s+contain.*threat',
-                r'no\s+specific\s+threat',
-                r'does\s+not\s+contain.*threat',
-                r'only\s+news\s+articles',
-                r'can\s+extract\s+some\s+general',
-                r'if\s+you[\s\']?d\s+like',
-                r'let\s+me\s+know',
-                r'here\s+are\s+the\s+extracted',
-                r'note\s+that\s+the\s+other',
-                r'i\s+can\s+provide\s+a\s+general',
-            ]
-            if any(re.search(pat, stripped, re.IGNORECASE) for pat in no_threat_patterns):
-                logger.info("_map_reduce_summarize: chunk %d/%d returned no-threat noise — skipping", idx + 1, total_chunks)
-            else:
+            if skip_noise_filter:
                 logger.info("_map_reduce_summarize: chunk %d/%d OK in %.1fs, response_length=%d", idx + 1, total_chunks, chunk_elapsed, len(resp))
                 batch_summaries.append(resp)
+            else:
+                no_threat_patterns = [
+                    r'no[\s_-]*threat',
+                    r'there\s+are\s+no\s+threat',
+                    r'not\s+contain.*threat',
+                    r'no\s+specific\s+threat',
+                    r'does\s+not\s+contain.*threat',
+                    r'only\s+news\s+articles',
+                    r'can\s+extract\s+some\s+general',
+                    r'if\s+you[\s\']?d\s+like',
+                    r'let\s+me\s+know',
+                    r'here\s+are\s+the\s+extracted',
+                    r'note\s+that\s+the\s+other',
+                    r'i\s+can\s+provide\s+a\s+general',
+                ]
+                if any(re.search(pat, stripped, re.IGNORECASE) for pat in no_threat_patterns):
+                    logger.info("_map_reduce_summarize: chunk %d/%d returned no-threat noise — skipping", idx + 1, total_chunks)
+                else:
+                    logger.info("_map_reduce_summarize: chunk %d/%d OK in %.1fs, response_length=%d", idx + 1, total_chunks, chunk_elapsed, len(resp))
+                    batch_summaries.append(resp)
         else:
             logger.error("_map_reduce_summarize: chunk %d/%d FAILED in %.1fs: %s", idx + 1, total_chunks, chunk_elapsed, (resp[:300] if resp else "empty"))
 
@@ -376,7 +380,8 @@ IMPORTANT: If the input contains NO cyber threats, CVEs, threat actors, security
                 pct = int((done / total_chunks) * 49) + 50
                 progress_callback(stage="phys_map", message=f"Physical intelligence map-reduce: chunk {done}/{total_chunks} ({total_items} items)", total_items=total_items, processed_items=processed, percent=pct)
         phys_digest = _map_reduce_summarize(
-            phys_payload, lambda x: x, map_p, reduce_p, config, chunk_size=15, progress_callback=_phys_progress
+            phys_payload, lambda x: x, map_p, reduce_p, config, chunk_size=15, progress_callback=_phys_progress,
+            skip_noise_filter=True
         )
     else:
         phys_digest = "No significant weather hazards, regional disruptions, or perimeter crimes reported."
@@ -1100,7 +1105,7 @@ IMPORTANT: If multiple items describe the same type of hazard (e.g., multiple "E
 
         phys_map_outputs = _map_reduce_summarize(
             phys_payload, lambda x: x, phys_map_p, "", config, chunk_size=6, progress_callback=_phys_progress,
-            map_temperature=0.3, reduce_temperature=0.2, skip_reduce=True
+            map_temperature=0.3, reduce_temperature=0.2, skip_reduce=True, skip_noise_filter=True
         )
         if isinstance(phys_map_outputs, str):
             phys_map_outputs = [phys_map_outputs]
