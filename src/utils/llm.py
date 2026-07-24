@@ -206,8 +206,12 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
         chunk_elapsed = time.time() - chunk_start
 
         if resp and "[WARN]" not in resp:
-            logger.info("_map_reduce_summarize: chunk %d/%d OK in %.1fs, response_length=%d", idx + 1, total_chunks, chunk_elapsed, len(resp))
-            batch_summaries.append(resp)
+            stripped = resp.strip()
+            if re.match(r'^\s*NO_THREATS\s*$', stripped, re.IGNORECASE):
+                logger.info("_map_reduce_summarize: chunk %d/%d returned NO_THREATS — skipping (no relevant threats in batch)", idx + 1, total_chunks)
+            else:
+                logger.info("_map_reduce_summarize: chunk %d/%d OK in %.1fs, response_length=%d", idx + 1, total_chunks, chunk_elapsed, len(resp))
+                batch_summaries.append(resp)
         else:
             logger.error("_map_reduce_summarize: chunk %d/%d FAILED in %.1fs: %s", idx + 1, total_chunks, chunk_elapsed, (resp[:300] if resp else "empty"))
 
@@ -326,7 +330,8 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot, progre
     if cyber_payload:
         if progress_callback:
             progress_callback(stage="cyber_map", message=f"Processing cyber intelligence ({len(cyber_payload)} items)...", total_items=len(cyber_payload), processed_items=0, percent=1)
-        map_p = "Extract factual data points regarding threat actors, vulnerabilities (CVEs), cloud service disruptions, and active exploits. Provide reason why an item is applicable. DO NOT embellish. Use strict bullet points."
+        map_p = """Extract factual data points regarding threat actors, vulnerabilities (CVEs), cloud service disruptions, and active exploits. Provide reason why an item is applicable. DO NOT embellish. Use strict bullet points.
+IMPORTANT: If the input contains NO cyber threats, CVEs, threat actors, security vulnerabilities, or CI-relevant content, respond with ONLY the word NO_THREATS and nothing else. Do NOT describe what articles are about. Do NOT summarize non-threat content. Just output: NO_THREATS"""
         reduce_p = "Compile an exhaustive, purely factual Cyber Threat Intelligence digest. Preserve all CVE IDs, specific threat actor names, targeted vendors, and cloud providers. Do not extrapolate risks; report only what is explicitly stated in the data. Provide reason why item is applicable."
         def _cyber_progress(done, total_chunks, total_items, processed):
             if progress_callback:
@@ -774,9 +779,9 @@ def generate_global_threat_brief(session, progress_callback=None):
 
     all_cyber = session.query(Article).filter(
         Article.published_date >= t24,
-        Article.score >= 30,
+        Article.score >= 50,
     ).order_by(Article.score.desc()).all()
-    logger.info("generate_global_threat_brief: found %d articles in last 24h (score>=30)", len(all_cyber))
+    logger.info("generate_global_threat_brief: found %d articles in last 24h (score>=50)", len(all_cyber))
 
     if progress_callback:
         progress_callback(stage="filtering", message="Filtering articles for relevance...", percent=1)
@@ -885,7 +890,9 @@ def generate_global_threat_brief(session, progress_callback=None):
 - CVE: [CVE-ID if any, with product name]
 - SCOPE: [US domestic or International]
 - SEVERITY: [Critical/High/Medium/Low]
-Include every detail from the source. No filler. One bullet set per item."""
+Include every detail from the source. No filler. One bullet set per item.
+
+IMPORTANT: If the input contains NO cyber threats, CVEs, threat actors, security vulnerabilities, or CI-relevant content, respond with ONLY the word NO_THREATS and nothing else. Do NOT describe what articles are about. Do NOT explain that no threats were found. Do NOT summarize non-threat content. Just output: NO_THREATS"""
 
     reduce_p = """Compile ALL bullet points into a comprehensive intelligence summary organized into these groups:
 
@@ -1075,7 +1082,9 @@ For each asset listed below, identify:
 
 Preserve all CVE IDs, vendor names, product names, and version numbers exactly.
 Group findings by asset. Be specific about which CVE applies to which asset version.
-Do NOT list assets with zero correlations — only report assets with confirmed or high-probability matches."""
+Do NOT list assets with zero correlations — only report assets with confirmed or high-probability matches.
+
+IMPORTANT: If the input contains NO assets with CVE correlations, security vulnerabilities, or threat matches, respond with ONLY the word NO_THREATS and nothing else. Do NOT describe what assets are about. Do NOT explain that no correlations were found. Just output: NO_THREATS"""
 
     reduce_p = """Compile an exhaustive Internal Asset Risk Correlation Report.
 
