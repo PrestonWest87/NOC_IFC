@@ -759,22 +759,32 @@ if __name__ == "__main__":
     # 1. Start the Automated Email Reporter
     threading.Thread(target=start_report_scheduler, daemon=True).start()
     
-    # 2. Map the Schedules to Threaded Wrappers
-    schedule.every().sunday.at("02:00").do(run_threaded, job_retrain_ml)
-    schedule.every(60).minutes.do(run_threaded, run_database_maintenance)
-    schedule.every(6).hours.do(run_threaded, job_unified_brief)
-    schedule.every().day.at("02:00").do(run_threaded, job_global_brief)
-    schedule.every(3).hours.do(run_threaded, job_internal_brief)
-    schedule.every(5).minutes.do(run_threaded, fetch_feeds)
-    schedule.every(10).minutes.do(run_threaded, fetch_live_crimes)
-    schedule.every(6).hours.do(run_threaded, fetch_cisa_kev)
-    schedule.every(1).hours.do(run_threaded, job_internal_risk)
+    # 2. Map the Schedules to Threaded Wrappers — STAGGERED to prevent CPU spikes
     
-    # High-Priority / High-Churn Telemetry
-    schedule.every(5).minutes.do(run_threaded, fetch_regional_hazards)
-    schedule.every(5).minutes.do(run_threaded, fetch_cloud_outages)
-    schedule.every(5).minutes.do(run_threaded, run_telemetry_sync)
+    # Tier 1: Must be responsive (1 min)
     schedule.every(1).minutes.do(run_threaded, job_tiered_alert_escalation)
+    
+    # Tier 2: High-frequency data collection — staggered to avoid pile-ups
+    schedule.every(5).minutes.do(run_threaded, fetch_feeds)
+    schedule.every(6).minutes.do(run_threaded, run_telemetry_sync)
+    schedule.every(7).minutes.do(run_threaded, fetch_regional_hazards)
+    schedule.every(8).minutes.do(run_threaded, fetch_cloud_outages)
+    schedule.every(10).minutes.do(run_threaded, fetch_live_crimes)
+    
+    # Tier 3: Hourly — offset from each other
+    schedule.every(60).minutes.do(run_threaded, run_database_maintenance)
+    schedule.every(2).hours.do(run_threaded, job_internal_risk)
+    
+    # Tier 4: LLM briefs — staggered across the day
+    schedule.every(3).hours.do(run_threaded, job_internal_brief)
+    schedule.every(6).hours.do(run_threaded, job_unified_brief)
+    schedule.every(7).hours.do(run_threaded, fetch_cisa_kev)
+    
+    # Tier 5: Daily
+    schedule.every().day.at("02:00").do(run_threaded, job_global_brief)
+    
+    # Tier 6: Weekly
+    schedule.every().sunday.at("02:00").do(run_threaded, job_retrain_ml)
     
     # Daily Email Unified Brief at 07:00 CST
     try:
