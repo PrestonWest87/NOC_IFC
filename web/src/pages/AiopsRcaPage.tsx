@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { getAllowedTabs } from "../utils/permissions";
-import { formatTimeInChicago, formatDateInChicago, chicagoDateString } from "../utils/timezone";
+import { formatTimeInChicago, chicagoDateString, formatEtrDate } from "../utils/timezone";
 import { MapContainer } from "../components/MapContainer";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer } from "@deck.gl/layers";
@@ -331,7 +331,7 @@ export function AiopsRcaPage() {
     setDialogDispatch(site.is_dispatched);
     const isMaint = site.under_maintenance;
     setDialogStatus(isMaint ? "No Dispatch Needed" : "Investigate/Dispatch");
-    setDialogEtr(site.maintenance_etr ? chicagoDateString(new Date(site.maintenance_etr)) : chicagoDateString());
+    setDialogEtr(site.maintenance_etr ? site.maintenance_etr.substring(0, 10) : chicagoDateString());
     setDialogReason(site.maintenance_reason ?? "");
   }, []);
 
@@ -914,7 +914,7 @@ export function AiopsRcaPage() {
                     >
                       <strong>SITE UNDER MAINTENANCE</strong> (ETR:{" "}
                       {siteInfo.maintenance_etr
-                        ? formatDateInChicago(siteInfo.maintenance_etr)
+                        ? formatEtrDate(siteInfo.maintenance_etr)
                         : "Unknown"}
                       )
                       <br />
@@ -1019,7 +1019,7 @@ export function AiopsRcaPage() {
                               [site]: {
                                 status: siteInfo?.under_maintenance ? "Active Maintenance" : "No Maintenance",
                                 etr: siteInfo?.maintenance_etr
-                                  ? chicagoDateString(new Date(siteInfo.maintenance_etr))
+                                  ? siteInfo.maintenance_etr.substring(0, 10)
                                   : chicagoDateString(),
                                 reason: siteInfo?.maintenance_reason ?? "",
                               },

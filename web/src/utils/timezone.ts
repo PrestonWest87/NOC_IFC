@@ -102,3 +102,13 @@ export function formatShortInChicago(
     return String(d);
   }
 }
+
+const _MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+export function formatEtrDate(isoStr: string | null | undefined): string {
+  if (!isoStr) return "Unknown";
+  const d = isoStr.substring(0, 10);
+  if (d.length < 10) return isoStr;
+  const [y, m, day] = d.split("-").map(Number);
+  return `${_MONTHS[m - 1]} ${day}, ${y}`;
+}

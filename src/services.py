@@ -303,21 +303,24 @@ def set_site_maintenance(site_name, is_maint, etr_date, reason, modified_by=None
 def auto_clear_expired_maintenance():
     """Clear maintenance status on sites whose ETR date has passed. Returns list of cleared site names."""
     from src.database import SessionLocal, MonitoredLocation
+    from datetime import date, datetime
+    today = date.today()
     now = datetime.utcnow()
     cleared = []
     with SessionLocal() as db:
         sites = db.query(MonitoredLocation).filter(
             MonitoredLocation.under_maintenance == True,
             MonitoredLocation.maintenance_etr.isnot(None),
-            MonitoredLocation.maintenance_etr <= now
         ).all()
         for loc in sites:
-            loc.under_maintenance = False
-            loc.maintenance_etr = None
-            loc.maintenance_reason = None
-            loc.status_modified_by = "System (ETR Expired)"
-            loc.status_modified_at = now
-            cleared.append(loc.name)
+            etr_date = loc.maintenance_etr.date() if hasattr(loc.maintenance_etr, 'date') else loc.maintenance_etr
+            if etr_date and etr_date <= today:
+                loc.under_maintenance = False
+                loc.maintenance_etr = None
+                loc.maintenance_reason = None
+                loc.status_modified_by = "System (ETR Expired)"
+                loc.status_modified_at = now
+                cleared.append(loc.name)
         if cleared:
             db.commit()
     if cleared:
