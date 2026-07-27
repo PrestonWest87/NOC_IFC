@@ -21,13 +21,6 @@ import gc
 import concurrent.futures
 from typing import List, Dict, Tuple, Optional
 
-try:
-    import trafilatura
-    HAS_TRAFILATURA = True
-except ImportError:
-    HAS_TRAFILATURA = False
-    logging.getLogger(__name__).warning("trafilatura not installed — full article content fetching disabled")
-
 import urllib3
 _orig_create_pool = urllib3.PoolManager.__init__
 def _patched_pool_init(self, *a, **kw):
@@ -37,7 +30,6 @@ urllib3.PoolManager.__init__ = _patched_pool_init
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 from datetime import datetime, timedelta
-from src.services import generate_and_save_internal_risk_snapshot, deduplicate_articles
 
 from src.database import (
     SessionLocal, Article, FeedSource, RegionalHazard, CloudOutage,
@@ -49,7 +41,6 @@ from src.workers.cve_worker import fetch_cisa_kev
 from src.workers.infra_worker import fetch_regional_hazards
 from src.workers.cloud_worker import fetch_cloud_outages
 from src.workers.telemetry_worker import run_telemetry_sync
-from src.train_model import train
 from src.workers.crime_worker import fetch_live_crimes
 init_db()
 
@@ -61,10 +52,16 @@ def log(message, source="SYSTEM", level=None):
         level = logging.INFO
     logger.log(level, "[%s] %s", source.upper(), message)
 
-# --- PRE-LOAD SCORER FOR EFFICIENCY ---
-from src.services.logic import get_scorer
-log("Pre-loading NLP Scorer into memory...", "SYSTEM")
-_global_scorer = get_scorer()
+# --- Lazy-load scorer on first use ---
+_global_scorer = None
+
+def _ensure_scorer():
+    global _global_scorer
+    if _global_scorer is None:
+        from src.services.logic import get_scorer
+        log("Loading NLP Scorer into memory...", "SYSTEM")
+        _global_scorer = get_scorer()
+    return _global_scorer
 
 
 # =====================================================================
@@ -101,7 +98,9 @@ async def fetch_all_feeds_chunked(feed_data, chunk_size=5):
 
 def _fetch_full_content(url: str, timeout: int = 10) -> Optional[str]:
     """Fetch and extract full article content from URL using trafilatura."""
-    if not HAS_TRAFILATURA:
+    try:
+        import trafilatura
+    except ImportError:
         return None
     try:
         downloaded = trafilatura.fetch_url(url)
@@ -135,7 +134,7 @@ def parse_and_score_feed(f_name, content, known_links):
         summary = entry.get('summary', '')
         full_text = f"{title} {summary}"
         
-        score, reasons = _global_scorer.score(full_text)
+        score, reasons = _ensure_scorer().score(full_text)
         category = categorize_text(full_text)
         
         extracted_iocs = []
@@ -149,7 +148,13 @@ def parse_and_score_feed(f_name, content, known_links):
             "full_content": None
         })
 
-    if HAS_TRAFILATURA and new_articles_data:
+    try:
+        import trafilatura as _traf_check
+        _has_traf = True
+    except ImportError:
+        _has_traf = False
+
+    if _has_traf and new_articles_data:
         urls_to_fetch = [(i, d["link"]) for i, d in enumerate(new_articles_data)
                          if d["score"] >= 40.0]
         def _fetch_batch(batch):
@@ -267,6 +272,7 @@ def fetch_feeds(source="Scheduled"):
 
     log(f"[COMPLETE] Cycle complete. Added {total_added} items.", source)
     with SessionLocal() as dedup_session:
+        from src.services import deduplicate_articles
         deduped = deduplicate_articles(dedup_session)
         if deduped:
             log(f"[CLEANUP] De-duplicated {deduped} articles after feed fetch.", "WORKER", logging.DEBUG)
@@ -307,6 +313,7 @@ def job_unified_brief():
             check_and_alert(global_risk=global_intel.get('unified_risk'), internal_risk=None)
     except Exception as e:
         log(f"[ERROR] Unified Brief Error: {e}", "SYSTEM")
+    gc.collect()
 
 def job_global_brief():
     """Auto-generates the Global Threat Brief every 1 hour."""
@@ -317,6 +324,7 @@ def job_global_brief():
         log("[OK] Global Threat Brief generated and saved.", "SYSTEM")
     except Exception as e:
         log(f"[ERROR] Global Brief Error: {e}", "SYSTEM")
+    gc.collect()
 
 def job_internal_brief():
     """Auto-generates the Internal Asset Risk Brief every 2 hours."""
@@ -327,11 +335,13 @@ def job_internal_brief():
         log("[OK] Internal Asset Risk Brief generated and saved.", "SYSTEM")
     except Exception as e:
         log(f"[ERROR] Internal Brief Error: {e}", "SYSTEM")
+    gc.collect()
 
 def job_internal_risk():
     """Wrapper to safely execute and log the internal risk calculation."""
     log("[SYSTEM] Generating Internal Risk Snapshot...", "SYSTEM")
     try:
+        from src.services import generate_and_save_internal_risk_snapshot
         cis_data = generate_and_save_internal_risk_snapshot()
         log("[OK] Internal Risk Snapshot generated successfully.", "SYSTEM")
 
@@ -341,6 +351,7 @@ def job_internal_risk():
             check_and_alert(global_risk=None, internal_risk=cis_data.get('risk_level'))
     except Exception as e:
         log(f"[ERROR] Internal Risk Error: {e}", "SYSTEM")
+    gc.collect()
 
 def job_daily_email_unified_brief():
     """Sends the latest Executive Unified Risk Brief via email at 07:00 daily."""
@@ -409,6 +420,7 @@ def run_database_maintenance():
     log("[CLEANUP] Running Master Database Maintenance...", "SYSTEM", logging.DEBUG)
     with SessionLocal() as session:
         try:
+            from src.services import deduplicate_articles
             deduped = deduplicate_articles(session)
             if deduped:
                 log(f"[CLEANUP] De-duplicated {deduped} articles.", "SYSTEM")
@@ -725,6 +737,7 @@ def job_tiered_alert_escalation():
                     for a in undispatched_alerts: a.is_ticketed = True
                     db.commit()
 
+    gc.collect()
 
 # =====================================================================
 # 4. AUTOMATED ML RETRAINING
@@ -733,13 +746,15 @@ def job_tiered_alert_escalation():
 def job_retrain_ml():
     """Automated Weekly ML Retraining Pipeline"""
     global _global_scorer
+    from src.train_model import train
     log("[AI] Initiating weekly ML Model Retraining...", "SYSTEM")
     try:
         train()
         log("[OK] ML Model retrained successfully and saved to disk.", "SYSTEM")
         
         # Hot-Reload the scorer in memory so the new neural weights take effect immediately
-        _global_scorer = get_scorer()
+        _global_scorer = None
+        _ensure_scorer()
         log(" Global NLP Scorer hot-reloaded with fresh model weights.", "SYSTEM")
         
     except Exception as e:

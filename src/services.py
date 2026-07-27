@@ -1,7 +1,6 @@
 import logging
 
 logger = logging.getLogger(__name__)
-import pandas as pd
 import requests
 import bcrypt
 import uuid
@@ -12,7 +11,6 @@ from datetime import datetime, timedelta
 from sqlalchemy import text
 from sqlalchemy.types import Boolean, DateTime
 from zoneinfo import ZoneInfo
-from shapely.geometry import Point, shape
 # Import your DB setup and models
 from src.database import (
     SessionLocal, Article, FeedSource, Keyword, SystemConfig, CveItem,
@@ -165,28 +163,33 @@ def get_cached_geojson():
         
     return spc_d1, spc_d2, spc_d3, ar, oos, usgs_ar, usgs_oos
 
-@TTLCache(ttl=86400, max_entries=1)
+@TTLCache(ttl=3600, max_entries=1)
 def get_ar_counties_mapping():
     """Fetches and caches the official US County boundaries, filtering for Arkansas (FIPS 05)."""
     try:
         url = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json"
-        data = requests.get(url, timeout=10).json()
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+        del resp
         ar_counties = {}
         for f in data.get("features", []):
             if f.get("properties", {}).get("STATE") == "05":
                 name = f["properties"].get("NAME", "").lower()
                 ar_counties[name] = f["geometry"]
+        del data
         return ar_counties
     except Exception as e:
         logger.error("Error fetching county GeoJSON: %s", e)
         return {}
 
-@TTLCache(ttl=86400, max_entries=1)
+@TTLCache(ttl=3600, max_entries=1)
 def get_regional_counties_mapping():
     """Fetches and caches all US county boundaries keyed by 5-digit FIPS code."""
     try:
         url = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json"
-        data = requests.get(url, timeout=10).json()
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+        del resp
         counties = {}
         for f in data.get("features", []):
             props = f.get("properties", {})
@@ -199,6 +202,7 @@ def get_regional_counties_mapping():
                 "geometry": f["geometry"],
                 "name": name,
             }
+        del data
         return counties
     except Exception as e:
         logger.error("Error fetching county GeoJSON: %s", e)
@@ -323,6 +327,7 @@ def get_nws_forecast(lat, lon):
 
 
 def get_filtered_notification_alerts(username, ar_data, oos_data, locs):
+    from shapely.geometry import Point, shape
     """
     Retrieves weather alerts based on user preferences.
     - Arkansas Alerts: Returns ALL alerts matching preferences.
@@ -631,9 +636,9 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
         t24 = datetime.utcnow() - timedelta(hours=24)
         
         # PULLING CYBER TELEMETRY (Articles, ICS, and CVEs)
-        raw_cyber_articles = db.query(Article).filter(Article.published_date >= t24, Article.category.in_(['Cyber: Exploits & Vulns', 'Cyber: Malware & Threats', 'ICS/OT & SCADA', 'Cloud & IT Infra']), Article.score >= 50).order_by(Article.score.desc()).all()
-        raw_ics_articles = db.query(Article).filter(Article.published_date >= t24).order_by(Article.published_date.desc()).all()
-        raw_phys_articles = db.query(Article).filter(Article.published_date >= t24, Article.category.in_(['Physical Security', 'Severe Weather', 'Geopolitics & Policy']), Article.score >= 50).order_by(Article.score.desc()).all()
+        raw_cyber_articles = db.query(Article).filter(Article.published_date >= t24, Article.category.in_(['Cyber: Exploits & Vulns', 'Cyber: Malware & Threats', 'ICS/OT & SCADA', 'Cloud & IT Infra']), Article.score >= 50).order_by(Article.score.desc()).limit(200).all()
+        raw_ics_articles = db.query(Article).filter(Article.published_date >= t24).order_by(Article.published_date.desc()).limit(150).all()
+        raw_phys_articles = db.query(Article).filter(Article.published_date >= t24, Article.category.in_(['Physical Security', 'Severe Weather', 'Geopolitics & Policy']), Article.score >= 50).order_by(Article.score.desc()).limit(100).all()
         
         recent_cves = db.query(CveItem).filter(CveItem.date_added >= t24).all()
 
@@ -904,7 +909,7 @@ def calculate_internal_cis_score(db_session):
     sw_assets = list({sw.name.strip().lower(): sw for sw in sw_assets_raw if sw.name}.values())
     
     thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-    recent_articles = db_session.query(Article).filter(Article.published_date >= thirty_days_ago).all()
+    recent_articles = db_session.query(Article).filter(Article.published_date >= thirty_days_ago).order_by(Article.published_date.desc()).limit(500).all()
     recent_cves = db_session.query(CveItem).order_by(CveItem.date_added.desc()).limit(300).all()
 
     # ==========================================
@@ -2073,6 +2078,7 @@ def _hazard_line_color(fill):
 
 
 def process_nws_alerts(data, selected_events, is_oos=False):
+    from shapely.geometry import shape
     map_diagnostics = []
     warn_geo = {"type": "FeatureCollection", "features": []}
     watch_geo = {"type": "FeatureCollection", "features": []}
@@ -2194,6 +2200,8 @@ def _get_eq_severity(mag):
     return "Minor"
 
 def calculate_site_intersections(map_df, master_polygons):
+    import pandas as pd
+    from shapely.geometry import Point
     toggled_affected_sites, master_affected_sites = [], []
     if map_df.empty or not master_polygons: return toggled_affected_sites, master_affected_sites
 
@@ -2242,6 +2250,7 @@ def calculate_site_intersections(map_df, master_polygons):
     return toggled_affected_sites, master_affected_sites
 
 def get_infrastructure_analytics(map_df, master_affected_sites):
+    import pandas as pd
     """Generates real-time analytics by reading the live geospatial intersection array."""
     payload = {
         "total_sites": len(map_df),
@@ -3441,10 +3450,9 @@ def build_aiops_map_layers(alerts, locs):
     view_state = pdk.ViewState(latitude=34.8, longitude=-92.2, zoom=6.0, pitch=0)
     return layers, view_state
 
-@TTLCache(ttl=120)
+@TTLCache(ttl=120, max_entries=4)
 def _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, selected_events_tuple, map_df):
     """Heavy Math Engine: Parses JSON, builds Shapely objects, and calculates all intersections ONCE."""
-    import pandas as pd
     from shapely.geometry import Point, shape
     from datetime import datetime
     

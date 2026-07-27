@@ -5,6 +5,7 @@ import math
 import random
 import time
 import hashlib
+from collections import OrderedDict
 from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
@@ -12,7 +13,35 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 from src.core.db import SessionLocal
 from src.models.schema import CrimeIncident
 
-GEO_CACHE = {}
+_GEO_CACHE_MAX = 500
+_geo_cache_store = OrderedDict()
+_geo_cache_hits = 0
+_geo_cache_misses = 0
+
+
+class _GeoCacheProxy:
+    """LRU-bounded proxy for the geocode cache to prevent unbounded memory growth."""
+    __slots__ = ()
+
+    def __contains__(self, key):
+        return key in _geo_cache_store
+
+    def __getitem__(self, key):
+        _geo_cache_store.move_to_end(key)
+        return _geo_cache_store[key]
+
+    def __setitem__(self, key, value):
+        if key in _geo_cache_store:
+            _geo_cache_store.move_to_end(key)
+        _geo_cache_store[key] = value
+        if len(_geo_cache_store) > _GEO_CACHE_MAX:
+            _geo_cache_store.popitem(last=False)
+
+    def __len__(self):
+        return len(_geo_cache_store)
+
+
+GEO_CACHE = _GeoCacheProxy()
 
 
 def calculate_distance(lat1, lon1, lat2, lon2):

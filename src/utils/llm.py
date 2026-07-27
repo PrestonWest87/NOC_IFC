@@ -908,7 +908,7 @@ def generate_global_threat_brief(session, progress_callback=None):
     all_cyber = session.query(Article).filter(
         Article.published_date >= t24,
         Article.score >= 50,
-    ).order_by(Article.score.desc()).all()
+    ).order_by(Article.score.desc()).limit(250).all()
     logger.debug("generate_global_threat_brief: found %d articles in last 24h (score>=50)", len(all_cyber))
 
     if progress_callback:
