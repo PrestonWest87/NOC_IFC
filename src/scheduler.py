@@ -239,7 +239,7 @@ def fetch_feeds(source="Scheduled"):
         known_links = {link[0] for link in known_links_query}
 
         # Phase 1: Download everything concurrently
-        results = asyncio.run(fetch_all_feeds_chunked(feed_data, chunk_size=5))
+        results = asyncio.run(fetch_all_feeds_chunked(feed_data, chunk_size=10))
         total_added = 0
 
         # Phase 2: Sequential Processing
@@ -762,16 +762,16 @@ if __name__ == "__main__":
     # 2. Map the Schedules to Threaded Wrappers
     schedule.every().sunday.at("02:00").do(run_threaded, job_retrain_ml)
     schedule.every(60).minutes.do(run_threaded, run_database_maintenance)
-    schedule.every(30).minutes.do(run_threaded, job_unified_brief)
-    schedule.every(1).hours.do(run_threaded, job_global_brief)
-    schedule.every(2).hours.do(run_threaded, job_internal_brief)
-    schedule.every(15).minutes.do(run_threaded, fetch_feeds)
-    schedule.every(3).minutes.do(run_threaded, fetch_live_crimes)
+    schedule.every(6).hours.do(run_threaded, job_unified_brief)
+    schedule.every().day.at("02:00").do(run_threaded, job_global_brief)
+    schedule.every(3).hours.do(run_threaded, job_internal_brief)
+    schedule.every(5).minutes.do(run_threaded, fetch_feeds)
+    schedule.every(10).minutes.do(run_threaded, fetch_live_crimes)
     schedule.every(6).hours.do(run_threaded, fetch_cisa_kev)
     schedule.every(1).hours.do(run_threaded, job_internal_risk)
     
     # High-Priority / High-Churn Telemetry
-    schedule.every(2).minutes.do(run_threaded, fetch_regional_hazards)
+    schedule.every(5).minutes.do(run_threaded, fetch_regional_hazards)
     schedule.every(5).minutes.do(run_threaded, fetch_cloud_outages)
     schedule.every(5).minutes.do(run_threaded, run_telemetry_sync)
     schedule.every(1).minutes.do(run_threaded, job_tiered_alert_escalation)
