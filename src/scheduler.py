@@ -27,6 +27,13 @@ try:
 except ImportError:
     HAS_TRAFILATURA = False
     logging.getLogger(__name__).warning("trafilatura not installed — full article content fetching disabled")
+
+import urllib3
+_orig_create_pool = urllib3.PoolManager.__init__
+def _patched_pool_init(self, *a, **kw):
+    _orig_create_pool(self, *a, **kw)
+    self.connection_pool_kw.setdefault("maxsize", 3)
+urllib3.PoolManager.__init__ = _patched_pool_init
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 from datetime import datetime, timedelta
@@ -153,8 +160,8 @@ def parse_and_score_feed(f_name, content, known_links):
                     results[idx] = content_text
             return results
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            batch_size = 5
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            batch_size = 2
             for start in range(0, len(urls_to_fetch), batch_size):
                 batch = urls_to_fetch[start:start + batch_size]
                 futures = [executor.submit(_fetch_batch, [b]) for b in batch]
@@ -241,7 +248,7 @@ def fetch_feeds(source="Scheduled"):
         known_links = {link[0] for link in known_links_query}
 
         # Phase 1: Download everything concurrently
-        results = asyncio.run(fetch_all_feeds_chunked(feed_data, chunk_size=10))
+        results = asyncio.run(fetch_all_feeds_chunked(feed_data, chunk_size=5))
         total_added = 0
 
         # Phase 2: Sequential Processing
