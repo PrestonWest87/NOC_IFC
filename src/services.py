@@ -300,6 +300,31 @@ def set_site_maintenance(site_name, is_maint, etr_date, reason, modified_by=None
     get_cached_locations.clear()
 
 
+def auto_clear_expired_maintenance():
+    """Clear maintenance status on sites whose ETR date has passed. Returns list of cleared site names."""
+    from src.database import SessionLocal, MonitoredLocation
+    now = datetime.utcnow()
+    cleared = []
+    with SessionLocal() as db:
+        sites = db.query(MonitoredLocation).filter(
+            MonitoredLocation.under_maintenance == True,
+            MonitoredLocation.maintenance_etr.isnot(None),
+            MonitoredLocation.maintenance_etr <= now
+        ).all()
+        for loc in sites:
+            loc.under_maintenance = False
+            loc.maintenance_etr = None
+            loc.maintenance_reason = None
+            loc.status_modified_by = "System (ETR Expired)"
+            loc.status_modified_at = now
+            cleared.append(loc.name)
+        if cleared:
+            db.commit()
+    if cleared:
+        get_cached_locations.clear()
+    return cleared
+
+
 @TTLCache(ttl=3600) # Cache forecasts for 1 hour to prevent rate limiting
 def get_nws_forecast(lat, lon):
     """Fetches the 7-day forecast for a specific coordinate using the NWS API."""

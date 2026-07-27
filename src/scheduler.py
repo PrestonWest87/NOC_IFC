@@ -467,6 +467,24 @@ def run_database_maintenance():
 
 
 # =====================================================================
+# 2b. AUTO-CLEAR EXPIRED MAINTENANCE
+# =====================================================================
+
+def job_clear_expired_maintenance():
+    """Clear maintenance status on sites whose ETR has passed, broadcast update to AIOps page."""
+    from src.services import auto_clear_expired_maintenance
+    cleared = auto_clear_expired_maintenance()
+    if cleared:
+        log(f"[MAINT] Auto-cleared expired maintenance for: {', '.join(cleared)}", "SYSTEM")
+        try:
+            from src.api.main import manager
+            import asyncio
+            asyncio.run(manager.broadcast_json({"type": "RCA_UPDATE"}))
+        except Exception:
+            pass
+
+
+# =====================================================================
 # 3. TIERED ALERT ESCALATION (24/7 RCA Ticketing)
 # =====================================================================
 
@@ -790,6 +808,7 @@ if __name__ == "__main__":
     
     # Tier 2: High-frequency data collection — staggered to avoid pile-ups
     schedule.every(5).minutes.do(run_threaded, fetch_feeds)
+    schedule.every(5).minutes.do(run_threaded, job_clear_expired_maintenance)
     schedule.every(6).minutes.do(run_threaded, run_telemetry_sync)
     schedule.every(7).minutes.do(run_threaded, fetch_regional_hazards)
     schedule.every(8).minutes.do(run_threaded, fetch_cloud_outages)
@@ -821,6 +840,7 @@ if __name__ == "__main__":
     # 3. Asynchronous Boot Sequence (Does not block the container from finishing startup)
     boot_jobs = [
     job_tiered_alert_escalation,
+    job_clear_expired_maintenance,
     fetch_cisa_kev, 
     fetch_regional_hazards, 
     fetch_cloud_outages, 
