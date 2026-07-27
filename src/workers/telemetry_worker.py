@@ -48,7 +48,7 @@ def fetch_ornl_odin_power():
                             radius_km=est_radius, is_resolved=False
                         ))
                 session.commit()
-                logger.info("ODIN Power Grid sync complete.")
+                logger.debug("ODIN Power Grid sync complete.")
         except Exception as e:
             session.rollback()
             logger.error(f"ODIN fetch failed: {e}")
@@ -82,7 +82,7 @@ def fetch_bgp_anomalies():
                                 is_resolved=False
                             ))
             session.commit()
-            logger.info("RIPE BGP Telemetry sync complete.")
+            logger.debug("RIPE BGP Telemetry sync complete.")
         except Exception as e:
             session.rollback()
             logger.error(f"BGP fetch failed: {e}")
@@ -127,7 +127,7 @@ def fetch_ioda_isp_outages():
                             ))
 
             session.commit()
-            logger.info(f"IODA ISP sync complete. Found {total_alerts} active alerts.")
+            logger.debug(f"IODA ISP sync complete. Found {total_alerts} active alerts.")
         except Exception as e:
             session.rollback()
             logger.error(f"IODA ISP fetch failed: {e}")
@@ -137,7 +137,7 @@ def run_telemetry_sync():
     fetch_ornl_odin_power()
     fetch_bgp_anomalies()
     fetch_ioda_isp_outages()
-    logger.info("Multi-Domain Telemetry Sync Complete.")
+    logger.debug("Multi-Domain Telemetry Sync Complete.")
 
 
 if __name__ == "__main__":

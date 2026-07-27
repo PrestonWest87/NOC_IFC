@@ -9,7 +9,7 @@ CISA_KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_v
 def fetch_cisa_kev():
     import logging
     logger = logging.getLogger(__name__)
-    logger.info("Fetching latest CISA KEV catalog...")
+    logger.debug("Fetching latest CISA KEV catalog...")
 
     try:
         response = requests.get(CISA_KEV_URL, timeout=30)

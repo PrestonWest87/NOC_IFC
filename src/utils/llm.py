@@ -93,7 +93,7 @@ def _query_ollama_context_window(endpoint: str, model: str) -> int | None:
             if key in info:
                 val = int(info[key])
                 _ollama_ctx_cache[cache_key] = val
-                logger.info("Ollama /api/show: model=%s context_length=%d (key=%s)", model, val, key)
+                logger.debug("Ollama /api/show: model=%s context_length=%d (key=%s)", model, val, key)
                 return val
         logger.warning("Ollama /api/show: no known context_length key in model_info for %s", model)
     except requests.ConnectionError:
@@ -195,7 +195,7 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
             progress_callback(idx + 1, total_chunks, total_items, idx * effective_chunk)
 
         context = "\n".join([formatter_func(x) for x in chunk])
-        logger.info("_map_reduce_summarize: chunk %d/%d, items=%d, context_length=%d", idx + 1, total_chunks, len(chunk), len(context))
+        logger.debug("_map_reduce_summarize: chunk %d/%d, items=%d, context_length=%d", idx + 1, total_chunks, len(chunk), len(context))
 
         import time
         chunk_start = time.time()
@@ -208,7 +208,7 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
         if resp and "[WARN]" not in resp:
             stripped = resp.strip()
             if skip_noise_filter:
-                logger.info("_map_reduce_summarize: chunk %d/%d OK in %.1fs, response_length=%d", idx + 1, total_chunks, chunk_elapsed, len(resp))
+                logger.debug("_map_reduce_summarize: chunk %d/%d OK in %.1fs, response_length=%d", idx + 1, total_chunks, chunk_elapsed, len(resp))
                 batch_summaries.append(resp)
             else:
                 no_threat_patterns = [
@@ -226,9 +226,9 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
                     r'i\s+can\s+provide\s+a\s+general',
                 ]
                 if any(re.search(pat, stripped, re.IGNORECASE) for pat in no_threat_patterns):
-                    logger.info("_map_reduce_summarize: chunk %d/%d returned no-threat noise — skipping", idx + 1, total_chunks)
+                    logger.debug("_map_reduce_summarize: chunk %d/%d returned no-threat noise — skipping", idx + 1, total_chunks)
                 else:
-                    logger.info("_map_reduce_summarize: chunk %d/%d OK in %.1fs, response_length=%d", idx + 1, total_chunks, chunk_elapsed, len(resp))
+                    logger.debug("_map_reduce_summarize: chunk %d/%d OK in %.1fs, response_length=%d", idx + 1, total_chunks, chunk_elapsed, len(resp))
                     batch_summaries.append(resp)
         else:
             logger.error("_map_reduce_summarize: chunk %d/%d FAILED in %.1fs: %s", idx + 1, total_chunks, chunk_elapsed, (resp[:300] if resp else "empty"))
@@ -238,14 +238,14 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
         return "AI failed to process batch."
 
     if skip_reduce:
-        logger.info("_map_reduce_summarize: skip_reduce=True, returning %d map outputs (total %d chars)", len(batch_summaries), sum(len(s) for s in batch_summaries))
+        logger.debug("_map_reduce_summarize: skip_reduce=True, returning %d map outputs (total %d chars)", len(batch_summaries), sum(len(s) for s in batch_summaries))
         return batch_summaries
 
     if len(batch_summaries) > 1:
         if progress_callback:
             progress_callback(total_chunks, total_chunks, total_items, total_items)
         final_context = "\n\n".join(batch_summaries)
-        logger.info("_map_reduce_summarize: reduce step, summaries=%d, final_context_length=%d", len(batch_summaries), len(final_context))
+        logger.debug("_map_reduce_summarize: reduce step, summaries=%d, final_context_length=%d", len(batch_summaries), len(final_context))
         reduce_start = time.time()
         reduce_resp = call_llm([
             {"role": "system", "content": reduce_prompt},
@@ -253,12 +253,12 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
         ], config, temperature=reduce_temperature)
         reduce_elapsed = time.time() - reduce_start
         if reduce_resp and "[WARN]" not in reduce_resp:
-            logger.info("_map_reduce_summarize: reduce OK in %.1fs, response_length=%d", reduce_elapsed, len(reduce_resp))
+            logger.debug("_map_reduce_summarize: reduce OK in %.1fs, response_length=%d", reduce_elapsed, len(reduce_resp))
         else:
             logger.error("_map_reduce_summarize: reduce FAILED in %.1fs: %s", reduce_elapsed, (reduce_resp[:300] if reduce_resp else "empty"))
         return reduce_resp
     else:
-        logger.info("_map_reduce_summarize: single chunk, skipping reduce step")
+        logger.debug("_map_reduce_summarize: single chunk, skipping reduce step")
         return batch_summaries[0]
 
 def generate_bluf(article, session):
@@ -316,7 +316,7 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot, progre
     global_risk = global_intel.get('unified_risk', 'UNKNOWN')
     internal_risk = internal_snapshot.risk_level if internal_snapshot else 'NONE'
 
-    logger.info("generate_unified_risk_brief: global_risk=%s internal_risk=%s", global_risk, internal_risk)
+    logger.debug("generate_unified_risk_brief: global_risk=%s internal_risk=%s", global_risk, internal_risk)
 
     if progress_callback:
         progress_callback(stage="gathering", message="Gathering threat intelligence data...", percent=0)
@@ -457,7 +457,7 @@ IMPORTANT: If the input contains NO cyber threats, CVEs, threat actors, security
     if progress_callback:
         progress_callback(stage="synthesizing", message="Synthesizing executive brief...", percent=99)
 
-    logger.info("generate_unified_risk_brief: calling LLM with master prompt")
+    logger.debug("generate_unified_risk_brief: calling LLM with master prompt")
     response = call_llm([
         {"role": "system", "content": master_sys_prompt},
         {"role": "user", "content": compiled_intel}
@@ -680,7 +680,7 @@ def _assemble_global_brief_from_maps(map_outputs, phys_map_outputs, config, kev_
                 continue
             all_items.append(text)
 
-    logger.info("_assemble_global_brief_from_maps: extracted %d bullet items from %d map chunks", len(all_items), len(map_outputs))
+    logger.debug("_assemble_global_brief_from_maps: extracted %d bullet items from %d map chunks", len(all_items), len(map_outputs))
 
     classified_items = []
     for text in all_items:
@@ -839,7 +839,7 @@ def _assemble_global_brief_from_maps(map_outputs, phys_map_outputs, config, kev_
         report_parts.append("No significant weather hazards or perimeter crimes reported in the last 24 hours.")
 
     main_report = '\n'.join(report_parts)
-    logger.info("_assemble_global_brief_from_maps: assembled %d chars from %d items, %d sectors, %d actors, %d CVEs, US=%d Global=%d",
+    logger.debug("_assemble_global_brief_from_maps: assembled %d chars from %d items, %d sectors, %d actors, %d CVEs, US=%d Global=%d",
                 len(main_report), total, sector_count, actor_count, cve_count, us_count, global_count)
 
     if config:
@@ -871,7 +871,7 @@ Do NOT use colors. Be direct and specific. One paragraph only, no headers."""
             report_parts_with_bluf = [f"## Executive Summary (BLUF)\n{bluf_response.strip()}\n"]
             report_parts_with_bluf.extend(report_parts[1:])
             main_report = '\n'.join(report_parts_with_bluf)
-            logger.info("_assemble_global_brief_from_maps: BLUF generated, final report %d chars", len(main_report))
+            logger.debug("_assemble_global_brief_from_maps: BLUF generated, final report %d chars", len(main_report))
         else:
             logger.warning("_assemble_global_brief_from_maps: BLUF LLM call failed, using template summary")
 
@@ -892,7 +892,7 @@ def generate_global_threat_brief(session, progress_callback=None):
         return "AI is currently disabled in settings."
 
     ctx = get_effective_context_window(config)
-    logger.info("generate_global_threat_brief: starting generation (context_window=%d)", ctx)
+    logger.debug("generate_global_threat_brief: starting generation (context_window=%d)", ctx)
     if progress_callback:
         progress_callback(stage="gathering", message="Gathering threat intelligence...", percent=0)
 
@@ -909,7 +909,7 @@ def generate_global_threat_brief(session, progress_callback=None):
         Article.published_date >= t24,
         Article.score >= 50,
     ).order_by(Article.score.desc()).all()
-    logger.info("generate_global_threat_brief: found %d articles in last 24h (score>=50)", len(all_cyber))
+    logger.debug("generate_global_threat_brief: found %d articles in last 24h (score>=50)", len(all_cyber))
 
     if progress_callback:
         progress_callback(stage="filtering", message="Filtering articles for relevance...", percent=1)
@@ -934,7 +934,7 @@ def generate_global_threat_brief(session, progress_callback=None):
         else:
             non_ci_articles.append(art)
 
-    logger.info("generate_global_threat_brief: %d CI-relevant, %d non-CI", len(ci_relevant), len(non_ci_articles))
+    logger.debug("generate_global_threat_brief: %d CI-relevant, %d non-CI", len(ci_relevant), len(non_ci_articles))
 
     apt_keywords = [
         "apt", "apt1", "apt28", "apt29", "apt38", "lazarus", "cozy bear", "fancy bear",
@@ -981,7 +981,7 @@ def generate_global_threat_brief(session, progress_callback=None):
                 global_articles.append(art)
             seen_ids.add(art.id)
 
-    logger.info("generate_global_threat_brief: US=%d Global=%d", len(us_articles), len(global_articles))
+    logger.debug("generate_global_threat_brief: US=%d Global=%d", len(us_articles), len(global_articles))
 
     max_summary = 400 if ctx < 4000 else 800
     max_content = 600 if ctx < 4000 else 1200
@@ -1063,11 +1063,11 @@ Include EVERY bullet point from the input. Do not summarize, skip, or deduplicat
         return "Brief generation failed during intelligence processing."
 
     if isinstance(cyber_map_outputs, str):
-        logger.info("generate_global_threat_brief: cyber map returned single output (%d chars)", len(cyber_map_outputs))
+        logger.debug("generate_global_threat_brief: cyber map returned single output (%d chars)", len(cyber_map_outputs))
         cyber_map_outputs = [cyber_map_outputs]
     else:
         total_cyber_chars = sum(len(s) for s in cyber_map_outputs)
-        logger.info("generate_global_threat_brief: cyber map completed, %d chunks, %d total chars", len(cyber_map_outputs), total_cyber_chars)
+        logger.debug("generate_global_threat_brief: cyber map completed, %d chunks, %d total chars", len(cyber_map_outputs), total_cyber_chars)
 
     consolidated_hazards = _consolidate_hazards(active_hazards)
     phys_payload = []
@@ -1109,7 +1109,7 @@ IMPORTANT: If multiple items describe the same type of hazard (e.g., multiple "E
         )
         if isinstance(phys_map_outputs, str):
             phys_map_outputs = [phys_map_outputs]
-        logger.info("generate_global_threat_brief: physical map completed, %d chunks", len(phys_map_outputs) if phys_map_outputs else 0)
+        logger.debug("generate_global_threat_brief: physical map completed, %d chunks", len(phys_map_outputs) if phys_map_outputs else 0)
     else:
         phys_map_outputs = ["No hazards or perimeter crimes reported."]
 
@@ -1145,7 +1145,7 @@ def generate_internal_risk_brief(session, internal_snapshot, progress_callback=N
         logger.warning("generate_internal_risk_brief: AI is disabled, skipping")
         return "AI is currently disabled in settings."
 
-    logger.info("generate_internal_risk_brief: starting generation")
+    logger.debug("generate_internal_risk_brief: starting generation")
     if progress_callback:
         progress_callback(stage="gathering", message="Gathering internal asset intelligence...", percent=0)
 
@@ -1323,9 +1323,9 @@ REQUIRED STRUCTURE:
     if progress_callback:
         progress_callback(stage="synthesizing", message="Synthesizing internal risk brief...", percent=92)
 
-    logger.info("generate_internal_risk_brief: calling LLM with master prompt")
-    logger.info("generate_internal_risk_brief: master_prompt_length=%d correlation_digest_length=%d", len(master_sys_prompt), len(correlation_digest))
-    logger.info("generate_internal_risk_brief: combined payload total=%d chars", len(master_sys_prompt) + len(correlation_digest))
+    logger.debug("generate_internal_risk_brief: calling LLM with master prompt")
+    logger.debug("generate_internal_risk_brief: master_prompt_length=%d correlation_digest_length=%d", len(master_sys_prompt), len(correlation_digest))
+    logger.debug("generate_internal_risk_brief: combined payload total=%d chars", len(master_sys_prompt) + len(correlation_digest))
 
     import time
     synthesis_start = time.time()
@@ -1359,7 +1359,7 @@ REQUIRED STRUCTURE:
 
 def generate_aggregated_shift_summary(session, logs, timeframe_label, target_role="All"):
     config = get_llm_config(session)
-    logger.info("generate_aggregated_shift_summary: config_found=%s logs_count=%d timeframe=%s role=%s",
+    logger.debug("generate_aggregated_shift_summary: config_found=%s logs_count=%d timeframe=%s role=%s",
                 config is not None, len(logs) if logs else 0, timeframe_label, target_role)
     if not config:
         logger.warning("generate_aggregated_shift_summary: AI is disabled")
@@ -1372,13 +1372,13 @@ def generate_aggregated_shift_summary(session, logs, timeframe_label, target_rol
     map_p = f"You are a log analyst for the '{target_role.upper()}' team. Read these shift log entries and extract factual records of: incidents detected, actions taken, tickets dispatched, escalations, and any ongoing issues. Output concise bullet points — do not praise or characterize the work quality, just report what happened."
     reduce_p = "Combine these extractions into a single chronological digest of events. Preserve all concrete facts: timestamps, asset names, ticket numbers, outage durations, and resolution actions. Do not add commentary about performance or team effectiveness."
 
-    logger.info("generate_aggregated_shift_summary: running map-reduce on %d logs (chunk_size=20)", len(logs))
+    logger.debug("generate_aggregated_shift_summary: running map-reduce on %d logs (chunk_size=20)", len(logs))
     log_digest = _map_reduce_summarize(
         logs,
         lambda l: f"[{(l.created_at.replace(tzinfo=ZoneInfo('UTC')).astimezone(LOCAL_TZ) if l.created_at else 'Unknown')}] {l.analyst}: {l.content}",
         map_p, reduce_p, config, chunk_size=20
     )
-    logger.info("generate_aggregated_shift_summary: map-reduce digest_length=%d", len(log_digest) if log_digest else 0)
+    logger.debug("generate_aggregated_shift_summary: map-reduce digest_length=%d", len(log_digest) if log_digest else 0)
 
     master_sys_prompt = f"""You are a NOC shift log summarizer generating a factual summary for the {target_role.upper()} team for '{timeframe_label}'.
 
@@ -1397,7 +1397,7 @@ def generate_aggregated_shift_summary(session, logs, timeframe_label, target_rol
 
     Stick strictly to what is in the logs. Do not infer events not recorded. Do not add praise or subjective assessment."""
 
-    logger.info("generate_aggregated_shift_summary: calling final LLM for master summary")
+    logger.debug("generate_aggregated_shift_summary: calling final LLM for master summary")
     response = call_llm([
         {"role": "system", "content": master_sys_prompt},
         {"role": "user", "content": f"--- LOG DIGEST ---\n{log_digest}"}
@@ -1541,7 +1541,7 @@ def build_custom_intel_report(articles, objective, session, progress_callback=No
 
 def generate_rolling_summary(session):
     config = get_llm_config(session)
-    logger.info("generate_rolling_summary: config_found=%s", config is not None)
+    logger.debug("generate_rolling_summary: config_found=%s", config is not None)
     if not config:
         logger.warning("generate_rolling_summary: AI is disabled")
         return None
@@ -1551,7 +1551,7 @@ def generate_rolling_summary(session):
     arts = session.query(Article).filter(Article.published_date >= six_hours_ago, Article.score >= 50).order_by(Article.score.desc()).limit(10).all()
     hazards = session.query(RegionalHazard).filter(RegionalHazard.updated_at >= six_hours_ago).limit(10).all()
     clouds = session.query(CloudOutage).filter(CloudOutage.updated_at >= six_hours_ago).limit(10).all()
-    logger.info("generate_rolling_summary: articles=%d hazards=%d clouds=%d", len(arts), len(hazards), len(clouds))
+    logger.debug("generate_rolling_summary: articles=%d hazards=%d clouds=%d", len(arts), len(hazards), len(clouds))
 
     context = "--- CYBER THREATS ---\n"
     context += "\n".join([f"- {a.title}" for a in arts]) if arts else "None."
@@ -1565,7 +1565,7 @@ def generate_rolling_summary(session):
     Highlight any converging threats or severe degradations. Do NOT just list the items; weave them into an authoritative narrative.
     End with a single bolded sentence assessing the overall 'Grid Status' (e.g., **Grid Status: Nominal**, **Grid Status: Elevated Risk due to X**)."""
 
-    logger.info("generate_rolling_summary: calling LLM")
+    logger.debug("generate_rolling_summary: calling LLM")
     response = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": context}], config, temperature=0.2)
     if response and "[WARN]" not in response:
         logger.info("generate_rolling_summary: success, response_length=%d", len(response))
@@ -1577,7 +1577,7 @@ def generate_dynamic_scoring_report(session, intel):
     from datetime import datetime, timedelta
 
     config = get_llm_config(session)
-    logger.info("generate_dynamic_scoring_report: config_found=%s", config is not None)
+    logger.debug("generate_dynamic_scoring_report: config_found=%s", config is not None)
     if not config:
         logger.warning("generate_dynamic_scoring_report: AI is disabled")
         return None
@@ -1585,14 +1585,14 @@ def generate_dynamic_scoring_report(session, intel):
     t48 = datetime.utcnow() - timedelta(hours=48)
     arts = intel.get('raw_cyber_articles', []) + intel.get('raw_phys_articles', [])
     crimes = intel.get('recent_crimes', [])
-    logger.info("generate_dynamic_scoring_report: arts=%d crimes=%d unified_risk=%s",
+    logger.debug("generate_dynamic_scoring_report: arts=%d crimes=%d unified_risk=%s",
                 len(arts), len(crimes), intel.get('unified_risk', 'UNKNOWN'))
 
     recent_cves = session.query(CveItem).filter(CveItem.date_added >= t48).limit(15).all()
-    logger.info("generate_dynamic_scoring_report: recent_cves=%d", len(recent_cves))
+    logger.debug("generate_dynamic_scoring_report: recent_cves=%d", len(recent_cves))
 
     if not arts and not crimes and not recent_cves:
-        logger.info("generate_dynamic_scoring_report: no intel to brief")
+        logger.debug("generate_dynamic_scoring_report: no intel to brief")
         return "No active intelligence to brief at this time."
 
     if arts:
@@ -1630,7 +1630,7 @@ def generate_dynamic_scoring_report(session, intel):
 
     Be expansive, professional, highly readable, and authoritative."""
 
-    logger.info("generate_dynamic_scoring_report: calling LLM with master prompt")
+    logger.debug("generate_dynamic_scoring_report: calling LLM with master prompt")
     response = call_llm([
         {"role": "system", "content": master_sys_prompt},
         {"role": "user", "content": compiled_intel}

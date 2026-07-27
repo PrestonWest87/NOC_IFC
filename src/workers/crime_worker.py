@@ -59,7 +59,7 @@ def geocode_address_arcgis(address, hq_lat, hq_lon, region="Little Rock, AR"):
 def fetch_live_crimes():
     import logging
     logger = logging.getLogger(__name__)
-    logger.info("Polling LR Dispatches...")
+    logger.debug("Polling LR Dispatches...")
     api_url = "https://web.littlerock.state.ar.us/pub/Home/CadEvents"
 
     try:
@@ -138,7 +138,7 @@ def fetch_live_crimes():
 
             db.query(CrimeIncident).filter(CrimeIncident.timestamp < seven_days_ago).delete()
             db.commit()
-            logger.info(f"{added_count} new LR dispatches mapped.")
+            logger.debug(f"{added_count} new LR dispatches mapped.")
 
             if added_count > 0:
                 from src.services import dispatch_perimeter_crime_alerts

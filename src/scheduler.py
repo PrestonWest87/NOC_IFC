@@ -48,9 +48,11 @@ init_db()
 
 logger = logging.getLogger(__name__)
 
-def log(message, source="SYSTEM"):
+def log(message, source="SYSTEM", level=None):
     """Log timestamped messages formatted for Docker log capture."""
-    logger.info("[%s] %s", source.upper(), message)
+    if level is None:
+        level = logging.INFO
+    logger.log(level, "[%s] %s", source.upper(), message)
 
 # --- PRE-LOAD SCORER FOR EFFICIENCY ---
 from src.services.logic import get_scorer
@@ -226,7 +228,7 @@ def bulk_save_to_db(db_session, arts_data):
 def fetch_feeds(source="Scheduled"):
     """Main entry point for scheduled RSS feed fetching and scoring."""
     import gc
-    log("[WORKER] Starting feed fetch cycle...", source)
+    log("[WORKER] Starting feed fetch cycle...", source, logging.DEBUG)
 
     with SessionLocal() as main_session:
         sources = main_session.query(FeedSource).filter(FeedSource.is_active == True).all()
@@ -248,7 +250,7 @@ def fetch_feeds(source="Scheduled"):
                 _, extracted_arts = parse_and_score_feed(f_name, content, known_links)
                 if extracted_arts:
                     added = bulk_save_to_db(main_session, extracted_arts)
-                    if added > 0: log(f"[OK] {f_name}: Saved {added} new articles.", "WORKER")
+                    if added > 0: log(f"[OK] {f_name}: Saved {added} new articles.", "WORKER", logging.DEBUG)
                     total_added += added
 
                 time.sleep(0.1)
@@ -260,7 +262,7 @@ def fetch_feeds(source="Scheduled"):
     with SessionLocal() as dedup_session:
         deduped = deduplicate_articles(dedup_session)
         if deduped:
-            log(f"[CLEANUP] De-duplicated {deduped} articles after feed fetch.", "WORKER")
+            log(f"[CLEANUP] De-duplicated {deduped} articles after feed fetch.", "WORKER", logging.DEBUG)
     main_session.close()
 
     gc.collect()
@@ -397,7 +399,7 @@ def job_daily_email_unified_brief():
 # =====================================================================
 
 def run_database_maintenance():
-    log("[CLEANUP] Running Master Database Maintenance...", "SYSTEM")
+    log("[CLEANUP] Running Master Database Maintenance...", "SYSTEM", logging.DEBUG)
     with SessionLocal() as session:
         try:
             deduped = deduplicate_articles(session)
@@ -473,7 +475,7 @@ def job_tiered_alert_escalation():
         dt_local = dt_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(local_tz)
         return (0 <= dt_local.weekday() <= 4) and (6 <= dt_local.hour < 20)
 
-    log("[SYSTEM] 24/7 RCA Ticketing & Escalation Manager Active...", "SYSTEM")
+    log("[SYSTEM] 24/7 RCA Ticketing & Escalation Manager Active...", "SYSTEM", logging.DEBUG)
     cutoff_time = now_utc - timedelta(hours=12)
 
     # --- 1. EMAIL DISPATCH DESTINATIONS (Strict .env Pull) ---
@@ -482,10 +484,10 @@ def job_tiered_alert_escalation():
     NOC_ONPAGE_EMAIL = os.environ.get("NOC_ONPAGE_EMAIL")
     ITNETWORK_ONPAGE_EMAIL = os.environ.get("ITNETWORK_ONPAGE_EMAIL")
 
-    log(f"[ENV] REMEDYFORCE_TICKET_EMAIL={'SET' if TICKET_EMAIL else 'MISSING'}", "SYSTEM")
-    log(f"[ENV] NOC_NOTIFY_EMAIL={'SET' if NOTIFY_EMAIL else 'MISSING'}", "SYSTEM")
-    log(f"[ENV] NOC_ONPAGE_EMAIL={'SET' if NOC_ONPAGE_EMAIL else 'MISSING'}", "SYSTEM")
-    log(f"[ENV] ITNETWORK_ONPAGE_EMAIL={'SET' if ITNETWORK_ONPAGE_EMAIL else 'MISSING'}", "SYSTEM")
+    log(f"[ENV] REMEDYFORCE_TICKET_EMAIL={'SET' if TICKET_EMAIL else 'MISSING'}", "SYSTEM", logging.DEBUG)
+    log(f"[ENV] NOC_NOTIFY_EMAIL={'SET' if NOTIFY_EMAIL else 'MISSING'}", "SYSTEM", logging.DEBUG)
+    log(f"[ENV] NOC_ONPAGE_EMAIL={'SET' if NOC_ONPAGE_EMAIL else 'MISSING'}", "SYSTEM", logging.DEBUG)
+    log(f"[ENV] ITNETWORK_ONPAGE_EMAIL={'SET' if ITNETWORK_ONPAGE_EMAIL else 'MISSING'}", "SYSTEM", logging.DEBUG)
 
     if not TICKET_EMAIL:
         log("[ERROR] REMEDYFORCE_TICKET_EMAIL missing from environment. Aborting run.", "SYSTEM")
@@ -661,13 +663,13 @@ def job_tiered_alert_escalation():
                 dispatch_success = False
 
                 ticket_body = f"Automated Comms Outage\n*** {prefix} ***\n" + base_body
-                log(f"[DISPATCH] Sending ticket email for {site} to {TICKET_EMAIL}", "SYSTEM")
+                log(f"[DISPATCH] Sending ticket email for {site} to {TICKET_EMAIL}", "SYSTEM", logging.DEBUG)
                 t_success, t_msg = send_alert_email(
                     f"{'CASCADE ' if is_cascade else ''}TICKET: {target_tier.upper()} Incident at {site}",
                     ticket_body, recipient_override=TICKET_EMAIL, is_html=False
                 )
                 if t_success:
-                    log(f"[TICKET OK] Ticket sent for {site}", "SYSTEM")
+                    log(f"[TICKET OK] Ticket sent for {site}", "SYSTEM", logging.DEBUG)
                     dispatch_success = True
                 else:
                     log(f"[TICKET FAILED] SMTP Error for {site}: {t_msg}", "SYSTEM")
@@ -675,14 +677,14 @@ def job_tiered_alert_escalation():
                 if not alert_is_day:
 
                     if NOTIFY_EMAIL:
-                        log(f"[DISPATCH] Sending NOC notification for {site} to {NOTIFY_EMAIL}", "SYSTEM")
+                        log(f"[DISPATCH] Sending NOC notification for {site} to {NOTIFY_EMAIL}", "SYSTEM", logging.DEBUG)
                         n_success, n_msg = send_alert_email(
                             f"NOC NOTIFICATION {'(CASCADE) ' if is_cascade else ''}: {target_tier.upper()} Incident at {site}",
                             f"*** NOC NOTIFICATION {'ESCALATION ' if is_cascade else ''}***\n" + base_body,
                             recipient_override=NOTIFY_EMAIL, is_html=False
                         )
                         if n_success:
-                            log(f"[NOTIFY OK] Notification sent for {site}", "SYSTEM")
+                            log(f"[NOTIFY OK] Notification sent for {site}", "SYSTEM", logging.DEBUG)
                             dispatch_success = True
                         else:
                             log(f"[NOTIFY FAILED] SMTP Error for {site}: {n_msg}", "SYSTEM")
@@ -696,14 +698,14 @@ def job_tiered_alert_escalation():
                             onpage_title = "ITNETWORK"
 
                         if target_onpage_email:
-                            log(f"[DISPATCH] Sending {onpage_title} ONPAGE for {site} to {target_onpage_email}", "SYSTEM")
+                            log(f"[DISPATCH] Sending {onpage_title} ONPAGE for {site} to {target_onpage_email}", "SYSTEM", logging.DEBUG)
                             o_success, o_msg = send_alert_email(
                                 f"URGENT {onpage_title} ONPAGE {'CASCADE ' if is_cascade else ''}: {target_tier.upper()} Incident at {site}",
                                 f"*** URGENT {onpage_title} ONPAGE {'ESCALATION ' if is_cascade else ''}***\n" + base_body,
                                 recipient_override=target_onpage_email, is_html=False
                             )
                             if o_success:
-                                log(f"[ONPAGE OK] {onpage_title} onpage sent for {site}", "SYSTEM")
+                                log(f"[ONPAGE OK] {onpage_title} onpage sent for {site}", "SYSTEM", logging.DEBUG)
                                 dispatch_success = True
                                 if loc: loc.last_escalation_ticket = now_utc
                             else:
@@ -712,7 +714,7 @@ def job_tiered_alert_escalation():
                             log(f"[SKIP] {onpage_title} ONPAGE email not configured for {site}", "SYSTEM")
 
                 if dispatch_success:
-                    log(f"[SUCCESS] Fully Ticketed {target_tier.upper()} cluster for {site}", "SYSTEM")
+                    log(f"[SUCCESS] Fully Ticketed {target_tier.upper()} cluster for {site}", "SYSTEM", logging.DEBUG)
                     for a in undispatched_alerts: a.is_ticketed = True
                     db.commit()
 

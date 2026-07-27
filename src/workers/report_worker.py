@@ -41,7 +41,7 @@ def run_daily_report():
 
 
 def start_report_scheduler():
-    logger.info("Online. Standing by for 06:00 AM CST...")
+    logger.debug("Online. Standing by for 06:00 AM CST...")
     while True:
         now_cst = datetime.now(LOCAL_TZ)
         if now_cst.hour == 6 and now_cst.minute < 10:

@@ -1,4 +1,5 @@
 import sys
+import os
 import logging
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
@@ -29,7 +30,10 @@ CRIME_ALERT_EMAIL = settings.crime_alert_email
 RISK_ALERT_RECIPIENTS = settings.risk_alert_recipients
 
 
-def setup_logging(level=logging.INFO):
+def setup_logging(level=None):
+    if level is None:
+        level_name = os.environ.get("LOG_LEVEL", "WARNING").upper()
+        level = getattr(logging, level_name, logging.WARNING)
     logging.basicConfig(
         level=level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",

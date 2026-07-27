@@ -29,7 +29,7 @@ def fetch_spc_outlooks():
         "spc_day3": "https://www.spc.noaa.gov/products/outlook/day3otlk_cat.nolyr.geojson"
     }
 
-    logger.info("fetch_spc_outlooks: fetching %d SPC outlooks", len(SPC_URLS))
+    logger.debug("fetch_spc_outlooks: fetching %d SPC outlooks", len(SPC_URLS))
     with SessionLocal() as session:
         try:
             headers = {'User-Agent': 'Mozilla/5.0 (NOC_Fusion_Center)'}
@@ -38,7 +38,7 @@ def fetch_spc_outlooks():
                 response = requests.get(url, headers=headers, timeout=15)
                 if response.status_code == 200:
                     save_geojson_to_db(session, feed_name, response.json())
-                    logger.info(f"Downloaded and cached {feed_name} GeoJSON to DB.")
+                    logger.debug(f"Downloaded and cached {feed_name} GeoJSON to DB.")
                 else:
                     logger.error(f"Failed to fetch {feed_name}. HTTP {response.status_code}")
             session.commit()
@@ -48,7 +48,7 @@ def fetch_spc_outlooks():
 
 
 def fetch_nws_alerts_for_region(area_str, feed_name):
-    logger.info("fetch_nws_alerts_for_region: area=%s feed=%s", area_str, feed_name)
+    logger.debug("fetch_nws_alerts_for_region: area=%s feed=%s", area_str, feed_name)
     with SessionLocal() as session:
         try:
             url = f"https://api.weather.gov/alerts/active?area={area_str}"
@@ -84,7 +84,7 @@ def fetch_nws_alerts_for_region(area_str, feed_name):
                         added += 1
 
                 session.commit()
-                logger.info(f"NWS ({area_str}) Sync complete. Added {added}, updated {updated}.")
+                logger.debug(f"NWS ({area_str}) Sync complete. Added {added}, updated {updated}.")
             else:
                 logger.error(f"NWS API returned HTTP {response.status_code} for {area_str}")
 
@@ -120,7 +120,7 @@ def fetch_usgs_earthquakes(area_key, feed_name):
                 save_geojson_to_db(session, feed_name, data)
                 session.commit()
                 count = len(data.get('features', []))
-                logger.info(f"USGS ({area_key}) Fetched {count} earthquakes.")
+                logger.debug(f"USGS ({area_key}) Fetched {count} earthquakes.")
             else:
                 logger.error(f"USGS API returned HTTP {response.status_code} for {area_key}")
 
