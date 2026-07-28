@@ -184,6 +184,7 @@ export function SettingsPage() {
   });
 
   useEffect(() => {
+    if (tab === "profile") return;
     if (allowedSettingsTabs.length > 0 && !allowedSettingsTabs.includes(tab)) {
       setTab(allowedSettingsTabs[0]);
     }
