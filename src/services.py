@@ -301,11 +301,13 @@ def set_site_maintenance(site_name, is_maint, etr_date, reason, modified_by=None
 
 
 def auto_clear_expired_maintenance():
-    """Clear maintenance status on sites whose ETR date has passed. Returns list of cleared site names."""
+    """Clear maintenance status after 11:59 PM Central on the ETR date. Returns list of cleared site names."""
     from src.database import SessionLocal, MonitoredLocation
-    from datetime import date, datetime
-    today = date.today()
-    now = datetime.utcnow()
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    ct = ZoneInfo("America/Chicago")
+    now_ct = datetime.now(ct)
+    now_utc = datetime.utcnow()
     cleared = []
     with SessionLocal() as db:
         sites = db.query(MonitoredLocation).filter(
@@ -313,13 +315,17 @@ def auto_clear_expired_maintenance():
             MonitoredLocation.maintenance_etr.isnot(None),
         ).all()
         for loc in sites:
-            etr_date = loc.maintenance_etr.date() if hasattr(loc.maintenance_etr, 'date') else loc.maintenance_etr
-            if etr_date and etr_date <= today:
+            etr = loc.maintenance_etr
+            etr_date = etr.date() if hasattr(etr, 'date') else etr
+            if not etr_date:
+                continue
+            etr_end_of_day = datetime(etr_date.year, etr_date.month, etr_date.day, 23, 59, 59, tzinfo=ct)
+            if now_ct > etr_end_of_day:
                 loc.under_maintenance = False
                 loc.maintenance_etr = None
                 loc.maintenance_reason = None
                 loc.status_modified_by = "System (ETR Expired)"
-                loc.status_modified_at = now
+                loc.status_modified_at = now_utc
                 cleared.append(loc.name)
         if cleared:
             db.commit()
