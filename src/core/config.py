@@ -32,7 +32,7 @@ RISK_ALERT_RECIPIENTS = settings.risk_alert_recipients
 
 def setup_logging(level=None):
     if level is None:
-        level_name = os.environ.get("LOG_LEVEL", "WARNING").upper()
+        level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
         level = getattr(logging, level_name, logging.WARNING)
     logging.basicConfig(
         level=level,

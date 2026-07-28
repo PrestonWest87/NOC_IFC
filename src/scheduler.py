@@ -52,6 +52,17 @@ def log(message, source="SYSTEM", level=None):
         level = logging.INFO
     logger.log(level, "[%s] %s", source.upper(), message)
 
+def log_memory_usage(tag=""):
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    rss = line.strip().split()[1]
+                    log(f"[{tag}] RSS: {rss} kB", "MEMORY", logging.INFO)
+                    break
+    except Exception as e:
+        log(f"memory check failed: {e}", "MEMORY", logging.WARNING)
+
 # --- Lazy-load scorer on first use ---
 _global_scorer = None
 
@@ -777,7 +788,16 @@ def run_threaded(job_func, *args, **kwargs):
     """
     def _throttled():
         with _job_semaphore:
-            job_func(*args, **kwargs)
+            job_name = getattr(job_func, "__name__", str(job_func))
+            log_memory_usage(f"pre-{job_name}")
+            try:
+                job_func(*args, **kwargs)
+            except Exception as e:
+                log(f"[CRASH] Job {job_name} failed: {e}", "WORKER", logging.ERROR)
+                import traceback
+                log(f"[CRASH] Traceback: {traceback.format_exc()}", "WORKER", logging.ERROR)
+            finally:
+                log_memory_usage(f"post-{job_name}")
     job_thread = threading.Thread(target=_throttled, daemon=True)
     job_thread.start()
 
@@ -794,6 +814,7 @@ if __name__ == "__main__":
     
     # Tier 1: Must be responsive (1 min)
     schedule.every(1).minutes.do(run_threaded, job_tiered_alert_escalation)
+    schedule.every(5).minutes.do(log_memory_usage, "periodic")
     
     # Tier 2: High-frequency data collection — staggered to avoid pile-ups
     schedule.every(5).minutes.do(run_threaded, fetch_feeds)
@@ -842,7 +863,12 @@ if __name__ == "__main__":
     # 4. Master Event Loop
     try:
         while True:
-            schedule.run_pending()
+            try:
+                schedule.run_pending()
+            except Exception as e:
+                log(f"[CRASH] Main loop error: {e}", "WORKER", logging.ERROR)
+                import traceback
+                log(f"[CRASH] Traceback: {traceback.format_exc()}", "WORKER", logging.ERROR)
             time.sleep(1)
     except KeyboardInterrupt:
         log("[STOP] Orchestrator shutting down gracefully...", "SYSTEM")

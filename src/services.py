@@ -450,7 +450,7 @@ def get_role_permissions(role_name):
             "allowed_actions": [
                 "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score",
                 "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
-                "Action: Submit Shift Log", "Action: Dispatch RCA Tickets", "Action: Manage Site Maintenance",
+                "Action: Submit Shift Log", "Action: Dispatch RCA Tickets", "Action: Acknowledge RCA Alerts", "Action: Manage Site Maintenance",
                 "Tab: Dashboards -> Operational", "Tab: Dashboards -> Global Risk", "Tab: Dashboards -> Internal Risk", "Tab: Dashboards -> Unified Brief",
                 "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV",
                 "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",

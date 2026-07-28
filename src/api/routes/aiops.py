@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 
 from src.core.db import get_db
@@ -48,16 +48,22 @@ def get_sites(db: Session = Depends(get_db)):
     ]
 
 
-@router.patch("/sites/{site_id}/acknowledge")
-def acknowledge_site(site_id: int, token: str = Query(""), db: Session = Depends(get_db)):
-    logger.info("PATCH /aiops/sites/%d/acknowledge", site_id)
+def _require_acknowledge(token: str = Query("")):
     user = svc.get_user_by_token(token)
-    username = user.username if user else "unknown"
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    if "Action: Acknowledge RCA Alerts" not in (user.allowed_actions or []):
+        raise HTTPException(403, "Missing permission: Action: Acknowledge RCA Alerts")
+    return user
+
+@router.patch("/sites/{site_id}/acknowledge")
+def acknowledge_site(site_id: int, user=Depends(_require_acknowledge), db: Session = Depends(get_db)):
+    logger.info("PATCH /aiops/sites/%d/acknowledge by %s", site_id, user.username)
     from src.models.schema import SolarWindsAlert
     alerts = db.query(SolarWindsAlert).filter(
         SolarWindsAlert.is_correlated == False,
         SolarWindsAlert.status != "Resolved",
     ).all()
-    svc.acknowledge_cluster([a.id for a in alerts], username=username)
-    logger.info("PATCH /aiops/sites/%d/acknowledge: acknowledged %d alerts by %s", site_id, len(alerts), username)
+    svc.acknowledge_cluster([a.id for a in alerts], username=user.username)
+    logger.info("PATCH /aiops/sites/%d/acknowledge: acknowledged %d alerts by %s", site_id, len(alerts), user.username)
     return {"status": "acknowledged"}

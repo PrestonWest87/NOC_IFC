@@ -72,6 +72,7 @@ export function AiopsRcaPage() {
   const allowedRcaTabs = getAllowedTabs(user?.allowed_actions, "aiopsRca");
   const userActions = user?.allowed_actions ?? [];
   const canDispatch = userActions.includes("Action: Dispatch RCA Tickets");
+  const canAcknowledge = userActions.includes("Action: Acknowledge RCA Alerts");
   const canManageMaint = userActions.includes("Action: Manage Site Maintenance");
   const RCA_TAB_LABELS = ["Active Board", "Patterns", "Global"];
   const [activeTab, setActiveTab] = useState(0);
@@ -988,20 +989,22 @@ export function AiopsRcaPage() {
                       </button>
                     )}
 
-                    <button
-                      style={{
-                        ...btnBase,
-                        background: isAcking ? "var(--bg-tertiary)" : "var(--accent-green)",
-                        color: isAcking ? "var(--text-muted)" : "#fff",
-                        opacity: isAcking ? 0.6 : 1,
-                        cursor: isAcking ? "not-allowed" : "pointer",
-                      }}
-                      disabled={isAcking}
-                      onClick={() => handleAcknowledge(site)}
-                    >
-                      <CheckCircle size={14} />
-                      {isAcking ? "Acknowledging..." : `Acknowledge Incident & Clear Board (${site})`}
-                    </button>
+                    {canAcknowledge && (
+                      <button
+                        style={{
+                          ...btnBase,
+                          background: isAcking ? "var(--bg-tertiary)" : "var(--accent-green)",
+                          color: isAcking ? "var(--text-muted)" : "#fff",
+                          opacity: isAcking ? 0.6 : 1,
+                          cursor: isAcking ? "not-allowed" : "pointer",
+                        }}
+                        disabled={isAcking}
+                        onClick={() => handleAcknowledge(site)}
+                      >
+                        <CheckCircle size={14} />
+                        {isAcking ? "Acknowledging..." : `Acknowledge Incident & Clear Board (${site})`}
+                      </button>
+                    )}
 
                     {canManageMaint && (
                       <button

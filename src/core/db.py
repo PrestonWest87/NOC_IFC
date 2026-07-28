@@ -1,10 +1,9 @@
 import time
 import random
 import logging
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
-from sqlalchemy import text
 from src.models import Base
 from src.core.config import DATABASE_URL
 
@@ -17,16 +16,29 @@ engine = create_engine(
 )
 
 
-@event.listens_for(engine, "connect")
-def set_sqlite_pragma(dbapi_connection, connection_record):
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA synchronous=NORMAL")
-    cursor.execute("PRAGMA cache_size=-16000")
-    cursor.execute("PRAGMA temp_store=MEMORY")
-    cursor.execute("PRAGMA mmap_size=67108864")
-    cursor.close()
+def _set_sqlite_pragmas():
+    """Set WAL mode and performance pragmas once at startup.
+    WAL mode persists in the DB file header, so subsequent connections
+    don't need to re-set it. Runs with retry to handle concurrent
+    container startup races."""
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        try:
+            conn = engine.connect()
+            conn.execute(text("PRAGMA journal_mode=WAL"))
+            conn.execute(text("PRAGMA synchronous=NORMAL"))
+            conn.execute(text("PRAGMA cache_size=-16000"))
+            conn.execute(text("PRAGMA temp_store=MEMORY"))
+            conn.execute(text("PRAGMA mmap_size=67108864"))
+            conn.close()
+            return
+        except Exception as e:
+            wait = 0.5 * (attempt + 1)
+            logger.warning("PRAGMA setup attempt %d/%d failed: %s. retrying in %.1fs...", attempt+1, max_attempts, e, wait)
+            time.sleep(wait)
+    logger.warning("PRAGMA setup failed after %d attempts — WAL mode may already be active from another process.", max_attempts)
 
+_set_sqlite_pragmas()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -245,7 +257,7 @@ def init_db():
         all_actions = [
             "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score",
             "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
-            "Action: Submit Shift Log", "Action: Dispatch RCA Tickets", "Action: Manage Site Maintenance",
+            "Action: Submit Shift Log", "Action: Dispatch RCA Tickets", "Action: Acknowledge RCA Alerts", "Action: Manage Site Maintenance",
             "Tab: Dashboards -> Operational", "Tab: Dashboards -> Global Risk", "Tab: Dashboards -> Internal Risk", "Tab: Dashboards -> Unified Brief",
             "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV",
             "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",

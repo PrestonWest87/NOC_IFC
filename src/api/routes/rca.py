@@ -93,11 +93,9 @@ def analyze():
 
 # UPDATE: Add BackgroundTasks to force live-sync on Acknowledgements
 @router.post("/acknowledge")
-def acknowledge(background_tasks: BackgroundTasks, alert_ids: list[int] = Body([]), token: str = Query("")):
+def acknowledge(background_tasks: BackgroundTasks, alert_ids: list[int] = Body([]), user=Depends(require_action("Action: Acknowledge RCA Alerts"))):
     logger.info("POST /rca/acknowledge alert_ids=%s", alert_ids)
-    user = svc.get_user_by_token(token)
-    username = user.username if user else "unknown"
-    svc.acknowledge_cluster(alert_ids, username=username)
+    svc.acknowledge_cluster(alert_ids, username=user.username)
     
     from src.api.main import manager
     background_tasks.add_task(manager.broadcast_json, {"type": "RCA_UPDATE"})
