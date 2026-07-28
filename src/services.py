@@ -611,7 +611,7 @@ def get_recent_crimes(max_distance=None, grid_only=False, hours_back=168):
         crimes = query.order_by(CrimeIncident.timestamp.desc()).all()
         return [{
             "id": c.id, "category": c.category, "raw_title": c.raw_title,
-            "timestamp": format_central(c.timestamp),
+            "timestamp": c.timestamp.isoformat() + "Z" if c.timestamp else None,
             "distance_miles": c.distance_miles, "severity": c.severity,
             "lat": c.lat, "lon": c.lon
         } for c in crimes]

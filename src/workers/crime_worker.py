@@ -6,7 +6,8 @@ import random
 import time
 import hashlib
 from collections import OrderedDict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
@@ -97,7 +98,8 @@ def fetch_live_crimes():
         data = response.json()
 
         hq_lat, hq_lon = 34.6755, -92.3235
-        seven_days_ago = datetime.now() - timedelta(hours=168)
+        central = ZoneInfo("America/Chicago")
+        seven_days_ago_utc = (datetime.now(timezone.utc) - timedelta(hours=168)).replace(tzinfo=None)
 
         with SessionLocal() as db:
             batch = []
@@ -112,8 +114,9 @@ def fetch_live_crimes():
                     raw_date = entry.get("dispatchDate", "")
 
                     if not raw_date: continue
-                    incident_date = datetime.strptime(raw_date, "%m/%d/%Y %H:%M:%S")
-                    if incident_date < seven_days_ago: continue
+                    incident_date_central = datetime.strptime(raw_date, "%m/%d/%Y %H:%M:%S")
+                    incident_date = incident_date_central.replace(tzinfo=central).astimezone(timezone.utc).replace(tzinfo=None)
+                    if incident_date < seven_days_ago_utc: continue
 
                     incident_lat, incident_lon, is_approx = geocode_address_arcgis(location, hq_lat, hq_lon)
                     distance = calculate_distance(hq_lat, hq_lon, incident_lat, incident_lon)
@@ -165,7 +168,7 @@ def fetch_live_crimes():
                         added_count += 1
                 db.commit()
 
-            db.query(CrimeIncident).filter(CrimeIncident.timestamp < seven_days_ago).delete()
+            db.query(CrimeIncident).filter(CrimeIncident.timestamp < seven_days_ago_utc).delete()
             db.commit()
             logger.debug(f"{added_count} new LR dispatches mapped.")
 
