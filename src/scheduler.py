@@ -276,44 +276,6 @@ def fetch_feeds(source="Scheduled"):
         deduped = deduplicate_articles(dedup_session)
         if deduped:
             log(f"[CLEANUP] De-duplicated {deduped} articles after feed fetch.", "WORKER", logging.DEBUG)
-    main_session.close()
-
-    gc.collect()
-
-def job_unified_brief():
-    """Auto-generates the Unified Risk Brief every 30 minutes."""
-    log("[AI] Generating Executive Unified Risk Brief...", "SYSTEM")
-    try:
-        from src.utils.llm import generate_unified_risk_brief
-        from src.services import get_executive_grid_intel, get_recent_crimes, save_global_config
-        from src.database import InternalRiskSnapshot, RegionalHazard
-
-        # Gather local telemetry
-        with SessionLocal() as session:
-            latest_internal = session.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
-            active_nws = session.query(RegionalHazard).count()
-
-        # Gather global telemetry
-        crime_data = get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
-        global_intel = get_executive_grid_intel(active_nws, crime_data)
-
-        # Fire AI and Save
-        with SessionLocal() as session:
-            brief_text = generate_unified_risk_brief(session, global_intel, latest_internal)
-
-        if brief_text and "AI is currently disabled" not in brief_text:
-            save_global_config({
-                "unified_brief": brief_text,
-                "unified_brief_time": datetime.utcnow()
-            })
-            log("[OK] Unified Risk Brief generated and saved.", "SYSTEM")
-
-            # Check for global risk increase and send alert if needed
-            from src.utils.risk_alert import check_and_alert
-            check_and_alert(global_risk=global_intel.get('unified_risk'), internal_risk=None)
-    except Exception as e:
-        log(f"[ERROR] Unified Brief Error: {e}", "SYSTEM")
-    gc.collect()
 
 def job_global_brief():
     """Auto-generates the Global Threat Brief every 1 hour."""
@@ -324,7 +286,6 @@ def job_global_brief():
         log("[OK] Global Threat Brief generated and saved.", "SYSTEM")
     except Exception as e:
         log(f"[ERROR] Global Brief Error: {e}", "SYSTEM")
-    gc.collect()
 
 def job_internal_brief():
     """Auto-generates the Internal Asset Risk Brief every 2 hours."""
@@ -335,7 +296,6 @@ def job_internal_brief():
         log("[OK] Internal Asset Risk Brief generated and saved.", "SYSTEM")
     except Exception as e:
         log(f"[ERROR] Internal Brief Error: {e}", "SYSTEM")
-    gc.collect()
 
 def job_internal_risk():
     """Wrapper to safely execute and log the internal risk calculation."""
@@ -351,7 +311,6 @@ def job_internal_risk():
             check_and_alert(global_risk=None, internal_risk=cis_data.get('risk_level'))
     except Exception as e:
         log(f"[ERROR] Internal Risk Error: {e}", "SYSTEM")
-    gc.collect()
 
 def job_daily_email_unified_brief():
     """Sends the latest Executive Unified Risk Brief via email at 07:00 daily."""
@@ -420,10 +379,6 @@ def run_database_maintenance():
     log("[CLEANUP] Running Master Database Maintenance...", "SYSTEM", logging.DEBUG)
     with SessionLocal() as session:
         try:
-            from src.services import deduplicate_articles
-            deduped = deduplicate_articles(session)
-            if deduped:
-                log(f"[CLEANUP] De-duplicated {deduped} articles.", "SYSTEM")
             now = datetime.utcnow()
             
             hours_12_ago = now - timedelta(hours=12)
@@ -783,13 +738,17 @@ def job_retrain_ml():
 # 4. THE THREADED MASTER ORCHESTRATOR
 # =====================================================================
 
+_job_semaphore = threading.Semaphore(3)
+
 def run_threaded(job_func, *args, **kwargs):
     """
-    Runs scheduled jobs in a separate background thread. 
-    This prevents slow APIs from blocking the master schedule loop.
+    Runs scheduled jobs in a separate background thread with concurrency guard.
+    Caps parallel jobs at 3 to prevent GIL contention on low-core devices.
     """
-    job_thread = threading.Thread(target=job_func, args=args, kwargs=kwargs)
-    job_thread.daemon = True
+    def _throttled():
+        with _job_semaphore:
+            job_func(*args, **kwargs)
+    job_thread = threading.Thread(target=_throttled, daemon=True)
     job_thread.start()
 
 if __name__ == "__main__":
@@ -836,24 +795,19 @@ if __name__ == "__main__":
         schedule.every().day.at("07:00").do(run_threaded, job_daily_email_unified_brief)
     
     log("[START] Master Orchestrator Online. Firing Boot Sequence...", "SYSTEM")
-    
-    # 3. Asynchronous Boot Sequence (Does not block the container from finishing startup)
-    boot_jobs = [
-    job_tiered_alert_escalation,
-    job_clear_expired_maintenance,
-    fetch_cisa_kev, 
-    fetch_regional_hazards, 
-    fetch_cloud_outages, 
-    run_telemetry_sync, 
-    fetch_live_crimes, 
-    fetch_feeds, 
-    job_internal_risk,   # Ensure this runs first
-    job_unified_brief,   # Add this so the brief generates immediately after internal risk
-    job_global_brief,    # Global threat brief on boot
-    job_internal_brief   # Internal asset risk brief on boot
+
+    # 3. Staggered Boot Sequence — groups of 3 with 30s delays to avoid CPU storm
+    boot_groups = [
+        [job_tiered_alert_escalation, job_clear_expired_maintenance, fetch_feeds],
+        [fetch_cisa_kev, fetch_regional_hazards, fetch_cloud_outages],
+        [run_telemetry_sync, fetch_live_crimes, job_internal_risk],
+        [job_unified_brief, job_global_brief, job_internal_brief],
     ]
-    for job in boot_jobs:
-        run_threaded(job)
+    for i, group in enumerate(boot_groups):
+        for job in group:
+            run_threaded(job)
+        if i < len(boot_groups) - 1:
+            time.sleep(30)
     
     # 4. Master Event Loop
     try:

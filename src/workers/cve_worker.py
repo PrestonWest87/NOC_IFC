@@ -20,25 +20,34 @@ def fetch_cisa_kev():
         added_count = 0
 
         with SessionLocal() as session:
+            # Batch: load all existing CVE IDs into a set (single query)
+            existing_ids = {row[0] for row in session.query(CveItem.cve_id).all()}
+            logger.debug("cve_worker: %d existing CVEs in DB", len(existing_ids))
+
+            batch = []
             for vuln in vulnerabilities:
                 cve_id = vuln.get('cveID')
-                exists = session.query(CveItem).filter_by(cve_id=cve_id).first()
-                if not exists:
-                    date_added_str = vuln.get('dateAdded')
-                    date_added = datetime.strptime(date_added_str, '%Y-%m-%d') if date_added_str else datetime.utcnow()
+                if not cve_id or cve_id in existing_ids:
+                    continue
 
-                    new_cve = CveItem(
-                        cve_id=cve_id,
-                        vendor=vuln.get('vendorProject', 'Unknown'),
-                        product=vuln.get('product', 'Unknown'),
-                        vulnerability_name=vuln.get('vulnerabilityName', 'Unknown'),
-                        date_added=date_added,
-                        description=vuln.get('shortDescription', ''),
-                        required_action=vuln.get('requiredAction', ''),
-                        due_date=vuln.get('dueDate', '')
-                    )
-                    session.add(new_cve)
-                    added_count += 1
+                date_added_str = vuln.get('dateAdded')
+                date_added = datetime.strptime(date_added_str, '%Y-%m-%d') if date_added_str else datetime.utcnow()
+
+                batch.append(CveItem(
+                    cve_id=cve_id,
+                    vendor=vuln.get('vendorProject', 'Unknown'),
+                    product=vuln.get('product', 'Unknown'),
+                    vulnerability_name=vuln.get('vulnerabilityName', 'Unknown'),
+                    date_added=date_added,
+                    description=vuln.get('shortDescription', ''),
+                    required_action=vuln.get('requiredAction', ''),
+                    due_date=vuln.get('dueDate', '')
+                ))
+                existing_ids.add(cve_id)
+
+            if batch:
+                session.add_all(batch)
+                added_count = len(batch)
 
             session.commit()
             logger.info(f"Success! Added {added_count} new exploited vulnerabilities.")

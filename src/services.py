@@ -3703,13 +3703,18 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, usgs_ar_data,
 
 
 def deduplicate_articles(session):
-    """De-duplicate articles by link and similar titles within the past 24 hours."""
+    """De-duplicate articles by link and similar titles within the past 24 hours.
+    
+    Uses bucket pre-filtering to avoid O(n²) SequenceMatcher calls:
+    articles are grouped by (source_domain, hour_bucket, len_bucket) so only
+    articles within the same bucket are compared for similarity.
+    """
     from difflib import SequenceMatcher
 
     removed = 0
     cutoff = datetime.utcnow() - timedelta(hours=24)
 
-    # 1. Exact link duplicates (some may bypass unique constraint under concurrency)
+    # 1. Exact link duplicates
     links = session.query(Article.id, Article.link).filter(
         Article.published_date >= cutoff
     ).all()
@@ -3724,32 +3729,47 @@ def deduplicate_articles(session):
         else:
             seen_links[link] = art_id
 
-    # 2. Title similarity within same source
-    sources = session.query(Article.source).filter(
+    # 2. Title similarity — bucket pre-filter to avoid O(n²)
+    from urllib.parse import urlparse
+    articles = session.query(Article).filter(
         Article.published_date >= cutoff
-    ).distinct().all()
+    ).all()
 
-    for (source,) in sources:
-        articles = session.query(Article).filter(
-            Article.source == source,
-            Article.published_date >= cutoff
-        ).order_by(Article.published_date.asc()).all()
+    # Build buckets: (source_domain, hour_key, length_bucket)
+    buckets = {}
+    for art in articles:
+        t = (art.title or "").lower().strip()
+        if not t:
+            continue
+        try:
+            domain = urlparse(art.link or "").netloc or art.source or ""
+        except Exception:
+            domain = art.source or ""
+        hour_key = (art.published_date or datetime.utcnow()).strftime("%Y%m%d%H")
+        # Length bucket: group titles within 20 chars of each other
+        len_bucket = len(t) // 20
+        key = (domain, hour_key, len_bucket)
+        buckets.setdefault(key, []).append(art)
 
-        for i in range(len(articles)):
-            if articles[i] is None:
+    # Only compare within buckets
+    for bucket_arts in buckets.values():
+        for i in range(len(bucket_arts)):
+            if bucket_arts[i] is None:
                 continue
-            for j in range(i + 1, len(articles)):
-                if articles[j] is None:
+            t1 = (bucket_arts[i].title or "").lower().strip()
+            if not t1:
+                continue
+            for j in range(i + 1, len(bucket_arts)):
+                if bucket_arts[j] is None:
                     continue
-                t1 = (articles[i].title or "").lower().strip()
-                t2 = (articles[j].title or "").lower().strip()
-                if not t1 or not t2:
+                t2 = (bucket_arts[j].title or "").lower().strip()
+                if not t2:
                     continue
                 ratio = SequenceMatcher(None, t1, t2).ratio()
                 if ratio > 0.85:
-                    dup = articles[j]
+                    dup = bucket_arts[j]
                     session.delete(dup)
-                    articles[j] = None
+                    bucket_arts[j] = None
                     removed += 1
 
     if removed:

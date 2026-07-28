@@ -2,6 +2,7 @@ import feedparser
 import requests
 from datetime import datetime, timedelta
 import re
+import concurrent.futures
 from src.core.db import SessionLocal
 from src.models.schema import CloudOutage
 
@@ -44,6 +45,14 @@ FOREIGN_IDENTIFIERS = [
     "paris", "ireland", "sao paulo", "bahrain", "cape town", "hong kong", "dublin"
 ]
 
+_RESOLVED_KEYWORDS = ("[RESOLVED]", "RESOLVED", "OPERATIONAL", "COMPLETED", "MITIGATED")
+_MAINTENANCE_KEYWORDS = ("maintenance", "scheduled", "upcoming", "update")
+_MAINTENANCE_ACTIVE = ("in progress", "started", "currently undergoing")
+_RESOLVED_RE = re.compile(r'\b(' + '|'.join(re.escape(k) for k in FOREIGN_IDENTIFIERS) + r')\b', re.IGNORECASE)
+_US_RE = re.compile(r'\bus-|united states|north america|global|all regions\b', re.IGNORECASE)
+_US_EXTRACT_RE = re.compile(r'us-|united states|north america', re.IGNORECASE)
+_TITLE_SPLIT_RE = re.compile(r'\s*(?: - |: \| |\| )\s*')
+
 
 def is_foreign_region(text):
     text_lower = text.lower()
@@ -67,9 +76,9 @@ def extract_us_regions(text):
 
 def is_future_maintenance(title, description):
     text = (title + " " + description).lower()
-    if not any(k in text for k in ["maintenance", "scheduled", "upcoming", "update"]):
+    if not any(k in text for k in _MAINTENANCE_KEYWORDS):
         return False
-    if any(k in text for k in ["in progress", "started", "currently undergoing"]):
+    if any(k in text for k in _MAINTENANCE_ACTIVE):
         return False
     now = datetime.utcnow()
     today_formats = [
@@ -85,14 +94,27 @@ def is_future_maintenance(title, description):
 
 def extract_service_name(provider, title):
     clean_title = title.replace("[Investigating]", "").replace("[Resolved]", "").replace("[Update]", "").strip()
-    delimiters = [' - ', ': ', ' | ']
-    for delim in delimiters:
-        if delim in clean_title:
-            return clean_title.split(delim)[0].strip()
+    parts = _TITLE_SPLIT_RE.split(clean_title, maxsplit=1)
+    if len(parts) > 1:
+        return parts[0].strip()
     if provider == "AWS": return "AWS Infrastructure"
     if provider == "Google Cloud": return "Google Cloud Platform"
     if provider == "Azure": return "Microsoft Azure"
     return "General/Multiple Services"
+
+
+def _fetch_single_feed(provider_url_pair):
+    """Fetch a single RSS feed. Returns (provider, content, error)."""
+    provider, url = provider_url_pair
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code != 200:
+            return provider, None, f"HTTP {response.status_code}"
+        return provider, response.content, None
+    except requests.Timeout:
+        return provider, None, "timeout"
+    except Exception as e:
+        return provider, None, str(e)
 
 
 def fetch_cloud_outages():
@@ -107,15 +129,24 @@ def fetch_cloud_outages():
     try:
         recent_cutoff = datetime.utcnow() - timedelta(days=7)
 
-        with SessionLocal() as session:
-            for provider, url in CLOUD_FEEDS.items():
-                try:
-                    logger.debug("cloud_worker: fetching %s from %s", provider, url)
-                    response = requests.get(url, timeout=10)
-                    if response.status_code != 200:
-                        raise Exception(f"HTTP {response.status_code}")
+        # Phase 1: Parallel HTTP fetch
+        feed_items = list(CLOUD_FEEDS.items())
+        feed_results = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(_fetch_single_feed, item): item[0] for item in feed_items}
+            for future in concurrent.futures.as_completed(futures):
+                provider, content, error = future.result()
+                if error:
+                    failed_providers.append(provider)
+                    logger.warning("cloud_worker: error fetching %s: %s", provider, error)
+                else:
+                    feed_results[provider] = content
 
-                    feed = feedparser.parse(response.content)
+        # Phase 2: Process feeds sequentially (DB writes)
+        with SessionLocal() as session:
+            for provider, content in feed_results.items():
+                try:
+                    feed = feedparser.parse(content)
                     feed_entries = len(feed.entries)
                     logger.debug("cloud_worker: %s returned %d entries", provider, feed_entries)
 
@@ -135,17 +166,14 @@ def fetch_cloud_outages():
 
                         if is_future_maintenance(title, description):
                             filtered_count += 1
-                            logger.debug("cloud_worker: filtered future maintenance: %s", title[:80])
                             continue
 
                         if is_foreign_region(title + " " + description):
                             filtered_count += 1
-                            logger.debug("cloud_worker: filtered foreign region: %s", title[:80])
                             continue
 
                         text_to_check = (title + " " + description).upper()
-                        resolved_keywords = ["[RESOLVED]", "RESOLVED", "OPERATIONAL", "COMPLETED", "MITIGATED"]
-                        is_resolved = any(kw in text_to_check for kw in resolved_keywords)
+                        is_resolved = any(kw in text_to_check for kw in _RESOLVED_KEYWORDS)
 
                         base_service = extract_service_name(provider, title)
                         us_impact = extract_us_regions(title + " " + description)
@@ -170,21 +198,14 @@ def fetch_cloud_outages():
                             )
                             session.add(new_outage)
                             added_count += 1
-                            logger.debug("cloud_worker: added new outage %s: %s", provider, title[:80])
                         else:
                             if is_resolved and not exists.is_resolved:
                                 exists.is_resolved = True
                                 exists.updated_at = updated_at
                                 resolved_count += 1
-                                logger.debug("cloud_worker: resolved outage %s: %s", provider, title[:80])
 
-                except requests.Timeout:
-                    failed_providers.append(provider)
-                    logger.warning("cloud_worker: timeout fetching %s", provider)
-                    continue
                 except Exception as e:
-                    failed_providers.append(provider)
-                    logger.warning("cloud_worker: error fetching %s: %s", provider, e)
+                    logger.warning("cloud_worker: error processing %s: %s", provider, e)
                     continue
 
             purge_cutoff = datetime.utcnow() - timedelta(days=3)
@@ -200,7 +221,3 @@ def fetch_cloud_outages():
 
     except Exception as e:
         logger.error(f"Critical failure in cloud worker: {e}", exc_info=True)
-
-
-if __name__ == "__main__":
-    fetch_cloud_outages()

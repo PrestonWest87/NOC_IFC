@@ -1,9 +1,9 @@
 import requests
 import uuid
-import gc
 import math
 import json
 import logging
+import concurrent.futures
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from src.core.db import SessionLocal
@@ -30,17 +30,28 @@ def fetch_spc_outlooks():
     }
 
     logger.debug("fetch_spc_outlooks: fetching %d SPC outlooks", len(SPC_URLS))
+    headers = {'User-Agent': 'Mozilla/5.0 (NOC_Fusion_Center)'}
+
+    def _fetch_spc(item):
+        feed_name, url = item
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            if response.status_code == 200:
+                return feed_name, response.json(), None
+            return feed_name, None, f"HTTP {response.status_code}"
+        except Exception as e:
+            return feed_name, None, str(e)
+
     with SessionLocal() as session:
         try:
-            headers = {'User-Agent': 'Mozilla/5.0 (NOC_Fusion_Center)'}
-            for feed_name, url in SPC_URLS.items():
-                logger.debug("fetch_spc_outlooks: fetching %s from %s", feed_name, url)
-                response = requests.get(url, headers=headers, timeout=15)
-                if response.status_code == 200:
-                    save_geojson_to_db(session, feed_name, response.json())
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                results = list(executor.map(_fetch_spc, SPC_URLS.items()))
+            for feed_name, data, error in results:
+                if error:
+                    logger.error(f"Failed to fetch {feed_name}. {error}")
+                elif data:
+                    save_geojson_to_db(session, feed_name, data)
                     logger.debug(f"Downloaded and cached {feed_name} GeoJSON to DB.")
-                else:
-                    logger.error(f"Failed to fetch {feed_name}. HTTP {response.status_code}")
             session.commit()
         except Exception as e:
             session.rollback()
@@ -214,11 +225,20 @@ def check_earthquake_proximity(equake_data, distance_miles=50):
 
 
 def fetch_regional_hazards():
-    fetch_spc_outlooks()
-    fetch_nws_alerts_for_region("AR", "nws_ar")
-    fetch_nws_alerts_for_region("OK,MS,MO", "nws_oos")
-    fetch_usgs_earthquakes("ar", "usgs_ar")
-    fetch_usgs_earthquakes("oos", "usgs_oos")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [
+            executor.submit(fetch_spc_outlooks),
+            executor.submit(fetch_nws_alerts_for_region, "AR", "nws_ar"),
+            executor.submit(fetch_nws_alerts_for_region, "OK,MS,MO", "nws_oos"),
+            executor.submit(fetch_usgs_earthquakes, "ar", "usgs_ar"),
+        ]
+        executor.submit(fetch_usgs_earthquakes, "oos", "usgs_oos")
+
+        for f in concurrent.futures.as_completed(futures):
+            try:
+                f.result()
+            except Exception as e:
+                logger.error("infra_worker: parallel fetch error: %s", e)
 
     with SessionLocal() as db:
         usgs_ar = db.query(GeoJsonCache).filter_by(feed_name="usgs_ar").first()
@@ -227,8 +247,6 @@ def fetch_regional_hazards():
             check_earthquake_proximity(usgs_ar.data, 50)
         if usgs_oos and usgs_oos.data:
             check_earthquake_proximity(usgs_oos.data, 50)
-
-    gc.collect()
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ urllib3_cn.HAS_IPV6 = False
 
 import time
 import logging
+import concurrent.futures
 from datetime import datetime
 from src.core.db import SessionLocal
 from src.models.schema import RegionalOutage, BgpAnomaly, SystemConfig
@@ -134,9 +135,17 @@ def fetch_ioda_isp_outages():
 
 
 def run_telemetry_sync():
-    fetch_ornl_odin_power()
-    fetch_bgp_anomalies()
-    fetch_ioda_isp_outages()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        futures = [
+            executor.submit(fetch_ornl_odin_power),
+            executor.submit(fetch_bgp_anomalies),
+            executor.submit(fetch_ioda_isp_outages),
+        ]
+        for f in concurrent.futures.as_completed(futures):
+            try:
+                f.result()
+            except Exception as e:
+                logger.error("telemetry_worker: parallel fetch error: %s", e)
     logger.debug("Multi-Domain Telemetry Sync Complete.")
 
 
