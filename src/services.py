@@ -1280,6 +1280,12 @@ def generate_and_save_internal_risk_snapshot():
         db_session.add(snapshot)
         db_session.commit()
 
+        # 4. Keep SystemConfig mirror in sync so email/alert paths read live value
+        config = db_session.query(SystemConfig).first()
+        if config:
+            config.last_internal_risk = cis_data['risk_level']
+            db_session.commit()
+
     return cis_data
 
 import re
@@ -1292,7 +1298,8 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
             if not global_risk:
                 global_risk = (config.last_global_risk or "UNKNOWN").upper()
             if not internal_risk:
-                internal_risk = (config.last_internal_risk or "UNKNOWN").upper()
+                latest_internal = session.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
+                internal_risk = (latest_internal.risk_level if latest_internal else "UNKNOWN").upper()
         finally:
             session.close()
     else:
@@ -1463,7 +1470,8 @@ def generate_global_brief_email_html(report_time, markdown_content, global_risk=
             if not global_risk:
                 global_risk = (config.last_global_risk or "UNKNOWN").upper()
             if not internal_risk:
-                internal_risk = (config.last_internal_risk or "UNKNOWN").upper()
+                latest_internal = session.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
+                internal_risk = (latest_internal.risk_level if latest_internal else "UNKNOWN").upper()
         finally:
             session.close()
     else:
@@ -1618,7 +1626,8 @@ def generate_internal_brief_email_html(report_time, markdown_content, global_ris
             if not global_risk:
                 global_risk = (config.last_global_risk or "UNKNOWN").upper()
             if not internal_risk:
-                internal_risk = (config.last_internal_risk or "UNKNOWN").upper()
+                latest_internal = session.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
+                internal_risk = (latest_internal.risk_level if latest_internal else "UNKNOWN").upper()
         finally:
             session.close()
     else:

@@ -38,6 +38,7 @@ def broadcast_brief(req: BroadcastBriefRequest):
         return {"status": "error", "message": "No recipient email specified."}
 
     from src.services import get_cached_config, generate_unified_brief_email_html
+    from src.database import SessionLocal, InternalRiskSnapshot
     from src.utils.mailer import send_alert_email
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -50,7 +51,9 @@ def broadcast_brief(req: BroadcastBriefRequest):
 
     brief_time = datetime.now(ZoneInfo("America/Chicago")).strftime("%A, %B %d, %Y at %I:%M %p %Z")
     global_risk = config.get("last_global_risk", "UNKNOWN")
-    internal_risk = config.get("last_internal_risk", "UNKNOWN")
+    with SessionLocal() as db:
+        latest_internal = db.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
+    internal_risk = latest_internal.risk_level if latest_internal else config.get("last_internal_risk", "UNKNOWN")
 
     formatted_html = generate_unified_brief_email_html(
         brief_time, brief,
@@ -73,6 +76,7 @@ def broadcast_global_brief(req: BroadcastBriefRequest):
         return {"status": "error", "message": "No recipient email specified."}
 
     from src.services import get_cached_config, generate_global_brief_email_html
+    from src.database import SessionLocal, InternalRiskSnapshot
     from src.utils.mailer import send_alert_email
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -85,7 +89,9 @@ def broadcast_global_brief(req: BroadcastBriefRequest):
 
     brief_time = datetime.now(ZoneInfo("America/Chicago")).strftime("%A, %B %d, %Y at %I:%M %p %Z")
     global_risk = config.get("last_global_risk", "UNKNOWN")
-    internal_risk = config.get("last_internal_risk", "UNKNOWN")
+    with SessionLocal() as db:
+        latest_internal = db.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
+    internal_risk = latest_internal.risk_level if latest_internal else config.get("last_internal_risk", "UNKNOWN")
 
     formatted_html = generate_global_brief_email_html(
         brief_time, brief,
@@ -108,6 +114,7 @@ def broadcast_internal_brief(req: BroadcastBriefRequest):
         return {"status": "error", "message": "No recipient email specified."}
 
     from src.services import get_cached_config, generate_internal_brief_email_html
+    from src.database import SessionLocal, InternalRiskSnapshot
     from src.utils.mailer import send_alert_email
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -120,7 +127,9 @@ def broadcast_internal_brief(req: BroadcastBriefRequest):
 
     brief_time = datetime.now(ZoneInfo("America/Chicago")).strftime("%A, %B %d, %Y at %I:%M %p %Z")
     global_risk = config.get("last_global_risk", "UNKNOWN")
-    internal_risk = config.get("last_internal_risk", "UNKNOWN")
+    with SessionLocal() as db:
+        latest_internal = db.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
+    internal_risk = latest_internal.risk_level if latest_internal else config.get("last_internal_risk", "UNKNOWN")
 
     formatted_html = generate_internal_brief_email_html(
         brief_time, brief,
