@@ -14,6 +14,7 @@ import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { formatInChicago, chicagoDateString } from "../utils/timezone";
 import { getAllowedTabs } from "../utils/permissions";
+import { MarkdownContent } from "../components/MarkdownContent";
 
 const RISK_COLORS: Record<string, string> = {
   GREEN: "#28a745", BLUE: "#007bff", YELLOW: "#ffc107",
@@ -1250,11 +1251,8 @@ export function DashboardPage() {
                   <Clock size={12} style={{ verticalAlign: "middle", marginRight: "0.25rem" }} />
                   Last Auto-Generated: {sysConfig.global_brief_time ? formatInChicago(sysConfig.global_brief_time) : "Unknown"}
                 </div>
-                <div style={{
-                  fontSize: "0.85rem", lineHeight: 1.7, whiteSpace: "pre-wrap",
-                  color: "var(--text-primary, #1e293b)",
-                }}>
-                  {sysConfig.global_brief}
+                <div style={{ fontSize: "0.85rem", color: "var(--text-primary, #1e293b)" }}>
+                  <MarkdownContent content={sysConfig.global_brief} />
                 </div>
               </div>
 

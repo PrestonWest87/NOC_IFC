@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import api from "../utils/api";
+import { MarkdownContent } from "../components/MarkdownContent";
 import { useAuth } from "../utils/AuthContext";
 import { getAllowedTabs } from "../utils/permissions";
 import { formatDateInChicago, chicagoDateString } from "../utils/timezone";
@@ -544,11 +545,10 @@ function DeepHuntTab() {
           <div style={{
             background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)",
             padding: "1.25rem", fontSize: "0.85rem", lineHeight: 1.7,
-            color: "var(--text-primary)", whiteSpace: "pre-wrap",
-            fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace",
-            maxHeight: 600, overflow: "auto",
-          }}>
-            {detectionPackage}
+             color: "var(--text-primary)",
+             maxHeight: 600, overflow: "auto",
+           }}>
+             <MarkdownContent content={detectionPackage} />
           </div>
         </div>
       )}

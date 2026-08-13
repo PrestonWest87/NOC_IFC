@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../utils/api";
+import { MarkdownContent } from "../components/MarkdownContent";
 import { useAuth } from "../utils/AuthContext";
 import { formatInChicago, formatTimeInChicago, chicagoDateString } from "../utils/timezone";
 import {
@@ -612,8 +613,8 @@ export function ShiftLogbookPage() {
               </button>
             </div>
             {summaryResult && (
-              <div style={{ background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", padding: "0.75rem", fontSize: "0.78rem", color: "var(--text-primary)", maxHeight: "300px", overflow: "auto", whiteSpace: "pre-wrap", lineHeight: 1.5, marginTop: "0.5rem" }}>
-                {summaryResult}
+               <div style={{ background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", padding: "0.75rem", fontSize: "0.78rem", color: "var(--text-primary)", maxHeight: "300px", overflow: "auto", lineHeight: 1.5, marginTop: "0.5rem" }}>
+                 <MarkdownContent content={summaryResult} />
               </div>
             )}
           </div>

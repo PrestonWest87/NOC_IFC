@@ -21,6 +21,12 @@ class BroadcastRequest(BaseModel):
     recipients: str = ""
 
 
+class BroadcastCustomRequest(BaseModel):
+    title: str = "NOC Custom Intel Report"
+    content: str = ""
+    recipients: str = ""
+
+
 class SaveReportRequest(BaseModel):
     title: str = "Untitled Report"
     author: str = "Unknown"
@@ -87,6 +93,30 @@ def broadcast_report(data: BroadcastRequest):
         is_html=True,
     )
     logger.info("POST /reporting/broadcast success=%s msg=%s", success, msg)
+    return {"status": "ok" if success else "error", "message": msg}
+
+
+@router.post("/broadcast-custom")
+def broadcast_custom_report(data: BroadcastCustomRequest):
+    logger.info("POST /reporting/broadcast-custom title=%s recipients=%s", data.title, data.recipients)
+    if not data.recipients.strip():
+        return {"status": "error", "message": "No recipients specified."}
+    if not data.content.strip():
+        return {"status": "error", "message": "No report content available."}
+
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from src.utils.mailer import send_alert_email
+
+    report_time = datetime.now(ZoneInfo("America/Chicago")).strftime("%A, %B %d, %Y at %I:%M %p %Z")
+    formatted_html = svc.generate_custom_report_email_html(data.title, report_time, data.content)
+    success, msg = send_alert_email(
+        data.title.strip() or "NOC Custom Intel Report",
+        formatted_html,
+        recipient_override=data.recipients,
+        is_html=True,
+    )
+    logger.info("POST /reporting/broadcast-custom success=%s msg=%s", success, msg)
     return {"status": "ok" if success else "error", "message": msg}
 
 

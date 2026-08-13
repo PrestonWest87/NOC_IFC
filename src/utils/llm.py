@@ -486,26 +486,51 @@ IMPORTANT: If the input contains NO cyber threats, CVEs, threat actors, security
 
     return response
 
-def _consolidate_hazards(hazards):
+def _consolidate_hazards(hazards, arkansas_only=False):
     """Merge hazards with the same title into a single entry listing all affected locations."""
     from collections import OrderedDict
+    import re
+    arkansas_counties = {
+        'arkansas', 'ashley', ' baxter', 'benton', 'boone', 'bradley', 'carroll', 'chicot',
+        'clark', 'clay', 'cleburne', 'cleveland', 'columbia', 'conway', 'craighead',
+        'crawford', 'crittenden', 'cross', 'dallas', 'desha', 'drew', 'faulkner', 'franklin',
+        'fulton', 'garland', 'grant', 'greene', ' hempstead', 'hot spring', 'howard',
+        'independence', 'izard', 'jackson', 'jefferson', 'johnson', 'lafayette', 'lawrence',
+        'lee', 'lincoln', 'little river', 'logan', 'lonoke', 'madison', 'marion', 'miller',
+        'mississippi', 'monroe', 'montgomery', 'nevada', 'newton', 'ouachita', 'perry',
+        'phillips', 'pike', 'poinsett', 'polk', 'pope', 'prairie', 'pulaski', 'randolph',
+        'saline', 'scott', 'searcy', 'sebastian', 'sevier', 'sharp', 'st. francis', 'stone',
+        'union', 'van buren', 'washington', ' white', 'woodruff', 'yell',
+    }
+    arkansas_counties = {county.strip() for county in arkansas_counties}
+
+    def is_arkansas_location(value):
+        normalized = re.sub(r'\bcounty\b', '', value, flags=re.IGNORECASE)
+        return any(re.search(rf'\b{re.escape(county)}\b', normalized, re.IGNORECASE) for county in arkansas_counties)
+
     grouped = OrderedDict()
     for h in hazards:
-        key = (h.title.strip(), h.severity.strip())
+        description = h.description or ''
+        if re.search(r'\b(?:has been|was) replaced\b', description, re.IGNORECASE):
+            continue
+        raw_locations = [part.strip() for part in (h.location or '').split(';') if part.strip()]
+        if arkansas_only:
+            raw_locations = [part for part in raw_locations if is_arkansas_location(part)]
+            if not raw_locations:
+                continue
+        hazard_name = (getattr(h, 'hazard_type', None) or h.title or 'Weather Hazard').strip()
+        key = (hazard_name.lower(), (h.severity or 'Unknown').strip().lower())
         if key not in grouped:
             grouped[key] = {
-                'title': h.title.strip(),
-                'severity': h.severity.strip(),
+                'title': hazard_name,
+                'severity': (h.severity or 'Unknown').strip(),
                 'locations': set(),
                 'descriptions': [],
             }
-        if h.location:
-            for part in h.location.split(';'):
-                part = part.strip()
-                if part:
-                    grouped[key]['locations'].add(part)
-        if h.description and h.description not in grouped[key]['descriptions']:
-            grouped[key]['descriptions'].append(h.description)
+        for part in raw_locations:
+            grouped[key]['locations'].add(re.sub(r'\s+County,\s*(?:Arkansas|AR)\b', ' County', part, flags=re.IGNORECASE))
+        if description and description not in grouped[key]['descriptions']:
+            grouped[key]['descriptions'].append(description)
 
     consolidated = []
     for entry in grouped.values():
@@ -515,7 +540,8 @@ def _consolidate_hazards(hazards):
             'title': entry['title'],
             'severity': entry['severity'],
             'location': locs,
-            'description': truncate_text(desc, 300),
+            'description': truncate_text(desc, 220),
+            'area_count': len(entry['locations']),
         })
     return consolidated
 
@@ -548,7 +574,61 @@ def _dedup_phys_outputs(phys_outputs):
         deduped.append(line)
     return deduped
 
-def _assemble_global_brief_from_maps(map_outputs, phys_map_outputs, config, kev_items=None):
+def _format_physical_posture(hazards, crimes):
+    """Render structured physical data once; do not expose repeated LLM map prose."""
+    import re
+    lines = []
+    if hazards:
+        lines.append("### Regional Weather Hazards\n")
+        for hazard in hazards:
+            locations = [part.strip() for part in hazard.get('location', '').split(';') if part.strip()]
+            location_text = ', '.join(locations[:20])
+            if len(locations) > 20:
+                location_text += f" (+{len(locations) - 20} additional areas)"
+            impact = hazard.get('description', '').strip()
+            impact = re.sub(r'\s+', ' ', impact).replace(' * ', ' ')
+            impact_parts = []
+            for marker in ('WHAT', 'IMPACTS'):
+                match = re.search(rf'{marker}[.:]+\s*(.*?)(?=\s+(?:WHERE|WHEN|IMPACTS)[.:]|$)', impact, re.IGNORECASE)
+                if match:
+                    impact_parts.append(match.group(1).strip())
+            if impact_parts:
+                impact = ' '.join(dict.fromkeys(impact_parts))
+            impact = truncate_text(impact, 300)
+            area_count = hazard.get('area_count', len(locations))
+            area_label = f"{area_count} areas" if area_count else "multiple areas"
+            detail = f" Impact: {impact}." if impact else ''
+            lines.append(f"- **{hazard.get('title', 'Weather Hazard')}** ({hazard.get('severity', 'Unknown')}): {area_label}; {location_text or 'multiple regions'}.{detail}")
+        lines.append('')
+    else:
+        lines.append("### Regional Weather Hazards\n\n- No significant weather hazards reported in the last 24 hours.\n")
+
+    if crimes:
+        grouped = {}
+        for crime in crimes:
+            category = crime.get('category') or crime.get('fbi_category') or crime.get('raw_title') or 'Uncategorized incident'
+            entry = grouped.setdefault(category, {'count': 0, 'distances': [], 'severity': set(), 'types': set()})
+            entry['count'] += 1
+            if crime.get('distance_miles') is not None:
+                entry['distances'].append(float(crime['distance_miles']))
+            if crime.get('severity'):
+                entry['severity'].add(str(crime['severity']))
+            if crime.get('raw_title'):
+                entry['types'].add(str(crime['raw_title']))
+        lines.append("### Local Perimeter Crimes\n")
+        for category, entry in sorted(grouped.items()):
+            distances = entry['distances']
+            nearest = f"{min(distances):.2f} mi nearest" if distances else "distance unavailable"
+            spread = f", {max(distances):.2f} mi farthest" if distances and max(distances) != min(distances) else ''
+            severity = ', '.join(sorted(entry['severity'])) or 'Unknown'
+            types = ', '.join(sorted(entry['types']))
+            detail = f" ({types})" if types and types.lower() != category.lower() else ''
+            lines.append(f"- **{category}**: {entry['count']} incident(s), {nearest}{spread}; severity {severity}{detail}.")
+    else:
+        lines.append("### Local Perimeter Crimes\n\n- No perimeter crime incidents reported within the monitored radius.\n")
+    return '\n'.join(lines)
+
+def _assemble_global_brief_from_maps(map_outputs, phys_map_outputs, config, kev_items=None, physical_data=None):
     """Assemble a global threat brief from map outputs using programmatic classification.
 
     Instead of relying on an LLM reduce step that collapses data, this function:
@@ -678,7 +758,8 @@ def _assemble_global_brief_from_maps(map_outputs, phys_map_outputs, config, kev_
                 continue
             if text_lower.startswith('cve:') and 'threat' not in text_lower:
                 continue
-            all_items.append(text)
+            if text not in all_items:
+                all_items.append(text)
 
     logger.debug("_assemble_global_brief_from_maps: extracted %d bullet items from %d map chunks", len(all_items), len(map_outputs))
 
@@ -827,16 +908,23 @@ def _assemble_global_brief_from_maps(map_outputs, phys_map_outputs, config, kev_
         report_parts.append('')
 
     report_parts.append('## Local Weather & Perimeter Posture\n')
-    if phys_map_outputs and phys_map_outputs != ["No hazards or perimeter crimes reported."]:
-        phys_valid = [p for p in phys_map_outputs if p and '[WARN]' not in p]
-        phys_deduped = _dedup_phys_outputs(phys_valid)
-        phys_combined = '\n\n'.join(phys_deduped)
-        if phys_combined.strip():
-            report_parts.append(phys_combined)
-        else:
-            report_parts.append("No significant weather hazards or perimeter crimes reported in the last 24 hours.")
+    if physical_data is not None:
+        report_parts.append(_format_physical_posture(physical_data.get('hazards', []), physical_data.get('crimes', [])))
     else:
         report_parts.append("No significant weather hazards or perimeter crimes reported in the last 24 hours.")
+
+    report_parts.append('## Operational Assessment & Priority Actions\n')
+    if cve_count:
+        report_parts.append(f"- **Patch exposure:** Validate {cve_count} tracked CVE indicators against internet-facing, government, and OT-adjacent assets; prioritize CISA KEVs and any matching deployed products.")
+    if actor_groups:
+        report_parts.append("- **Threat actor monitoring:** Hunt for actor-associated infrastructure, authentication anomalies, and unusual data movement before treating OSINT reporting as evidence of compromise.")
+    if physical_data and physical_data.get('hazards'):
+        report_parts.append("- **Continuity and personnel safety:** Confirm backup power, cooling, communications, and remote-work contingencies for facilities in warning or extreme-heat areas.")
+    if physical_data and physical_data.get('crimes'):
+        report_parts.append("- **Perimeter posture:** Review access-control alerts, camera coverage, guard procedures, and local law-enforcement coordination for incidents inside the monitored radius.")
+    if not report_parts[-1].strip().startswith('-'):
+        report_parts.append("- Continue routine monitoring and validate significant indicators with internal telemetry.")
+    report_parts.append('')
 
     main_report = '\n'.join(report_parts)
     logger.debug("_assemble_global_brief_from_maps: assembled %d chars from %d items, %d sectors, %d actors, %d CVEs, US=%d Global=%d",
@@ -857,10 +945,10 @@ def _assemble_global_brief_from_maps(map_outputs, phys_map_outputs, config, kev_
             for item in actor_groups[actor][:2]:
                 condensed += f"- {item['text'][:150]}\n"
 
-        bluf_prompt = f"""You are a NOC intelligence analyst. Write a 4-6 sentence BLUF (Bottom Line Up Front) executive summary for a threat brief.
+        bluf_prompt = f"""You are a NOC intelligence analyst. Write a 5-6 sentence BLUF (Bottom Line Up Front) executive summary for a threat brief.
 Include: specific threats, actors, CVEs, affected sectors. Highlight OT/SCADA/ICS if present.
-Use threat terminology: Critical, High, Elevated, Moderate, Low.
-Do NOT use colors. Be direct and specific. One paragraph only, no headers."""
+Use threat terminology: Critical, High, Elevated, Moderate, Low. Explain what is known, what is inferred, and the two most important operational actions.
+Do NOT use colors, markdown headings, bullets, or boilerplate. Be direct and specific. One paragraph only."""
 
         bluf_response = call_llm([
             {"role": "system", "content": bluf_prompt},
@@ -1069,7 +1157,7 @@ Include EVERY bullet point from the input. Do not summarize, skip, or deduplicat
         total_cyber_chars = sum(len(s) for s in cyber_map_outputs)
         logger.debug("generate_global_threat_brief: cyber map completed, %d chunks, %d total chars", len(cyber_map_outputs), total_cyber_chars)
 
-    consolidated_hazards = _consolidate_hazards(active_hazards)
+    consolidated_hazards = _consolidate_hazards(active_hazards, arkansas_only=True)
     phys_payload = []
     for h in consolidated_hazards:
         phys_payload.append(f"HAZARD: {h['title']} | Severity: {h['severity']} | Location: {h['location']} | {h['description']}")
@@ -1116,7 +1204,10 @@ IMPORTANT: If multiple items describe the same type of hazard (e.g., multiple "E
     if progress_callback:
         progress_callback(stage="synthesizing", message="Assembling brief from map outputs...", percent=96)
 
-    response = _assemble_global_brief_from_maps(cyber_map_outputs, phys_map_outputs, config, kev_items=recent_cves)
+    response = _assemble_global_brief_from_maps(
+        cyber_map_outputs, phys_map_outputs, config, kev_items=recent_cves,
+        physical_data={'hazards': consolidated_hazards, 'crimes': crime_data},
+    )
 
     if response and len(response) > 100:
         logger.info("generate_global_threat_brief: assembled brief, response_length=%d", len(response))

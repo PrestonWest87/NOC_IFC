@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MapContainer } from "../components/MapContainer";
+import { MarkdownContent } from "../components/MarkdownContent";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { getAllowedTabs } from "../utils/permissions";
@@ -1050,7 +1051,7 @@ function ExecutiveTab({
             {briefLoading ? "Generating..." : "Generate Briefing"}
           </button>
         </div>
-        <InfoBox type="info">{briefing}</InfoBox>
+         <InfoBox type="info"><MarkdownContent content={briefing} /></InfoBox>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "1rem" }}>

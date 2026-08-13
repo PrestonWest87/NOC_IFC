@@ -4,6 +4,7 @@ import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { getAllowedTabs } from "../utils/permissions";
 import { formatDateInChicago, chicagoDateString, formatInChicago } from "../utils/timezone";
+import { MarkdownContent } from "../components/MarkdownContent";
 import {
   FileText, Calendar, Mail, Send, BookOpen, Search, Plus, Eye,
   Trash2, Loader2, AlertCircle, CheckCircle, Target, Layers, Save,
@@ -242,12 +243,10 @@ function DailyFusionBriefing() {
                 fontSize: "0.82rem",
                 lineHeight: 1.6,
                 color: "var(--text-primary)",
-                whiteSpace: "pre-wrap",
-                fontFamily: "var(--font-mono)",
-                maxHeight: 500,
+                 maxHeight: 500,
                 overflow: "auto",
               }}>
-                {selected.content as string}
+                 <MarkdownContent content={selected.content as string} />
               </div>
             )}
           </div>
@@ -307,6 +306,7 @@ function CustomReportBuilder() {
     () => sessionStorage.getItem("custom_report_content")
   );
   const [saveTitle, setSaveTitle] = useState("");
+  const [emailRecipient, setEmailRecipient] = useState("");
   const [reportGenId, setReportGenId] = useState<string | null>(
     () => sessionStorage.getItem("custom_report_gen_id")
   );
@@ -418,6 +418,16 @@ function CustomReportBuilder() {
     onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
   });
 
+  const emailMutation = useMutation({
+    mutationFn: (data: { title: string; content: string; recipients: string }) =>
+      api.post("/reporting/broadcast-custom", data),
+    onSuccess: (r: any) => {
+      if (r.data.status === "ok") alert("Custom report emailed successfully.");
+      else alert("Email failed: " + (r.data.message || "Unable to send report."));
+    },
+    onError: (e: any) => alert("Email failed: " + (e.response?.data?.detail || e.message)),
+  });
+
   const isGenerating = !!reportGenId;
   const hasResults = searchResults.length > 0;
 
@@ -466,7 +476,7 @@ function CustomReportBuilder() {
               ))}
             </select>
           </div>
-          <button
+           <button
             onClick={handleSearch}
             disabled={searchLoading || !target.trim()}
             style={btn("var(--accent-blue)")}
@@ -644,13 +654,11 @@ function CustomReportBuilder() {
             fontSize: "0.82rem",
             lineHeight: 1.6,
             color: "var(--text-primary)",
-            whiteSpace: "pre-wrap",
-            fontFamily: "var(--font-mono)",
-            maxHeight: 500,
+             maxHeight: 500,
             overflow: "auto",
             marginBottom: "0.75rem",
           }}>
-            {generated}
+             <MarkdownContent content={generated} />
           </div>
           <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 200 }}>
@@ -672,6 +680,27 @@ function CustomReportBuilder() {
             >
               {saveMutation.isPending ? <Spinner /> : <Save size={14} />}
               {saveMutation.isPending ? "Saving..." : "Save to Library"}
+            </button>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={sectionTitle}><Mail size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />Recipient Email</div>
+              <input
+                style={inputStyle}
+                type="email"
+                placeholder="recipient@example.com"
+                value={emailRecipient}
+                onChange={e => setEmailRecipient(e.target.value)}
+              />
+            </div>
+            <button
+              onClick={() => {
+                if (!emailRecipient.trim()) { alert("Please enter a recipient email."); return; }
+                emailMutation.mutate({ title: saveTitle || "NOC Custom Intel Report", content: generated, recipients: emailRecipient.trim() });
+              }}
+              disabled={emailMutation.isPending}
+              style={btn("var(--accent-blue)")}
+            >
+              {emailMutation.isPending ? <Spinner /> : <Mail size={14} />}
+              {emailMutation.isPending ? "Emailing..." : "Email Report"}
             </button>
           </div>
           <div style={{ marginTop: "0.75rem" }}>
@@ -782,14 +811,12 @@ function SharedLibrary() {
                       fontSize: "0.8rem",
                       lineHeight: 1.6,
                       color: "var(--text-primary)",
-                      whiteSpace: "pre-wrap",
-                      fontFamily: "var(--font-mono)",
-                      maxHeight: 400,
+                       maxHeight: 400,
                       overflow: "auto",
                       marginTop: "0.5rem",
                       marginBottom: "0.5rem",
                     }}>
-                      {r.content as string}
+                       <MarkdownContent content={r.content as string} />
                     </div>
                     <button
                       onClick={() => {

@@ -1878,6 +1878,42 @@ def generate_daily_report_email_html(report_date, markdown_content):
     return formatted_html
 
 
+def generate_custom_report_email_html(title, report_time, markdown_content):
+    """Render a custom intelligence report in a readable HTML email layout."""
+    from html import escape
+
+    def native_md_to_html(text):
+        text = escape(text)
+        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#374151; font-size:16px; margin:20px 0 8px;">\1</h3>', text, flags=re.MULTILINE)
+        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#111827; font-size:19px; border-bottom:2px solid #e5e7eb; padding-bottom:8px; margin:28px 0 12px;">\1</h2>', text, flags=re.MULTILINE)
+        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#111827; font-size:23px; margin:0 0 12px;">\1</h1>', text, flags=re.MULTILINE)
+        text = re.sub(r'\*\*(.*?)\*\*', r'<strong style="color:#111827;">\1</strong>', text)
+        text = re.sub(r'^\s*[-*] (.*?)$', r'<div style="margin:0 0 7px 10px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = text.replace('\n', '<br>')
+        text = re.sub(r'(<br>)*<h', '<h', text)
+        text = re.sub(r'</h([123])>(<br>)*', r'</h\1>', text)
+        text = re.sub(r'(<br>)*<div style="margin:0 0 7px', '<div style="margin:0 0 7px', text)
+        text = re.sub(r'</div>(<br>)*', '</div>', text)
+        return text
+
+    raw_html = native_md_to_html(markdown_content.strip())
+    return f"""
+    <div style="margin:0; padding:20px; background:#f3f4f6;">
+      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; max-width:850px; margin:0 auto; background:#fff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
+        <div style="background:#1d4ed8; padding:24px 30px;">
+          <h1 style="color:#fff; margin:0 0 6px; font-size:22px; font-weight:600;">{escape(title)}</h1>
+          <p style="color:#dbeafe; margin:0; font-size:13px;">Generated: {escape(report_time)}</p>
+        </div>
+        <div style="padding:25px 30px; font-size:14px; line-height:1.6; color:#374151;">{raw_html}</div>
+        <div style="background:#f9fafb; padding:13px 30px; text-align:center; border-top:1px solid #e5e7eb;">
+          <p style="margin:0; font-size:11px; color:#9ca3af;">NOC Intelligence Fusion Center &middot; Internal Use Only</p>
+        </div>
+      </div>
+    </div>
+    """.strip()
+
+
 # ==========================================
 # 5. THREAT TELEMETRY (CISA, Cloud, NWS, Regional Grid)
 # ==========================================

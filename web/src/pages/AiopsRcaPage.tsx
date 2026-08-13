@@ -5,6 +5,7 @@ import { useAuth } from "../utils/AuthContext";
 import { getAllowedTabs } from "../utils/permissions";
 import { formatTimeInChicago, chicagoDateString, formatEtrDate } from "../utils/timezone";
 import { MapContainer } from "../components/MapContainer";
+import { MarkdownContent } from "../components/MarkdownContent";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer } from "@deck.gl/layers";
 import { Map } from "react-map-gl/maplibre";
@@ -1231,10 +1232,9 @@ export function AiopsRcaPage() {
                     <TrendingUp size={15} /> AI Predictive Maintenance Forecast
                   </h4>
                   {typeof chronForecast === "string" ? (
-                    <div
-                      style={{ fontSize: "0.85rem", color: "var(--text-primary)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}
-                      dangerouslySetInnerHTML={{ __html: chronForecast }}
-                    />
+                    <div style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>
+                      <MarkdownContent content={chronForecast} />
+                    </div>
                   ) : Array.isArray(chronForecast) ? (
                     <ul style={{ margin: 0, paddingLeft: "1.2rem", fontSize: "0.85rem", color: "var(--text-primary)", lineHeight: 1.7 }}>
                       {chronForecast.map((item: any, i: number) => (
@@ -1290,10 +1290,9 @@ export function AiopsRcaPage() {
           {sitrepReport && (
             <div>
               <div style={{ ...card, marginBottom: "0.75rem" }}>
-                <div
-                  style={{ fontSize: "0.85rem", color: "var(--text-primary)", lineHeight: 1.7, whiteSpace: "pre-wrap", fontFamily: "var(--font-mono)" }}
-                  dangerouslySetInnerHTML={{ __html: sitrepReport }}
-                />
+                 <div style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>
+                   <MarkdownContent content={sitrepReport} />
+                 </div>
               </div>
               <div style={{ display: "flex", gap: "1rem" }}>
                 <button
