@@ -3199,22 +3199,29 @@ def trigger_scoring_rationale(intel_data: dict):
 
 def _build_fallback_summary(logs, timeframe_label, target_role, generated_by):
     """Build a narrative handoff summary without an LLM."""
-    entries = []
+    handoff_title = timeframe_label if "handoff" in timeframe_label.lower() else f"{timeframe_label} Operational Handoff"
+    timeline = []
+    open_items = []
     for log in reversed(logs):
         ts = log.created_at.strftime("%Y-%m-%d %H:%M") if log.created_at else "an unknown time"
         text = " ".join((log.content or "").split())
-        entries.append(f"At {ts}, {log.analyst or 'the on-duty analyst'} recorded: {text[:500]}")
-    narrative = " ".join(entries)
+        analyst = log.analyst or "the on-duty analyst"
+        timeline.append(f"- **{ts} — {analyst}:** {text[:1000]}")
+        if re.search(r"\b(open|pending|unresolved|outstanding|follow[- ]?up|awaiting|monitor|escalat|ticket)\b", text, re.IGNORECASE):
+            open_items.append(f"- **{ts} — {analyst}:** {text[:500]}")
+    scope = "all available roles" if str(target_role).lower() == "all" else f"the {target_role.upper()} team"
+    open_text = "\n".join(open_items) if open_items else "No explicit open items, pending actions, or follow-ups were recorded."
     return (
-        f"# {timeframe_label} Operational Handoff — {target_role.upper()}\n\n"
+        f"# {handoff_title} — {scope}\n\n"
         f"**Prepared by:** {generated_by}\n\n"
         f"## Executive Narrative\n"
-        f"The {timeframe_label.lower()} record contains {len(logs)} operational log entries for the {target_role.upper()} team. "
-        f"The documented activity is summarized chronologically below so the incoming team can distinguish completed work from items requiring follow-up.\n\n"
-        f"## Chronological Activity\n{narrative}\n\n"
-        f"## Handoff Notes\n"
-        f"Review each recorded item for unresolved incidents, pending tickets, maintenance commitments, and dependencies that are not explicitly marked complete. "
-        f"No additional facts were inferred because AI narrative generation was unavailable."
+        f"The {timeframe_label.lower()} record contains {len(logs)} operational log entries covering {scope}. "
+        f"The timeline below preserves each recorded event in chronological order; the open-items section isolates entries containing explicit follow-up or operational-state language. "
+        f"No facts were inferred because AI narrative generation was unavailable.\n\n"
+        f"## Chronological Activity\n{chr(10).join(timeline)}\n\n"
+        f"## Open Items and Dependencies\n{open_text}\n\n"
+        f"## Incoming Shift Priorities\n"
+        f"Review the open items above, verify the current state of any referenced tickets or services, and record a follow-up update when the status changes."
     )
 
 
@@ -3295,7 +3302,7 @@ def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning
             analyst=generated_by,
             role="system",
             shift_period=shift_period,
-            content=f"**{timeframe_label.upper()} SHIFT REPORT:**\n\n{summary}",
+            content=summary,
         )
         logger.info("trigger_shift_summary: auto-appended to shift log")
     return {"status": "ok", "summary": summary}

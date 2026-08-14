@@ -1449,6 +1449,7 @@ REQUIRED STRUCTURE:
     return response.strip()
 
 def generate_aggregated_shift_summary(session, logs, timeframe_label, target_role="All", generated_by="Unknown"):
+    handoff_title = timeframe_label if "handoff" in timeframe_label.lower() else f"{timeframe_label} Operational Handoff"
     config = get_llm_config(session)
     logger.debug("generate_aggregated_shift_summary: config_found=%s logs_count=%d timeframe=%s role=%s",
                 config is not None, len(logs) if logs else 0, timeframe_label, target_role)
@@ -1477,7 +1478,7 @@ Write a clear, narrative operational report from the supplied log digest. Explai
 
 Use Markdown with these exact sections:
 
-# {timeframe_label} Operational Handoff — {target_role.upper()}
+    # {handoff_title} — {target_role.upper()}
 
 ## Executive Narrative
 Write 1-2 connected paragraphs describing the period covered, dominant operational themes, major incidents or changes, and the current overall posture. Mention when the record is routine, incident-heavy, or mixed only when supported by the logs.
