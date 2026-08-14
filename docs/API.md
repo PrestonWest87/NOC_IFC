@@ -359,6 +359,6 @@ Body: `{email}`. Sends the current internal asset risk brief via email (purple h
 
 Connect to `ws://localhost:8101/ws`.
 
-Receives JSON messages with type `dashboard_update` every 5 seconds containing metrics data.
+Receives JSON messages with type `dashboard_update` every 10 seconds containing metrics data.
 
 Send JSON commands for bidirectional control. Broadcasts `RCA_UPDATE` events when RCA actions (investigate, dispatch, acknowledge, site-maintenance, send-ticket) occur.

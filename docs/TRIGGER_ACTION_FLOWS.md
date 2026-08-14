@@ -772,12 +772,12 @@ API endpoint / background task
 
 | Attribute | Value |
 |-----------|-------|
-| **Interval** | Every 5 seconds |
+| **Interval** | Every 10 seconds while clients are connected |
 | **Payload type** | `dashboard_update` |
 | **Content** | Current CIS metrics, alert counts, risk levels |
 
 ```
-Server-side timer (5s)
+Server-side timer (10s, skipped when no clients are connected)
   │
   └─ Collect current dashboard state
         └─ ws_manager.broadcast({"type": "dashboard_update", "data": {...}})

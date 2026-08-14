@@ -375,40 +375,40 @@ export function DashboardPage() {
   }, [allowedDashboardTabs.join(",")]);
 
   const { data: metrics } = useQuery({
-    queryKey: ["dashboard-metrics"], queryFn: () => api.get("/dashboard/metrics").then((r) => r.data), refetchInterval: 30000,
+    queryKey: ["dashboard-metrics"], queryFn: () => api.get("/dashboard/metrics").then((r) => r.data), refetchInterval: 30000, enabled: tab === 0,
   });
   const { data: pinnedArticles } = useQuery({
-    queryKey: ["pinned-articles"], queryFn: () => api.get("/dashboard/pinned-articles").then((r) => r.data), refetchInterval: 30000,
+    queryKey: ["pinned-articles"], queryFn: () => api.get("/dashboard/pinned-articles").then((r) => r.data), refetchInterval: 30000, enabled: tab === 0,
   });
   const { data: liveArticles } = useQuery({
-    queryKey: ["live-articles"], queryFn: () => api.get("/dashboard/live-articles").then((r) => r.data), refetchInterval: 15000,
+    queryKey: ["live-articles"], queryFn: () => api.get("/dashboard/live-articles").then((r) => r.data), refetchInterval: 15000, enabled: tab === 0,
   });
   const { data: cves } = useQuery({
-    queryKey: ["cves-dash"], queryFn: () => api.get("/threat/cves", { params: { limit: 15 } }).then((r) => r.data), refetchInterval: 300000,
+    queryKey: ["cves-dash"], queryFn: () => api.get("/threat/cves", { params: { limit: 15 } }).then((r) => r.data), refetchInterval: 300000, enabled: tab === 0,
   });
   const { data: outages } = useQuery({
-    queryKey: ["outages-dash"], queryFn: () => api.get("/threat/cloud-outages", { params: { active_only: true } }).then((r) => r.data), refetchInterval: 120000,
+    queryKey: ["outages-dash"], queryFn: () => api.get("/threat/cloud-outages", { params: { active_only: true } }).then((r) => r.data), refetchInterval: 120000, enabled: tab === 0,
   });
   const { data: hazards } = useQuery({
-    queryKey: ["hazards-dash"], queryFn: () => api.get("/dashboard/hazards", { params: { limit: 15 } }).then((r) => r.data), refetchInterval: 120000,
+    queryKey: ["hazards-dash"], queryFn: () => api.get("/dashboard/hazards", { params: { limit: 15 } }).then((r) => r.data), refetchInterval: 120000, enabled: tab === 0,
   });
   const { data: sitrep } = useQuery({
-    queryKey: ["sitrep-dash", forceRefreshKey], queryFn: () => api.get("/rca/sitrep").then((r) => r.data), refetchInterval: 60000,
+    queryKey: ["sitrep-dash", forceRefreshKey], queryFn: () => api.get("/rca/sitrep").then((r) => r.data), refetchInterval: 60000, enabled: tab === 0,
   });
   const { data: executiveIntel } = useQuery({
-    queryKey: ["executive-intel"], queryFn: () => api.get("/dashboard/executive-intel").then((r) => r.data), refetchInterval: 60000,
+    queryKey: ["executive-intel"], queryFn: () => api.get("/dashboard/executive-intel").then((r) => r.data), refetchInterval: 60000, enabled: tab === 0 || tab === 1,
   });
   const { data: threatTrends } = useQuery({
-    queryKey: ["threat-trends"], queryFn: () => api.get("/dashboard/threat-trends", { params: { days: 14 } }).then((r) => r.data), refetchInterval: 120000,
+    queryKey: ["threat-trends"], queryFn: () => api.get("/dashboard/threat-trends", { params: { days: 14 } }).then((r) => r.data), refetchInterval: 120000, enabled: tab === 1,
   });
   const { data: internalRisk, refetch: refetchInternal } = useQuery({
-    queryKey: ["internal-risk"], queryFn: () => api.get("/dashboard/internal-risk").then((r) => r.data), refetchInterval: 300000,
+    queryKey: ["internal-risk"], queryFn: () => api.get("/dashboard/internal-risk").then((r) => r.data), refetchInterval: 300000, enabled: tab === 2,
   });
   const { data: internalRiskHistory } = useQuery({
-    queryKey: ["internal-risk-history"], queryFn: () => api.get("/dashboard/internal-risk/history", { params: { days: 28 } }).then((r) => r.data), refetchInterval: 300000,
+    queryKey: ["internal-risk-history"], queryFn: () => api.get("/dashboard/internal-risk/history", { params: { days: 28 } }).then((r) => r.data), refetchInterval: 300000, enabled: tab === 2,
   });
   const { data: sysConfig } = useQuery({
-    queryKey: ["sys-config"], queryFn: () => api.get("/settings/config").then((r) => r.data), refetchInterval: 120000,
+    queryKey: ["sys-config"], queryFn: () => api.get("/settings/config").then((r) => r.data), refetchInterval: 120000, enabled: tab !== 0,
   });
 
   useEffect(() => {
@@ -1173,7 +1173,7 @@ export function DashboardPage() {
               <div>
                 <h3 style={{ margin: 0, fontSize: "1.1rem" }}>Global Threat Brief</h3>
                     <p style={{ margin: "0.2rem 0 0", fontSize: "0.82rem", color: "var(--text-muted, #94a3b8)" }}>
-                      AI-generated threat brief covering US critical infrastructure and global threats. APT activity, ransomware, CVEs, weather, and perimeter crimes. Auto-updates hourly.
+                       AI-generated threat brief covering US critical infrastructure and global threats, including APT activity, ransomware, CVEs, weather, and perimeter crimes. Automatically generated daily at 2:00 AM Central; use Force Refresh for an on-demand update.
                     </p>
               </div>
               <button
@@ -1300,7 +1300,7 @@ export function DashboardPage() {
             <div>
               <h3 style={{ margin: 0, fontSize: "1.1rem" }}>Internal Asset Risk Dashboard</h3>
               <p style={{ margin: "0.2rem 0 0", fontSize: "0.82rem", color: "var(--text-muted, #94a3b8)" }}>
-                Active correlation of internal assets against OSINT telemetry (Auto-updates every 6 hours).
+                 Active correlation of internal assets against OSINT telemetry. Automatically recalculated every 2 hours; use Force Generate for an on-demand update.
               </p>
             </div>
             <button
@@ -1543,7 +1543,7 @@ export function DashboardPage() {
                   <div>
                     <h3 style={{ margin: 0, fontSize: "1.1rem" }}>Internal Asset Risk Brief</h3>
                     <p style={{ margin: "0.2rem 0 0", fontSize: "0.82rem", color: "var(--text-muted, #94a3b8)" }}>
-                      AI-generated correlation of internal hardware/software assets against OSINT feeds and CISA KEVs. Auto-updates every 2 hours.
+                       AI-generated correlation of internal hardware and software assets against OSINT feeds and CISA KEVs. Automatically generated every 3 hours; use Force Generate for an on-demand update.
                     </p>
                   </div>
                   <button
@@ -1675,7 +1675,7 @@ export function DashboardPage() {
             <div>
               <h3 style={{ margin: 0, fontSize: "1.1rem" }}>Executive Unified Risk Brief</h3>
               <p style={{ margin: "0.2rem 0 0", fontSize: "0.82rem", color: "var(--text-muted, #94a3b8)" }}>
-                AI-generated synthesis of Global OSINT Threats and Internal Asset Vulnerabilities. Auto-updates every 2 hours.
+                 AI-generated synthesis of global OSINT threats and internal asset vulnerabilities. Automatically generated every 6 hours; use Force Refresh for an on-demand update.
               </p>
             </div>
             <button

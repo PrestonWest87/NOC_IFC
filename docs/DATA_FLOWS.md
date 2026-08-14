@@ -1196,7 +1196,8 @@ For each monitored site (Lat, Lon):
 run_database_maintenance()
   ├── deduplicate_articles()
   ├── Delete articles: score <= 0.0
-  ├── Delete articles: older than 14 days AND not pinned
+  ├── Delete low-score articles: older than 3 days AND not pinned
+  ├── Delete other articles: older than 30 days AND not pinned
   ├── Delete SolarWindsAlert: older than 60 days
   ├── Delete RegionalHazard: older than 48 hours
   ├── Delete RegionalOutage: older than 12 hours

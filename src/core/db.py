@@ -60,11 +60,40 @@ def init_db():
     except Exception:
         pass
 
+    article_columns = [
+        ("ingested_at", "DATETIME"),
+        ("enrichment_status", "VARCHAR DEFAULT 'enriched'"),
+        ("enrichment_attempts", "INTEGER DEFAULT 0"),
+        ("last_enrichment_error", "TEXT"),
+        ("last_enriched_at", "DATETIME"),
+    ]
+    for column_name, column_definition in article_columns:
+        try:
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                conn.execute(text(f"ALTER TABLE articles ADD COLUMN {column_name} {column_definition}"))
+        except Exception:
+            pass
+
     time.sleep(random.uniform(0.1, 1.5))
     try:
         Base.metadata.create_all(bind=engine)
     except Exception as e:
         logger.error(f"Schema generation error: {e}")
+
+    for index_sql in (
+        "CREATE INDEX IF NOT EXISTS ix_articles_published_score_pinned ON articles (published_date, score, is_pinned)",
+        "CREATE INDEX IF NOT EXISTS ix_internal_risk_snapshots_timestamp ON internal_risk_snapshots (timestamp)",
+        "CREATE INDEX IF NOT EXISTS ix_solarwinds_status_received ON solarwinds_alerts (status, received_at)",
+        "CREATE INDEX IF NOT EXISTS ix_solarwinds_node_ticketed_received ON solarwinds_alerts (node_name, is_ticketed, received_at)",
+        "CREATE INDEX IF NOT EXISTS ix_cloud_outages_resolved_updated ON cloud_outages (is_resolved, updated_at)",
+        "CREATE INDEX IF NOT EXISTS ix_crime_timestamp_category_distance ON crime_incidents (timestamp, category, distance_miles)",
+        "CREATE INDEX IF NOT EXISTS ix_shift_logs_deleted_created ON shift_logs (is_deleted, created_at)",
+    ):
+        try:
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                conn.execute(text(index_sql))
+        except Exception as e:
+            logger.warning("Index migration failed: %s", e)
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:

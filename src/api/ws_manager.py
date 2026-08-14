@@ -1,4 +1,5 @@
 import json
+import asyncio
 import logging
 from typing import Any
 from fastapi import WebSocket
@@ -21,12 +22,15 @@ class ConnectionManager:
 
     async def broadcast_json(self, data: dict[str, Any]):
         message = json.dumps(data, default=str)
-        stale = []
-        for conn in self.active_connections:
+        async def send(conn):
             try:
-                await conn.send_text(message)
+                await asyncio.wait_for(conn.send_text(message), timeout=3)
+                return None
             except Exception:
-                stale.append(conn)
+                return conn
+
+        results = await asyncio.gather(*(send(conn) for conn in tuple(self.active_connections)))
+        stale = [conn for conn in results if conn is not None]
         for conn in stale:
             self.active_connections.remove(conn)
 

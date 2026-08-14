@@ -97,7 +97,8 @@ Key components:
 | Table / Operation | Retention | Action |
 |-------------------|-----------|--------|
 | Articles (score <= 0) | Immediate | Delete |
-| Articles (not pinned, older than 14 days) | 14 days | Delete |
+| Low-score articles (not pinned, older than 3 days) | 3 days | Delete |
+| Other articles (not pinned, older than 30 days) | 30 days | Delete |
 | SolarWindsAlerts (older than 60 days) | 60 days | Delete |
 | RegionalHazards (older than 48 hours) | 48 hours | Delete |
 | RegionalOutages (older than 12 hours) | 12 hours | Delete |

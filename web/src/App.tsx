@@ -1,20 +1,31 @@
+import { lazy, Suspense } from "react";
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "./utils/AuthContext";
 import { Layout } from "./components/Layout";
 import { LoginPage } from "./pages/LoginPage";
-import { DashboardPage } from "./pages/DashboardPage";
-import { ThreatTelemetryPage } from "./pages/ThreatTelemetryPage";
-import { RegionalGridPage } from "./pages/RegionalGridPage";
-import { ThreatHuntingPage } from "./pages/ThreatHuntingPage";
-import { AiopsRcaPage } from "./pages/AiopsRcaPage";
-import { ShiftLogbookPage } from "./pages/ShiftLogbookPage";
-import { ReportingPage } from "./pages/ReportingPage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { KeywordAnalysisPage } from "./pages/KeywordAnalysisPage";
 import { PAGE_PERMISSION_MAP, PAGE_ROUTE_MAP } from "./utils/routeConfig";
 
-const queryClient = new QueryClient();
+const DashboardPage = lazy(() => import("./pages/DashboardPage").then(m => ({ default: m.DashboardPage })));
+const ThreatTelemetryPage = lazy(() => import("./pages/ThreatTelemetryPage").then(m => ({ default: m.ThreatTelemetryPage })));
+const RegionalGridPage = lazy(() => import("./pages/RegionalGridPage").then(m => ({ default: m.RegionalGridPage })));
+const ThreatHuntingPage = lazy(() => import("./pages/ThreatHuntingPage").then(m => ({ default: m.ThreatHuntingPage })));
+const AiopsRcaPage = lazy(() => import("./pages/AiopsRcaPage").then(m => ({ default: m.AiopsRcaPage })));
+const ShiftLogbookPage = lazy(() => import("./pages/ShiftLogbookPage").then(m => ({ default: m.ShiftLogbookPage })));
+const ReportingPage = lazy(() => import("./pages/ReportingPage").then(m => ({ default: m.ReportingPage })));
+const SettingsPage = lazy(() => import("./pages/SettingsPage").then(m => ({ default: m.SettingsPage })));
+const KeywordAnalysisPage = lazy(() => import("./pages/KeywordAnalysisPage").then(m => ({ default: m.KeywordAnalysisPage })));
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      retry: 1,
+    },
+  },
+});
 
 function ProtectedRoute({ children, path }: { children: React.ReactNode; path?: string }) {
   const { user } = useAuth();
@@ -31,7 +42,8 @@ function ProtectedRoute({ children, path }: { children: React.ReactNode; path?: 
 
 function AppRoutes() {
   return (
-    <Routes>
+    <Suspense fallback={<div style={{ padding: "2rem", color: "var(--text-primary)" }}>Loading NOC workspace...</div>}>
+      <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/" element={<ProtectedRoute path="/"><DashboardPage /></ProtectedRoute>} />
       <Route path="/threat-telemetry" element={<ProtectedRoute path="/threat-telemetry"><ThreatTelemetryPage /></ProtectedRoute>} />
@@ -42,7 +54,8 @@ function AppRoutes() {
       <Route path="/reporting" element={<ProtectedRoute path="/reporting"><ReportingPage /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute path="/settings"><SettingsPage /></ProtectedRoute>} />
       <Route path="/keyword-analysis" element={<ProtectedRoute path="/keyword-analysis"><KeywordAnalysisPage /></ProtectedRoute>} />
-    </Routes>
+      </Routes>
+    </Suspense>
   );
 }
 

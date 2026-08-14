@@ -21,7 +21,10 @@ async def broadcaster():
     cycle = 0
     while True:
         try:
-            alerts, events, grid = svc.get_aiops_dashboard_data()
+            if manager.count == 0:
+                await asyncio.sleep(10)
+                continue
+            alerts, events, grid = await asyncio.to_thread(svc.get_aiops_dashboard_data)
             payload = {
                 "type": "dashboard_update",
                 "alerts": alerts,
@@ -36,7 +39,7 @@ async def broadcaster():
                               cycle, len(alerts), len(events), manager.count)
         except Exception as e:
             logger.error("Broadcaster error: %s", e)
-        await asyncio.sleep(5)
+        await asyncio.sleep(10)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

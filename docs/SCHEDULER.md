@@ -54,7 +54,7 @@ The most complex job. Queries unresolved alerts, clusters by site via AIOpsEngin
 Gathers data from InternalRiskSnapshot, RegionalHazard, crime data, and executive grid intel. Calls LLM for map-reduce generation. Saves to SystemConfig. Triggers risk_alert check.
 
 ### run_database_maintenance
-Purges old data per retention policy: articles >14d (unpinned), SolarWinds alerts >60d, hazards >48h, outages >12h, CVEs >7d, crimes >7d. Deduplicates articles. Runs SQLite PRAGMA optimize + WAL checkpoint.
+Purges old data per retention policy: low-score articles >3d (unpinned), other articles >30d (unpinned), SolarWinds alerts >60d, hazards >48h, outages >12h, CVEs >7d, crimes >7d. Deduplicates articles. Runs SQLite PRAGMA optimize + WAL checkpoint.
 
 ## Logging
 All jobs log via `log(message, source)` format: `[SOURCE] message`. Sources: SYSTEM, WORKER, EMAIL, CLEANUP, AI.

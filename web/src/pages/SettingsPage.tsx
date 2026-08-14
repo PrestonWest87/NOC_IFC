@@ -1312,7 +1312,7 @@ function BackupRestoreTab() {
           <div>
             <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>Full Export (all 27 tables)</h4>
             <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", margin: "0 0 0.6rem" }}>
-              Every table in the database as per-table JSON arrays.
+               Exports every database table as a separate JSON array.
             </p>
             <button onClick={downloadFullExport} style={btn("var(--accent-cyan)")}>
               <Download size={14} /> Download Full Export JSON

@@ -173,6 +173,11 @@ class Article(Base):
     full_content = Column(Text, nullable=True)
     ai_bluf = Column(Text, nullable=True)
     is_pinned = Column(Boolean, default=False, index=True)
+    ingested_at = Column(DateTime, default=datetime.utcnow, index=True)
+    enrichment_status = Column(String, default="pending", index=True)
+    enrichment_attempts = Column(Integer, default=0)
+    last_enrichment_error = Column(Text, nullable=True)
+    last_enriched_at = Column(DateTime, nullable=True)
 
 
 class ExtractedIOC(Base):

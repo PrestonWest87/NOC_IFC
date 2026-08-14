@@ -103,7 +103,7 @@ The system is composed of four independently deployable containers orchestrated 
   - `/email` — Email sending, broadcast brief distribution
   - `/settings` — System configuration, user management
   - `/admin` — Role management, facility management, backup/restore, asset management
-- Exposes a WebSocket endpoint at `/ws` that broadcasts `dashboard_update` payloads every 5 seconds to all connected clients.
+- Exposes a WebSocket endpoint at `/ws` that broadcasts `dashboard_update` payloads every 10 seconds to connected clients.
 - Spawns background threads for async brief generation to avoid blocking the event loop on long-running LLM calls.
 - No global authentication middleware — each endpoint independently validates session tokens from the `Authorization` header.
 - Mounts static React build assets for production serving when the web container is not in use.

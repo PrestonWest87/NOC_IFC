@@ -3,13 +3,17 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8101 --reload
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8101
     ports:
       - "8101:8101"
     env_file: .env
     volumes:
-      - ./src:/app/src
       - ./data:/app/data
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
 
   worker:
     build:
@@ -19,11 +23,11 @@ services:
     env_file: .env
     restart: unless-stopped
     volumes:
-      - ./src:/app/src
       - ./data:/app/data
     deploy:
       resources:
         limits:
+          cpus: "2.0"
           memory: 1.5G
 
   webhook:
@@ -35,8 +39,12 @@ services:
       - "8100:8100"
     env_file: .env
     volumes:
-      - ./src:/app/src
       - ./data:/app/data
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 384M
 
   web:
     build:
@@ -48,6 +56,11 @@ services:
       - VITE_API_URL=http://localhost:8101
     depends_on:
       - api
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
 
   web-dev:
     profiles: ["dev"]

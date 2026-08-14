@@ -894,8 +894,8 @@ All retention is enforced by the **hourly `db_maintenance` scheduler job** (`src
 
 | Table | Retention Rule | SQL Logic |
 |---|---|---|
-| `articles` | **Score ≤ 0.0:** immediate delete | `WHERE score <= 0.0` |
-| `articles` | **Unpinned > 14 days:** delete | `WHERE published_date < now()-14d AND is_pinned = False` |
+| `articles` | **Unpinned score < 50 older than 3 days:** delete | `WHERE score < 50 AND published_date < now()-3d AND is_pinned = False` |
+| `articles` | **Unpinned > 30 days:** delete | `WHERE published_date < now()-30d AND is_pinned = False` |
 | `solarwinds_alerts` | **> 60 days:** delete | `WHERE received_at < now()-60d` |
 | `regional_hazards` | **> 48 hours:** delete | `WHERE updated_at < now()-48h` |
 | `regional_outages` | **> 12 hours:** delete | `WHERE detected_at < now()-12h` |
@@ -905,6 +905,9 @@ All retention is enforced by the **hourly `db_maintenance` scheduler job** (`src
 | `cloud_outages` | **Unresolved > 14 days:** delete | `WHERE is_resolved=False AND updated_at < now()-14d` |
 | `crime_incidents` | **> 7 days:** delete | `WHERE timestamp < now()-7d` |
 | `extracted_iocs` | **Orphaned (no parent article):** delete | `WHERE article_id NOT IN (SELECT id FROM articles)` |
+| `internal_risk_snapshots` | **> 90 days:** delete | `WHERE timestamp < now()-90d` |
+| `timeline_events` | **> 90 days:** delete | `WHERE timestamp < now()-90d` |
+| `elastic_events` | **> 72 hours:** delete | `WHERE timestamp < now()-72h` |
 
 ### Worker-Specific Purge
 
@@ -927,11 +930,11 @@ All retention is enforced by the **hourly `db_maintenance` scheduler job** (`src
 | `shift_logs` | Soft-deleted via `is_deleted` — retained indefinitely |
 | `software_assets` | Persistent inventory — replaced on CSV import |
 | `hardware_assets` | Persistent inventory — replaced on CSV import |
-| `internal_risk_snapshots` | Historical time series — no purge (used for trend charts) |
+| `internal_risk_snapshots` | Historical time series — 90-day retention |
 | `daily_briefings` | Historical — one per day, retained |
 | `daily_threat_scores` | Historical time series — no purge |
 | `monitored_locations` | Persistent site registry |
 | `node_aliases` | Persistent mapping table |
 | `user_weather_prefs` | Persistent user preferences |
-| `timeline_events` | No purge defined — accumulates indefinitely |
+| `timeline_events` | 90-day retention |
 | `geojson_cache` | Overwritten on each fetch, not purged |

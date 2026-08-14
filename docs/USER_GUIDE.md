@@ -351,7 +351,7 @@ Ten tabs for system administration:
 The application maintains a persistent WebSocket connection to the backend:
 
 - **Connection**: Auto-established on page load to `ws://localhost:8101/ws`
-- **Updates**: Receives `dashboard_update` payloads every 5 seconds with current alert data
+- **Updates**: Receives `dashboard_update` payloads every 10 seconds with current alert data
 - **Reconnection**: Exponential backoff if connection drops
 - **Browser Notifications**: CRITICAL/HIGH severity alerts trigger desktop notifications
 - **Bi-directional**: Send commands through the WebSocket for synchronized team actions

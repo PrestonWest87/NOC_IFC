@@ -16,9 +16,11 @@ import sys
 import logging
 import asyncio
 import aiohttp
+import requests
 import threading
 import gc
 import concurrent.futures
+import calendar
 from typing import List, Dict, Tuple, Optional
 
 import urllib3
@@ -34,7 +36,8 @@ from datetime import datetime, timedelta
 from src.database import (
     SessionLocal, Article, FeedSource, RegionalHazard, CloudOutage,
     ExtractedIOC, engine, init_db, SolarWindsAlert, BgpAnomaly,
-    CveItem, RegionalOutage, CrimeIncident, MonitoredLocation
+    CveItem, RegionalOutage, CrimeIncident, MonitoredLocation,
+    InternalRiskSnapshot, TimelineEvent, ElasticEvent
 )
 
 from src.workers.cve_worker import fetch_cisa_kev
@@ -114,13 +117,24 @@ def _fetch_full_content(url: str, timeout: int = 10) -> Optional[str]:
     except ImportError:
         return None
     try:
-        downloaded = trafilatura.fetch_url(url)
-        if downloaded:
-            return trafilatura.extract(downloaded, include_comments=False, include_tables=True,
+        response = requests.get(url, timeout=(3, timeout), headers={"User-Agent": "NOC-Fusion/2.0"})
+        response.raise_for_status()
+        if response.text:
+            return trafilatura.extract(response.text, include_comments=False, include_tables=True,
                                         no_fallback=False, favor_recall=True)
     except Exception:
         pass
     return None
+
+def _entry_published_at(entry):
+    """Use the source timestamp so feed freshness and retention remain accurate."""
+    parsed = entry.get("published_parsed") or entry.get("updated_parsed")
+    if parsed:
+        try:
+            return datetime.utcfromtimestamp(calendar.timegm(parsed))
+        except (TypeError, ValueError, OverflowError):
+            pass
+    return datetime.utcnow()
 
 def parse_and_score_feed(f_name, content, known_links):
     """Parse RSS feed content and score articles for relevance."""
@@ -154,99 +168,88 @@ def parse_and_score_feed(f_name, content, known_links):
             
         new_articles_data.append({
             "title": title, "link": link, "summary": summary, "source": f_name,
+            "published_date": _entry_published_at(entry),
             "score": float(score), "category": category, "keywords_found": reasons,
             "is_bubbled": (score >= ALERT_THRESHOLD), "iocs": extracted_iocs,
             "full_content": None
         })
 
-    try:
-        import trafilatura as _traf_check
-        _has_traf = True
-    except ImportError:
-        _has_traf = False
-
-    if _has_traf and new_articles_data:
-        urls_to_fetch = [(i, d["link"]) for i, d in enumerate(new_articles_data)
-                         if d["score"] >= 40.0]
-        def _fetch_batch(batch):
-            results = {}
-            for idx, url in batch:
-                content_text = _fetch_full_content(url)
-                if content_text:
-                    results[idx] = content_text
-            return results
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            batch_size = 2
-            for start in range(0, len(urls_to_fetch), batch_size):
-                batch = urls_to_fetch[start:start + batch_size]
-                futures = [executor.submit(_fetch_batch, [b]) for b in batch]
-                for future in concurrent.futures.as_completed(futures):
-                    try:
-                        results = future.result()
-                        for idx, fc in results.items():
-                            new_articles_data[idx]["full_content"] = fc
-                    except Exception:
-                        pass
-
     return f_name, new_articles_data
 
 def bulk_save_to_db(db_session, arts_data):
-    """Saves articles in batches for better memory efficiency."""
+    """Persist every valid article independently so one duplicate cannot lose a batch."""
     if not arts_data: return 0
     added = 0
-    batch_size = 100
-    batch = []
-
     for d in arts_data:
         art = Article(
             title=d["title"], link=d["link"], summary=d["summary"], source=d["source"],
-            published_date=datetime.utcnow(), score=d["score"], category=d["category"],
+            published_date=d.get("published_date", datetime.utcnow()), ingested_at=datetime.utcnow(),
+            score=d["score"], category=d["category"],
+            enrichment_status="pending" if d["score"] >= 40.0 else "enriched",
             keywords_found=d["keywords_found"], is_bubbled=d["is_bubbled"],
             full_content=d.get("full_content")
         )
-        batch.append(art)
-
-        if len(batch) >= batch_size:
-            db_session.add_all(batch)
-            try:
-                db_session.flush()
-                for item, art_data in zip(batch, arts_data[len(batch)-batch_size:]):
-                    if art_data.get("iocs"):
-                        ioc_objs = [
-                            ExtractedIOC(
-                                article_id=item.id, indicator_type=ioc["Type"],
-                                indicator_value=ioc["Indicator"], context=ioc["Context"]
-                            ) for ioc in art_data["iocs"]
-                        ]
-                        db_session.add_all(ioc_objs)
-                db_session.commit()
-                added += len(batch)
-            except IntegrityError:
-                db_session.rollback()
-            batch = []
-
-    if batch:
-        db_session.add_all(batch)
         try:
-            db_session.flush()
-            remaining_data = arts_data[len(arts_data) - len(batch):]
-            for item, art_data in zip(batch, remaining_data):
-                if art_data.get("iocs"):
-                    ioc_objs = [
-                        ExtractedIOC(
-                            article_id=item.id, indicator_type=ioc["Type"],
-                            indicator_value=ioc["Indicator"], context=ioc["Context"]
-                        ) for ioc in art_data["iocs"]
-                    ]
-                    db_session.add_all(ioc_objs)
-            db_session.commit()
-            added += len(batch)
+            with db_session.begin_nested():
+                db_session.add(art)
+                db_session.flush()
+                for ioc in d.get("iocs", []):
+                    db_session.add(ExtractedIOC(
+                        article_id=art.id, indicator_type=ioc["Type"],
+                        indicator_value=ioc["Indicator"], context=ioc["Context"]
+                    ))
+            added += 1
         except IntegrityError:
-            db_session.rollback()
+            continue
+        except Exception as e:
+            log(f"[WARN] Article persistence failed for {d.get('link', '')}: {e}", "WORKER", logging.WARNING)
+            continue
 
+    db_session.commit()
     db_session.expunge_all()
     return added
+
+def enrich_pending_articles(limit=25):
+    """Enrich captured articles without blocking the RSS persistence path."""
+    with SessionLocal() as db:
+        pending = db.query(Article.id, Article.link).filter(
+            Article.enrichment_status.in_(["pending", "failed"]),
+            Article.enrichment_attempts < 3,
+            Article.score >= 40.0,
+        ).order_by(Article.score.desc(), Article.ingested_at.asc()).limit(limit).all()
+        ids = [row.id for row in pending]
+        for article_id in ids:
+            db.query(Article).filter(Article.id == article_id).update({
+                "enrichment_status": "content_pending",
+                "enrichment_attempts": Article.enrichment_attempts + 1,
+            }, synchronize_session=False)
+        db.commit()
+
+    if not pending:
+        return 0
+
+    def fetch(row):
+        return row.id, _fetch_full_content(row.link)
+
+    completed = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        results = executor.map(fetch, pending)
+        for article_id, content in results:
+            with SessionLocal() as db:
+                article = db.query(Article).filter(Article.id == article_id).first()
+                if not article:
+                    continue
+                if content:
+                    article.full_content = content[:200000]
+                    article.enrichment_status = "enriched"
+                    article.last_enriched_at = datetime.utcnow()
+                    article.last_enrichment_error = None
+                    completed += 1
+                else:
+                    article.enrichment_status = "failed"
+                    article.last_enrichment_error = "Full-content extraction returned no content."
+                db.commit()
+    return completed
 
 def fetch_feeds(source="Scheduled"):
     """Main entry point for scheduled RSS feed fetching and scoring."""
@@ -426,12 +429,22 @@ def run_database_maintenance():
             hours_24_ago = now - timedelta(hours=24) 
             hours_48_ago = now - timedelta(hours=48)
             days_7_ago   = now - timedelta(days=7)
+            days_3_ago   = now - timedelta(days=3)
             days_14_ago  = now - timedelta(days=14)
+            days_30_ago  = now - timedelta(days=30)
             days_60_ago  = now - timedelta(days=60)
+            days_90_ago  = now - timedelta(days=90)
+            hours_72_ago = now - timedelta(hours=72)
             
             # --- CLEANUP LOGIC ---
-            session.query(Article).filter(Article.score <= 0.0).delete()
-            session.query(Article).filter(Article.published_date < days_14_ago, Article.is_pinned == False).delete()
+            # Low-value articles get a shorter retention window; recent captures remain available
+            # for triage while high-value and pinned intelligence receives the full retention period.
+            session.query(Article).filter(
+                Article.score < 50.0,
+                Article.published_date < days_3_ago,
+                Article.is_pinned == False,
+            ).delete()
+            session.query(Article).filter(Article.published_date < days_30_ago, Article.is_pinned == False).delete()
             session.query(SolarWindsAlert).filter(SolarWindsAlert.received_at < days_60_ago).delete()
             session.query(RegionalHazard).filter(RegionalHazard.updated_at < hours_48_ago).delete()
             session.query(RegionalOutage).filter(RegionalOutage.detected_at < hours_12_ago).delete()
@@ -443,6 +456,9 @@ def run_database_maintenance():
                 CloudOutage.updated_at < days_14_ago
             ).delete()
             session.query(CrimeIncident).filter(CrimeIncident.timestamp < days_7_ago).delete()
+            session.query(InternalRiskSnapshot).filter(InternalRiskSnapshot.timestamp < days_90_ago).delete()
+            session.query(TimelineEvent).filter(TimelineEvent.timestamp < days_90_ago).delete()
+            session.query(ElasticEvent).filter(ElasticEvent.timestamp < hours_72_ago).delete()
             
             # Cleanup orphaned IOCs
             session.execute(text("DELETE FROM extracted_iocs WHERE article_id NOT IN (SELECT id FROM articles);"))
@@ -457,7 +473,7 @@ def run_database_maintenance():
         # SQLite Specific Advanced Maintenance
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("PRAGMA optimize;"))
-            conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE);"))
+            conn.execute(text("PRAGMA wal_checkpoint(PASSIVE);"))
     except Exception: 
         pass
 
@@ -779,27 +795,35 @@ def job_retrain_ml():
 # 4. THE THREADED MASTER ORCHESTRATOR
 # =====================================================================
 
-_job_semaphore = threading.Semaphore(3)
+_job_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="scheduled-job")
+_running_jobs = set()
+_running_jobs_lock = threading.Lock()
 
 def run_threaded(job_func, *args, **kwargs):
     """
-    Runs scheduled jobs in a separate background thread with concurrency guard.
-    Caps parallel jobs at 3 to prevent GIL contention on low-core devices.
+    Submit a job to the bounded executor unless the same job is already queued or running.
     """
-    def _throttled():
-        with _job_semaphore:
-            job_name = getattr(job_func, "__name__", str(job_func))
-            log_memory_usage(f"pre-{job_name}")
-            try:
-                job_func(*args, **kwargs)
-            except Exception as e:
-                log(f"[CRASH] Job {job_name} failed: {e}", "WORKER", logging.ERROR)
-                import traceback
-                log(f"[CRASH] Traceback: {traceback.format_exc()}", "WORKER", logging.ERROR)
-            finally:
-                log_memory_usage(f"post-{job_name}")
-    job_thread = threading.Thread(target=_throttled, daemon=True)
-    job_thread.start()
+    job_name = getattr(job_func, "__name__", str(job_func))
+    with _running_jobs_lock:
+        if job_name in _running_jobs:
+            log(f"[SKIP] {job_name} is already running.", "WORKER", logging.DEBUG)
+            return False
+        _running_jobs.add(job_name)
+
+    def _run():
+        log_memory_usage(f"pre-{job_name}")
+        try:
+            job_func(*args, **kwargs)
+        except Exception as e:
+            log(f"[CRASH] Job {job_name} failed: {e}", "WORKER", logging.ERROR)
+            import traceback
+            log(f"[CRASH] Traceback: {traceback.format_exc()}", "WORKER", logging.ERROR)
+        finally:
+            log_memory_usage(f"post-{job_name}")
+            with _running_jobs_lock:
+                _running_jobs.discard(job_name)
+    _job_executor.submit(_run)
+    return True
 
 if __name__ == "__main__":
     from src.core.config import setup_logging
@@ -818,6 +842,7 @@ if __name__ == "__main__":
     
     # Tier 2: High-frequency data collection — staggered to avoid pile-ups
     schedule.every(5).minutes.do(run_threaded, fetch_feeds)
+    schedule.every(3).minutes.do(run_threaded, enrich_pending_articles)
     schedule.every(5).minutes.do(run_threaded, job_clear_expired_maintenance)
     schedule.every(6).minutes.do(run_threaded, run_telemetry_sync)
     schedule.every(7).minutes.do(run_threaded, fetch_regional_hazards)

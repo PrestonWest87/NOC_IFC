@@ -96,7 +96,7 @@ export function AiopsRcaPage() {
   },
 });
 
-  const pollMs = livePolling ? 5000 : false;
+  const pollMs = livePolling ? 10000 : false;
 
   const { data: dashboard } = useQuery({
     queryKey: ["rca-dashboard"],
@@ -107,7 +107,7 @@ export function AiopsRcaPage() {
   const { data: analysis, isFetching: analysisLoading, refetch: refetchAnalysis } = useQuery({
     queryKey: ["rca-analyze"],
     queryFn: () => api.post("/rca/analyze").then((r) => r.data),
-    refetchInterval: livePolling ? 30000 : false,
+    refetchInterval: livePolling ? 60000 : false,
     enabled: activeTab === 0 || deepAnalysisRun,
     retry: 1,
     staleTime: 10000,
@@ -636,7 +636,7 @@ export function AiopsRcaPage() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
         <div>
           <h2 style={{ margin: 0, color: "var(--text-primary)", fontSize: "1.35rem" }}>AIOps Root Cause Analysis</h2>
-          <span style={{ ...label, margin: 0 }}>Live correlation of non-uniform monitoring alerts with Regional Intelligence.</span>
+          <span style={{ ...label, margin: 0 }}>Live correlation of monitoring alerts with regional intelligence. Dashboard refreshes every 10 seconds; analysis refreshes every 60 seconds.</span>
         </div>
       </div>
 
@@ -659,7 +659,7 @@ export function AiopsRcaPage() {
               onClick={() => setLivePolling((p) => !p)}
             >
               {livePolling ? <Zap size={14} /> : <RefreshCw size={14} />}
-              {livePolling ? "Live 5s Polling ON" : "Live 5s Polling OFF"}
+              {livePolling ? "Live 10s Polling ON" : "Live 10s Polling OFF"}
             </button>
           </div>
 

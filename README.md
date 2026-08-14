@@ -139,14 +139,17 @@ Run by the `worker` container (`python -u src/scheduler.py`):
 | Job | Interval |
 |-----|----------|
 | Tiered Alert Escalation | **1 minute** |
-| Regional Hazards (NWS/SPC/USGS) | **2 minutes** |
-| Crime Feed | **3 minutes** |
-| Cloud Outages (18+ providers) | **5 minutes** |
-| BGP/Telemetry (ORNL/RIPE/IODA) | **5 minutes** |
-| RSS Feed Fetch | **15 minutes** |
-| CISA KEV Sync | **6 hours** |
-| Internal Risk | **1 hour** |
-| Unified Brief | **30 minutes** |
+| RSS Feed Capture | **5 minutes** |
+| Article Enrichment | **3 minutes** |
+| Regional Hazards (NWS/SPC/USGS) | **7 minutes** |
+| Crime Feed | **10 minutes** |
+| Cloud Outages (18+ providers) | **8 minutes** |
+| BGP/Telemetry (ORNL/RIPE/IODA) | **6 minutes** |
+| CISA KEV Sync | **7 hours** |
+| Internal Risk | **2 hours** |
+| Internal Asset Brief | **3 hours** |
+| Unified Brief | **6 hours** |
+| Global Threat Brief | **Daily at 02:00** |
 | DB Maintenance | **60 minutes** |
 | ML Retrain | Sunday 02:00 |
 | Daily Email Brief | 07:00 CST |
