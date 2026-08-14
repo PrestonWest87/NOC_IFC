@@ -217,7 +217,8 @@ function buildFeatureIndex(processedGeo: any, mapToggles?: Record<string, boolea
 export function RegionalGridPage() {
   const { user } = useAuth();
   const allowedRegionTabs = getAllowedTabs(user?.allowed_actions, "regionalGrid");
-  const tabs = ALL_TABS.filter(t => allowedRegionTabs.length === 0 || allowedRegionTabs.includes(t.key));
+  const isAdmin = ["admin", "administrator"].includes(String(user?.role || "").toLowerCase());
+  const tabs = ALL_TABS.filter(t => isAdmin || allowedRegionTabs.includes(t.key));
   const [activeTab, setActiveTab] = useState(tabs.length > 0 ? tabs[0].key : "geospatial");
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
 
