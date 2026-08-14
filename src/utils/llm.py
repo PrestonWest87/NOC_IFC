@@ -356,7 +356,8 @@ IMPORTANT: If the input contains NO cyber threats, CVEs, threat actors, security
                 pct = int((done / total_chunks) * 49) + 1
                 progress_callback(stage="cyber_map", message=f"Cyber intelligence map-reduce: chunk {done}/{total_chunks} ({total_items} items)", total_items=total_items, processed_items=processed, percent=pct)
         cyber_digest = _map_reduce_summarize(
-            cyber_payload, lambda x: x, map_p, reduce_p, config, chunk_size=15, progress_callback=_cyber_progress
+            cyber_payload, lambda x: x, map_p, reduce_p, config, chunk_size=15,
+            progress_callback=_cyber_progress, skip_noise_filter=True
         )
     else:
         cyber_digest = "No active cyber OSINT, KEVs, or cloud outages reported in the last 48 hours."
