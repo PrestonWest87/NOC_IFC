@@ -3004,7 +3004,7 @@ def update_user_role(username, new_role):
             u.role, u.session_token = new_role, None
             db.commit()
 
-def save_global_config(data):
+def save_global_config(data, allow_system_fields=True):
     # The frontend historically used these labels; normalize them before the
     # strict allowlist so configuration updates remain compatible.
     data = dict(data)
@@ -3023,6 +3023,16 @@ def save_global_config(data):
         "internal_risk_offset", "llm_context_window",
         "public_app_url",
     }
+    system_fields = {
+        "alerted_eq_ids", "rolling_summary", "rolling_summary_time",
+        "unified_brief", "unified_brief_time", "global_brief", "global_brief_time",
+        "internal_brief", "internal_brief_time", "last_global_risk", "last_internal_risk",
+        "last_risk_alert_time",
+    }
+    if allow_system_fields:
+        editable_fields |= system_fields
+    else:
+        data = {key: value for key, value in data.items() if key not in system_fields}
     unknown = set(data) - editable_fields
     if unknown:
         raise ValueError(f"Unsupported configuration fields: {', '.join(sorted(unknown))}")

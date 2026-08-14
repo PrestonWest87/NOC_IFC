@@ -72,7 +72,7 @@ def ml_counts():
 def save_config(data: dict[str, Any] = Body({})):
     logger.info("POST /admin/config keys=%s", list(data.keys()))
     try:
-        svc.save_global_config(data)
+        svc.save_global_config(data, allow_system_fields=False)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "ok"}
