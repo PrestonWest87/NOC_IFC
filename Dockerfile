@@ -9,12 +9,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Install system dependencies for psycopg2
 RUN apt-get update && apt-get install -y libpq-dev gcc && rm -rf /var/lib/apt/lists/*
 
+RUN useradd --create-home --uid 10001 appuser && mkdir -p /app/data
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
-
-RUN useradd --create-home --uid 10001 appuser && \
-    mkdir -p /app/data && chown -R appuser:appuser /app
+COPY --chown=appuser:appuser . .
 
 USER appuser

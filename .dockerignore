@@ -1,4 +1,7 @@
 node_modules
+web/node_modules
+web/dist
+web/tsconfig.tsbuildinfo
 .git
 .gitignore
 __pycache__
