@@ -3197,19 +3197,28 @@ def trigger_scoring_rationale(intel_data: dict):
     logger.warning("trigger_scoring_rationale: generation failed: %s", (report or "None")[:200])
     return {"status": "error", "message": report or "Generation failed."}
 
-def _build_fallback_summary(logs, timeframe_label, target_role):
-    """Build a plain-text shift summary from log entries without calling an LLM."""
-    lines = []
-    lines.append(f"=== {timeframe_label} Shift Summary: {target_role.upper()} ===")
-    lines.append(f"Total entries: {len(logs)}")
-    lines.append("")
-    for i, log in enumerate(logs, 1):
-        ts = log.created_at.strftime("%Y-%m-%d %H:%M") if log.created_at else "Unknown"
-        lines.append(f"{i}. [{ts}] {log.analyst}: {log.content[:300]}")
-    return "\n".join(lines)
+def _build_fallback_summary(logs, timeframe_label, target_role, generated_by):
+    """Build a narrative handoff summary without an LLM."""
+    entries = []
+    for log in reversed(logs):
+        ts = log.created_at.strftime("%Y-%m-%d %H:%M") if log.created_at else "an unknown time"
+        text = " ".join((log.content or "").split())
+        entries.append(f"At {ts}, {log.analyst or 'the on-duty analyst'} recorded: {text[:500]}")
+    narrative = " ".join(entries)
+    return (
+        f"# {timeframe_label} Operational Handoff — {target_role.upper()}\n\n"
+        f"**Prepared by:** {generated_by}\n\n"
+        f"## Executive Narrative\n"
+        f"The {timeframe_label.lower()} record contains {len(logs)} operational log entries for the {target_role.upper()} team. "
+        f"The documented activity is summarized chronologically below so the incoming team can distinguish completed work from items requiring follow-up.\n\n"
+        f"## Chronological Activity\n{narrative}\n\n"
+        f"## Handoff Notes\n"
+        f"Review each recorded item for unresolved incidents, pending tickets, maintenance commitments, and dependencies that are not explicitly marked complete. "
+        f"No additional facts were inferred because AI narrative generation was unavailable."
+    )
 
 
-def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning", timeframe_label: str = "Morning Shift", auto_append: bool = False, timeframe: str = "shift"):
+def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning", timeframe_label: str = "Morning Shift", auto_append: bool = False, timeframe: str = "shift", generated_by: str = "Unknown"):
     """Force-generate an aggregated shift summary from log entries.
     timeframe: 'shift' = today only, 'week' = last 7 days.
     """
@@ -3259,7 +3268,7 @@ def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning
 
         def run_llm():
             try:
-                llm_result[0] = generate_aggregated_shift_summary(session, logs, timeframe_label, target_role=role_filter)
+                llm_result[0] = generate_aggregated_shift_summary(session, logs, timeframe_label, target_role=role_filter, generated_by=generated_by)
             except Exception as e:
                 llm_error[0] = e
             finally:
@@ -3279,11 +3288,11 @@ def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning
                 logger.error("trigger_shift_summary: LLM exception: %s", llm_error[0])
             else:
                 logger.warning("trigger_shift_summary: LLM failed or unavailable, using fallback")
-            summary = _build_fallback_summary(logs, timeframe_label, role_filter)
+            summary = _build_fallback_summary(logs, timeframe_label, role_filter, generated_by)
 
     if auto_append:
         save_shift_log(
-            analyst="AI Shift Report",
+            analyst=generated_by,
             role="system",
             shift_period=shift_period,
             content=f"**{timeframe_label.upper()} SHIFT REPORT:**\n\n{summary}",

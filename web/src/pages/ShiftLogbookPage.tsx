@@ -94,7 +94,6 @@ export function ShiftLogbookPage() {
   const { user, token } = useAuth();
   const queryClient = useQueryClient();
 
-  const [analyst, setAnalyst] = useState(user?.full_name ?? user?.username ?? "");
   const [shiftPeriod, setShiftPeriod] = useState(user?.default_shift || "No Shift");
   const [customDate, setCustomDate] = useState(todayChicagoString());
   const [role, setRole] = useState(user?.role ?? "analyst");
@@ -125,7 +124,7 @@ export function ShiftLogbookPage() {
       api.post("/logbook/generate-summary", {
         role_filter: summaryTimeframe === "fullday" ? userRole : summaryRole,
         shift_period: summaryShiftPeriod,
-        timeframe_label: summaryTimeframe === "week" ? "Current Week" : summaryTimeframe === "fullday" ? "End of Day" : summaryShiftPeriod + " Shift",
+         timeframe_label: summaryTimeframe === "week" ? "End-of-Week Operational Handoff" : summaryTimeframe === "fullday" ? "End-of-Day Operational Handoff" : summaryShiftPeriod + " Shift Handoff",
         auto_append: true,
         timeframe: summaryTimeframe,
       }),
@@ -243,7 +242,6 @@ export function ShiftLogbookPage() {
     e.preventDefault();
     if (!content.trim()) return;
     const params: any = {
-      analyst: analyst || "analyst",
       role: role || "analyst",
       shift_period: shiftPeriod,
       content: content.trim(),
@@ -369,17 +367,8 @@ export function ShiftLogbookPage() {
 
           <form onSubmit={handleSubmit}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
-              <div>
-                <div style={label}>Analyst Name</div>
-                <input
-                  value={analyst}
-                  onChange={(e) => setAnalyst(e.target.value)}
-                  placeholder="Your name"
-                  style={inputBase}
-                />
-              </div>
-              <div>
-                <div style={label}>Role</div>
+               {isAdmin && <div>
+                 <div style={label}>Role</div>
                 <select
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
@@ -387,8 +376,8 @@ export function ShiftLogbookPage() {
                   style={{ ...inputBase, opacity: isAdmin ? 1 : 0.6 }}
                 >
                   {roleOpts.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
-              </div>
+                 </select>
+               </div>}
             </div>
             <div style={{ marginBottom: "0.75rem" }}>
               <div style={label}>Shift Period</div>
@@ -399,6 +388,7 @@ export function ShiftLogbookPage() {
               >
                 <option value="Morning">Morning</option>
                 <option value="Afternoon">Afternoon</option>
+                <option value="Evening">Evening</option>
                 <option value="No Shift">No Shift (Custom Date)</option>
               </select>
             </div>

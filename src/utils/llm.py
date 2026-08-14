@@ -1448,7 +1448,7 @@ REQUIRED STRUCTURE:
 
     return response.strip()
 
-def generate_aggregated_shift_summary(session, logs, timeframe_label, target_role="All"):
+def generate_aggregated_shift_summary(session, logs, timeframe_label, target_role="All", generated_by="Unknown"):
     config = get_llm_config(session)
     logger.debug("generate_aggregated_shift_summary: config_found=%s logs_count=%d timeframe=%s role=%s",
                 config is not None, len(logs) if logs else 0, timeframe_label, target_role)
@@ -1460,8 +1460,8 @@ def generate_aggregated_shift_summary(session, logs, timeframe_label, target_rol
         logger.warning("generate_aggregated_shift_summary: no logs provided")
         return f"No logs available to generate a {timeframe_label} summary."
 
-    map_p = f"You are a log analyst for the '{target_role.upper()}' team. Read these shift log entries and extract factual records of: incidents detected, actions taken, tickets dispatched, escalations, and any ongoing issues. Output concise bullet points — do not praise or characterize the work quality, just report what happened."
-    reduce_p = "Combine these extractions into a single chronological digest of events. Preserve all concrete facts: timestamps, asset names, ticket numbers, outage durations, and resolution actions. Do not add commentary about performance or team effectiveness."
+    map_p = f"""You are an operational intelligence analyst for the '{target_role.upper()}' team. Read each shift-log entry and extract the facts needed for a professional NOC handoff: incident or change, affected service/site/asset, observed impact, actions taken, ticket or escalation identifiers, current state, dependencies, and explicit next steps. Preserve timestamps and uncertainty. Do not praise performance or invent facts."""
+    reduce_p = """Combine the extracted facts into a coherent chronological operational narrative. Group related entries into the same incident or workstream, explain how the situation changed over the period, and preserve ticket numbers, asset names, durations, decisions, and unresolved dependencies. Separate completed actions from pending work. Do not characterize team performance or add facts not present in the logs."""
 
     logger.debug("generate_aggregated_shift_summary: running map-reduce on %d logs (chunk_size=20)", len(logs))
     log_digest = _map_reduce_summarize(
@@ -1471,22 +1471,29 @@ def generate_aggregated_shift_summary(session, logs, timeframe_label, target_rol
     )
     logger.debug("generate_aggregated_shift_summary: map-reduce digest_length=%d", len(log_digest) if log_digest else 0)
 
-    master_sys_prompt = f"""You are a NOC shift log summarizer generating a factual summary for the {target_role.upper()} team for '{timeframe_label}'.
+    master_sys_prompt = f"""You are the senior NOC operations lead writing the {timeframe_label} handoff for the {target_role.upper()} team. The report was triggered by {generated_by}; identify the preparer exactly as provided and do not substitute another person.
 
-    Read the log entries and produce a neutral, data-driven summary. Do not praise performance, do not characterize work quality, do not use superlatives. Report only what the logs factually state.
+Write a clear, narrative operational report from the supplied log digest. Explain the sequence of events, the operational impact, what actions changed the situation, and what the incoming team needs to know. Use only facts contained in the digest. Do not praise the team, speculate, assign blame, or invent ticket status.
 
-    Structure the response in Markdown with these exact headers:
+Use Markdown with these exact sections:
 
-    ## {timeframe_label} Log Summary — {target_role.upper()}
-    [2-3 sentences summarizing the scope: time period covered, number of entries, general nature of activity (e.g. "routine monitoring", "active outage remediation", "maintenance windows").]
+# {timeframe_label} Operational Handoff — {target_role.upper()}
 
-    ## Events Logged
-    [Bulleted list of each discrete event mentioned in the logs. Format: timestamp — action/item (e.g. "14:30 — Dispatched ticket #4512 for MAIN-1 circuit flap"). Include asset names, ticket IDs, outage durations if recorded.]
+## Executive Narrative
+Write 1-2 connected paragraphs describing the period covered, dominant operational themes, major incidents or changes, and the current overall posture. Mention when the record is routine, incident-heavy, or mixed only when supported by the logs.
 
-    ## Open Items
-    [Bulleted list of any issues noted as ongoing, unresolved, or carried over. If none, state "No open items reported."]
+## Incident and Workstream Narrative
+Use subsections or paragraphs for each distinct incident, site, asset, maintenance effort, or operational workstream. For each, explain the trigger, observed impact, actions taken, current state, and relevant ticket/escalation details in chronological order.
 
-    Stick strictly to what is in the logs. Do not infer events not recorded. Do not add praise or subjective assessment."""
+## Timeline
+Provide a concise chronological list of the key transitions, preserving timestamps and durations when present.
+
+## Open Items and Dependencies
+Identify unresolved issues, pending actions, follow-up owners, tickets, maintenance windows, and dependencies explicitly recorded. If none are recorded, say so.
+
+## Incoming Shift Priorities
+    State the concrete next checks or follow-ups supported by the logs. If the logs do not specify priorities, say that no explicit incoming-shift priorities were recorded.
+    """
 
     logger.debug("generate_aggregated_shift_summary: calling final LLM for master summary")
     response = call_llm([

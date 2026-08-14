@@ -1,12 +1,12 @@
 import logging
 from datetime import datetime
-from fastapi import APIRouter, Query, Body, Depends
+from fastapi import APIRouter, Query, Body, Depends, HTTPException
 from typing import Any
 
 from src import services as svc
 from src.core.db import SessionLocal
 from src.models.schema import ShiftLogEntry
-from src.api.auth_guard import require_page, require_action
+from src.api.auth_guard import require_page, require_action, get_current_user, is_admin
 
 logger = logging.getLogger(__name__)
 
@@ -27,19 +27,22 @@ def entries(role_filter: str = Query("All"), start_date: str = None, end_date: s
 
 @router.post("/entries", dependencies=[Depends(require_action("Action: Submit Shift Log"))])
 def create_entry(
-    analyst: str = "",
     role: str = "analyst",
     shift_period: str = "Morning",
     content: str = "",
     custom_date: str = None,
     session_token: str = Query(None),
+    user=Depends(get_current_user),
 ):
-    logger.info("POST /logbook/entries analyst=%s role=%s shift=%s content_length=%d",
-                 analyst, role, shift_period, len(content) if content else 0)
-    if session_token:
-        user = svc.get_user_by_token(session_token)
-        if user and user.role != "admin":
-            role = user.role
+    analyst = user.full_name or user.username
+    if not is_admin(user):
+        role = user.role or "analyst"
+    if shift_period not in {"Morning", "Afternoon", "Evening", "No Shift"}:
+        raise HTTPException(status_code=400, detail="Invalid shift period.")
+    if not content.strip() or len(content) > 20000:
+        raise HTTPException(status_code=400, detail="Shift log content is required and must be 20,000 characters or fewer.")
+    logger.info("POST /logbook/entries user=%s role=%s shift=%s content_length=%d",
+                 user.username, role, shift_period, len(content) if content else 0)
     cd = datetime.fromisoformat(custom_date) if custom_date else None
     svc.save_shift_log(analyst, role, shift_period, content, cd)
     return {"status": "ok"}
@@ -60,7 +63,7 @@ def update_entry(entry_id: int, data: dict[str, Any] = Body({})):
 
 
 @router.post("/generate-summary", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
-def generate_shift_summary(data: dict[str, Any] = Body({})):
+def generate_shift_summary(data: dict[str, Any] = Body({}), user=Depends(get_current_user)):
     role_filter = data.get("role_filter", "All")
     shift_period = data.get("shift_period", "Morning")
     timeframe_label = data.get("timeframe_label", shift_period + " Shift")
@@ -73,5 +76,6 @@ def generate_shift_summary(data: dict[str, Any] = Body({})):
         timeframe_label=timeframe_label,
         auto_append=auto_append,
         timeframe=timeframe,
+        generated_by=user.full_name or user.username,
     )
     return result
