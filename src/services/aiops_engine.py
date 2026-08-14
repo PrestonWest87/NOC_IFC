@@ -358,7 +358,8 @@ class EnterpriseAIOpsEngine:
             2: ("P2 - HIGH", "1 Hour"),
             3: ("P3 - MODERATE", "4 Hours"),
             4: ("P4 - LOW", "24 Hours"),
-            5: ("P5 - PLANNING", "Best Effort")
+            5: ("P5 - PLANNING", "Best Effort"),
+            6: ("P6 - INFORMATIONAL", "Best Effort")
         }
 
         base_priority, sla_time = sla_map.get(max_level, ("P3 - MODERATE", "4 Hours"))
