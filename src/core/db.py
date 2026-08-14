@@ -198,6 +198,12 @@ def init_db():
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN public_app_url VARCHAR DEFAULT 'http://localhost:8501'"))
+    except Exception as e:
+        logger.debug("system_config public_app_url migration skipped: %s", e)
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN default_shift VARCHAR DEFAULT 'No Shift'"))
     except Exception as e:
         logger.debug("users.default_shift migration skipped: %s", e)

@@ -150,11 +150,14 @@ def create_registration_invite(data: dict[str, Any] = Body({}), user=Depends(req
         )
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    with svc.SessionLocal() as db:
+        config = db.query(svc.SystemConfig).first()
+        public_app_url = (config.public_app_url if config else None) or settings.public_app_url
     return {
         "username": str(data.get("username", "")).strip(),
         "role": str(data.get("role", "analyst")).strip(),
         "expires_at": expires_at.isoformat(),
-        "registration_url": f"{settings.public_app_url.rstrip('/')}/#/register?token={raw_token}",
+        "registration_url": f"{public_app_url.rstrip('/')}/#/register?token={raw_token}",
     }
 
 

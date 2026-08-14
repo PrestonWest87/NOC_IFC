@@ -106,6 +106,7 @@ class SystemConfig(Base):
     internal_risk_offset = Column(Integer, default=0)
     alerted_eq_ids = Column(Text, default="[]")
     llm_context_window = Column(Integer, default=128000)
+    public_app_url = Column(String, default="http://localhost:8501")
 
 
 class ShiftLogEntry(Base):

@@ -72,6 +72,25 @@ function Spinner() {
   return <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />;
 }
 
+function parseSearchInput(value: string): string[] {
+  if ((value.match(/"/g) || []).length % 2 !== 0) return [];
+  const terms: string[] = [];
+  for (const match of value.matchAll(/"([^"\r\n]+)"|([^,;\s]+)/g)) {
+    const term = (match[1] || match[2]).trim();
+    if (term && !terms.some(existing => existing.toLowerCase() === term.toLowerCase())) terms.push(term);
+  }
+  return terms;
+}
+
+function validateRecipients(value: string): string | null {
+  if (/[\r\n]/.test(value)) return "Recipients cannot contain newlines.";
+  const recipients = value.split(/[,;]/).map(item => item.trim()).filter(Boolean);
+  if (recipients.length > 20) return "A maximum of 20 recipients is allowed.";
+  const emailPattern = /^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$/;
+  if (recipients.some(item => !emailPattern.test(item))) return "Enter valid email addresses separated by commas or semicolons.";
+  return null;
+}
+
 export function ReportingPage() {
   const { user } = useAuth();
   const allowedReportTabs = getAllowedTabs(user?.allowed_actions, "reporting");
@@ -307,6 +326,8 @@ function CustomReportBuilder() {
   );
   const [saveTitle, setSaveTitle] = useState("");
   const [emailRecipient, setEmailRecipient] = useState("");
+  const [analyst, setAnalyst] = useState("");
+  const [objective, setObjective] = useState("Generate an exhaustive technical report covering threat actors, TTPs, IOCs, and defensive recommendations.");
   const [reportGenId, setReportGenId] = useState<string | null>(
     () => sessionStorage.getItem("custom_report_gen_id")
   );
@@ -317,6 +338,7 @@ function CustomReportBuilder() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [inputError, setInputError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!reportGenId) return;
@@ -350,7 +372,11 @@ function CustomReportBuilder() {
   }, [reportGenId]);
 
   const handleSearch = async () => {
-    if (!target.trim()) { alert("Please enter a search target."); return; }
+    const terms = parseSearchInput(target.trim());
+    if (!target.trim()) { setInputError("Please enter at least one search term."); return; }
+    if (target.length > 500) { setInputError("Search input must be 500 characters or fewer."); return; }
+    if (!terms.length) { setInputError("Use balanced quotes around phrases, for example: \"critical infrastructure\" APT29."); return; }
+    setInputError(null);
     setGenerated(null);
     sessionStorage.removeItem("custom_report_content");
     setSearchLoading(true);
@@ -456,10 +482,14 @@ function CustomReportBuilder() {
             <input
               style={inputStyle}
               placeholder="e.g. LockBit, critical infrastructure, APT29"
+              maxLength={500}
               value={target}
               onChange={e => setTarget(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleSearch()}
             />
+          </div>
+          <div style={{ flexBasis: "100%", color: "var(--text-muted)", fontSize: "0.73rem" }}>
+            Search terms are matched in article titles and summaries. Separate terms with spaces, commas, or semicolons; wrap multi-word phrases in quotes. Terms are combined with OR, so <code>APT29, \"critical infrastructure\"</code> matches either condition.
           </div>
           <div style={{ flex: 1, minWidth: 120 }}>
             <div style={sectionTitle}>
@@ -485,6 +515,7 @@ function CustomReportBuilder() {
             {searchLoading ? "Searching..." : "Search Articles"}
           </button>
         </div>
+        {inputError && <div role="alert" style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "var(--accent-red)" }}>{inputError}</div>}
         {searchError && (
           <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "var(--accent-red)" }}>
             {searchError}
@@ -571,13 +602,9 @@ function CustomReportBuilder() {
               <input
                 style={inputStyle}
                 placeholder="Your name"
-                defaultValue={(() => {
-                  const stored = sessionStorage.getItem("noc_user");
-                  if (!stored) return "";
-                  try { const p = JSON.parse(stored); return p.full_name || p.username || ""; }
-                  catch { return stored; }
-                })()}
-                id="analyst-name"
+                 maxLength={120}
+                 value={analyst}
+                 onChange={e => setAnalyst(e.target.value)}
               />
             </div>
             <div style={{ flex: 2, minWidth: 200 }}>
@@ -588,16 +615,18 @@ function CustomReportBuilder() {
               <textarea
                 style={textareaStyle}
                 placeholder="Generate an exhaustive technical report..."
-                defaultValue="Generate an exhaustive technical report covering threat actors, TTPs, IOCs, and defensive recommendations."
-                id="ai-objective"
+                 maxLength={4000}
+                 value={objective}
+                 onChange={e => setObjective(e.target.value)}
               />
             </div>
             <button
               onClick={() => {
                 if (selectedIds.size === 0) { alert("Please select at least one article."); return; }
-                const analyst = (document.getElementById("analyst-name") as HTMLInputElement)?.value || "Unknown";
-                const objective = (document.getElementById("ai-objective") as HTMLTextAreaElement)?.value || "Generate an exhaustive technical report.";
-                genMutation.mutate({ article_ids: Array.from(selectedIds), target: target.trim(), days_back: daysBack, objective, analyst });
+                 const safeAnalyst = analyst.trim() || "Unknown";
+                 const safeObjective = objective.trim() || "Generate an exhaustive technical report.";
+                 if (safeAnalyst.length > 120 || safeObjective.length > 4000) { setInputError("Analyst and objective fields exceed their allowed limits."); return; }
+                 genMutation.mutate({ article_ids: Array.from(selectedIds), target: target.trim(), days_back: daysBack, objective: safeObjective, analyst: safeAnalyst });
               }}
               disabled={isGenerating || selectedIds.size === 0}
               style={btn("var(--accent-blue)")}
@@ -665,15 +694,15 @@ function CustomReportBuilder() {
               <div style={sectionTitle}>Report Title</div>
               <input
                 style={inputStyle}
-                value={saveTitle}
-                onChange={e => setSaveTitle(e.target.value)}
+                 value={saveTitle}
+                 maxLength={200}
+                 onChange={e => setSaveTitle(e.target.value.slice(0, 200))}
               />
             </div>
             <button
               onClick={() => {
                 if (!saveTitle.trim()) { alert("Please enter a report title."); return; }
-                const analyst = (document.getElementById("analyst-name") as HTMLInputElement)?.value || "Unknown";
-                saveMutation.mutate({ title: saveTitle, author: analyst, content: generated });
+                 saveMutation.mutate({ title: saveTitle.trim().slice(0, 200), author: analyst.trim().slice(0, 120) || "Unknown", content: generated.slice(0, 200000) });
               }}
               disabled={saveMutation.isPending}
               style={btn("var(--accent-green)")}
@@ -685,15 +714,18 @@ function CustomReportBuilder() {
               <div style={sectionTitle}><Mail size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />Recipient Email</div>
               <input
                 style={inputStyle}
-                type="email"
+                 type="email"
                 placeholder="recipient@example.com"
-                value={emailRecipient}
-                onChange={e => setEmailRecipient(e.target.value)}
+                 value={emailRecipient}
+                 maxLength={2000}
+                 onChange={e => setEmailRecipient(e.target.value.slice(0, 2000))}
               />
             </div>
             <button
               onClick={() => {
-                if (!emailRecipient.trim()) { alert("Please enter a recipient email."); return; }
+                 if (!emailRecipient.trim()) { alert("Please enter a recipient email."); return; }
+                 const recipientError = validateRecipients(emailRecipient.trim());
+                 if (recipientError) { alert(recipientError); return; }
                 emailMutation.mutate({ title: saveTitle || "NOC Custom Intel Report", content: generated, recipients: emailRecipient.trim() });
               }}
               disabled={emailMutation.isPending}

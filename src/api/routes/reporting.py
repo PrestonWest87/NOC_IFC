@@ -1,9 +1,10 @@
 import logging
 import uuid
 import threading
+import re
 from typing import Optional
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from src import services as svc
 
@@ -15,30 +16,59 @@ _report_result_store: dict[str, dict] = {}
 _report_lock = threading.Lock()
 
 
+def _validated_recipients(value: str) -> str:
+    if "\r" in value or "\n" in value:
+        raise ValueError("Recipients cannot contain newlines.")
+    recipients = [part.strip() for part in re.split(r"[,;]", value) if part.strip()]
+    if len(recipients) > 20:
+        raise ValueError("A maximum of 20 recipients is allowed.")
+    pattern = re.compile(r"^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$")
+    if any(not pattern.fullmatch(recipient) for recipient in recipients):
+        raise ValueError("Recipients must be valid email addresses separated by commas or semicolons.")
+    return ", ".join(recipients)
+
+
 class BroadcastRequest(BaseModel):
-    report_date: str = ""
-    content: str = ""
-    recipients: str = ""
+    report_date: str = Field("", max_length=50)
+    content: str = Field("", max_length=200000)
+    recipients: str = Field("", max_length=2000)
+
+    @field_validator("recipients")
+    @classmethod
+    def validate_recipients(cls, value):
+        return _validated_recipients(value) if value.strip() else value
 
 
 class BroadcastCustomRequest(BaseModel):
-    title: str = "NOC Custom Intel Report"
-    content: str = ""
-    recipients: str = ""
+    title: str = Field("NOC Custom Intel Report", max_length=200)
+    content: str = Field("", max_length=200000)
+    recipients: str = Field("", max_length=2000)
+
+    @field_validator("recipients")
+    @classmethod
+    def validate_recipients(cls, value):
+        return _validated_recipients(value) if value.strip() else value
 
 
 class SaveReportRequest(BaseModel):
-    title: str = "Untitled Report"
-    author: str = "Unknown"
-    content: str = ""
+    title: str = Field("Untitled Report", max_length=200)
+    author: str = Field("Unknown", max_length=120)
+    content: str = Field("", max_length=200000)
 
 
 class GenerateCustomRequest(BaseModel):
-    target: str = ""
-    days_back: int = 7
-    article_ids: Optional[list[int]] = None
-    objective: str = ""
-    analyst: str = "Unknown"
+    target: str = Field("", max_length=500)
+    days_back: int = Field(7, ge=1, le=30)
+    article_ids: Optional[list[int]] = Field(default=None, max_length=100)
+    objective: str = Field("", max_length=4000)
+    analyst: str = Field("Unknown", max_length=120)
+
+    @field_validator("article_ids")
+    @classmethod
+    def valid_article_ids(cls, value):
+        if value is not None and any(article_id <= 0 for article_id in value):
+            raise ValueError("article_ids must contain positive integers")
+        return list(dict.fromkeys(value)) if value is not None else value
 
 
 @router.get("/executive-intel")
@@ -135,8 +165,8 @@ def delete_saved_report(report_id: int):
 
 
 class SearchArticlesRequest(BaseModel):
-    target: str = ""
-    days_back: int = 7
+    target: str = Field("", max_length=500)
+    days_back: int = Field(7, ge=1, le=30)
 
 
 @router.post("/search-articles")
@@ -144,7 +174,11 @@ def search_articles_for_report(data: SearchArticlesRequest):
     logger.info("POST /reporting/search-articles target=%s days_back=%d", data.target, data.days_back)
     if not data.target or not data.target.strip():
         return {"status": "error", "message": "Please enter a search target.", "articles": []}
-    articles = svc.search_articles_for_hunting(data.target.strip(), data.days_back)
+    try:
+        terms = svc.parse_search_terms(data.target)
+        articles = svc.search_articles_for_hunting(data.target.strip(), data.days_back)
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc), "articles": []}
     results = []
     for a in articles:
         results.append({
@@ -156,7 +190,7 @@ def search_articles_for_report(data: SearchArticlesRequest):
             "summary": (a.get("summary") or "")[:300],
             "category": a.get("category", ""),
         })
-    return {"status": "ok", "articles": results}
+    return {"status": "ok", "terms": terms, "articles": results}
 
 
 def _run_custom_report_generation(generation_id, target, days_back, article_ids, objective, analyst):
@@ -240,6 +274,12 @@ def generate_custom_report(data: GenerateCustomRequest):
     has_ids = data.article_ids and len(data.article_ids) > 0
     if not has_target and not has_ids:
         return {"status": "error", "message": "Please enter a target entity or select articles."}
+    if has_target:
+        try:
+            if not svc.parse_search_terms(data.target):
+                return {"status": "error", "message": "Please enter at least one valid search term."}
+        except ValueError as exc:
+            return {"status": "error", "message": str(exc)}
 
     generation_id = str(uuid.uuid4())
 
@@ -261,6 +301,10 @@ def generate_custom_report(data: GenerateCustomRequest):
 
 @router.get("/generate-custom-status")
 def get_custom_report_status(generation_id: str):
+    try:
+        uuid.UUID(generation_id)
+    except (ValueError, AttributeError):
+        return {"status": "error", "message": "Invalid generation id."}
     with _report_lock:
         progress = _report_progress_store.get(generation_id, {})
         result = _report_result_store.get(generation_id)

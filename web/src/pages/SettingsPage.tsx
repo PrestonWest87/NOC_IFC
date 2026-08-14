@@ -891,7 +891,8 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation }: { config: any;
       internal_criticality_override: config.internal_criticality_override || 0,
       internal_lethality_override: config.internal_lethality_override || 0,
       global_risk_offset: config.global_risk_offset || 0,
-      internal_risk_offset: config.internal_risk_offset || 0,
+       internal_risk_offset: config.internal_risk_offset || 0,
+       public_app_url: config.public_app_url || "",
     });
   }
 
@@ -945,6 +946,21 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation }: { config: any;
             </span>
           )}
         </div>
+      </Card>
+
+      <Card title="Application Links" icon={Globe}>
+        <SectionTitle text="Public Server Address" />
+        <input
+          style={inputStyle}
+          type="url"
+          maxLength={500}
+          value={form.public_app_url}
+          onChange={e => upd("public_app_url", e.target.value)}
+          placeholder="https://noc.example.com"
+        />
+        <p style={{ margin: "0.45rem 0 0", color: "var(--text-muted)", fontSize: "0.75rem" }}>
+          Used when generating registration invites and links to web-based operational areas. Include the scheme, for example <code>https://noc.example.com</code>, but no trailing path.
+        </p>
       </Card>
 
       <Card title="SMTP Broadcast" icon={Mail}>

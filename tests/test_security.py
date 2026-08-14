@@ -44,6 +44,16 @@ class SecurityUnitTests(unittest.TestCase):
             require_admin(SimpleNamespace(role="analyst"))
         self.assertEqual(error.exception.status_code, 403)
 
+    def test_report_search_parser_supports_delimiters_and_phrases(self):
+        from src.services import parse_search_terms
+
+        self.assertEqual(
+            parse_search_terms('APT29, "critical infrastructure"; ransomware'),
+            ["APT29", "critical infrastructure", "ransomware"],
+        )
+        with self.assertRaises(ValueError):
+            parse_search_terms('"unclosed phrase')
+
 
 if __name__ == "__main__":
     unittest.main()

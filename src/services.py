@@ -9,8 +9,9 @@ import json
 import os
 import hashlib
 import secrets
+from urllib.parse import urlparse
 from datetime import datetime, timedelta
-from sqlalchemy import text
+from sqlalchemy import text, or_
 from sqlalchemy.types import Boolean, DateTime
 from zoneinfo import ZoneInfo
 # Import your DB setup and models
@@ -2718,10 +2719,35 @@ def get_iocs(days_back=3):
         result = non_cve + list(cve_groups.values())
         return result
 
+def parse_search_terms(target: str) -> list[str]:
+    """Parse comma/semicolon/space-separated terms while preserving quoted phrases."""
+    target = (target or "").strip()
+    if not target:
+        return []
+    if len(target) > 500:
+        raise ValueError("Search input must be 500 characters or fewer.")
+    if target.count('"') % 2:
+        raise ValueError("Search phrases must use balanced quotation marks.")
+    terms = []
+    for match in re.finditer(r'"([^"\r\n]+)"|([^,;\s]+)', target):
+        value = (match.group(1) or match.group(2)).strip()
+        if value and value.casefold() not in {term.casefold() for term in terms}:
+            terms.append(value)
+    return terms[:50]
+
+
 def search_articles_for_hunting(target, days_back):
+    terms = parse_search_terms(target)
+    if not terms:
+        return []
+    days_back = max(1, min(int(days_back), 30))
     with SessionLocal() as db:
         cutoff = datetime.utcnow() - timedelta(days=days_back)
-        arts = db.query(Article).filter(Article.published_date >= cutoff, (Article.title.ilike(f"%{target}%") | Article.summary.ilike(f"%{target}%"))).limit(30).all()
+        term_filters = [
+            Article.title.ilike(f"%{term}%") | Article.summary.ilike(f"%{term}%")
+            for term in terms
+        ]
+        arts = db.query(Article).filter(Article.published_date >= cutoff, or_(*term_filters)).limit(30).all()
         return to_dotdict_list(arts)
 
 def get_articles_by_ids(ids):
@@ -2965,10 +2991,17 @@ def save_global_config(data):
         "physical_criticality_override", "physical_lethality_override",
         "internal_criticality_override", "internal_lethality_override", "global_risk_offset",
         "internal_risk_offset", "llm_context_window",
+        "public_app_url",
     }
     unknown = set(data) - editable_fields
     if unknown:
         raise ValueError(f"Unsupported configuration fields: {', '.join(sorted(unknown))}")
+    if "public_app_url" in data:
+        public_url = str(data["public_app_url"] or "").strip().rstrip("/")
+        parsed = urlparse(public_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.query or parsed.fragment:
+            raise ValueError("public_app_url must be an HTTP(S) URL without a query or fragment.")
+        data = {**data, "public_app_url": public_url}
     with SessionLocal() as db:
         config = db.query(SystemConfig).first()
         if not config: config = SystemConfig(); db.add(config)
