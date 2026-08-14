@@ -2982,6 +2982,13 @@ def update_user_role(username, new_role):
             db.commit()
 
 def save_global_config(data):
+    # The frontend historically used these labels; normalize them before the
+    # strict allowlist so configuration updates remain compatible.
+    data = dict(data)
+    if "cyber_baseline" in data:
+        data.setdefault("baseline_override_cyber", data.pop("cyber_baseline"))
+    if "physical_baseline" in data:
+        data.setdefault("baseline_override_phys", data.pop("physical_baseline"))
     editable_fields = {
         "llm_endpoint", "llm_api_key", "llm_model_name", "is_active", "tech_stack",
         "monitored_asns", "smtp_server", "smtp_port", "smtp_username", "smtp_password",
