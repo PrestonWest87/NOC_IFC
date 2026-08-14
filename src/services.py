@@ -797,20 +797,11 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
         # --- 1. PROCESS CYBER ---
         pure_cyber_articles = []
         utility_keywords = ["grid", "power", "utility", "energy", "bes", "electric", "scada", "ics", "miso", "spp", "cooperative"]
-        cyber_relevance_keywords = [
-            "cve-", "vulnerability", "exploit", "zero-day", "malware", "ransomware", "phishing",
-            "infostealer", "botnet", "backdoor", "trojan", "apt", "threat actor", "cyberattack",
-            "cyber attack", "breach", "data theft", "credential", "security flaw", "patch", "keV",
-            "cloud outage", "service disruption", "denial of service", "ddos", "critical infrastructure",
-            "industrial control", "operational technology", "network security", "supply chain security",
-        ]
         seen_cyber_titles = set() 
         
         for art in raw_cyber_articles:
             text_check = f"{art.title} {art.summary}".lower()
             if any(noise in text_check for noise in geopolitical_noise_words) and not any(k in text_check for k in ["infrastructure", "grid", "scada"]): 
-                continue
-            if not any(keyword.lower() in text_check for keyword in cyber_relevance_keywords):
                 continue
             
             title_stub = art.title[:50].lower()

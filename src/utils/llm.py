@@ -348,15 +348,9 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot, progre
     if cyber_payload:
         if progress_callback:
             progress_callback(stage="cyber_map", message=f"Processing cyber intelligence ({len(cyber_payload)} items)...", total_items=len(cyber_payload), processed_items=0, percent=1)
-        map_p = """Extract factual data points regarding threat actors, vulnerabilities (CVEs), cloud service disruptions, and active exploits. Preserve the exact vendor, product, CVE, source, status, and wording supplied in the input. Use strict bullet points.
-
-SOURCE-FIDELITY RULES:
-- Treat internal asset matches as potential correlations, not confirmed vulnerabilities, breaches, or compromise.
-- Do not infer a vendor from an asset name or product family. For example, PAN-OS is not Cisco IOS.
-- Do not call anything OSSN, an exploit kit, or a patched vulnerability unless those exact terms and facts appear in the input.
-- Never invent patch status, exploitability, impact, threat actors, or remediation evidence.
-- If the input contains NO cyber threats, CVEs, threat actors, security vulnerabilities, or CI-relevant content, respond with ONLY the word NO_THREATS and nothing else."""
-        reduce_p = """Compile an exhaustive, purely factual Cyber Threat Intelligence digest. Preserve exact CVE IDs, vendors, products, actor names, cloud providers, source labels, and statuses. Keep CISA KEV (Known Exploited Vulnerabilities) distinct from generic vulnerability references. Mark internal asset matches as potential OSINT correlations. Do not extrapolate risks or state that a product is patched unless the input explicitly says so."""
+        map_p = """Extract factual data points regarding threat actors, vulnerabilities (CVEs), cloud service disruptions, and active exploits. Provide reason why an item is applicable. DO NOT embellish. Use strict bullet points.
+IMPORTANT: If the input contains NO cyber threats, CVEs, threat actors, security vulnerabilities, or CI-relevant content, respond with ONLY the word NO_THREATS and nothing else. Do NOT describe what articles are about. Do NOT summarize non-threat content. Just output: NO_THREATS"""
+        reduce_p = "Compile an exhaustive, purely factual Cyber Threat Intelligence digest. Preserve all CVE IDs, specific threat actor names, targeted vendors, and cloud providers. Do not extrapolate risks; report only what is explicitly stated in the data. Provide reason why item is applicable."
         def _cyber_progress(done, total_chunks, total_items, processed):
             if progress_callback:
                 pct = int((done / total_chunks) * 49) + 1
@@ -428,28 +422,20 @@ SOURCE-FIDELITY RULES:
 
     --- DEDUPLICATED VULNERABILITY REFERENCES ---
     {deduped_vulns}
-
     """
 
-    risk_name = {"GREEN": "Low", "BLUE": "Guarded", "YELLOW": "Elevated", "ORANGE": "High", "RED": "Severe"}.get(str(global_risk).upper(), str(global_risk))
-    internal_risk_name = {"GREEN": "Low", "BLUE": "Guarded", "YELLOW": "Elevated", "ORANGE": "High", "RED": "Severe"}.get(str(internal_risk).upper(), str(internal_risk))
     master_sys_prompt = f"""You are an intelligence analyst preparing a Unified OSINT Risk Digest for executive leadership.
 
     FORMATTING & TONE DIRECTIVES:
     1. VISUAL HIERARCHY: Use bolding for emphasis, bulleted lists for data points, and blockquotes for notable warnings.
-    2. OPERATIONAL TRANSLATION: For every vulnerability or threat, briefly state the business relevance using the supplied data. If applicability is uncertain, identify it as potential correlation requiring validation.
+    2. OPERATIONAL TRANSLATION: For every vulnerability or threat, briefly state the business relevance (e.g., instead of just listing "ZDI-26-339", note that it "affects our Windows fleet and could allow unauthorized access").
     3. THREAT LEVEL TERMINOLOGY: When referring to threat levels or risk levels, use the terms: Low, Guarded, Elevated, High, or Severe. Do NOT use colors (e.g., yellow, blue, red) to describe threat levels.
-    4. EXPAND THE NARRATIVE: Do not just list data. Synthesize it. Group similar threats together and explain their relevance to business continuity, personnel safety, or infrastructure when supported by the supplied data.
-    5. WORDING PRECISION — INTERNAL CYBER RISK: When describing internal cyber risk exposure, use "continued attention" rather than "immediate attention". Internal asset matches are potential correlations, not confirmed compromise.
-
-    SOURCE-FIDELITY REQUIREMENTS:
-    - Preserve the exact vendor and product from the supplied record. PAN-OS is Palo Alto Networks, not Cisco IOS.
-    - CISA KEV means Known Exploited Vulnerabilities. Do not expand it as another phrase.
-    - Do not invent patch status or confirmed breach status.
+    4. EXPAND THE NARRATIVE: Do not just list data. Synthesize it. Group similar threats together (e.g., group all ransomware actors, group all weather events) and explain their relevance to business continuity, personnel safety, or infrastructure.
+    5. WORDING PRECISION — INTERNAL CYBER RISK: When describing the internal cyber risk exposure, use "continued attention" rather than "immediate attention". For example: "The convergence of these risk levels indicates a heightened threat landscape that requires continued attention."
 
     REQUIRED STRUCTURE:
     ## Executive OSINT Summary (BLUF)
-    * Provide a 5-6 sentence high-level narrative explaining the convergence of the Global and Internal risk levels using the terminology: Low, Guarded, Elevated, High, Severe.
+    * Provide a 5-6 sentence high-level narrative explaining the convergence of the Global and Internal risk levels (using the terminology: Low, Guarded, Elevated, High, Severe).
     * Follow with a bulleted list of the top concerns across all domains.
 
     ## Internal Asset Threat Correlations (OSINT Overlaps)
@@ -465,10 +451,7 @@ SOURCE-FIDELITY RULES:
     * List distances, severity levels, and FBI categories. Explain the relevance to facility operations, power stability, and personnel safety.
 
     ## Strategic Recommendations
-    * Provide 3-5 recommended next steps, clearly distinguishing recommendations from confirmed facts.
-
-    ## Additional Actions
-    * Provide practical monitoring, incident-response, continuity, and personnel-awareness actions supported by the supplied intelligence.
+    * Provide 3-5 recommended next steps (e.g., "Prioritize patching for Adobe products," "Review facility lockdown procedures due to perimeter crime data").
     """
 
     if progress_callback:
