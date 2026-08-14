@@ -4,7 +4,6 @@ services:
       context: .
       dockerfile: Dockerfile
     command: uvicorn src.api.main:app --host 0.0.0.0 --port 8101
-    user: "10001:10001"
     ports:
       - "8101:8101"
     env_file: .env
@@ -27,7 +26,6 @@ services:
       context: .
       dockerfile: Dockerfile
     command: python -u src/scheduler.py
-    user: "10001:10001"
     env_file: .env
     restart: unless-stopped
     volumes:
@@ -46,7 +44,6 @@ services:
       context: .
       dockerfile: Dockerfile
     command: python -u src/webhook_listener.py
-    user: "10001:10001"
     ports:
       - "8100:8100"
     env_file: .env
