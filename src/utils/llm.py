@@ -517,11 +517,11 @@ SOURCE-FIDELITY RULES:
 
 ### External Cyber and Cloud Inputs
 The synthesis received {len(cyber_payload)} external cyber/cloud records. Representative source records:
-{chr(10).join(f"- {item}" for item in cyber_payload[:40]) or "- No external cyber/cloud records were available."}
+{chr(10).join(f"- {item}" for item in cyber_payload[:12]) or "- No external cyber/cloud records were available."}
 
 ### External Physical and Perimeter Inputs
 The synthesis received {len(phys_payload)} external physical/perimeter records. Representative source records:
-{chr(10).join(f"- {item}" for item in phys_payload[:30]) or "- No external physical/perimeter records were available."}
+{chr(10).join(f"- {item}" for item in phys_payload[:8]) or "- No external physical/perimeter records were available."}
 """
         response = disclaimer + response.strip() + source_appendix
     else:
