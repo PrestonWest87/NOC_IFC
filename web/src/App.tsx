@@ -7,6 +7,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { RegistrationPage } from "./pages/RegistrationPage";
 import { PAGE_PERMISSION_MAP, PAGE_ROUTE_MAP } from "./utils/routeConfig";
 import { useAIOpsWebSocket } from "./hooks/useAIOpsWebSocket";
+import { ThemeSync } from "./components/ThemeSelector";
 
 const DashboardPage = lazy(() => import("./pages/DashboardPage").then(m => ({ default: m.DashboardPage })));
 const ThreatTelemetryPage = lazy(() => import("./pages/ThreatTelemetryPage").then(m => ({ default: m.ThreatTelemetryPage })));
@@ -102,6 +103,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <HashRouter>
         <AuthProvider>
+          <ThemeSync />
           <RealtimeBridge />
           <PageErrorBoundary><AppRoutes /></PageErrorBoundary>
         </AuthProvider>

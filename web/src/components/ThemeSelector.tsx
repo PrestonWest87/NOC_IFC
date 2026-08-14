@@ -42,10 +42,6 @@ export function ThemeSelector() {
   const [theme, setTheme] = useState(getSavedTheme);
 
   useEffect(() => {
-    if (user?.theme) setTheme(user.theme);
-  }, [user?.theme]);
-
-  useEffect(() => {
     applyTheme(theme);
   }, [theme]);
 
@@ -82,6 +78,16 @@ export function ThemeSelector() {
       </p>
     </div>
   );
+}
+
+export function ThemeSync() {
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (user?.theme) applyTheme(user.theme);
+  }, [user?.theme]);
+
+  return null;
 }
 
 // Call on app mount to restore saved theme
