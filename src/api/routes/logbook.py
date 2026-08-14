@@ -64,12 +64,15 @@ def update_entry(entry_id: int, data: dict[str, Any] = Body({})):
 
 @router.post("/generate-summary", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
 def generate_shift_summary(data: dict[str, Any] = Body({}), user=Depends(get_current_user)):
-    role_filter = data.get("role_filter", "All")
+    role_filter = str(data.get("role_filter", "All") or "All")
     shift_period = data.get("shift_period", "Morning")
     timeframe_label = data.get("timeframe_label", shift_period + " Shift")
     auto_append = data.get("auto_append", False)
     timeframe = data.get("timeframe", "shift")
-    logger.info("POST /logbook/generate-summary role=%s shift=%s auto_append=%s timeframe=%s", role_filter, shift_period, auto_append, timeframe)
+    if not is_admin(user):
+        role_filter = user.role or "analyst"
+    report_role = user.role or "analyst" if role_filter == "All" else role_filter
+    logger.info("POST /logbook/generate-summary role=%s triggered_by=%s triggered_by_role=%s shift=%s auto_append=%s timeframe=%s", role_filter, user.username, user.role, shift_period, auto_append, timeframe)
     result = svc.trigger_shift_summary(
         role_filter=role_filter,
         shift_period=shift_period,
@@ -77,5 +80,6 @@ def generate_shift_summary(data: dict[str, Any] = Body({}), user=Depends(get_cur
         auto_append=auto_append,
         timeframe=timeframe,
         generated_by=user.full_name or user.username,
+        generated_by_role=report_role,
     )
     return result

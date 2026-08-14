@@ -3207,7 +3207,7 @@ def trigger_scoring_rationale(intel_data: dict):
     logger.warning("trigger_scoring_rationale: generation failed: %s", (report or "None")[:200])
     return {"status": "error", "message": report or "Generation failed."}
 
-def _build_fallback_summary(logs, timeframe_label, target_role, generated_by):
+def _build_fallback_summary(logs, timeframe_label, target_role, generated_by, generated_by_role):
     """Build a narrative handoff summary without an LLM."""
     handoff_title = timeframe_label if "handoff" in timeframe_label.lower() else f"{timeframe_label} Operational Handoff"
     timeline = []
@@ -3224,6 +3224,7 @@ def _build_fallback_summary(logs, timeframe_label, target_role, generated_by):
     return (
         f"# {handoff_title} — {scope}\n\n"
         f"**Prepared by:** {generated_by}\n\n"
+        f"**Prepared for role:** {generated_by_role}\n\n"
         f"## Executive Narrative\n"
         f"The {timeframe_label.lower()} record contains {len(logs)} operational log entries covering {scope}. "
         f"The timeline below preserves each recorded event in chronological order; the open-items section isolates entries containing explicit follow-up or operational-state language. "
@@ -3235,7 +3236,7 @@ def _build_fallback_summary(logs, timeframe_label, target_role, generated_by):
     )
 
 
-def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning", timeframe_label: str = "Morning Shift", auto_append: bool = False, timeframe: str = "shift", generated_by: str = "Unknown"):
+def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning", timeframe_label: str = "Morning Shift", auto_append: bool = False, timeframe: str = "shift", generated_by: str = "Unknown", generated_by_role: str = "analyst"):
     """Force-generate an aggregated shift summary from log entries.
     timeframe: 'shift' = today only, 'week' = last 7 days.
     """
@@ -3285,7 +3286,7 @@ def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning
 
         def run_llm():
             try:
-                llm_result[0] = generate_aggregated_shift_summary(session, logs, timeframe_label, target_role=role_filter, generated_by=generated_by)
+                llm_result[0] = generate_aggregated_shift_summary(session, logs, timeframe_label, target_role=role_filter, generated_by=generated_by, generated_by_role=generated_by_role)
             except Exception as e:
                 llm_error[0] = e
             finally:
@@ -3305,12 +3306,12 @@ def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning
                 logger.error("trigger_shift_summary: LLM exception: %s", llm_error[0])
             else:
                 logger.warning("trigger_shift_summary: LLM failed or unavailable, using fallback")
-            summary = _build_fallback_summary(logs, timeframe_label, role_filter, generated_by)
+            summary = _build_fallback_summary(logs, timeframe_label, role_filter, generated_by, generated_by_role)
 
     if auto_append:
         save_shift_log(
             analyst=generated_by,
-            role="system",
+            role=generated_by_role,
             shift_period=shift_period,
             content=summary,
         )

@@ -1448,7 +1448,7 @@ REQUIRED STRUCTURE:
 
     return response.strip()
 
-def generate_aggregated_shift_summary(session, logs, timeframe_label, target_role="All", generated_by="Unknown"):
+def generate_aggregated_shift_summary(session, logs, timeframe_label, target_role="All", generated_by="Unknown", generated_by_role="analyst"):
     handoff_title = timeframe_label if "handoff" in timeframe_label.lower() else f"{timeframe_label} Operational Handoff"
     config = get_llm_config(session)
     logger.debug("generate_aggregated_shift_summary: config_found=%s logs_count=%d timeframe=%s role=%s",
@@ -1474,7 +1474,7 @@ Do not infer an incident, impact, cause, urgency, motive, relationship, or unres
     )
     logger.debug("generate_aggregated_shift_summary: map-reduce digest_length=%d", len(log_digest) if log_digest else 0)
 
-    master_sys_prompt = f"""You are the senior NOC operations lead writing the {timeframe_label} handoff for the {target_role.upper()} team. The report was triggered by {generated_by}; include the exact line '**Prepared by:** {generated_by}' and do not substitute another person.
+    master_sys_prompt = f"""You are the senior NOC operations lead writing the {timeframe_label} handoff for the {target_role.upper()} team. The report was triggered by {generated_by} in the {generated_by_role} role; include the exact lines '**Prepared by:** {generated_by}' and '**Prepared for role:** {generated_by_role}'. Do not substitute another person or role.
 
 Write a clear, narrative operational report from the supplied log digest. Explain the sequence of explicitly operational events, what actions were explicitly recorded, and what the incoming team needs to know. Use only facts contained in the digest. Do not praise the team, speculate, assign blame, infer impact, diagnose personal matters, or invent ticket status.
 
