@@ -429,62 +429,46 @@ SOURCE-FIDELITY RULES:
     --- DEDUPLICATED VULNERABILITY REFERENCES ---
     {deduped_vulns}
 
-    === REQUIRED EXTERNAL SOURCE INVENTORY ===
-    The final brief must discuss external intelligence before internal correlations.
-    External cyber/cloud records available: {len(cyber_payload)}
-    External physical/weather/perimeter records available: {len(phys_payload)}
-    --- EXTERNAL CYBER/CLOUD RECORDS ---
-    {chr(10).join(cyber_payload[:80]) or "No external cyber/cloud records available."}
-    --- EXTERNAL PHYSICAL/PERIMETER RECORDS ---
-    {chr(10).join(phys_payload[:50]) or "No external physical/perimeter records available."}
     """
 
     risk_name = {"GREEN": "Low", "BLUE": "Guarded", "YELLOW": "Elevated", "ORANGE": "High", "RED": "Severe"}.get(str(global_risk).upper(), str(global_risk))
     internal_risk_name = {"GREEN": "Low", "BLUE": "Guarded", "YELLOW": "Elevated", "ORANGE": "High", "RED": "Severe"}.get(str(internal_risk).upper(), str(internal_risk))
-    master_sys_prompt = f"""You are an intelligence analyst preparing a detailed Unified OSINT Risk Brief for executive leadership. This is an intelligence synthesis, not a scanner report. The internal asset section contains correlation output from the NOC system; it is not proof of a vulnerability or compromise.
+    master_sys_prompt = f"""You are an intelligence analyst preparing a Unified OSINT Risk Digest for executive leadership.
 
     FORMATTING & TONE DIRECTIVES:
     1. VISUAL HIERARCHY: Use bolding for emphasis, bulleted lists for data points, and blockquotes for notable warnings.
-    2. OPERATIONAL TRANSLATION: State the potential operational relevance supported by the supplied data. A recommendation to validate a match is allowed and useful; do not present validation as confirmation.
+    2. OPERATIONAL TRANSLATION: For every vulnerability or threat, briefly state the business relevance using the supplied data. If applicability is uncertain, identify it as potential correlation requiring validation.
     3. THREAT LEVEL TERMINOLOGY: When referring to threat levels or risk levels, use the terms: Low, Guarded, Elevated, High, or Severe. Do NOT use colors (e.g., yellow, blue, red) to describe threat levels.
-    4. EXPAND THE NARRATIVE: Synthesize the supplied records into a detailed report. Use all material data, group related threats, explain supported operational relevance, and distinguish facts, correlations, uncertainty, and recommended validation.
-    5. WORDING PRECISION — INTERNAL CYBER RISK: Call asset matches "potential OSINT correlations" or "potential exposures requiring validation". Never call them confirmed vulnerabilities, active compromise, breaches, or exploit-kit matches.
+    4. EXPAND THE NARRATIVE: Do not just list data. Synthesize it. Group similar threats together and explain their relevance to business continuity, personnel safety, or infrastructure when supported by the supplied data.
+    5. WORDING PRECISION — INTERNAL CYBER RISK: When describing internal cyber risk exposure, use "continued attention" rather than "immediate attention". Internal asset matches are potential correlations, not confirmed compromise.
 
     SOURCE-FIDELITY REQUIREMENTS:
-    - Do not mention Cisco, IOS, OSSN, exploit kits, patch status, or another vendor/tool/status unless it is explicitly present in the supplied input for that exact record.
-    - PAN-OS is a Palo Alto Networks product; do not relabel it as Cisco.
-    - CISA KEV means Known Exploited Vulnerabilities. Do not expand it as any other phrase.
-    - Do not invent numbered findings, affected services, threat actors, impacts, or remediation status.
-    - Recommendations must be grounded in the supplied records. A recommendation is an action to validate, verify, monitor, or prepare; it is not a claim that the issue is confirmed.
+    - Preserve the exact vendor and product from the supplied record. PAN-OS is Palo Alto Networks, not Cisco IOS.
+    - CISA KEV means Known Exploited Vulnerabilities. Do not expand it as another phrase.
+    - Do not invent patch status or confirmed breach status.
 
     REQUIRED STRUCTURE:
     ## Executive OSINT Summary (BLUF)
-    * Provide 5-7 substantive sentences explaining the current posture. Explicitly state: Global posture is {risk_name} ({global_risk}) and internal exposure posture is {internal_risk_name} ({internal_risk}). Explain the convergence or divergence using only the supplied evidence.
-    * Follow with 4-8 bullets covering the most important cyber, asset-correlation, cloud, weather, and perimeter concerns. If a domain has no data, say so.
+    * Provide a 5-6 sentence high-level narrative explaining the convergence of the Global and Internal risk levels using the terminology: Low, Guarded, Elevated, High, Severe.
+    * Follow with a bulleted list of the top concerns across all domains.
 
-    ## Threat Assessment
-    * Explain what is driving the posture, identify the highest-consequence or highest-confidence records, and distinguish confirmed source facts from potential internal correlations.
-
-    ## Internal Asset Threat Correlations (Potential OSINT Overlaps)
+    ## Internal Asset Threat Correlations (OSINT Overlaps)
     * Use a structured bulleted list for each exposed asset.
-    * Format as: **[Exact Asset Name]**: [Exact threat reference] — [reported match count] potential correlation; validation status: not confirmed.
+    * Format as: **[Asset Name]**: [Vulnerability/CVE] - Reason this is applicable - *[Specific Business/Operational Impact]*
 
     ## Global Cyber & Cloud Threat Landscape
     * Break this into two sub-bulleted sections: **Active Cyber Threats** (Ransomware, Malicious Campaigns) and **Cloud & Infrastructure Disruptions**.
-    * Detail every material threat actor, CISA KEV, CVE, affected vendor/product, and cloud provider in the supplied digest. Explain supported relevance to our technology stack or supply chain, and say when relevance is uncertain.
+    * Detail the specific threat actors, CISA KEVs, and affected cloud providers. Explain how these trends relate to our industry or supply chain.
 
     ## Physical, Weather & Perimeter Posture
     * Break into two sub-bulleted sections: **Regional Weather Hazards** and **Local Perimeter Crimes**.
     * List distances, severity levels, and FBI categories. Explain the relevance to facility operations, power stability, and personnel safety.
 
-    ## Recommendations
-    * Provide 3-5 prioritized, actionable recommendations grounded in the records. Include validation of exact deployed versions against authoritative vendor advisories, patch/mitigation review where applicable, and monitoring or response preparation where supported. Do not claim a patch was applied.
+    ## Strategic Recommendations
+    * Provide 3-5 recommended next steps, clearly distinguishing recommendations from confirmed facts.
 
     ## Additional Actions
-    * Provide 3-5 practical follow-up actions for the NOC, security, infrastructure, or facilities teams. Include owners or time horizons only when present in the input; otherwise use role-based ownership such as "NOC team" without inventing a named person.
-
-    ## Evidence and Uncertainty
-    * Summarize the source types and important limitations. Explicitly state which items are potential correlations requiring validation and which facts were directly reported.
+    * Provide practical monitoring, incident-response, continuity, and personnel-awareness actions supported by the supplied intelligence.
     """
 
     if progress_callback:
@@ -503,27 +487,14 @@ SOURCE-FIDELITY RULES:
 
     if response and "Brief generation failed" not in response:
         disclaimer = """
-# Unified OSINT Risk Brief
-
-## Report Scope and Disclaimers
+---
 **OSINT CORRELATION DISCLAIMER:** This brief correlates external Open-Source Intelligence (OSINT) with our internal asset types to provide situational awareness. It highlights potential external exposures and does NOT represent confirmed internal breaches or active system compromises.
 
 **AI-GENERATED CONTENT:** This brief was generated by the internal NOC AIOps system using automated intelligence analysis. This report has not been thoroughly reviewed by a Human Security Analyst. Some content in this report may not be applicable to our organization or may be mitigated by security controls.
 
+---
 """
-        source_appendix = f"""
-
-## Source Evidence Inventory
-
-### External Cyber and Cloud Inputs
-The synthesis received {len(cyber_payload)} external cyber/cloud records. Representative source records:
-{chr(10).join(f"- {item}" for item in cyber_payload[:12]) or "- No external cyber/cloud records were available."}
-
-### External Physical and Perimeter Inputs
-The synthesis received {len(phys_payload)} external physical/perimeter records. Representative source records:
-{chr(10).join(f"- {item}" for item in phys_payload[:8]) or "- No external physical/perimeter records were available."}
-"""
-        response = disclaimer + response.strip() + source_appendix
+        response = disclaimer + response.strip()
     else:
         response = response.strip() if response else "Brief generation failed."
 
