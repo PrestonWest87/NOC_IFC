@@ -23,9 +23,33 @@ def get_current_user(request: Request, token: str = Query("")):
 
 
 def require_admin(user=Depends(get_current_user)):
-    if str(user.role or "").lower() not in {"admin", "administrator"}:
+    if not is_admin(user):
         raise HTTPException(status_code=403, detail="Administrator permission required")
     return user
+
+
+def is_admin(user) -> bool:
+    return str(user.role or "").lower() in {"admin", "administrator"}
+
+
+def has_page_permission(user, page: str) -> bool:
+    return is_admin(user) or page in (user.allowed_pages or [])
+
+
+def require_page(page: str):
+    def checker(user=Depends(get_current_user)):
+        if not has_page_permission(user, page):
+            raise HTTPException(status_code=403, detail=f"Missing page permission: {page}")
+        return user
+    return checker
+
+
+def require_action(action: str):
+    def checker(user=Depends(get_current_user)):
+        if not is_admin(user) and action not in (user.allowed_actions or []):
+            raise HTTPException(status_code=403, detail=f"Missing permission: {action}")
+        return user
+    return checker
 
 
 async def authentication_middleware(request: Request, call_next):

@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Query, Body
+from fastapi import APIRouter, Query, Body, Depends
 import logging
 
 from src import services as svc
+from src.api.auth_guard import require_page, require_action
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/threat", tags=["threat"])
+router = APIRouter(prefix="/api/v1/threat", tags=["threat"], dependencies=[Depends(require_page("Threat Telemetry"))])
 
 
 @router.get("/cves")
@@ -50,7 +51,7 @@ def get_article(article_id: int):
     return article
 
 
-@router.post("/fetch-feeds")
+@router.post("/fetch-feeds", dependencies=[Depends(require_action("Action: Manually Sync Data"))])
 def fetch_feeds():
     logger.info("POST /threat/fetch-feeds: manual trigger")
     from src.scheduler import fetch_feeds as _do_fetch
@@ -62,7 +63,7 @@ def fetch_feeds():
         return {"status": "error", "message": str(e)}
 
 
-@router.post("/sync-cisa-kev")
+@router.post("/sync-cisa-kev", dependencies=[Depends(require_action("Action: Manually Sync Data"))])
 def sync_cisa_kev():
     logger.info("POST /threat/sync-cisa-kev: manual trigger")
     from src.workers.cve_worker import fetch_cisa_kev
@@ -74,7 +75,7 @@ def sync_cisa_kev():
         return {"status": "error", "message": str(e)}
 
 
-@router.post("/sync-cloud-status")
+@router.post("/sync-cloud-status", dependencies=[Depends(require_action("Action: Manually Sync Data"))])
 def sync_cloud_status():
     logger.info("POST /threat/sync-cloud-status: manual trigger")
     from src.workers.cloud_worker import fetch_cloud_outages
@@ -86,7 +87,7 @@ def sync_cloud_status():
         return {"status": "error", "message": str(e)}
 
 
-@router.post("/fetch-crime-data")
+@router.post("/fetch-crime-data", dependencies=[Depends(require_action("Action: Manually Sync Data"))])
 def fetch_crime_data():
     logger.info("POST /threat/fetch-crime-data: manual trigger")
     if svc.force_fetch_crime_data():
@@ -94,7 +95,7 @@ def fetch_crime_data():
     return {"status": "error", "message": "Crime fetch failed."}
 
 
-@router.post("/sync-elastic-cache")
+@router.post("/sync-elastic-cache", dependencies=[Depends(require_action("Action: Manually Sync Data"))])
 def sync_elastic_cache(hours_back: int = Query(24, ge=1)):
     logger.info("POST /threat/sync-elastic-cache hours_back=%d", hours_back)
     from src.workers.elastic_worker import run_elastic_sync
@@ -106,7 +107,7 @@ def sync_elastic_cache(hours_back: int = Query(24, ge=1)):
         return {"status": "error", "message": str(e)}
 
 
-@router.post("/generate-siem-triage")
+@router.post("/generate-siem-triage", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
 def generate_siem_triage(data: dict = Body({})):
     logger.info("POST /threat/generate-siem-triage events_count=%d", len(data.get("events", [])))
     from src.utils.llm import generate_siem_triage_summary

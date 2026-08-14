@@ -204,6 +204,12 @@ def init_db():
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN theme VARCHAR DEFAULT 'standard'"))
+    except Exception as e:
+        logger.debug("users.theme migration skipped: %s", e)
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN default_shift VARCHAR DEFAULT 'No Shift'"))
     except Exception as e:
         logger.debug("users.default_shift migration skipped: %s", e)
@@ -307,6 +313,11 @@ def init_db():
             "Tab: Settings -> Facility Locations", "Tab: Settings -> Internal Assets", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training",
             "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
         ]
+        analyst_actions = [
+            action for action in all_actions
+            if not action.startswith("Tab: Settings ->")
+            and action not in {"Action: Train ML Model", "Action: Dispatch Exec Report"}
+        ]
 
         admin_role = session.query(Role).filter_by(name="admin").first()
         if not admin_role:
@@ -317,10 +328,10 @@ def init_db():
 
         analyst_role = session.query(Role).filter_by(name="analyst").first()
         if not analyst_role:
-            session.add(Role(name="analyst", allowed_pages=all_pages[:-1], allowed_actions=all_actions))
+            session.add(Role(name="analyst", allowed_pages=all_pages[:-1], allowed_actions=analyst_actions))
         else:
             analyst_role.allowed_pages = all_pages[:-1]
-            analyst_role.allowed_actions = all_actions
+            analyst_role.allowed_actions = analyst_actions
 
         import os
         admin_pw = os.environ.get("DEFAULT_ADMIN_PASSWORD", "").strip()

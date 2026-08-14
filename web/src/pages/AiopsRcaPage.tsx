@@ -71,6 +71,7 @@ export function AiopsRcaPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const allowedRcaTabs = getAllowedTabs(user?.allowed_actions, "aiopsRca");
+  const isAdmin = ["admin", "administrator"].includes(String(user?.role || "").toLowerCase());
   const userActions = user?.allowed_actions ?? [];
   const canDispatch = userActions.includes("Action: Dispatch RCA Tickets");
   const canAcknowledge = userActions.includes("Action: Acknowledge RCA Alerts");
@@ -647,7 +648,7 @@ export function AiopsRcaPage() {
       </div>
 
       <div style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--border-primary)", marginBottom: "1rem" }}>
-        {RCA_TAB_LABELS.filter((_, i) => allowedRcaTabs.length === 0 || allowedRcaTabs.includes(String(i))).map((label, i) => (
+        {RCA_TAB_LABELS.filter((_, i) => isAdmin || allowedRcaTabs.includes(String(i))).map((label, i) => (
           <button key={label} style={tabBtn(activeTab === i)} onClick={() => setActiveTab(i)}>
             {i === 0 ? <Activity size={16} /> : i === 1 ? <BarChart3 size={16} /> : <Globe size={16} />} {label}
           </button>

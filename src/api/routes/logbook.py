@@ -1,15 +1,16 @@
 import logging
 from datetime import datetime
-from fastapi import APIRouter, Query, Body
+from fastapi import APIRouter, Query, Body, Depends
 from typing import Any
 
 from src import services as svc
 from src.core.db import SessionLocal
 from src.models.schema import ShiftLogEntry
+from src.api.auth_guard import require_page, require_action
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/logbook", tags=["logbook"])
+router = APIRouter(prefix="/api/v1/logbook", tags=["logbook"], dependencies=[Depends(require_page("Shift Logbook"))])
 
 
 @router.get("/entries")
@@ -24,7 +25,7 @@ def entries(role_filter: str = Query("All"), start_date: str = None, end_date: s
     return svc.get_shift_logs(role_filter, sd, ed)
 
 
-@router.post("/entries")
+@router.post("/entries", dependencies=[Depends(require_action("Action: Submit Shift Log"))])
 def create_entry(
     analyst: str = "",
     role: str = "analyst",
@@ -44,7 +45,7 @@ def create_entry(
     return {"status": "ok"}
 
 
-@router.patch("/entries/{entry_id}")
+@router.patch("/entries/{entry_id}", dependencies=[Depends(require_action("Action: Submit Shift Log"))])
 def update_entry(entry_id: int, data: dict[str, Any] = Body({})):
     is_deleted = data.get("is_deleted")
     logger.info("PATCH /logbook/entries/%d is_deleted=%s", entry_id, is_deleted)
@@ -58,7 +59,7 @@ def update_entry(entry_id: int, data: dict[str, Any] = Body({})):
         return {"status": "ok", "id": entry_id, "is_deleted": entry.is_deleted}
 
 
-@router.post("/generate-summary")
+@router.post("/generate-summary", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
 def generate_shift_summary(data: dict[str, Any] = Body({})):
     role_filter = data.get("role_filter", "All")
     shift_period = data.get("shift_period", "Morning")

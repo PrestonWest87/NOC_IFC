@@ -16,6 +16,7 @@ class User(Base):
     job_title = Column(String, nullable=True)
     contact_info = Column(String, nullable=True)
     default_shift = Column(String, default="No Shift")
+    theme = Column(String, default="standard")
 
 
 class RegistrationInvite(Base):

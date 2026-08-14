@@ -1,10 +1,11 @@
 import logging
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from typing import Optional
 from datetime import datetime, timedelta
+from src.api.auth_guard import require_page, require_action
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/keyword-analysis", tags=["keyword-analysis"])
+router = APIRouter(prefix="/api/v1/keyword-analysis", tags=["keyword-analysis"], dependencies=[Depends(require_page("Keyword Analysis"))])
 
 
 @router.get("/overview")
@@ -379,7 +380,7 @@ def category_details(
         session.close()
 
 
-@router.post("/recategorize")
+@router.post("/recategorize", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
 def recategorize_all():
     from src.core.db import SessionLocal
     from src.models.schema import Article

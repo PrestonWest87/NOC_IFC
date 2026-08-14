@@ -5,10 +5,10 @@ from sqlalchemy.orm import Session
 from src.core.db import get_db
 from src.services.aiops_engine import EnterpriseAIOpsEngine
 from src import services as svc
-from src.api.auth_guard import get_current_user
+from src.api.auth_guard import get_current_user, require_page
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/aiops", tags=["aiops"])
+router = APIRouter(prefix="/api/v1/aiops", tags=["aiops"], dependencies=[Depends(require_page("AIOps RCA"))])
 
 
 @router.get("/dashboard")

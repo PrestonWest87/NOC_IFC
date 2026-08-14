@@ -2,14 +2,15 @@ import logging
 import ipaddress
 import socket
 from urllib.parse import urlparse
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Depends
 from typing import Any
 
 from src import services as svc
 from src.core.config import settings
+from src.api.auth_guard import require_page
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/llm", tags=["llm"])
+router = APIRouter(prefix="/api/v1/llm", tags=["llm"], dependencies=[Depends(require_page("Settings & Admin"))])
 
 
 def _safe_llm_endpoint(endpoint: str) -> bool:

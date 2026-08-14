@@ -8,6 +8,7 @@ interface User {
   job_title?: string;
   contact_info?: string;
   default_shift?: string;
+  theme?: string;
   role?: string;
   allowed_pages?: string[];
   allowed_actions?: string[];

@@ -1,12 +1,13 @@
 import logging
 import pandas as pd
-from fastapi import APIRouter, Query, Body
+from fastapi import APIRouter, Query, Body, Depends
 from typing import Any
 
 from src import services as svc
+from src.api.auth_guard import require_page, require_action
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/regional", tags=["regional"])
+router = APIRouter(prefix="/api/v1/regional", tags=["regional"], dependencies=[Depends(require_page("Regional Grid"))])
 
 
 @router.get("/locations")
@@ -152,7 +153,7 @@ def site_types():
     return svc.get_all_site_types()
 
 
-@router.post("/sync-hazards")
+@router.post("/sync-hazards", dependencies=[Depends(require_action("Action: Manually Sync Data"))])
 def sync_hazards():
     logger.info("POST /sync-hazards: triggering manual hazard sync")
     from src.workers.infra_worker import fetch_regional_hazards

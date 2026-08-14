@@ -5,21 +5,17 @@ from typing import Any
 
 from src import services as svc
 from src.services.aiops_engine import EnterpriseAIOpsEngine
-from src.api.auth_guard import get_current_user
+from src.api.auth_guard import get_current_user, require_page, require_action as require_authorized_action
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/rca", tags=["rca"])
+router = APIRouter(prefix="/api/v1/rca", tags=["rca"], dependencies=[Depends(require_page("AIOps RCA"))])
 
 # --- NEW: Store investigating sites in backend memory so they survive refreshes ---
 INVESTIGATING_SITES = set()
 
 def require_action(action: str):
-    def checker(user=Depends(get_current_user)):
-        if action not in (user.allowed_actions or []):
-            raise HTTPException(403, f"Missing permission: {action}")
-        return user
-    return checker
+    return require_authorized_action(action)
 
 
 @router.get("/dashboard")

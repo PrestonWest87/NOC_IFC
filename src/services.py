@@ -25,6 +25,12 @@ from src.database import (
 )
 
 LOCAL_TZ = ZoneInfo("America/Chicago")
+VALID_THEMES = {
+    "standard", "noc-terminal", "high-contrast", "cyberpunk", "solarized-dark", "midnight-ocean",
+    "arctic-command", "ember-watch", "forest-ops", "amethyst-grid", "slate-steel", "paper-light",
+    "nordic-frost", "dracula-console", "synthwave", "desert-signal", "olive-command", "mono-ops",
+    "rose-pine", "oceanic-teal", "copper-wire",
+}
 
 
 class TTLCache:
@@ -512,6 +518,8 @@ def create_registration_invite(username: str, role: str, created_by: str, ttl_ho
     with SessionLocal() as db:
         if db.query(User).filter(User.username == username).first():
             raise ValueError("That username is already registered.")
+        if not db.query(Role).filter(Role.name == role).first():
+            raise ValueError("That role does not exist.")
         db.query(RegistrationInvite).filter(
             RegistrationInvite.username == username,
             RegistrationInvite.used_at.is_(None),
@@ -546,9 +554,11 @@ def get_registration_invite(raw_token: str):
         }
 
 
-def complete_registration(raw_token, password, full_name, job_title, contact_info, default_shift):
+def complete_registration(raw_token, password, full_name, job_title, contact_info, default_shift, theme="standard"):
     if not raw_token or len(password or "") < 12:
         raise ValueError("Password must be at least 12 characters.")
+    if theme not in VALID_THEMES:
+        raise ValueError("Invalid theme.")
     now = datetime.utcnow()
     with SessionLocal() as db:
         invite = db.query(RegistrationInvite).filter(
@@ -570,6 +580,7 @@ def complete_registration(raw_token, password, full_name, job_title, contact_inf
             job_title=(job_title or "").strip(),
             contact_info=(contact_info or "").strip(),
             default_shift=(default_shift or "No Shift").strip(),
+            theme=theme,
         )
         user.session_token = str(uuid.uuid4())
         invite.used_at = now
@@ -611,6 +622,18 @@ def update_user_profile(username, full_name, job_title, contact_info, old_pwd, n
                 return False, "Incorrect current password."
         db.commit()
         return True, "Updated!"
+
+
+def set_user_theme(username, theme):
+    if theme not in VALID_THEMES:
+        raise ValueError("Invalid theme.")
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            raise ValueError("User not found.")
+        user.theme = theme
+        db.commit()
+    return True
 
 def logout_user(username):
     with SessionLocal() as db:

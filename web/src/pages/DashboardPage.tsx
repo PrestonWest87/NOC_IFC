@@ -175,6 +175,7 @@ const SUB_PANELS = ["Threat Triage", "Infrastructure Status", "AI Analysis"];
 export function DashboardPage() {
   const { user } = useAuth();
   const allowedDashboardTabs = getAllowedTabs(user?.allowed_actions, "dashboard");
+  const isAdmin = ["admin", "administrator"].includes(String(user?.role || "").toLowerCase());
   const DASHBOARD_TABS = ["Operational Dashboard", "Global Risk", "Internal Risk", "Unified Brief"];
   const [tab, setTab] = useState(0);
   const [subPanel, setSubPanel] = useState(0);
@@ -590,7 +591,7 @@ export function DashboardPage() {
       </div>
 
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
-        {DASHBOARD_TABS.filter((_v, idx) => allowedDashboardTabs.length === 0 || allowedDashboardTabs.includes(String(idx))).map(l => {
+        {DASHBOARD_TABS.filter((_v, idx) => isAdmin || allowedDashboardTabs.includes(String(idx))).map(l => {
           const originalIndex = DASHBOARD_TABS.indexOf(l);
           return <TabButton key={l} active={tab === originalIndex} label={l} onClick={() => { setTab(originalIndex); setSubPanel(0); }} />;
         })}

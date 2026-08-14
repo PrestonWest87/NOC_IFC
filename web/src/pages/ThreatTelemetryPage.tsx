@@ -220,6 +220,7 @@ export function ThreatTelemetryPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const allowedThreatTabs = getAllowedTabs(user?.allowed_actions, "threatTelemetry");
+  const isAdmin = ["admin", "administrator"].includes(String(user?.role || "").toLowerCase());
   const THREAT_TABS = ["RSS Triage", "CISA KEV", "Cloud Services", "Perimeter Crime"];
   const [activeTab, setActiveTab] = useState(0);
   const [subTab, setSubTab] = useState(0);
@@ -761,7 +762,7 @@ ${d.category ? `<b>Category:</b> ${d.category}` : ""}`,
       </h2>
 
       <div style={s.tabBar}>
-        {THREAT_TABS.filter((_, i) => allowedThreatTabs.length === 0 || allowedThreatTabs.includes(String(i))).map((label, i) => (
+        {THREAT_TABS.filter((_, i) => isAdmin || allowedThreatTabs.includes(String(i))).map((label, i) => (
           <TabButton key={label} active={activeTab === i} label={label} onClick={() => { setActiveTab(i); }} />
         ))}
       </div>

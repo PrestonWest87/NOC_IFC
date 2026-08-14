@@ -148,7 +148,8 @@ function Badge({ label }: { label: string }) {
 export function ThreatHuntingPage() {
   const { user } = useAuth();
   const allowedHuntTabs = getAllowedTabs(user?.allowed_actions, "threatHunting");
-  const tabs = ALL_HUNT_TABS.filter(t => allowedHuntTabs.length === 0 || allowedHuntTabs.includes(t.key));
+  const isAdmin = ["admin", "administrator"].includes(String(user?.role || "").toLowerCase());
+  const tabs = ALL_HUNT_TABS.filter(t => isAdmin || allowedHuntTabs.includes(t.key));
   const [activeTab, setActiveTab] = useState(tabs.length > 0 ? tabs[0].key : "ioc");
 
   useEffect(() => {

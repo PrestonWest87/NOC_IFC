@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { PAGE_ROUTE_MAP } from "../utils/routeConfig";
+import { THEMES } from "../components/ThemeSelector";
 
 export function RegistrationPage() {
   const [params] = useSearchParams();
@@ -11,7 +12,7 @@ export function RegistrationPage() {
   const [invite, setInvite] = useState<{ username: string; role: string } | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [form, setForm] = useState({ password: "", confirm: "", full_name: "", job_title: "", contact_info: "", default_shift: "No Shift" });
+  const [form, setForm] = useState({ password: "", confirm: "", full_name: "", job_title: "", contact_info: "", default_shift: "No Shift", theme: "standard" });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -68,6 +69,9 @@ export function RegistrationPage() {
               <input aria-label="Contact information" placeholder="Contact information" value={form.contact_info} onChange={(e) => update("contact_info", e.target.value)} />
               <select aria-label="Default shift" value={form.default_shift} onChange={(e) => update("default_shift", e.target.value)}>
                 <option>No Shift</option><option>Morning</option><option>Afternoon</option><option>Evening</option>
+              </select>
+              <select aria-label="Theme" value={form.theme} onChange={(e) => update("theme", e.target.value)}>
+                {THEMES.map((theme) => <option key={theme.id} value={theme.id}>{theme.label}</option>)}
               </select>
               <button type="submit" disabled={loading} style={{ padding: "0.7rem", border: "none", borderRadius: "var(--radius-sm)", background: "var(--accent-blue)", color: "#fff", fontWeight: 700 }}>
                 {loading ? "Creating account..." : "Create Account"}

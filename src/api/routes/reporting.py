@@ -3,13 +3,14 @@ import uuid
 import threading
 import re
 from typing import Optional
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, field_validator
 
 from src import services as svc
+from src.api.auth_guard import require_page, require_action
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/reporting", tags=["reporting"])
+router = APIRouter(prefix="/api/v1/reporting", tags=["reporting"], dependencies=[Depends(require_page("Reporting & Briefings"))])
 
 _report_progress_store: dict[str, dict] = {}
 _report_result_store: dict[str, dict] = {}
@@ -90,7 +91,7 @@ def list_daily_briefings():
     return svc.get_all_daily_briefings()
 
 
-@router.post("/generate-daily")
+@router.post("/generate-daily", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
 def generate_daily_report():
     logger.info("POST /reporting/generate-daily")
     from datetime import datetime
@@ -108,7 +109,7 @@ def generate_daily_report():
     return {"status": "error", "message": "Report generation failed or AI is disabled."}
 
 
-@router.post("/broadcast")
+@router.post("/broadcast", dependencies=[Depends(require_action("Action: Dispatch Exec Report"))])
 def broadcast_report(data: BroadcastRequest):
     logger.info("POST /reporting/broadcast recipients=%s", data.recipients)
     if not data.recipients:
@@ -126,7 +127,7 @@ def broadcast_report(data: BroadcastRequest):
     return {"status": "ok" if success else "error", "message": msg}
 
 
-@router.post("/broadcast-custom")
+@router.post("/broadcast-custom", dependencies=[Depends(require_action("Action: Dispatch Exec Report"))])
 def broadcast_custom_report(data: BroadcastCustomRequest):
     logger.info("POST /reporting/broadcast-custom title=%s recipients=%s", data.title, data.recipients)
     if not data.recipients.strip():
@@ -150,14 +151,14 @@ def broadcast_custom_report(data: BroadcastCustomRequest):
     return {"status": "ok" if success else "error", "message": msg}
 
 
-@router.post("/save-report")
+@router.post("/save-report", dependencies=[Depends(require_action("Action: Dispatch Exec Report"))])
 def save_custom_report(data: SaveReportRequest):
     logger.info("POST /reporting/save-report title=%s author=%s", data.title, data.author)
     svc.save_custom_report(data.title, data.author, data.content)
     return {"status": "ok"}
 
 
-@router.delete("/saved-reports/{report_id}")
+@router.delete("/saved-reports/{report_id}", dependencies=[Depends(require_action("Action: Dispatch Exec Report"))])
 def delete_saved_report(report_id: int):
     logger.info("DELETE /reporting/saved-reports/%d", report_id)
     svc.delete_record("SavedReport", report_id)
@@ -266,7 +267,7 @@ def _run_custom_report_generation(generation_id, target, days_back, article_ids,
             }
 
 
-@router.post("/generate-custom")
+@router.post("/generate-custom", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
 def generate_custom_report(data: GenerateCustomRequest):
     logger.info("POST /reporting/generate-custom target=%s days_back=%d article_ids=%s", data.target, data.days_back, data.article_ids)
 

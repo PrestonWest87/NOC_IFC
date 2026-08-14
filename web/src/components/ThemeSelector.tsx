@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
+import api from "../utils/api";
+import { useAuth } from "../utils/AuthContext";
 
-const THEMES = [
+export const THEMES = [
   { id: "standard", label: "Standard" },
   { id: "noc-terminal", label: "NOC Terminal" },
   { id: "high-contrast", label: "High Contrast (Dark)" },
@@ -36,11 +38,21 @@ function applyTheme(themeId: string) {
 }
 
 export function ThemeSelector() {
+  const { user } = useAuth();
   const [theme, setTheme] = useState(getSavedTheme);
+
+  useEffect(() => {
+    if (user?.theme) setTheme(user.theme);
+  }, [user?.theme]);
 
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
+
+  const selectTheme = (themeId: string) => {
+    setTheme(themeId);
+    if (user) api.post("/auth/update-theme", { theme: themeId }).catch(() => {});
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
@@ -48,7 +60,7 @@ export function ThemeSelector() {
         {THEMES.map((t) => (
           <button
             key={t.id}
-            onClick={() => setTheme(t.id)}
+            onClick={() => selectTheme(t.id)}
             style={{
               background: theme === t.id ? "var(--accent-blue)" : "var(--bg-tertiary)",
               color: theme === t.id ? "#fff" : "var(--text-secondary)",

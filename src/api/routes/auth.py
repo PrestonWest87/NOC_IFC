@@ -39,6 +39,7 @@ class RegistrationRequest(BaseModel):
     job_title: str = ""
     contact_info: str = ""
     default_shift: str = "No Shift"
+    theme: str = "standard"
 
 
 @router.post("/login")
@@ -65,7 +66,7 @@ def register(req: RegistrationRequest):
     try:
         user, token = svc.complete_registration(
             req.token, req.password, req.full_name, req.job_title,
-            req.contact_info, req.default_shift,
+            req.contact_info, req.default_shift, req.theme,
         )
         return {"user": _public_user(user), "token": token}
     except ValueError as exc:
@@ -98,3 +99,12 @@ def update_profile(body: ProfileUpdate, user=Depends(get_current_user)):
         raise HTTPException(400, msg)
     logger.info("POST /update-profile success for %s", username)
     return {"status": "ok", "message": msg}
+
+
+@router.post("/update-theme")
+def update_theme(data: dict, user=Depends(get_current_user)):
+    try:
+        svc.set_user_theme(user.username, str(data.get("theme", "")))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok"}

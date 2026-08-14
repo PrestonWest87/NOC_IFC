@@ -1,10 +1,11 @@
 import logging
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 
 from src import services as svc
+from src.api.auth_guard import require_page
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/hunting", tags=["hunting"])
+router = APIRouter(prefix="/api/v1/hunting", tags=["hunting"], dependencies=[Depends(require_page("Threat Hunting & IOCs"))])
 
 
 @router.get("/iocs")

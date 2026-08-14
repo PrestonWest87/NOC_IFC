@@ -1,15 +1,16 @@
 import logging
 import uuid
 import threading
-from fastapi import APIRouter, Query, Body
+from fastapi import APIRouter, Query, Body, Depends
 from typing import Any
 
 from src import services as svc
 from src.utils.llm import init_brief_progress, get_brief_progress, update_brief_progress, clear_brief_progress
+from src.api.auth_guard import require_page, require_action
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
+router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"], dependencies=[Depends(require_page("Global Dashboards"))])
 
 
 @router.get("/metrics")
@@ -68,12 +69,12 @@ def executive_intel():
     return svc.get_executive_grid_intel(active_warn, crimes)
 
 
-@router.post("/generate-internal-risk")
+@router.post("/generate-internal-risk", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
 def generate_internal_risk():
     return svc.generate_and_save_internal_risk_snapshot()
 
 
-@router.post("/generate-unified-brief")
+@router.post("/generate-unified-brief", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
 def generate_unified_brief():
     logger.info("POST /generate-unified-brief: manual trigger (async)")
     generation_id = str(uuid.uuid4())
@@ -99,7 +100,7 @@ def brief_generation_status(generation_id: str = Query(...)):
     return progress
 
 
-@router.post("/generate-global-brief")
+@router.post("/generate-global-brief", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
 def generate_global_brief():
     logger.info("POST /generate-global-brief: manual trigger (async)")
     generation_id = str(uuid.uuid4())
@@ -125,7 +126,7 @@ def global_brief_generation_status(generation_id: str = Query(...)):
     return progress
 
 
-@router.post("/generate-internal-brief")
+@router.post("/generate-internal-brief", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
 def generate_internal_brief():
     logger.info("POST /generate-internal-brief: manual trigger (async)")
     generation_id = str(uuid.uuid4())
@@ -151,14 +152,14 @@ def internal_brief_generation_status(generation_id: str = Query(...)):
     return progress
 
 
-@router.post("/generate-rolling-summary")
+@router.post("/generate-rolling-summary", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
 def generate_rolling_summary():
     logger.info("POST /generate-rolling-summary: manual trigger")
     result = svc.trigger_rolling_summary()
     return result
 
 
-@router.post("/generate-scoring-rationale")
+@router.post("/generate-scoring-rationale", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
 def generate_scoring_rationale(data: dict[str, Any] = Body({})):
     logger.info("POST /generate-scoring-rationale: manual trigger")
     intel = data.get("intel", {})
@@ -166,25 +167,25 @@ def generate_scoring_rationale(data: dict[str, Any] = Body({})):
     return result
 
 
-@router.post("/articles/toggle-pin")
+@router.post("/articles/toggle-pin", dependencies=[Depends(require_action("Action: Pin Articles"))])
 def toggle_pin(article_id: int):
     svc.toggle_pin(article_id)
     return {"status": "ok"}
 
 
-@router.post("/articles/boost-score")
+@router.post("/articles/boost-score", dependencies=[Depends(require_action("Action: Boost Threat Score"))])
 def boost_score(article_id: int, amount: int = Query(15, ge=1, le=100)):
     svc.boost_score(article_id, amount)
     return {"status": "ok"}
 
 
-@router.post("/articles/feedback")
+@router.post("/articles/feedback", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
 def article_feedback(article_id: int, feedback: int = Query(0, ge=0, le=2)):
     svc.change_status(article_id, feedback)
     return {"status": "ok"}
 
 
-@router.post("/articles/generate-bluf")
+@router.post("/articles/generate-bluf", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
 def generate_article_bluf(article_id: int = Query(0, ge=0)):
     from src.utils.llm import generate_bluf
     from src.models.schema import Article

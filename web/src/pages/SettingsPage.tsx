@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { getAllowedTabs, TAB_PERMISSION_MAP } from "../utils/permissions";
+import { getAllowedTabs } from "../utils/permissions";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
@@ -193,8 +193,7 @@ export function SettingsPage() {
     }
   }, [allowedSettingsTabs.join(",")]);
 
-  const SETTINGS_ACTION_IDS = new Set(Object.values(TAB_PERMISSION_MAP.settings));
-  const filteredTabs = TABS.filter(t => allowedSettingsTabs.length === 0 || !SETTINGS_ACTION_IDS.has(t.id) || allowedSettingsTabs.includes(t.id));
+  const filteredTabs = TABS.filter(t => t.id === "profile" || t.id === "theme" || isAdmin || allowedSettingsTabs.includes(t.id));
 
   return (
     <div style={{ padding: "1.5rem" }}>

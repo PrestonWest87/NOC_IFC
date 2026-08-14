@@ -44,6 +44,22 @@ class SecurityUnitTests(unittest.TestCase):
             require_admin(SimpleNamespace(role="analyst"))
         self.assertEqual(error.exception.status_code, 403)
 
+    def test_admin_has_page_and_action_override(self):
+        from src.api.auth_guard import has_page_permission, require_action
+
+        admin = SimpleNamespace(role="admin", allowed_pages=[], allowed_actions=[])
+        self.assertTrue(has_page_permission(admin, "Settings & Admin"))
+        self.assertIs(require_action("Action: Dispatch Exec Report")(admin), admin)
+
+    def test_non_admin_page_and_action_are_denied_without_grants(self):
+        from fastapi import HTTPException
+        from src.api.auth_guard import has_page_permission, require_action
+
+        analyst = SimpleNamespace(role="analyst", allowed_pages=["Reporting & Briefings"], allowed_actions=[])
+        self.assertFalse(has_page_permission(analyst, "Settings & Admin"))
+        with self.assertRaises(HTTPException):
+            require_action("Action: Dispatch Exec Report")(analyst)
+
     def test_report_search_parser_supports_delimiters_and_phrases(self):
         from src.services import parse_search_terms
 

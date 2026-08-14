@@ -1,9 +1,10 @@
 import logging
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel
+from src.api.auth_guard import require_page
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/email", tags=["email"])
+router = APIRouter(prefix="/api/v1/email", tags=["email"], dependencies=[Depends(require_page("Reporting & Briefings"))])
 
 
 class SendEmailRequest(BaseModel):

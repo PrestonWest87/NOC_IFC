@@ -94,6 +94,7 @@ function validateRecipients(value: string): string | null {
 export function ReportingPage() {
   const { user } = useAuth();
   const allowedReportTabs = getAllowedTabs(user?.allowed_actions, "reporting");
+  const isAdmin = ["admin", "administrator"].includes(String(user?.role || "").toLowerCase());
   const ALL_REPORT_TABS = [
     { label: "Daily Fusion Briefing", icon: Calendar },
     { label: "Custom Report Builder", icon: FileText },
@@ -107,7 +108,7 @@ export function ReportingPage() {
     }
   }, [allowedReportTabs.join(",")]);
 
-  const tabs = ALL_REPORT_TABS.filter((_, i) => allowedReportTabs.length === 0 || allowedReportTabs.includes(String(i)));
+  const tabs = ALL_REPORT_TABS.filter((_, i) => isAdmin || allowedReportTabs.includes(String(i)));
 
   return (
     <div style={{ padding: "1.5rem" }}>
