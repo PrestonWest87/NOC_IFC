@@ -313,12 +313,6 @@ def init_db():
             "Tab: Settings -> Facility Locations", "Tab: Settings -> Internal Assets", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training",
             "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
         ]
-        analyst_actions = [
-            action for action in all_actions
-            if not action.startswith("Tab: Settings ->")
-            and action not in {"Action: Train ML Model", "Action: Dispatch Exec Report"}
-        ]
-
         admin_role = session.query(Role).filter_by(name="admin").first()
         if not admin_role:
             session.add(Role(name="admin", allowed_pages=all_pages, allowed_actions=all_actions))
@@ -328,10 +322,12 @@ def init_db():
 
         analyst_role = session.query(Role).filter_by(name="analyst").first()
         if not analyst_role:
-            session.add(Role(name="analyst", allowed_pages=all_pages[:-1], allowed_actions=analyst_actions))
+            session.add(Role(name="analyst", allowed_pages=all_pages[:-1], allowed_actions=all_actions))
         else:
-            analyst_role.allowed_pages = all_pages[:-1]
-            analyst_role.allowed_actions = analyst_actions
+            # Preserve the GitHub baseline and union new permissions. Never
+            # remove access from an existing role during startup migration.
+            analyst_role.allowed_pages = list(dict.fromkeys((analyst_role.allowed_pages or []) + all_pages[:-1]))
+            analyst_role.allowed_actions = list(dict.fromkeys((analyst_role.allowed_actions or []) + all_actions))
 
         import os
         admin_pw = os.environ.get("DEFAULT_ADMIN_PASSWORD", "").strip()

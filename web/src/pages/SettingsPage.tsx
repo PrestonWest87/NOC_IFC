@@ -39,6 +39,11 @@ const ALL_ACTIONS = [
   "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone",
 ];
 
+const TAB_ACTIONS = ALL_ACTIONS.filter(action => action.startsWith("Tab:"));
+const OPERATION_ACTIONS = ALL_ACTIONS.filter(action => action.startsWith("Action:"));
+const ROLE_EDITOR_SECTIONS = ["pages", "tabs", "actions", "sites"] as const;
+type RoleEditorSection = typeof ROLE_EDITOR_SECTIONS[number];
+
 const TABS = [
   { id: "profile", label: "Profile", icon: User },
   { id: "theme", label: "Theme", icon: Palette },
@@ -130,6 +135,41 @@ function Card({ title, children, icon: Icon, wide }: { title: string; children: 
 
 function SectionTitle({ text }: { text: string }) {
   return <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>{text}</h4>;
+}
+
+function RoleEditorNav({ active, onChange }: { active: RoleEditorSection; onChange: (section: RoleEditorSection) => void }) {
+  return (
+    <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+      {ROLE_EDITOR_SECTIONS.map(section => (
+        <button
+          key={section}
+          type="button"
+          onClick={() => onChange(section)}
+          style={{
+            background: active === section ? "var(--accent-blue)" : "var(--bg-tertiary)",
+            color: active === section ? "#fff" : "var(--text-secondary)",
+            border: `1px solid ${active === section ? "var(--accent-blue)" : "var(--border-primary)"}`,
+            borderRadius: "var(--radius-sm)", padding: "0.35rem 0.65rem", cursor: "pointer",
+            fontSize: "0.75rem", fontWeight: active === section ? 700 : 500,
+          }}
+        >
+          {section === "pages" ? "Pages" : section === "tabs" ? "Tabs" : section === "actions" ? "Actions" : "Site Types"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RolePermissionSection({ section, value, onChange, allSiteTypes }: {
+  section: RoleEditorSection;
+  value: { allowed_pages: string[]; allowed_actions: string[]; allowed_site_types: string[] };
+  onChange: (key: "allowed_pages" | "allowed_actions" | "allowed_site_types", values: string[]) => void;
+  allSiteTypes: string[];
+}) {
+  if (section === "pages") return <CheckboxGroup label="Allowed Pages" options={ALL_PAGES} selected={value.allowed_pages} onChange={v => onChange("allowed_pages", v)} />;
+  if (section === "tabs") return <CheckboxGroup label="Allowed Tabs" options={TAB_ACTIONS} selected={value.allowed_actions} onChange={v => onChange("allowed_actions", v)} />;
+  if (section === "actions") return <CheckboxGroup label="Operational Actions" options={OPERATION_ACTIONS} selected={value.allowed_actions} onChange={v => onChange("allowed_actions", v)} />;
+  return <CheckboxGroup label="Allowed Site Types" options={allSiteTypes} selected={value.allowed_site_types} onChange={v => onChange("allowed_site_types", v)} />;
 }
 
 export function SettingsPage() {
@@ -1105,6 +1145,8 @@ function UsersRolesTab({ roles, users, rolesLoading, rolesError, queryClient, al
   const [roleChange, setRoleChange] = useState({ username: "", new_role: "viewer" });
   const [newRole, setNewRole] = useState({ name: "", allowed_pages: [] as string[], allowed_actions: [] as string[], allowed_site_types: [] as string[] });
   const [editRole, setEditRole] = useState<any>(null);
+  const [newRoleSection, setNewRoleSection] = useState<RoleEditorSection>("pages");
+  const [editRoleSection, setEditRoleSection] = useState<RoleEditorSection>("pages");
   const [resetPw, setResetPw] = useState({ username: "", new_password: "" });
 
   const createUser = useMutation({
@@ -1209,12 +1251,21 @@ function UsersRolesTab({ roles, users, rolesLoading, rolesError, queryClient, al
       <Card title="Create Custom Role" icon={Users}>
         <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
           <div>
-            <SectionTitle text="Role Name" />
+           <SectionTitle text="Role Name" />
             <input style={inputStyle} placeholder="e.g. senior-analyst" value={newRole.name} onChange={e => setNewRole(p => ({ ...p, name: e.target.value }))} />
           </div>
-          <CheckboxGroup label="Allowed Pages" options={ALL_PAGES} selected={newRole.allowed_pages} onChange={v => setNewRole(p => ({ ...p, allowed_pages: v }))} />
-          <CheckboxGroup label="Allowed Actions" options={ALL_ACTIONS} selected={newRole.allowed_actions} onChange={v => setNewRole(p => ({ ...p, allowed_actions: v }))} />
-          <CheckboxGroup label="Allowed Site Types" options={allSiteTypes} selected={newRole.allowed_site_types} onChange={v => setNewRole(p => ({ ...p, allowed_site_types: v }))} />
+           <RoleEditorNav active={newRoleSection} onChange={setNewRoleSection} />
+           <RolePermissionSection
+             section={newRoleSection}
+             value={newRole}
+             allSiteTypes={allSiteTypes}
+             onChange={(key, values) => setNewRole(p => ({
+               ...p,
+               [key]: key === "allowed_actions"
+                 ? [...p.allowed_actions.filter(action => newRoleSection === "tabs" ? !TAB_ACTIONS.includes(action) : TAB_ACTIONS.includes(action)), ...values]
+                 : values,
+             }))}
+           />
           <button onClick={() => createRole.mutate(newRole)} disabled={createRole.isPending || !newRole.name} style={btn("var(--accent-green)")}>
             <Plus size={14} /> {createRole.isPending ? "Creating..." : "Create Role"}
           </button>
@@ -1230,7 +1281,8 @@ function UsersRolesTab({ roles, users, rolesLoading, rolesError, queryClient, al
           <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
             <select style={inputStyle} value={editRole?.id || ""} onChange={e => {
               const r = (roles as any[]).find((x: any) => x.name === e.target.value);
-              setEditRole(r ? { ...r, allowed_pages: r.allowed_pages || [], allowed_actions: r.allowed_actions || [], allowed_site_types: r.allowed_site_types || [] } : null);
+               setEditRole(r ? { ...r, allowed_pages: r.allowed_pages || [], allowed_actions: r.allowed_actions || [], allowed_site_types: r.allowed_site_types || [] } : null);
+               setEditRoleSection("pages");
             }}>
               <option value="">Select role to edit...</option>
               {roles.map((r: any) => <option key={r.name} value={r.name}>{r.name}</option>)}
@@ -1241,9 +1293,18 @@ function UsersRolesTab({ roles, users, rolesLoading, rolesError, queryClient, al
                   <SectionTitle text="Role Name" />
                   <input style={inputStyle} value={editRole.name} onChange={e => setEditRole((p: any) => ({ ...p, name: e.target.value }))} />
                 </div>
-                <CheckboxGroup label="Allowed Pages" options={ALL_PAGES} selected={editRole.allowed_pages || []} onChange={v => setEditRole((p: any) => ({ ...p, allowed_pages: v }))} />
-                <CheckboxGroup label="Allowed Actions" options={ALL_ACTIONS} selected={editRole.allowed_actions || []} onChange={v => setEditRole((p: any) => ({ ...p, allowed_actions: v }))} />
-                <CheckboxGroup label="Allowed Site Types" options={allSiteTypes} selected={editRole.allowed_site_types || []} onChange={v => setEditRole((p: any) => ({ ...p, allowed_site_types: v }))} />
+                 <RoleEditorNav active={editRoleSection} onChange={setEditRoleSection} />
+                 <RolePermissionSection
+                   section={editRoleSection}
+                   value={editRole}
+                   allSiteTypes={allSiteTypes}
+                   onChange={(key, values) => setEditRole((p: any) => ({
+                     ...p,
+                     [key]: key === "allowed_actions"
+                       ? [...(p.allowed_actions || []).filter((action: string) => editRoleSection === "tabs" ? !TAB_ACTIONS.includes(action) : TAB_ACTIONS.includes(action)), ...values]
+                       : values,
+                   }))}
+                 />
                 <button onClick={() => editRoleMutation.mutate(editRole)} disabled={editRoleMutation.isPending} style={btn("var(--accent-yellow)")}>
                   <Save size={14} /> {editRoleMutation.isPending ? "Saving..." : "Update Role"}
                 </button>
