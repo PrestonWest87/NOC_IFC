@@ -7,6 +7,7 @@ from typing import Any
 
 from src import services as svc
 from src.api.auth_guard import require_admin
+from src.core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(require_admin)])
@@ -136,6 +137,25 @@ def create_user(data: dict[str, Any] = Body({})):
         full_name=data.get("full_name", ""),
     )
     return {"status": "ok"}
+
+
+@router.post("/registration-invites")
+def create_registration_invite(data: dict[str, Any] = Body({}), user=Depends(require_admin)):
+    try:
+        raw_token, expires_at = svc.create_registration_invite(
+            username=str(data.get("username", "")),
+            role=str(data.get("role", "analyst")),
+            created_by=user.username,
+            ttl_hours=int(data.get("ttl_hours", settings.registration_invite_ttl_hours)),
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "username": str(data.get("username", "")).strip(),
+        "role": str(data.get("role", "analyst")).strip(),
+        "expires_at": expires_at.isoformat(),
+        "registration_url": f"{settings.public_app_url.rstrip('/')}/#/register?token={raw_token}",
+    }
 
 
 @router.put("/users/{username}/role")

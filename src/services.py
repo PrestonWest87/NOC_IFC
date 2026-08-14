@@ -7,6 +7,8 @@ import uuid
 import re
 import json
 import os
+import hashlib
+import secrets
 from datetime import datetime, timedelta
 from sqlalchemy import text
 from sqlalchemy.types import Boolean, DateTime
@@ -14,7 +16,7 @@ from zoneinfo import ZoneInfo
 # Import your DB setup and models
 from src.database import (
     SessionLocal, Article, FeedSource, Keyword, SystemConfig, CveItem,
-    RegionalHazard, CloudOutage, User, Role, SavedReport, DailyBriefing,
+    RegionalHazard, CloudOutage, User, RegistrationInvite, Role, SavedReport, DailyBriefing,
     ExtractedIOC, MonitoredLocation, SolarWindsAlert, TimelineEvent,
     RegionalOutage, BgpAnomaly, GeoJsonCache, DailyThreatScore, ShiftLogEntry,
     SoftwareAsset, HardwareAsset, InternalRiskSnapshot, CrimeIncident,
@@ -490,6 +492,94 @@ def authenticate_user(username, password):
             u.allowed_site_types = perms["allowed_site_types"]
             return u, new_token
         return None, None
+
+
+def _invite_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def create_registration_invite(username: str, role: str, created_by: str, ttl_hours: int = 72):
+    username = username.strip()
+    role = role.strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{2,63}", username):
+        raise ValueError("Username must be 3-64 characters and contain only letters, numbers, '.', '_' or '-'.")
+    if not role or len(role) > 64:
+        raise ValueError("A valid role is required.")
+    ttl_hours = max(1, min(int(ttl_hours), 14 * 24))
+    raw_token = secrets.token_urlsafe(32)
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        if db.query(User).filter(User.username == username).first():
+            raise ValueError("That username is already registered.")
+        db.query(RegistrationInvite).filter(
+            RegistrationInvite.username == username,
+            RegistrationInvite.used_at.is_(None),
+        ).update({"used_at": now}, synchronize_session=False)
+        db.add(RegistrationInvite(
+            username=username,
+            role=role,
+            token_hash=_invite_token_hash(raw_token),
+            created_by=created_by,
+            created_at=now,
+            expires_at=now + timedelta(hours=ttl_hours),
+        ))
+        db.commit()
+    return raw_token, now + timedelta(hours=ttl_hours)
+
+
+def get_registration_invite(raw_token: str):
+    if not raw_token:
+        return None
+    with SessionLocal() as db:
+        invite = db.query(RegistrationInvite).filter(
+            RegistrationInvite.token_hash == _invite_token_hash(raw_token),
+            RegistrationInvite.used_at.is_(None),
+            RegistrationInvite.expires_at > datetime.utcnow(),
+        ).first()
+        if not invite:
+            return None
+        return {
+            "username": invite.username,
+            "role": invite.role,
+            "expires_at": invite.expires_at.isoformat(),
+        }
+
+
+def complete_registration(raw_token, password, full_name, job_title, contact_info, default_shift):
+    if not raw_token or len(password or "") < 12:
+        raise ValueError("Password must be at least 12 characters.")
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        invite = db.query(RegistrationInvite).filter(
+            RegistrationInvite.token_hash == _invite_token_hash(raw_token),
+            RegistrationInvite.used_at.is_(None),
+            RegistrationInvite.expires_at > now,
+        ).first()
+        if not invite:
+            raise ValueError("This registration link is invalid, expired, or already used.")
+        if db.query(User).filter(User.username == invite.username).first():
+            invite.used_at = now
+            db.commit()
+            raise ValueError("That registration has already been completed.")
+        user = User(
+            username=invite.username,
+            password_hash=bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8"),
+            role=invite.role,
+            full_name=(full_name or "").strip(),
+            job_title=(job_title or "").strip(),
+            contact_info=(contact_info or "").strip(),
+            default_shift=(default_shift or "No Shift").strip(),
+        )
+        user.session_token = str(uuid.uuid4())
+        invite.used_at = now
+        db.add(user)
+        db.commit()
+        u = to_dotdict(user)
+        perms = get_role_permissions(u.role or "analyst")
+        u.allowed_pages = perms["allowed_pages"]
+        u.allowed_actions = perms["allowed_actions"]
+        u.allowed_site_types = perms["allowed_site_types"]
+        return u, user.session_token
 
 def get_user_by_token(token):
     with SessionLocal() as db:

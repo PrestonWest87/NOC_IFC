@@ -6,6 +6,7 @@ from src.core.db import engine, SessionLocal, init_db, get_db
 from src.models.schema import (
     Base,
     User,
+    RegistrationInvite,
     Role,
     SavedReport,
     FeedSource,

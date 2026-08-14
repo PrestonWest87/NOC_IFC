@@ -1080,6 +1080,8 @@ function CheckboxGroup({ label, options, selected, onChange }: { label: string; 
 
 function UsersRolesTab({ roles, users, queryClient, allSiteTypes }: { roles: any; users: any; queryClient: any; allSiteTypes: string[] }) {
   const [newUser, setNewUser] = useState({ username: "", password: "", full_name: "", role: "viewer" });
+  const [invite, setInvite] = useState({ username: "", role: "analyst", ttl_hours: 72 });
+  const [inviteUrl, setInviteUrl] = useState("");
   const [roleChange, setRoleChange] = useState({ username: "", new_role: "viewer" });
   const [newRole, setNewRole] = useState({ name: "", allowed_pages: [] as string[], allowed_actions: [] as string[], allowed_site_types: [] as string[] });
   const [editRole, setEditRole] = useState<any>(null);
@@ -1088,6 +1090,15 @@ function UsersRolesTab({ roles, users, queryClient, allSiteTypes }: { roles: any
   const createUser = useMutation({
     mutationFn: (data: any) => api.post("/admin/users", data),
     onSuccess: () => { alert("User created."); setNewUser({ username: "", password: "", full_name: "", role: "viewer" }); queryClient.invalidateQueries({ queryKey: ["admin-users"] }); },
+    onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
+  });
+
+  const createInvite = useMutation({
+    mutationFn: (data: any) => api.post("/admin/registration-invites", data),
+    onSuccess: (response) => {
+      setInviteUrl(response.data.registration_url);
+      setInvite((previous) => ({ ...previous, username: "" }));
+    },
     onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
   });
 
@@ -1131,6 +1142,32 @@ function UsersRolesTab({ roles, users, queryClient, allSiteTypes }: { roles: any
           <button onClick={() => createUser.mutate(newUser)} disabled={createUser.isPending || !newUser.username} style={btn("var(--accent-blue)")}>
             <UserPlus size={14} /> {createUser.isPending ? "Creating..." : "Create User"}
           </button>
+        </div>
+      </Card>
+
+      <Card title="Prepare Registration Invite" icon={Mail}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.78rem" }}>
+            Generate a one-time link. The recipient sets their own password and profile; the link expires automatically.
+          </p>
+          <input style={inputStyle} placeholder="Username" value={invite.username} onChange={e => setInvite(p => ({ ...p, username: e.target.value }))} />
+          <select style={inputStyle} value={invite.role} onChange={e => setInvite(p => ({ ...p, role: e.target.value }))}>
+            {roleOpts.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+          <select style={inputStyle} value={invite.ttl_hours} onChange={e => setInvite(p => ({ ...p, ttl_hours: Number(e.target.value) }))}>
+            <option value={24}>Expires in 24 hours</option>
+            <option value={72}>Expires in 72 hours</option>
+            <option value={168}>Expires in 7 days</option>
+          </select>
+          <button onClick={() => createInvite.mutate(invite)} disabled={createInvite.isPending || !invite.username} style={btn("var(--accent-purple)")}>
+            <Mail size={14} /> {createInvite.isPending ? "Generating..." : "Generate Registration Link"}
+          </button>
+          {inviteUrl && (
+            <div style={{ display: "flex", gap: "0.4rem", alignItems: "stretch" }}>
+              <input readOnly aria-label="Registration link" value={inviteUrl} style={{ ...inputStyle, fontSize: "0.72rem" }} />
+              <button onClick={() => navigator.clipboard.writeText(inviteUrl)} style={btn("var(--accent-green)")}>Copy</button>
+            </div>
+          )}
         </div>
       </Card>
 

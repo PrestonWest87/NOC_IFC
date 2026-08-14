@@ -7,6 +7,21 @@ const THEMES = [
   { id: "cyberpunk", label: "Cyberpunk" },
   { id: "solarized-dark", label: "Solarized Dark" },
   { id: "midnight-ocean", label: "Midnight Ocean" },
+  { id: "arctic-command", label: "Arctic Command" },
+  { id: "ember-watch", label: "Ember Watch" },
+  { id: "forest-ops", label: "Forest Ops" },
+  { id: "amethyst-grid", label: "Amethyst Grid" },
+  { id: "slate-steel", label: "Slate Steel" },
+  { id: "paper-light", label: "Paper Light" },
+  { id: "nordic-frost", label: "Nordic Frost" },
+  { id: "dracula-console", label: "Dracula Console" },
+  { id: "synthwave", label: "Synthwave" },
+  { id: "desert-signal", label: "Desert Signal" },
+  { id: "olive-command", label: "Olive Command" },
+  { id: "mono-ops", label: "Monochrome Ops" },
+  { id: "rose-pine", label: "Rose Pine" },
+  { id: "oceanic-teal", label: "Oceanic Teal" },
+  { id: "copper-wire", label: "Copper Wire" },
 ];
 
 const STORAGE_KEY = "noc_theme";

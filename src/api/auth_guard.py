@@ -30,7 +30,10 @@ def require_admin(user=Depends(get_current_user)):
 
 async def authentication_middleware(request: Request, call_next):
     path = request.url.path.rstrip("/")
-    public = path in {"/api/v1/auth/login", "/health", "/ready"}
+    public = path in {
+        "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/register/validate",
+        "/health", "/ready",
+    }
     if request.method == "OPTIONS" or public or not path.startswith("/api/v1"):
         return await call_next(request)
 

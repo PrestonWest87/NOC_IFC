@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "./utils/AuthContext";
 import { Layout } from "./components/Layout";
 import { LoginPage } from "./pages/LoginPage";
+import { RegistrationPage } from "./pages/RegistrationPage";
 import { PAGE_PERMISSION_MAP, PAGE_ROUTE_MAP } from "./utils/routeConfig";
 import { useAIOpsWebSocket } from "./hooks/useAIOpsWebSocket";
 
@@ -76,6 +77,7 @@ function AppRoutes() {
     <Suspense fallback={<div style={{ padding: "2rem", color: "var(--text-primary)" }}>Loading NOC workspace...</div>}>
       <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegistrationPage />} />
       <Route path="/" element={<ProtectedRoute path="/"><DashboardPage /></ProtectedRoute>} />
       <Route path="/threat-telemetry" element={<ProtectedRoute path="/threat-telemetry"><ThreatTelemetryPage /></ProtectedRoute>} />
       <Route path="/regional-grid" element={<ProtectedRoute path="/regional-grid"><RegionalGridPage /></ProtectedRoute>} />

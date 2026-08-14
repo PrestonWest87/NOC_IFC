@@ -18,6 +18,18 @@ class User(Base):
     default_shift = Column(String, default="No Shift")
 
 
+class RegistrationInvite(Base):
+    __tablename__ = "registration_invites"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, nullable=False, index=True)
+    role = Column(String, nullable=False, default="analyst")
+    token_hash = Column(String, nullable=False, unique=True, index=True)
+    created_by = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    used_at = Column(DateTime, nullable=True)
+
+
 class Role(Base):
     __tablename__ = "roles"
     id = Column(Integer, primary_key=True, index=True)
