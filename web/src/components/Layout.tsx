@@ -42,6 +42,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </span>
           )}
           <button onClick={() => setCollapsed(!collapsed)}
+            aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
             style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
             {collapsed ? <Menu size={18} /> : <ChevronLeft size={18} />}
           </button>
@@ -52,7 +53,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             if (!user?.allowed_pages) return true;
             return user.allowed_pages.includes(item.label);
           }).map((item) => (
-            <a key={item.href} href={`#${item.href}`}
+            <a key={item.href} href={`#${item.href}`} aria-label={collapsed ? item.label : undefined}
               style={{
                 display: "flex", alignItems: "center", gap: "0.6rem",
                 padding: "0.55rem 1rem", color: "var(--text-secondary)",

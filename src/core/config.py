@@ -9,11 +9,22 @@ load_dotenv()
 
 class Settings(BaseSettings):
     database_url: str = "sqlite:////app/data/noc_fusion.db"
+    demo_seed_data: bool = False
+    log_level: str = "INFO"
     elastic_url: str = "https://localhost:9200"
     elastic_api_key: str = "your_read_only_api_key"
     crime_alert_sms: str | None = None
     crime_alert_email: str | None = None
     risk_alert_recipients: str = ""
+    webhook_hmac_secret: str | None = None
+    webhook_signature_header: str = "X-SolarWinds-Signature"
+    webhook_timestamp_header: str = "X-SolarWinds-Timestamp"
+    webhook_replay_window_seconds: int = 300
+    webhook_max_body_bytes: int = 1048576
+    websocket_max_message_bytes: int = 65536
+    allow_private_llm_endpoints: bool = False
+    cors_origins: str = "http://localhost:8501,http://localhost:5173"
+    allow_unsigned_webhooks: bool = False
 
     class Config:
         env_file = ".env"

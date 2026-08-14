@@ -4,11 +4,18 @@ services:
       context: .
       dockerfile: Dockerfile
     command: uvicorn src.api.main:app --host 0.0.0.0 --port 8101
+    user: "10001:10001"
     ports:
       - "8101:8101"
     env_file: .env
     volumes:
       - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8101/ready', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     deploy:
       resources:
         limits:
@@ -20,10 +27,14 @@ services:
       context: .
       dockerfile: Dockerfile
     command: python -u src/scheduler.py
+    user: "10001:10001"
     env_file: .env
     restart: unless-stopped
     volumes:
       - ./data:/app/data
+    depends_on:
+      api:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -35,11 +46,18 @@ services:
       context: .
       dockerfile: Dockerfile
     command: python -u src/webhook_listener.py
+    user: "10001:10001"
     ports:
       - "8100:8100"
     env_file: .env
     volumes:
       - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     deploy:
       resources:
         limits:
@@ -55,7 +73,14 @@ services:
     environment:
       - VITE_API_URL=http://localhost:8101
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:5173/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     deploy:
       resources:
         limits:

@@ -2866,6 +2866,19 @@ def update_user_role(username, new_role):
             db.commit()
 
 def save_global_config(data):
+    editable_fields = {
+        "llm_endpoint", "llm_api_key", "llm_model_name", "is_active", "tech_stack",
+        "monitored_asns", "smtp_server", "smtp_port", "smtp_username", "smtp_password",
+        "smtp_sender", "smtp_recipient", "smtp_enabled", "baseline_override_cyber",
+        "baseline_override_phys", "sys_countermeasures", "net_countermeasures",
+        "scoring_mode", "cyber_criticality_override", "cyber_lethality_override",
+        "physical_criticality_override", "physical_lethality_override",
+        "internal_criticality_override", "internal_lethality_override", "global_risk_offset",
+        "internal_risk_offset", "llm_context_window",
+    }
+    unknown = set(data) - editable_fields
+    if unknown:
+        raise ValueError(f"Unsupported configuration fields: {', '.join(sorted(unknown))}")
     with SessionLocal() as db:
         config = db.query(SystemConfig).first()
         if not config: config = SystemConfig(); db.add(config)

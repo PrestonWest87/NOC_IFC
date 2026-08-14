@@ -2,13 +2,14 @@ import logging
 import os
 import tempfile
 import json
-from fastapi import APIRouter, Query, Body, HTTPException, UploadFile, File
+from fastapi import APIRouter, Query, Body, HTTPException, UploadFile, File, Depends
 from typing import Any
 
 from src import services as svc
+from src.api.auth_guard import require_admin
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
 
 @router.get("/lists")
@@ -69,7 +70,10 @@ def ml_counts():
 @router.post("/config")
 def save_config(data: dict[str, Any] = Body({})):
     logger.info("POST /admin/config keys=%s", list(data.keys()))
-    svc.save_global_config(data)
+    try:
+        svc.save_global_config(data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "ok"}
 
 

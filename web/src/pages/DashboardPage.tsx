@@ -972,7 +972,7 @@ export function DashboardPage() {
                   <div>
                     <strong style={{ fontSize: "0.82rem" }}>Evidence Log:</strong>
                     {executiveIntel.evidence_log.map((log: string, i: number) => (
-                      <div key={i} style={{ fontSize: "0.78rem", color: "var(--text-secondary, #64748b)", padding: "0.25rem 0", borderBottom: "1px solid var(--border-primary, #e2e8f0)" }} dangerouslySetInnerHTML={{ __html: log }} />
+                      <div key={i} style={{ fontSize: "0.78rem", color: "var(--text-secondary, #64748b)", padding: "0.25rem 0", borderBottom: "1px solid var(--border-primary, #e2e8f0)" }}>{log}</div>
                     ))}
                   </div>
                 )}

@@ -325,6 +325,7 @@ export function AiopsRcaPage() {
   const [dialogStatus, setDialogStatus] = useState<string>("Investigate/Dispatch");
   const [dialogEtr, setDialogEtr] = useState("");
   const [dialogReason, setDialogReason] = useState("");
+  const [dialogError, setDialogError] = useState("");
 
   const openSiteDialog = useCallback((site: any) => {
     const lat = site.position ? site.position[1] : site.lat;
@@ -346,6 +347,7 @@ export function AiopsRcaPage() {
 
   const handleSaveSiteDialog = useCallback(async () => {
     if (!siteDialog) return;
+    setDialogError("");
     const { name } = siteDialog;
     const clusterAlerts = alerts.filter((a: any) => a.mapped_location === name);
     const alertIds = clusterAlerts.map((a: any) => a.id).filter(Boolean);
@@ -359,20 +361,24 @@ export function AiopsRcaPage() {
     // intermediate data (e.g. locations cache before maintMutation cleared it)
     // could show stale under_maintenance for other sites.
 
-    // 1. Investigate (fastest — in-memory set)
-    await investigateMutation.mutateAsync({ site: name, is_investigating: isInvestigating });
+    try {
+      // 1. Investigate (fastest — in-memory set)
+      await investigateMutation.mutateAsync({ site: name, is_investigating: isInvestigating });
 
-    // 2. Maintenance (clears get_cached_locations cache)
-    const etrDate = isMaint ? dialogEtr : "";
-    const reason = dialogReason;
-    await maintMutation.mutateAsync({ site_name: name, is_maint: isMaint, etr: etrDate, reason });
+      // 2. Maintenance (clears get_cached_locations cache)
+      const etrDate = isMaint ? dialogEtr : "";
+      const reason = dialogReason;
+      await maintMutation.mutateAsync({ site_name: name, is_maint: isMaint, etr: etrDate, reason });
 
-    // 3. Dispatch (last — invalidates both rca-dashboard and rca-analyze)
-    if (alertIds.length > 0) {
-      await dispatchMutation.mutateAsync({ alertIds, dispatched: dialogDispatch });
+      // 3. Dispatch (last — invalidates both rca-dashboard and rca-analyze)
+      if (alertIds.length > 0) {
+        await dispatchMutation.mutateAsync({ alertIds, dispatched: dialogDispatch });
+      }
+
+      setSiteDialog(null);
+    } catch (error: any) {
+      setDialogError(error?.response?.data?.detail || "Unable to save site status. Please retry.");
     }
-
-    setSiteDialog(null);
 }, [siteDialog, dialogDispatch, dialogStatus, dialogEtr, dialogReason, alerts, dispatchMutation, maintMutation, investigateMutation]);
 
  useEffect(() => {
@@ -680,12 +686,12 @@ export function AiopsRcaPage() {
                 <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
               </DeckGL>
               {siteDialog && (
-                <div style={{
+                <div role="presentation" style={{
                   position: "fixed", inset: 0, zIndex: 1000,
                   display: "flex", alignItems: "center", justifyContent: "center",
                   background: "rgba(0,0,0,0.5)",
                 }} onClick={() => setSiteDialog(null)}>
-                  <div onClick={(e) => e.stopPropagation()} style={{
+                  <div role="dialog" aria-modal="true" aria-labelledby="site-status-dialog-title" onClick={(e) => e.stopPropagation()} style={{
                     background: "var(--bg-card)", color: "var(--text-primary)",
                     borderRadius: "var(--radius-md)", padding: "1.25rem",
                     minWidth: 320, maxWidth: 420,
@@ -693,7 +699,7 @@ export function AiopsRcaPage() {
                     border: "1px solid var(--border-primary)",
                     fontSize: "0.82rem", lineHeight: 1.5,
                   }}>
-                    <div style={{ fontWeight: 700, marginBottom: "0.5rem", fontSize: "0.9rem", borderBottom: "1px solid var(--border-primary)", paddingBottom: "0.3rem" }}>
+                    <div id="site-status-dialog-title" style={{ fontWeight: 700, marginBottom: "0.5rem", fontSize: "0.9rem", borderBottom: "1px solid var(--border-primary)", paddingBottom: "0.3rem" }}>
                       Manage Site Status — {siteDialog.name}
                     </div>
 
@@ -757,14 +763,16 @@ export function AiopsRcaPage() {
                       </div>
                     )}
 
+                    {dialogError && <div role="alert" style={{ color: "var(--accent-red)", marginBottom: "0.5rem" }}>{dialogError}</div>}
                     <div style={{ display: "flex", gap: "0.4rem", justifyContent: "flex-end", borderTop: "1px solid var(--border-primary)", paddingTop: "0.4rem" }}>
                       <button onClick={() => setSiteDialog(null)}
                         style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer" }}>
                         Cancel
                       </button>
                       <button onClick={handleSaveSiteDialog}
+                        disabled={investigateMutation.isPending || maintMutation.isPending || dispatchMutation.isPending}
                         style={{ background: "var(--accent-blue)", color: "#fff", border: "none", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 }}>
-                        Save Changes
+                        {investigateMutation.isPending || maintMutation.isPending || dispatchMutation.isPending ? "Saving..." : "Save Changes"}
                       </button>
                     </div>
                   </div>

@@ -1,8 +1,9 @@
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from src import services as svc
+from src.api.auth_guard import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -34,24 +35,21 @@ def login(req: LoginRequest):
 
 
 @router.get("/me")
-def me(token: str = ""):
-    user = svc.get_user_by_token(token)
-    if not user:
-        logger.warning("GET /me: invalid token")
-        raise HTTPException(401, "Invalid session")
+def me(user=Depends(get_current_user)):
     logger.debug("GET /me: user=%s role=%s", user.get('username'), user.get('role'))
     return user
 
 
 @router.post("/logout")
-def logout(username: str):
-    logger.info("POST /logout username=%s", username)
-    svc.logout_user(username)
+def logout(user=Depends(get_current_user)):
+    logger.info("POST /logout username=%s", user.username)
+    svc.logout_user(user.username)
     return {"status": "ok"}
 
 
 @router.post("/update-profile")
-def update_profile(username: str, body: ProfileUpdate):
+def update_profile(body: ProfileUpdate, user=Depends(get_current_user)):
+    username = user.username
     logger.info("POST /update-profile username=%s", username)
     ok, msg = svc.update_user_profile(
         username, body.full_name, body.job_title, body.contact_info,

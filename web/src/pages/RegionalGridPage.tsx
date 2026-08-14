@@ -923,7 +923,7 @@ function GeospatialTab({
                       borderRadius: "var(--radius-sm)", padding: "0.5rem",
                       maxWidth: 320, maxHeight: 280, overflow: "auto",
                       boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-                    }} dangerouslySetInnerHTML={{ __html: hoverInfo.html }} />
+                     }}>{hoverInfo.html}</div>
                   )}
                 </MapContainer>
               </div>

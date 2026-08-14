@@ -1,11 +1,29 @@
 import logging
+import ipaddress
+import socket
+from urllib.parse import urlparse
 from fastapi import APIRouter, Body
 from typing import Any
 
 from src import services as svc
+from src.core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/llm", tags=["llm"])
+
+
+def _safe_llm_endpoint(endpoint: str) -> bool:
+    parsed = urlparse(endpoint)
+    if parsed.scheme not in {"http", "https"} or parsed.username or parsed.password or not parsed.hostname:
+        return False
+    if settings.allow_private_llm_endpoints:
+        return True
+    try:
+        addresses = {item[4][0] for item in socket.getaddrinfo(parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM)}
+        return all(not ipaddress.ip_address(address).is_private and not ipaddress.ip_address(address).is_loopback
+                   and not ipaddress.ip_address(address).is_link_local for address in addresses)
+    except (OSError, ValueError):
+        return False
 
 
 @router.post("/test-connection")
@@ -20,6 +38,8 @@ def test_llm_connection(data: dict[str, Any] = Body({})):
     if not endpoint:
         logger.warning("POST /llm/test-connection: no endpoint provided")
         return {"success": False, "message": "Endpoint URL is required."}
+    if not _safe_llm_endpoint(endpoint):
+        return {"success": False, "message": "Endpoint is not an allowed external HTTP(S) endpoint."}
 
     class _TestConfig:
         llm_endpoint = endpoint
@@ -47,8 +67,9 @@ def test_llm_connection(data: dict[str, Any] = Body({})):
         return {"success": False, "message": "Request timed out after 30 seconds. Check your endpoint URL and network connectivity."}
     except requests.exceptions.ConnectionError:
         return {"success": False, "message": "Connection refused. Verify the endpoint URL is correct and the server is reachable."}
-    except Exception as e:
-        return {"success": False, "message": f"Connection failed: {str(e)}"}
+    except Exception:
+        logger.exception("LLM connection test failed")
+        return {"success": False, "message": "Connection failed. Check the endpoint and server logs."}
 
 
 @router.post("/executive-weather-brief")

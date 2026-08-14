@@ -3,12 +3,16 @@ import json
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.core.db import init_db
+from src.core.db import engine, init_db
 from src.core.config import setup_logging
+from src.core.config import settings as app_settings
+from src import services as svc
 from src.api.ws_manager import ConnectionManager
+from src.api.auth_guard import authentication_middleware
 from src.api.routes import aiops, threat, settings, reporting, auth, dashboard, regional, hunting, rca, logbook, settings_admin, llm, email, keyword_analysis
 
 setup_logging()
@@ -54,10 +58,11 @@ async def lifespan(app: FastAPI):
         pass
 
 app = FastAPI(title="NOC Fusion Enterprise API", version="2.0.0", lifespan=lifespan)
+app.middleware("http")(authentication_middleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[origin.strip() for origin in app_settings.cors_origins.split(",") if origin.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -82,18 +87,49 @@ app.include_router(keyword_analysis.router)
 def health():
     return {"status": "ok", "ws_clients": manager.count}
 
+
+@app.get("/ready")
+def ready():
+    """Readiness probe: the process is serving only after the database responds."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        logger.warning("Readiness check failed: %s", exc)
+        raise HTTPException(status_code=503, detail="database unavailable")
+    return {"status": "ready"}
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    token = websocket.query_params.get("token", "")
+    user = await asyncio.to_thread(svc.get_user_by_token, token)
+    if not user:
+        await websocket.close(code=1008, reason="Authentication required")
+        return
     await manager.connect(websocket)
     try:
         while True:
             data = await websocket.receive_text()
-            logger.debug("Received WS message: %s", data)
+            if len(data.encode("utf-8")) > app_settings.websocket_max_message_bytes:
+                await websocket.close(code=1009, reason="Message too large")
+                break
+            logger.debug("Received WS message from user=%s", user.username)
             
             # ECHO UI MESSAGES TO ALL CONNECTED CLIENTS
             try:
                 parsed_data = json.loads(data)
+                if not isinstance(parsed_data, dict):
+                    continue
                 msg_type = parsed_data.get("type", "")
+                required_action = {
+                    "INVESTIGATING_UPDATE": "Action: Dispatch RCA Tickets",
+                    "RCA_UPDATE": "Action: Dispatch RCA Tickets",
+                }.get(msg_type)
+                if not required_action or required_action not in (user.allowed_actions or []):
+                    await websocket.send_json({"type": "error", "message": "Not authorized"})
+                    continue
+                if len(parsed_data) > 10:
+                    continue
                 
                 # If a client sends an investigating lock or a manual resync request, broadcast it!
                 if msg_type in ["INVESTIGATING_UPDATE", "RCA_UPDATE"]:

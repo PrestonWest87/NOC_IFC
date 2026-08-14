@@ -5,15 +5,12 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 from src.models import Base
-from src.core.config import DATABASE_URL
+from src.core.config import DATABASE_URL, settings
 
 logger = logging.getLogger(__name__)
 
-engine = create_engine(
-    DATABASE_URL,
-    poolclass=NullPool,
-    connect_args={"check_same_thread": False, "timeout": 30}
-)
+_connect_args = {"check_same_thread": False, "timeout": 30} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, poolclass=NullPool, connect_args=_connect_args)
 
 
 def _set_sqlite_pragmas():
@@ -38,7 +35,8 @@ def _set_sqlite_pragmas():
             time.sleep(wait)
     logger.warning("PRAGMA setup failed after %d attempts — WAL mode may already be active from another process.", max_attempts)
 
-_set_sqlite_pragmas()
+if engine.dialect.name == "sqlite":
+    _set_sqlite_pragmas()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -53,12 +51,20 @@ def get_db():
 
 
 def init_db():
-    # Run column migration first so API queries don't fail on stale schema
+    # Create tables before additive migrations so first boot and old databases
+    # follow the same path. create_all never drops existing tables or columns.
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception:
+        logger.exception("Database schema creation failed")
+        raise
+
+    # Run additive migrations for databases created by earlier releases.
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE system_config ADD COLUMN alerted_eq_ids TEXT DEFAULT '[]'"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("system_config.alerted_eq_ids migration skipped: %s", e)
 
     article_columns = [
         ("ingested_at", "DATETIME"),
@@ -71,15 +77,10 @@ def init_db():
         try:
             with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
                 conn.execute(text(f"ALTER TABLE articles ADD COLUMN {column_name} {column_definition}"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("articles.%s migration skipped: %s", column_name, e)
 
     time.sleep(random.uniform(0.1, 1.5))
-    try:
-        Base.metadata.create_all(bind=engine)
-    except Exception as e:
-        logger.error(f"Schema generation error: {e}")
-
     for index_sql in (
         "CREATE INDEX IF NOT EXISTS ix_articles_published_score_pinned ON articles (published_date, score, is_pinned)",
         "CREATE INDEX IF NOT EXISTS ix_internal_risk_snapshots_timestamp ON internal_risk_snapshots (timestamp)",
@@ -98,47 +99,47 @@ def init_db():
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE roles ADD COLUMN allowed_site_types JSON"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("roles.allowed_site_types migration skipped: %s", e)
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE solarwinds_alerts ADD COLUMN is_dispatched BOOLEAN DEFAULT 0"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("solarwinds_alerts.is_dispatched migration skipped: %s", e)
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN district VARCHAR DEFAULT 'Central'"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("monitored_locations.district migration skipped: %s", e)
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE shift_logs ADD COLUMN author_role VARCHAR DEFAULT 'analyst'"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("shift_logs.author_role migration skipped: %s", e)
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE system_config ADD COLUMN baseline_override_cyber FLOAT DEFAULT 0.0"))
             conn.execute(text("ALTER TABLE system_config ADD COLUMN baseline_override_phys FLOAT DEFAULT 0.0"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("system_config baseline migration skipped: %s", e)
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN status_modified_by VARCHAR"))
             conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN status_modified_at DATETIME"))
             conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN last_auto_ticket DATETIME"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("monitored_locations status migration skipped: %s", e)
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE articles ADD COLUMN full_content TEXT"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("articles.full_content migration skipped: %s", e)
 
     for _col in [
         "status_modified_by VARCHAR",
@@ -151,60 +152,61 @@ def init_db():
         try:
             with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
                 conn.execute(text(f"ALTER TABLE monitored_locations ADD COLUMN {_col}"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("monitored_locations column migration skipped (%s): %s", _col, e)
 
     try:
+        weather_id = "INTEGER PRIMARY KEY AUTOINCREMENT" if engine.dialect.name == "sqlite" else "SERIAL PRIMARY KEY"
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("""
+            conn.execute(text(f"""
                 CREATE TABLE IF NOT EXISTS user_weather_prefs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id {weather_id},
                     username VARCHAR,
                     alert_type VARCHAR
                 )
             """))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_weather_prefs_username ON user_weather_prefs (username)"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("user_weather_prefs migration skipped: %s", e)
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE shift_logs ADD COLUMN is_deleted BOOLEAN DEFAULT 0"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("shift_logs.is_deleted migration skipped: %s", e)
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE system_config ADD COLUMN unified_brief TEXT"))
             conn.execute(text("ALTER TABLE system_config ADD COLUMN unified_brief_time DATETIME"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("system_config unified brief migration skipped: %s", e)
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE system_config ADD COLUMN global_brief TEXT"))
             conn.execute(text("ALTER TABLE system_config ADD COLUMN global_brief_time DATETIME"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("system_config global brief migration skipped: %s", e)
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE system_config ADD COLUMN internal_brief TEXT"))
             conn.execute(text("ALTER TABLE system_config ADD COLUMN internal_brief_time DATETIME"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("system_config internal brief migration skipped: %s", e)
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN default_shift VARCHAR DEFAULT 'No Shift'"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("users.default_shift migration skipped: %s", e)
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE crime_incidents ADD COLUMN is_alert_dispatched BOOLEAN DEFAULT 0"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("crime_incidents.is_alert_dispatched migration skipped: %s", e)
 
     risk_alert_alterations = [
         "ALTER TABLE system_config ADD COLUMN last_global_risk VARCHAR",
@@ -217,8 +219,8 @@ def init_db():
         for stmt in risk_alert_alterations:
             try:
                 conn.execute(text(stmt))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("risk alert migration skipped (%s): %s", stmt, e)
 
     for _col in [
         "is_ticketed BOOLEAN DEFAULT 0",
@@ -230,8 +232,8 @@ def init_db():
         try:
             with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
                 conn.execute(text(f"ALTER TABLE solarwinds_alerts ADD COLUMN {_col}"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("solarwinds alert migration skipped (%s): %s", _col, e)
 
     scoring_alterations = [
         "ALTER TABLE system_config ADD COLUMN scoring_mode VARCHAR DEFAULT 'auto'",
@@ -248,14 +250,14 @@ def init_db():
         for stmt in scoring_alterations:
             try:
                 conn.execute(text(stmt))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("scoring migration skipped (%s): %s", stmt, e)
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE system_config ADD COLUMN llm_context_window INTEGER DEFAULT 128000"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("system_config.llm_context_window migration skipped: %s", e)
 
     # Migrate priority from Integer to String
     try:
@@ -270,8 +272,8 @@ def init_db():
                 "ELSE 'P3-Moderate' END "
                 "WHERE priority IS NOT NULL AND CAST(priority AS INTEGER) = priority"
             ))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Priority migration skipped; existing values were preserved: %s", e)
 
     session = SessionLocal()
     try:
@@ -417,7 +419,7 @@ def init_db():
         from src.models.schema import HardwareAsset, SoftwareAsset
         session_assets = SessionLocal()
 
-        if session_assets.query(HardwareAsset).count() == 0:
+        if settings.demo_seed_data and session_assets.query(HardwareAsset).count() == 0:
             dummy_hw = [
                 HardwareAsset(ip_address="10.0.1.10", asset_name="FW-CORE-01", operating_system="PAN-OS", os_vendor="Palo Alto Networks", os_product="PA-5260", os_version="11.1.2", host_type="Firewall", instances=1, critical_instances=1, vulnerabilities=3, critical_vulnerabilities=1, severe_vulnerabilities=1, exploit_count=1, raw_risk_score=85.0, risk_score=85.0),
                 HardwareAsset(ip_address="10.0.1.20", asset_name="FW-BRANCH-01", operating_system="PAN-OS", os_vendor="Palo Alto Networks", os_product="PA-460", os_version="11.0.4", host_type="Firewall", instances=1, critical_instances=0, vulnerabilities=2, critical_vulnerabilities=0, severe_vulnerabilities=1, exploit_count=0, raw_risk_score=45.0, risk_score=45.0),
@@ -439,7 +441,7 @@ def init_db():
             session_assets.commit()
             logger.info("Seeded %d dummy hardware assets.", len(dummy_hw))
 
-        if session_assets.query(SoftwareAsset).count() == 0:
+        if settings.demo_seed_data and session_assets.query(SoftwareAsset).count() == 0:
             dummy_sw = [
                 SoftwareAsset(name="Windows Server 2022"),
                 SoftwareAsset(name="Windows 11 Enterprise"),

@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from "./utils/AuthContext";
 import { Layout } from "./components/Layout";
 import { LoginPage } from "./pages/LoginPage";
 import { PAGE_PERMISSION_MAP, PAGE_ROUTE_MAP } from "./utils/routeConfig";
+import { useAIOpsWebSocket } from "./hooks/useAIOpsWebSocket";
 
 const DashboardPage = lazy(() => import("./pages/DashboardPage").then(m => ({ default: m.DashboardPage })));
 const ThreatTelemetryPage = lazy(() => import("./pages/ThreatTelemetryPage").then(m => ({ default: m.ThreatTelemetryPage })));
@@ -30,6 +31,9 @@ const queryClient = new QueryClient({
 function ProtectedRoute({ children, path }: { children: React.ReactNode; path?: string }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
+  if (user.allowed_pages && user.allowed_pages.length === 0) {
+    return <div style={{ padding: "2rem", color: "var(--text-primary)" }}>Access denied. Contact an administrator.</div>;
+  }
   if (path) {
     const pageName = PAGE_PERMISSION_MAP[path];
     if (pageName && !user.allowed_pages?.includes(pageName)) {
@@ -59,11 +63,17 @@ function AppRoutes() {
   );
 }
 
+function RealtimeBridge() {
+  useAIOpsWebSocket();
+  return null;
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <HashRouter>
         <AuthProvider>
+          <RealtimeBridge />
           <AppRoutes />
         </AuthProvider>
       </HashRouter>

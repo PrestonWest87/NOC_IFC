@@ -45,6 +45,9 @@ from src.workers.infra_worker import fetch_regional_hazards
 from src.workers.cloud_worker import fetch_cloud_outages
 from src.workers.telemetry_worker import run_telemetry_sync
 from src.workers.crime_worker import fetch_live_crimes
+from src.core.config import setup_logging
+
+setup_logging()
 init_db()
 
 logger = logging.getLogger(__name__)

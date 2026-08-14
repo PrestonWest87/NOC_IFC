@@ -13,12 +13,14 @@ class ConnectionManager:
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
-        self.active_connections.append(websocket)
+        if websocket not in self.active_connections:
+            self.active_connections.append(websocket)
         logger.info("WebSocket client connected. Total: %d", len(self.active_connections))
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-        logger.info("WebSocket client disconnected. Total: %d", len(self.active_connections))
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+            logger.info("WebSocket client disconnected. Total: %d", len(self.active_connections))
 
     async def broadcast_json(self, data: dict[str, Any]):
         message = json.dumps(data, default=str)
@@ -29,10 +31,10 @@ class ConnectionManager:
             except Exception:
                 return conn
 
-        results = await asyncio.gather(*(send(conn) for conn in tuple(self.active_connections)))
+        results = await asyncio.gather(*(send(conn) for conn in tuple(self.active_connections)), return_exceptions=False)
         stale = [conn for conn in results if conn is not None]
         for conn in stale:
-            self.active_connections.remove(conn)
+            self.disconnect(conn)
 
     @property
     def count(self) -> int:

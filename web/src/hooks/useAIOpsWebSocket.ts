@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { triggerCriticalNotification } from "../utils/notifications";
 import { useAppStore, type DashboardPayload } from "../store/useAppStore";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "../utils/AuthContext";
 
 export function useAIOpsWebSocket() {
   const queryClient = useQueryClient();
+  const { token } = useAuth();
   const [data, setData] = useState<DashboardPayload | null>(null);
   const [connected, setConnected] = useState(false);
   
@@ -26,10 +28,14 @@ export function useAIOpsWebSocket() {
     };
     setSendMessage(sendMessage);
 
+    let stopped = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
     function connect() {
+      if (stopped || !token) return;
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const host = window.location.host;
-      const ws = new WebSocket(`${protocol}//${host}/ws`);
+      const ws = new WebSocket(`${protocol}//${host}/ws?token=${encodeURIComponent(token)}`);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -83,7 +89,7 @@ export function useAIOpsWebSocket() {
         wsRef.current = null;
         const delay = Math.min(1000 * Math.pow(2, retryRef.current), 30000);
         retryRef.current++;
-        setTimeout(connect, delay);
+        if (!stopped) retryTimer = setTimeout(connect, delay);
       };
 
       ws.onerror = () => {
@@ -94,11 +100,13 @@ export function useAIOpsWebSocket() {
     connect();
 
     return () => {
+      stopped = true;
+      if (retryTimer) clearTimeout(retryTimer);
       if (wsRef.current) {
         wsRef.current.close();
       }
     };
-  }, [setStoreDashboard, setStoreConnected, setSendMessage, setInvestigatingSite, queryClient]);
+  }, [token, setStoreDashboard, setStoreConnected, setSendMessage, setInvestigatingSite, queryClient]);
 
   return { data, connected };
 }

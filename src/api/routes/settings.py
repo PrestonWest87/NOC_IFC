@@ -1,8 +1,9 @@
 import logging
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from src.core.db import get_db
+from src.api.auth_guard import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
@@ -51,7 +52,9 @@ def get_config(db: Session = Depends(get_db)):
 
 
 @router.get("/users")
-def get_users(db: Session = Depends(get_db)):
+def get_users(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    if str(user.role or "").lower() not in {"admin", "administrator"}:
+        raise HTTPException(status_code=403, detail="Administrator permission required")
     logger.debug("GET /settings/users")
     from src.models.schema import User
     users = db.query(User).all()

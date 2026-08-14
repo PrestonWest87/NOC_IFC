@@ -5,6 +5,7 @@ from typing import Any
 
 from src import services as svc
 from src.services.aiops_engine import EnterpriseAIOpsEngine
+from src.api.auth_guard import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -14,10 +15,7 @@ router = APIRouter(prefix="/api/v1/rca", tags=["rca"])
 INVESTIGATING_SITES = set()
 
 def require_action(action: str):
-    def checker(token: str = Query("")):
-        user = svc.get_user_by_token(token)
-        if not user:
-            raise HTTPException(401, "Not authenticated")
+    def checker(user=Depends(get_current_user)):
         if action not in (user.allowed_actions or []):
             raise HTTPException(403, f"Missing permission: {action}")
         return user
@@ -175,7 +173,6 @@ def sitrep():
     config_dict = {
         "is_active": config.is_active if config else False,
         "llm_endpoint": config.llm_endpoint if config else "",
-        "llm_api_key": config.llm_api_key if config else "",
         "llm_model_name": config.llm_model_name if config else "",
     }
     return {"report": svc.generate_global_sitrep(config_dict)}

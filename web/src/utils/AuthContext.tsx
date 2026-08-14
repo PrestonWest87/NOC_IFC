@@ -58,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => { refreshUser(); }, [refreshUser]);
 
   const logout = useCallback(() => {
-    api.post("/auth/logout", null, { params: { username: user?.username } }).catch(() => {});
+    api.post("/auth/logout").catch(() => {});
     sessionStorage.removeItem("noc_token");
     sessionStorage.removeItem("noc_user");
     setUser(null);

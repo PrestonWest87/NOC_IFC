@@ -46,7 +46,9 @@ def send_alert_email(subject: str, body: str, recipient_override: str = None, is
             server.starttls()
             logger.debug("send_alert_email: TLS established")
         except Exception as tls_err:
-            logger.warning("send_alert_email: StartTLS skipped or unsupported: %s", tls_err)
+            logger.error("send_alert_email: StartTLS failed: %s", tls_err)
+            server.quit()
+            return False, "SMTP TLS negotiation failed."
 
         if config.smtp_username and config.smtp_password:
             logger.debug("send_alert_email: logging in as %s", config.smtp_username)

@@ -1,17 +1,70 @@
 import re
 import json
 import logging
+import hashlib
+import hmac
+import time
+from collections import OrderedDict
 import uvicorn
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from datetime import datetime
 
 from src.core.db import SessionLocal, init_db
 from src.models.schema import SolarWindsAlert, TimelineEvent
+from src.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 init_db()
 app = FastAPI(title="NOC Fusion Enterprise Gateway")
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+_seen_nonces: OrderedDict[str, float] = OrderedDict()
+
+
+def _verify_webhook(request: Request, body: bytes) -> None:
+    """Verify an opt-in SolarWinds HMAC signature and reject replayed requests."""
+    secret = settings.webhook_hmac_secret
+    if not secret:
+        if not settings.allow_unsigned_webhooks:
+            raise HTTPException(status_code=503, detail="Webhook signing is not configured")
+        return
+    signature = request.headers.get(settings.webhook_signature_header)
+    if not signature:
+        raise HTTPException(status_code=401, detail="Missing webhook signature")
+
+    timestamp = request.headers.get(settings.webhook_timestamp_header)
+    signed_values = [body]
+    if timestamp:
+        try:
+            timestamp_value = float(timestamp)
+        except ValueError as exc:
+            raise HTTPException(status_code=401, detail="Invalid webhook timestamp") from exc
+        if abs(time.time() - timestamp_value) > settings.webhook_replay_window_seconds:
+            raise HTTPException(status_code=401, detail="Expired webhook timestamp")
+        signed_values.insert(0, f"{timestamp}.".encode() + body)
+    elif settings.webhook_replay_window_seconds > 0:
+        raise HTTPException(status_code=401, detail="Missing webhook timestamp")
+
+    supplied = signature.removeprefix("sha256=").strip()
+    if not any(hmac.compare_digest(hmac.new(secret.encode(), value, hashlib.sha256).hexdigest(), supplied)
+               for value in signed_values):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    if timestamp:
+        now = time.time()
+        for nonce, seen_at in list(_seen_nonces.items()):
+            if now - seen_at > settings.webhook_replay_window_seconds:
+                _seen_nonces.pop(nonce, None)
+        nonce = f"{timestamp}:{supplied}"
+        if nonce in _seen_nonces:
+            raise HTTPException(status_code=409, detail="Replayed webhook request")
+        _seen_nonces[nonce] = now
+        while len(_seen_nonces) > 10000:
+            _seen_nonces.popitem(last=False)
 
 def log(msg):
     logger.info("[WEBHOOK] %s", msg)
@@ -117,7 +170,18 @@ def process_payload_background(raw_payload: dict):
 @app.post("/webhook/solarwinds")
 async def receive_alert(request: Request, background_tasks: BackgroundTasks):
     try:
-        raw_payload = await request.json()
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > settings.webhook_max_body_bytes:
+            raise HTTPException(status_code=413, detail="Webhook payload too large")
+        body = await request.body()
+        if len(body) > settings.webhook_max_body_bytes:
+            raise HTTPException(status_code=413, detail="Webhook payload too large")
+        _verify_webhook(request, body)
+        raw_payload = json.loads(body)
+        if not isinstance(raw_payload, dict) or not raw_payload:
+            raise HTTPException(status_code=422, detail="Webhook payload must be a non-empty JSON object")
+        if len(raw_payload) > 100:
+            raise HTTPException(status_code=422, detail="Webhook payload has too many fields")
         log(f"[RECEIVED] Webhook payload received keys={list(raw_payload.keys())}")
         background_tasks.add_task(process_payload_background, raw_payload)
         return {"status": "accepted", "message": "Payload queued for AI processing."}
@@ -125,6 +189,8 @@ async def receive_alert(request: Request, background_tasks: BackgroundTasks):
         log("[ERROR] Invalid JSON payload")
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
         log(f"[ERROR] Gateway Rejection Error: {e}")
         logger.exception("webhook gateway error")
         raise HTTPException(status_code=500, detail="Internal Gateway Error")
