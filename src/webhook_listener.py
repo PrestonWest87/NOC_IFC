@@ -12,6 +12,7 @@ from datetime import datetime
 from src.core.db import SessionLocal, init_db
 from src.models.schema import SolarWindsAlert, TimelineEvent
 from src.core.config import settings
+from src.services.aiops_engine import EnterpriseAIOpsEngine
 
 logger = logging.getLogger(__name__)
 
@@ -70,12 +71,13 @@ def log(msg):
     logger.info("[WEBHOOK] %s", msg)
 
 def classify_device(text_corpus: str, node_type_hint: str = None) -> str:
-    if node_type_hint and node_type_hint.lower() not in ["unknown", "", "none"]:
-        return node_type_hint
+    normalized_hint = EnterpriseAIOpsEngine.normalize_domain_hint(node_type_hint)
+    if normalized_hint:
+        return normalized_hint
 
     text_corpus = text_corpus.lower()
     fingerprints = {
-        'PRIMARY_INTERNET': ['vsat', 'cellular', 'sd-wan', 'modem', 'radio', 'isp', 'internet'],
+        'INTERNET': ['vsat', 'cellular', 'sd-wan', 'modem', 'radio', 'isp', 'internet'],
         'COMMS_EQUIPMENT': ['fw', 'firewall', 'asa', 'palo', 'fortigate', 'meraki', 'rtr', 'router', 'asr', 'isr', 'gateway', 'sw', 'switch', 'nexus', 'catalyst', 'idf', 'mdf', 'ap', 'wireless', 'wlc'],
         'POWER_SUPPLIES': ['ups', 'pdu', 'ats', 'battery', 'generator', 'hvac', 'ac unit', 'dc power', 'dc controller'],
         'COMPUTE': ['vm', 'host', 'server', 'storage', 'san', 'nas', 'esxi'],

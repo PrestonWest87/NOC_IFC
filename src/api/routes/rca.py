@@ -145,8 +145,7 @@ def send_ticket(background_tasks: BackgroundTasks, data: dict = Body(...), user=
     district = data.get("district", "Unknown")
     sla = data.get("sla", "N/A (Manual Dispatch)")
 
-    base_body = f"Priority: {priority}\nDistrict: {district.title()}\nTarget SLA: {sla}\n\n{ticket_text}"
-    ticket_body = f"Automated Comms Outage\n*** MANUAL TICKET ***\n\n{base_body}"
+    ticket_body = f"*** MANUAL TICKET ***\nTarget SLA: {sla}\n\n{ticket_text}"
     success, msg = send_alert_email(
         subject=f"TICKET: {priority} Incident at {site}",
         body=ticket_body,

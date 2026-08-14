@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class EnterpriseAIOpsEngine:
     ONTOLOGY = {
-        "PRIMARY_INTERNET": ["VSAT", "Cellular", "Radio", "SD-WAN", "Modem"],
+        "INTERNET": ["VSAT", "Cellular", "Radio", "SD-WAN", "Modem", "ISP", "Internet"],
         "COMMS_EQUIPMENT": ["Router", "Switch", "Firewall", "Lanolinx-switch", "Fabric Interconnect"],
         "POWER_SUPPLIES": ["UPS", "Generator", "DC Power Supply", "PDU", "PDS", "DC Controller"],
         "RTU": ["RTU", "NTEST RTU"],
@@ -22,7 +22,7 @@ class EnterpriseAIOpsEngine:
 
     TIER_RANKING = {
         "POWER_SUPPLIES": 1,
-        "PRIMARY_INTERNET": 2,
+        "INTERNET": 2,
         "COMMS_EQUIPMENT": 3,
         "COMPUTE": 4,
         "RTU": 5,
@@ -35,20 +35,45 @@ class EnterpriseAIOpsEngine:
         self.session_factory = session_factory or SessionLocal
         logger.info("EnterpriseAIOpsEngine initialized")
 
+    @classmethod
+    def normalize_domain_hint(cls, value):
+        text = str(value or "").strip()
+        normalized = re.sub(r"[\s-]+", "_", text.upper())
+        if normalized == "PRIMARY_INTERNET":
+            return "INTERNET"
+        if normalized in cls.ONTOLOGY or normalized in {"INTERNET", "UNKNOWN_DOMAIN"}:
+            return normalized
+        aliases = {
+            "INTERNET": ["INTERNET", "ISP", "WAN", "VSAT", "CELLULAR", "SD_WAN", "MODEM", "RADIO", "CARRIER", "TRANSPORT"],
+            "COMMS_EQUIPMENT": ["NETWORK_DEVICE", "NETWORK", "ROUTER", "SWITCH", "FIREWALL", "CISCO", "IOS", "PAN_OS", "PALO_ALTO", "WLC", "ACCESS_POINT", "WIRELESS"],
+            "POWER_SUPPLIES": ["UPS", "PDU", "ATS", "GENERATOR", "BATTERY", "POWER", "DC_POWER", "HVAC"],
+            "RTU": ["RTU", "REMOTE_TERMINAL", "REMOTE_TERMINAL_UNIT"],
+            "SCADA": ["SCADA", "PLC", "METER", "SUBSTATION", "RELAY", "SEL", "OT", "ICS"],
+            "COMPUTE": ["COMPUTE", "SERVER", "HOST", "VM", "VM_HOST", "VM_SERVER", "STORAGE", "SAN", "NAS", "ESXI"],
+            "FACILITIES": ["FACILITIES", "FACILITY", "ACCESS_CONTROL", "DOOR_CONTROLLER", "IP_CAMERA", "BUILDING"],
+        }
+        for domain, values in aliases.items():
+            if normalized in values or any(alias in normalized for alias in values):
+                return domain
+        return None
+
     def _get_domain(self, node_type, node_name="", primary_comms=""):
+        hinted = self.normalize_domain_hint(node_type)
+        if hinted:
+            return hinted
         node_str = f"{node_type} {node_name}".lower()
         logger.debug("_get_domain: node_type=%s node_name=%s primary_comms=%s", node_type, node_name, primary_comms)
 
         if any(t in node_str for t in ["vsat", "cell", "cellular", "sd-wan", "isp", "modem"]):
-            logger.debug("_get_domain: classified as PRIMARY_INTERNET")
-            return "PRIMARY_INTERNET"
+            logger.debug("_get_domain: classified as INTERNET")
+            return "INTERNET"
 
         if any(t in node_str for t in ["ups", "pds", "pdu", "dc controller", "generator", "dc power"]):
             return "POWER_SUPPLIES"
 
         if any(t in node_str for t in ["router", "switch", "firewall"]):
             if "internet" in node_str or (primary_comms and primary_comms.lower() in node_str):
-                return "PRIMARY_INTERNET"
+                return "INTERNET"
             return "COMMS_EQUIPMENT"
 
         if "rtu" in node_str:
@@ -122,7 +147,7 @@ class EnterpriseAIOpsEngine:
         for site, data in incidents.items():
             comms = data['site_metadata'].get('primary_coms', 'Unknown')
             if comms not in provider_map: provider_map[comms] = []
-            if any(sa['domain'] in ["PRIMARY_INTERNET", "COMMS_EQUIPMENT"] for sa in data['dependency_chain']):
+            if any(sa['domain'] in ["INTERNET", "COMMS_EQUIPMENT"] for sa in data['dependency_chain']):
                 provider_map[comms].append(site)
 
         fleet_events = []
@@ -201,10 +226,11 @@ class EnterpriseAIOpsEngine:
 
         return f_json, v_json, r
 
-    def calculate_root_cause(self, site_name, data, active_weather, active_cloud, active_bgp, fleet_events=[]):
+    def calculate_root_cause(self, site_name, data, active_weather, active_cloud, active_bgp, fleet_events=None):
         logger.info("calculate_root_cause: site=%s domains=%s", site_name, data.get('domains_affected', set()))
         meta = data.get('site_metadata', {})
         domains = data.get('domains_affected', set())
+        fleet_events = fleet_events or []
 
         avg_loss_list = data.get('avg_loss', [])
         avg_cpu_list = data.get('avg_cpu', [])
@@ -226,7 +252,7 @@ class EnterpriseAIOpsEngine:
             logger.warning("calculate_root_cause: no patient_zero for site=%s", site_name)
             return "Indeterminate Failure", score, "P3 - MODERATE", evidence_log, blast_radius, "Unknown", "N/A"
 
-        p0_domain = next((sa['domain'] for sa in data.get('dependency_chain', []) if sa['alert'] == p0), "UNKNOWN")
+            p0_domain = next((sa['domain'] for sa in data.get('dependency_chain', []) if sa['alert'] == p0), "UNKNOWN_DOMAIN")
 
         if len(domains) > 1:
             score += 20
@@ -259,7 +285,7 @@ class EnterpriseAIOpsEngine:
 
         bgp_hit = False
         if active_bgp and not cloud_hit and not fleet_hit:
-            if "PRIMARY_INTERNET" in domains or "COMMS_EQUIPMENT" in domains or "Service Provider" in str(domains):
+            if "INTERNET" in domains or "COMMS_EQUIPMENT" in domains or "Service Provider" in str(domains):
                 for b in active_bgp:
                     if b.asn in str(meta.get('primary_coms', '')) or b.asn in str(meta.get('secondary_coms', '')):
                         cause = f"Carrier Routing Anomaly (BGP Event on {b.asn})"
@@ -273,9 +299,12 @@ class EnterpriseAIOpsEngine:
                 cause = "Catastrophic Facilities/Power Failure causing complete site isolation."
                 score += 60
                 evidence_log.append(f"Structural Cause: Foundational Power/Environmental node ({p0.node_name}) failed.")
-            elif p0_domain in ["PRIMARY_INTERNET", "COMMS_EQUIPMENT"]:
+            elif p0_domain in ["INTERNET", "COMMS_EQUIPMENT"]:
                 if avg_loss >= 80 or 'down' in str(p0.status).lower():
-                    cause = f"Site Isolation. Hard down on {meta.get('primary_coms', 'Unknown')} transport tier."
+                    transport = str(meta.get('primary_coms') or '').strip()
+                    if not transport or transport.lower() == 'unknown':
+                        transport = p0_domain.replace('_', ' ').title()
+                    cause = f"Site Isolation. Hard down on {transport} ({p0_domain.replace('_', ' ').title()}) domain."
                     score += 50
                     evidence_log.append(f"Structural Cause: Core transport/comms equipment ({p0.node_name}) severed communication path.")
                 else:
@@ -284,6 +313,9 @@ class EnterpriseAIOpsEngine:
                 cause = "Isolated OT/SCADA Telemetry Failure."
                 score += 30
                 evidence_log.append(f"Structural Cause: Field equipment ({p0.node_name}) alarming while Core IT network remains structurally stable.")
+            elif p0_domain == "UNKNOWN_DOMAIN":
+                cause = f"Indeterminate Infrastructure Failure at {p0.node_name}; node type was not classifiable."
+                evidence_log.append(f"Data Quality: Unable to classify node type for {p0.node_name}; root-cause confidence is limited.")
             else:
                 cause = f"Generalized Infrastructure Degradation originating at {p0.node_name}."
 
@@ -297,7 +329,7 @@ class EnterpriseAIOpsEngine:
                             if meta.get('district', '').lower() in str(h.location).lower() or site_name.lower() in str(h.location).lower():
                                 score += 40
                                 evidence_log.append(f"Regional Correlation: Site intersects active {h.hazard_type} warning zone.")
-                                if p0_domain in ["POWER_SUPPLIES", "PRIMARY_INTERNET"]: cause = f"Severe Weather ({h.hazard_type}) induced failure of Utility/Carrier."
+                                if p0_domain in ["POWER_SUPPLIES", "INTERNET"]: cause = f"Severe Weather ({h.hazard_type}) induced failure of Utility/Carrier."
                                 break
                         else:
                             R = 3958.8
@@ -310,7 +342,7 @@ class EnterpriseAIOpsEngine:
                             if distance_miles <= hazard_radius:
                                 score += 55
                                 evidence_log.append(f"Geospatial Correlation: Site is exactly {round(distance_miles, 1)} miles from active {h.hazard_type} epicenter.")
-                                if p0_domain in ["POWER_SUPPLIES", "PRIMARY_INTERNET"]: cause = f"Direct Kinetic Impact: Severe Weather ({h.hazard_type}) caused physical infrastructure failure."
+                                if p0_domain in ["POWER_SUPPLIES", "INTERNET"]: cause = f"Direct Kinetic Impact: Severe Weather ({h.hazard_type}) caused physical infrastructure failure."
                                 break
 
         if data.get('max_alert_level', 99) == 1:

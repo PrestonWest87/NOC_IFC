@@ -662,7 +662,7 @@ def job_tiered_alert_escalation():
                 if duration_active >= timedelta(minutes=unknown_wait):
                     if not is_node_on_cooldown(target_alert.node_name, cooldown_hours=5):
                         log(f"[DISPATCHING] Unknown priority alert for {site}", "SYSTEM")
-                        t_body = "Automated Comms Outage\n*** REQUIRES MANAGEMENT DIRECTION ***\n"
+                        t_body = "*** REQUIRES MANAGEMENT DIRECTION ***\n"
                         t_body += f"Unmapped Priority: {target_alert.event_type}\n\n"
                         t_body += generate_rca_ticket_text(site, data, "UNKNOWN", p0_name or "Unknown", cause)
 
@@ -705,16 +705,14 @@ def job_tiered_alert_escalation():
                 shift_prefix = "DAY-SHIFT" if alert_is_day else "AFTER-HOURS"
                 prefix = f"{shift_prefix} SITE ESCALATION / CASCADE" if is_cascade else f"{shift_prefix} TICKET"
 
-                base_body = f"Priority: {target_tier.upper()}\n"
-                base_body += f"District: {district.title()}\n"
-                base_body += f"Target SLA: {rules['sla']}\n"
+                base_body = f"Target SLA: {rules['sla']}\n"
                 if target_tier == "p2-high" and not alert_is_day:
                     base_body += "Requirement: Positive Handoff (No ONPAGE)\n"
                 base_body += "\n" + generate_rca_ticket_text(site, data, target_tier.upper(), p0_name or "Unknown", cause)
 
                 dispatch_success = False
 
-                ticket_body = f"Automated Comms Outage\n*** {prefix} ***\n" + base_body
+                ticket_body = f"*** {prefix} ***\n" + base_body
                 log(f"[DISPATCH] Sending ticket email for {site} to {TICKET_EMAIL}", "SYSTEM", logging.DEBUG)
                 t_success, t_msg = send_alert_email(
                     f"{'CASCADE ' if is_cascade else ''}TICKET: {target_tier.upper()} Incident at {site}",
