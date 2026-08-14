@@ -26,6 +26,7 @@ def get_sitrep(db: Session = Depends(get_db)):
     config_dict = {
         "is_active": config.is_active if config else False,
         "llm_endpoint": config.llm_endpoint if config else "",
+        "llm_api_key": config.llm_api_key if config else "",
         "llm_model_name": config.llm_model_name if config else "",
     }
     report = svc.generate_global_sitrep(config_dict)

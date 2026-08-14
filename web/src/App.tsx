@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { Component, lazy, Suspense, type ErrorInfo, type ReactNode } from "react";
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "./utils/AuthContext";
@@ -27,6 +27,33 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+class PageErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("NOC page render error", error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: "2rem", color: "var(--text-primary)", fontFamily: "var(--font-sans)" }}>
+          <h2>Workspace page failed to load</h2>
+          <p style={{ color: "var(--text-secondary)" }}>{this.state.error.message}</p>
+          <button onClick={() => window.location.reload()} style={{ padding: "0.5rem 0.8rem", cursor: "pointer" }}>
+            Reload page
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function ProtectedRoute({ children, path }: { children: React.ReactNode; path?: string }) {
   const { user } = useAuth();
@@ -74,7 +101,7 @@ export default function App() {
       <HashRouter>
         <AuthProvider>
           <RealtimeBridge />
-          <AppRoutes />
+          <PageErrorBoundary><AppRoutes /></PageErrorBoundary>
         </AuthProvider>
       </HashRouter>
     </QueryClientProvider>
