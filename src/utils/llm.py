@@ -348,9 +348,15 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot, progre
     if cyber_payload:
         if progress_callback:
             progress_callback(stage="cyber_map", message=f"Processing cyber intelligence ({len(cyber_payload)} items)...", total_items=len(cyber_payload), processed_items=0, percent=1)
-        map_p = """Extract factual data points regarding threat actors, vulnerabilities (CVEs), cloud service disruptions, and active exploits. Provide reason why an item is applicable. DO NOT embellish. Use strict bullet points.
-IMPORTANT: If the input contains NO cyber threats, CVEs, threat actors, security vulnerabilities, or CI-relevant content, respond with ONLY the word NO_THREATS and nothing else. Do NOT describe what articles are about. Do NOT summarize non-threat content. Just output: NO_THREATS"""
-        reduce_p = "Compile an exhaustive, purely factual Cyber Threat Intelligence digest. Preserve all CVE IDs, specific threat actor names, targeted vendors, and cloud providers. Do not extrapolate risks; report only what is explicitly stated in the data. Provide reason why item is applicable."
+        map_p = """Extract factual data points regarding threat actors, vulnerabilities (CVEs), cloud service disruptions, and active exploits. Preserve the exact vendor, product, CVE, source, status, and wording supplied in the input. Use strict bullet points.
+
+SOURCE-FIDELITY RULES:
+- Treat internal asset matches as potential correlations, not confirmed vulnerabilities, breaches, or compromise.
+- Do not infer a vendor from an asset name or product family. For example, PAN-OS is not Cisco IOS.
+- Do not call anything OSSN, an exploit kit, or a patched vulnerability unless those exact terms and facts appear in the input.
+- Never invent patch status, exploitability, impact, threat actors, or remediation evidence.
+- If the input contains NO cyber threats, CVEs, threat actors, security vulnerabilities, or CI-relevant content, respond with ONLY the word NO_THREATS and nothing else."""
+        reduce_p = """Compile an exhaustive, purely factual Cyber Threat Intelligence digest. Preserve exact CVE IDs, vendors, products, actor names, cloud providers, source labels, and statuses. Keep CISA KEV (Known Exploited Vulnerabilities) distinct from generic vulnerability references. Mark internal asset matches as potential OSINT correlations. Do not extrapolate risks or state that a product is patched unless the input explicitly says so."""
         def _cyber_progress(done, total_chunks, total_items, processed):
             if progress_callback:
                 pct = int((done / total_chunks) * 49) + 1
@@ -428,19 +434,26 @@ IMPORTANT: If the input contains NO cyber threats, CVEs, threat actors, security
 
     FORMATTING & TONE DIRECTIVES:
     1. VISUAL HIERARCHY: Use bolding for emphasis, bulleted lists for data points, and blockquotes for notable warnings.
-    2. OPERATIONAL TRANSLATION: For every vulnerability or threat, briefly state the business relevance (e.g., instead of just listing "ZDI-26-339", note that it "affects our Windows fleet and could allow unauthorized access").
+    2. OPERATIONAL TRANSLATION: State only potential operational relevance supported by the supplied data. If applicability is uncertain, say "potential correlation requiring validation".
     3. THREAT LEVEL TERMINOLOGY: When referring to threat levels or risk levels, use the terms: Low, Guarded, Elevated, High, or Severe. Do NOT use colors (e.g., yellow, blue, red) to describe threat levels.
-    4. EXPAND THE NARRATIVE: Do not just list data. Synthesize it. Group similar threats together (e.g., group all ransomware actors, group all weather events) and explain their relevance to business continuity, personnel safety, or infrastructure.
-    5. WORDING PRECISION — INTERNAL CYBER RISK: When describing the internal cyber risk exposure, use "continued attention" rather than "immediate attention". For example: "The convergence of these risk levels indicates a heightened threat landscape that requires continued attention."
+    4. EXPAND THE NARRATIVE: Synthesize the supplied records while preserving uncertainty. Group similar threats together, but do not merge unrelated records or infer relevance unless the input supports it.
+    5. WORDING PRECISION — INTERNAL CYBER RISK: Call asset matches "potential OSINT correlations" or "potential exposures requiring validation". Never call them confirmed vulnerabilities, active compromise, breaches, or exploit-kit matches.
+
+    SOURCE-FIDELITY REQUIREMENTS:
+    - Do not mention Cisco, IOS, OSSN, exploit kits, patch status, or another vendor/tool/status unless it is explicitly present in the supplied input for that exact record.
+    - PAN-OS is a Palo Alto Networks product; do not relabel it as Cisco.
+    - CISA KEV means Known Exploited Vulnerabilities. Do not expand it as any other phrase.
+    - Do not invent numbered findings, affected services, threat actors, impacts, or recommendations.
+    - Recommendations must be conditional validation steps grounded in the supplied records.
 
     REQUIRED STRUCTURE:
     ## Executive OSINT Summary (BLUF)
     * Provide a 5-6 sentence high-level narrative explaining the convergence of the Global and Internal risk levels (using the terminology: Low, Guarded, Elevated, High, Severe).
     * Follow with a bulleted list of the top concerns across all domains.
 
-    ## Internal Asset Threat Correlations (OSINT Overlaps)
+    ## Internal Asset Threat Correlations (Potential OSINT Overlaps)
     * Use a structured bulleted list for each exposed asset.
-    * Format as: **[Asset Name]**: [Vulnerability/CVE] - Reason this is applicable - *[Specific Business/Operational Impact]*
+    * Format as: **[Exact Asset Name]**: [Exact threat reference] — [reported match count] potential correlation; validation status: not confirmed.
 
     ## Global Cyber & Cloud Threat Landscape
     * Break this into two sub-bulleted sections: **Active Cyber Threats** (Ransomware, Malicious Campaigns) and **Cloud & Infrastructure Disruptions**.
@@ -450,8 +463,8 @@ IMPORTANT: If the input contains NO cyber threats, CVEs, threat actors, security
     * Break into two sub-bulleted sections: **Regional Weather Hazards** and **Local Perimeter Crimes**.
     * List distances, severity levels, and FBI categories. Explain the relevance to facility operations, power stability, and personnel safety.
 
-    ## Strategic Recommendations
-    * Provide 3-5 recommended next steps (e.g., "Prioritize patching for Adobe products," "Review facility lockdown procedures due to perimeter crime data").
+    ## Validation Actions
+    * Provide 3-5 conditional validation steps grounded in the input. If none are supported, say: "No specific validation actions were generated from the supplied data."
     """
 
     if progress_callback:
@@ -470,12 +483,13 @@ IMPORTANT: If the input contains NO cyber threats, CVEs, threat actors, security
 
     if response and "Brief generation failed" not in response:
         disclaimer = """
----
+# Unified OSINT Risk Brief
+
+## Report Scope and Disclaimers
 **OSINT CORRELATION DISCLAIMER:** This brief correlates external Open-Source Intelligence (OSINT) with our internal asset types to provide situational awareness. It highlights potential external exposures and does NOT represent confirmed internal breaches or active system compromises.
 
 **AI-GENERATED CONTENT:** This brief was generated by the internal NOC AIOps system using automated intelligence analysis. This report has not been thoroughly reviewed by a Human Security Analyst. Some content in this report may not be applicable to our organization or may be mitigated by security controls.
 
----
 """
         response = disclaimer + response.strip()
     else:
