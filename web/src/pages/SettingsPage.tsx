@@ -137,6 +137,7 @@ export function SettingsPage() {
   const allowedSettingsTabs = getAllowedTabs(currentUser?.allowed_actions, "settings");
   const [tab, setTab] = useState("profile");
   const queryClient = useQueryClient();
+  const isAdmin = ["admin", "administrator"].includes(String(currentUser?.role || "").toLowerCase());
 
   const { data: config, isLoading: configLoading } = useQuery({
     queryKey: ["settings-config"],
@@ -144,14 +145,16 @@ export function SettingsPage() {
     refetchInterval: 60000,
   });
 
-  const { data: roles } = useQuery({
+  const { data: roles, isLoading: rolesLoading, isError: rolesError } = useQuery({
     queryKey: ["admin-roles"],
     queryFn: () => api.get("/admin/roles").then(r => r.data),
+    enabled: isAdmin,
   });
 
   const { data: users } = useQuery({
     queryKey: ["admin-users"],
     queryFn: () => api.get("/settings/users").then(r => r.data),
+    enabled: isAdmin,
   });
 
   const { data: locations } = useQuery({
@@ -212,7 +215,9 @@ export function SettingsPage() {
       {tab === "rss" && <RssTab lists={lists} queryClient={queryClient} />}
       {tab === "ml" && <MlTab mlCounts={mlCounts} />}
       {tab === "ai-smtp" && <AiSmtpTab config={config} configLoading={configLoading} saveConfigMutation={saveConfigMutation} />}
-      {tab === "users" && <UsersRolesTab roles={roles} users={users} queryClient={queryClient} allSiteTypes={ALL_SITE_TYPES} />}
+       {tab === "users" && (isAdmin
+         ? <UsersRolesTab roles={roles} users={users} rolesLoading={rolesLoading} rolesError={rolesError} queryClient={queryClient} allSiteTypes={ALL_SITE_TYPES} />
+         : <Card title="Users & Roles" icon={Users}><p style={{ color: "var(--text-muted)" }}>Administrator access is required to manage users and roles.</p></Card>)}
       {tab === "backup" && <BackupRestoreTab />}
       {tab === "danger" && <DangerZoneTab />}
     </div>
@@ -1094,7 +1099,7 @@ function CheckboxGroup({ label, options, selected, onChange }: { label: string; 
   );
 }
 
-function UsersRolesTab({ roles, users, queryClient, allSiteTypes }: { roles: any; users: any; queryClient: any; allSiteTypes: string[] }) {
+function UsersRolesTab({ roles, users, rolesLoading, rolesError, queryClient, allSiteTypes }: { roles: any; users: any; rolesLoading: boolean; rolesError: boolean; queryClient: any; allSiteTypes: string[] }) {
   const [newUser, setNewUser] = useState({ username: "", password: "", full_name: "", role: "viewer" });
   const [invite, setInvite] = useState({ username: "", role: "analyst", ttl_hours: 72 });
   const [inviteUrl, setInviteUrl] = useState("");
@@ -1218,7 +1223,11 @@ function UsersRolesTab({ roles, users, queryClient, allSiteTypes }: { roles: any
       </Card>
 
       <Card title="Edit Existing Role" icon={SettingsIcon}>
-        {Array.isArray(roles) && roles.length > 0 ? (
+        {rolesLoading ? (
+          <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Loading roles...</p>
+        ) : rolesError ? (
+          <p style={{ color: "var(--accent-red)", fontSize: "0.85rem" }}>Unable to load roles. Verify administrator access and retry.</p>
+        ) : Array.isArray(roles) && roles.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
             <select style={inputStyle} value={editRole?.id || ""} onChange={e => {
               const r = (roles as any[]).find((x: any) => x.name === e.target.value);
