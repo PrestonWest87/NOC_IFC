@@ -14,7 +14,7 @@ class EnterpriseAIOpsEngine:
         "INTERNET": ["VSAT", "Cellular", "Radio", "SD-WAN", "Modem", "ISP", "Internet"],
         "COMMS_EQUIPMENT": ["Router", "Switch", "Firewall", "Lanolinx-switch", "Fabric Interconnect"],
         "POWER_SUPPLIES": ["UPS", "Generator", "DC Power Supply", "PDU", "PDS", "DC Controller"],
-        "RTU": ["RTU", "NTEST RTU"],
+        "RTU": ["RTU"],
         "SCADA": ["Sub Equipment", "Plant Equipment", "Meter Point", "I/O", "Member Equipment", "SCADA"],
         "COMPUTE": ["VM Host", "VM Server", "Physical Machine", "Storage"],
         "FACILITIES": ["Access Control Panel", "Door Controller", "IP Camera", "HVAC"]
@@ -45,7 +45,7 @@ class EnterpriseAIOpsEngine:
             return normalized
         aliases = {
             "INTERNET": ["INTERNET", "ISP", "WAN", "VSAT", "CELLULAR", "SD_WAN", "MODEM", "RADIO", "CARRIER", "SERVICE_PROVIDER", "TRANSPORT"],
-            "COMMS_EQUIPMENT": ["NETWORK_DEVICE", "NETWORK", "ROUTER", "SWITCH", "FIREWALL", "CISCO", "IOS", "PAN_OS", "PALO_ALTO", "WLC", "ACCESS_POINT", "WIRELESS", "IP_PHONE", "GARRETTCOM", "ZPE"],
+            "COMMS_EQUIPMENT": ["NETWORK_DEVICE", "NETWORK", "ROUTER", "SWITCH", "FIREWALL", "CISCO", "IOS", "PAN_OS", "PALO_ALTO", "WLC", "ACCESS_POINT", "WIRELESS", "IP_PHONE", "GARRETTCOM", "ZPE", "NTEST_RTU"],
             "POWER_SUPPLIES": ["UPS", "PDU", "ATS", "GENERATOR", "BATTERY", "POWER", "DC_POWER", "HVAC"],
             "RTU": ["RTU", "REMOTE_TERMINAL", "REMOTE_TERMINAL_UNIT"],
             "SCADA": ["SCADA", "PLC", "METER", "SUBSTATION", "RELAY", "SEL", "OT", "ICS"],
