@@ -44,13 +44,13 @@ class EnterpriseAIOpsEngine:
         if normalized in cls.ONTOLOGY or normalized in {"INTERNET", "UNKNOWN_DOMAIN"}:
             return normalized
         aliases = {
-            "INTERNET": ["INTERNET", "ISP", "WAN", "VSAT", "CELLULAR", "SD_WAN", "MODEM", "RADIO", "CARRIER", "TRANSPORT"],
-            "COMMS_EQUIPMENT": ["NETWORK_DEVICE", "NETWORK", "ROUTER", "SWITCH", "FIREWALL", "CISCO", "IOS", "PAN_OS", "PALO_ALTO", "WLC", "ACCESS_POINT", "WIRELESS"],
+            "INTERNET": ["INTERNET", "ISP", "WAN", "VSAT", "CELLULAR", "SD_WAN", "MODEM", "RADIO", "CARRIER", "SERVICE_PROVIDER", "TRANSPORT"],
+            "COMMS_EQUIPMENT": ["NETWORK_DEVICE", "NETWORK", "ROUTER", "SWITCH", "FIREWALL", "CISCO", "IOS", "PAN_OS", "PALO_ALTO", "WLC", "ACCESS_POINT", "WIRELESS", "IP_PHONE", "GARRETTCOM", "ZPE"],
             "POWER_SUPPLIES": ["UPS", "PDU", "ATS", "GENERATOR", "BATTERY", "POWER", "DC_POWER", "HVAC"],
             "RTU": ["RTU", "REMOTE_TERMINAL", "REMOTE_TERMINAL_UNIT"],
             "SCADA": ["SCADA", "PLC", "METER", "SUBSTATION", "RELAY", "SEL", "OT", "ICS"],
             "COMPUTE": ["COMPUTE", "SERVER", "HOST", "VM", "VM_HOST", "VM_SERVER", "STORAGE", "SAN", "NAS", "ESXI"],
-            "FACILITIES": ["FACILITIES", "FACILITY", "ACCESS_CONTROL", "DOOR_CONTROLLER", "IP_CAMERA", "BUILDING"],
+            "FACILITIES": ["FACILITIES", "FACILITY", "ACCESS_CONTROL", "DOOR_CONTROLLER", "IP_CAMERA", "BUILDING", "FIREALARM", "FIREALRAM", "PACS", "INTERCOM", "DATA_CENTER_A/C"],
         }
         for domain, values in aliases.items():
             if normalized in values or any(alias in normalized for alias in values):
@@ -252,7 +252,7 @@ class EnterpriseAIOpsEngine:
             logger.warning("calculate_root_cause: no patient_zero for site=%s", site_name)
             return "Indeterminate Failure", score, "P3 - MODERATE", evidence_log, blast_radius, "Unknown", "N/A"
 
-            p0_domain = next((sa['domain'] for sa in data.get('dependency_chain', []) if sa['alert'] == p0), "UNKNOWN_DOMAIN")
+        p0_domain = next((sa['domain'] for sa in data.get('dependency_chain', []) if sa['alert'] == p0), "UNKNOWN_DOMAIN")
 
         if len(domains) > 1:
             score += 20

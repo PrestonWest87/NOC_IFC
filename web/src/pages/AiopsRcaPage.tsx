@@ -260,11 +260,14 @@ export function AiopsRcaPage() {
     (site: string) => {
       const rc = getRc(site);
       const cluster = clustered[site] ?? {};
+      const siteAlerts = getClusterAlerts(site);
       const priority = rc?.priority ?? "P3 - MODERATE";
       const cause = rc?.cause ?? "Under Investigation";
 
       // Format trigger time from patient zero alert (matches Python format_central trigger_time)
-      const pzAlert = cluster.patient_zero;
+      const pzAlert = cluster.patient_zero ?? siteAlerts.slice().sort((a: any, b: any) =>
+        new Date(a.received_at || 0).getTime() - new Date(b.received_at || 0).getTime()
+      )[0];
       let triggerTime = "Unknown Time";
       if (pzAlert?.received_at) {
         try {
@@ -292,7 +295,7 @@ export function AiopsRcaPage() {
       ticket += `A communications issue was identified on ${triggerTime}. This is affecting ${affectingStr}. For more information, please see additional notes.\n\n`;
       ticket += `\nPRIORITY: ${priority}\n${cause}\n\nAFFECTED INFRASTRUCTURE DETAILS:\n`;
 
-      const alerts: any[] = cluster.alerts ?? [];
+      const alerts: any[] = cluster.alerts?.length ? cluster.alerts : siteAlerts;
       alerts.forEach((alert: any, idx: number) => {
         let rcvTime = "Unknown";
         if (alert.received_at) {
@@ -313,7 +316,7 @@ export function AiopsRcaPage() {
 
       setTicketTexts((prev) => ({ ...prev, [site]: ticket }));
     },
-    [rootCause, clustered]
+    [rootCause, clustered, alerts]
   );
 
   const [siteDialog, setSiteDialog] = useState<{
