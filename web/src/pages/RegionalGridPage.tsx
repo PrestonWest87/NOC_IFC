@@ -546,9 +546,14 @@ export function RegionalGridPage() {
     if (!recipientEmail) return;
     try {
       const body = buildSitrepHtml(analytics, masterAffectedSites, briefing, analystNotes);
+      const attachments = [
+        { filename: "weather-posture.svg", content_type: "image/svg+xml", content_base64: toBase64(buildWeatherChartSvg(analytics)) },
+        { filename: "weather-breakdown.csv", content_type: "text/csv", content_base64: toBase64(buildWeatherCsv(analytics)) },
+      ];
       await api.post("/email/send", {
         to: recipientEmail, subject: "Executive Weather & Infrastructure SitRep",
         html_body: body,
+        attachments,
       });
       // Show success - we'll use a simple approach
       alert("Report dispatched to " + recipientEmail);
@@ -1018,6 +1023,13 @@ function ExecutiveTab({
     return d.map((item: any) => ({ name: item["NWS Alert"] || "None", value: item.count || 0 }));
   }, [analytics]);
 
+  const nwsCounts = useMemo(() => {
+    return nwsDist.reduce((counts: Record<string, number>, item: any) => {
+      counts[item.name] = item.value;
+      return counts;
+    }, {});
+  }, [nwsDist]);
+
   const distDist = useMemo(() => {
     const d = analytics?.district_distribution;
     if (!d) return [];
@@ -1026,6 +1038,21 @@ function ExecutiveTab({
     return [];
   }, [analytics]);
 
+  const districtRiskData = useMemo(() => {
+    const rows = analytics?.district_risk_matrix;
+    if (!Array.isArray(rows)) return [];
+    return rows.map((row: any) => ({
+      name: row.District || "Unknown",
+      ...Object.fromEntries(Object.entries(row).filter(([key]) => key !== "District")),
+    }));
+  }, [analytics]);
+
+  const districtRiskKeys = useMemo(() => {
+    const keys = new Set<string>();
+    districtRiskData.forEach((row: any) => Object.keys(row).forEach(key => key !== "name" && keys.add(key)));
+    return [...keys];
+  }, [districtRiskData]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       <div style={CARD_STYLE}>
@@ -1033,11 +1060,13 @@ function ExecutiveTab({
         <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "1rem" }}>
           Holistic situational overview of physical asset exposure parsed by District and Priority.
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "0.75rem", marginBottom: "1rem" }}>
+        <div className="regional-kpi-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "0.75rem", marginBottom: "1rem" }}>
           <MetricCard label="Total Tracked Assets" value={totalSites} />
           <MetricCard label="Assets in Active Risk Zones" value={atRisk} sub={`${riskPct}% Exposure`} />
           <MetricCard label="Critical (P1) Assets at Risk" value={p1AtRisk} sub={p1AtRisk > 0 ? "Immediate Attention" : "Clear"} />
-          <MetricCard label="Highest Regional Risk" value={highestRisk} />
+          <MetricCard label="Warnings" value={nwsCounts.WARNING || 0} sub="Sites affected" />
+          <MetricCard label="Watches" value={nwsCounts.WATCH || 0} sub="Sites affected" />
+          <MetricCard label="Districts Exposed" value={distDist.length} sub={`Highest: ${highestRisk}`} />
         </div>
       </div>
 
@@ -1055,7 +1084,7 @@ function ExecutiveTab({
          <InfoBox type="info"><MarkdownContent content={briefing} /></InfoBox>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "1rem" }}>
+      <div className="regional-chart-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "1rem" }}>
         <div style={CARD_STYLE}>
           <h5 style={{ ...CARD_HEADER, fontSize: "0.9rem", marginBottom: "0.5rem" }}>SPC Risk (Total Sites: {totalSites})</h5>
           {spcDist.length === 0 ? (
@@ -1063,13 +1092,13 @@ function ExecutiveTab({
           ) : (
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
-                <Pie data={spcDist} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" label={({ name }) => name}>
+                <Pie data={spcDist} cx="50%" cy="45%" innerRadius={48} outerRadius={76} dataKey="value">
                   {spcDist.map((entry: any, i: number) => (
                     <Cell key={i} fill={SPC_COLORS[entry.name] || "var(--text-muted)"} />
                   ))}
                 </Pie>
                 <ReTooltip />
-                <Legend verticalAlign="bottom" height={36} />
+                <Legend verticalAlign="bottom" height={42} wrapperStyle={{ fontSize: "0.7rem" }} />
               </PieChart>
             </ResponsiveContainer>
           )}
@@ -1082,30 +1111,33 @@ function ExecutiveTab({
           ) : (
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
-                <Pie data={nwsDist} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" label={({ name }) => name}>
+                <Pie data={nwsDist} cx="50%" cy="45%" innerRadius={48} outerRadius={76} dataKey="value">
                   {nwsDist.map((entry: any, i: number) => (
                     <Cell key={i} fill={NWS_COLORS[entry.name] || "var(--text-muted)"} />
                   ))}
                 </Pie>
                 <ReTooltip />
-                <Legend verticalAlign="bottom" height={36} />
+                <Legend verticalAlign="bottom" height={42} wrapperStyle={{ fontSize: "0.7rem" }} />
               </PieChart>
             </ResponsiveContainer>
           )}
         </div>
 
         <div style={CARD_STYLE}>
-          <h5 style={{ ...CARD_HEADER, fontSize: "0.9rem", marginBottom: "0.5rem" }}>At-Risk Assets by District</h5>
+            <h5 style={{ ...CARD_HEADER, fontSize: "0.9rem", marginBottom: "0.5rem" }}>Exposure by District</h5>
           {distDist.length === 0 ? (
             <InfoBox type="success">All Clear.</InfoBox>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={distDist}>
+              <BarChart data={districtRiskData.length ? districtRiskData : distDist} layout="vertical" margin={{ left: 4, right: 12, top: 4, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border-primary)" />
-                <XAxis dataKey="name" tick={{ fill: "var(--text-muted)", fontSize: 11 }} />
-                <YAxis tick={{ fill: "var(--text-muted)", fontSize: 11 }} />
+                <XAxis type="number" allowDecimals={false} tick={{ fill: "var(--text-muted)", fontSize: 10 }} />
+                <YAxis type="category" dataKey="name" width={78} tick={{ fill: "var(--text-muted)", fontSize: 10 }} tickFormatter={(value) => String(value).slice(0, 13)} />
                 <ReTooltip />
-                <Bar dataKey="value" fill="var(--accent-blue)" radius={[4, 4, 0, 0]} />
+                {districtRiskKeys.length > 0 ? districtRiskKeys.map(key => (
+                  <Bar key={key} dataKey={key} stackId="risk" fill={NWS_COLORS[key] || SPC_COLORS[key] || "var(--accent-blue)"} radius={key === districtRiskKeys[districtRiskKeys.length - 1] ? [0, 4, 4, 0] : undefined} />
+                )) : <Bar dataKey="value" fill="var(--accent-blue)" radius={[0, 4, 4, 0]} />}
+                {districtRiskKeys.length > 0 && <Legend verticalAlign="bottom" height={30} wrapperStyle={{ fontSize: "0.68rem" }} />}
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -1588,7 +1620,7 @@ function AtmosTab({
           <InfoBox type="warning">Forecast unavailable for this location. Ensure coordinates are exact.</InfoBox>
         ) : (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "0.5rem", overflowX: "auto" }}>
+            <div className="regional-forecast-grid" style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "0.5rem", overflowX: "auto" }}>
               {forecastPeriods.slice(0, 7).map((period: any, i: number) => (
                 <div key={i} style={{
                   background: "var(--bg-secondary)", borderRadius: "var(--radius-md)",
@@ -1750,6 +1782,14 @@ function buildSitrepHtml(analytics: any, masterAffectedSites: any[], briefing: s
   const riskPct = totalSites > 0 ? Math.round((atRisk / totalSites) * 1000) / 10 : 0;
   const p1AtRisk = new Set((masterAffectedSites || []).filter((s: any) => priorityTier(s.Priority) === 1).map((s: any) => s["Monitored Site"])).size;
   const highestRisk = analytics?.highest_risk || "None";
+  const districts = distributionRows(analytics?.district_distribution);
+  const nws = distributionRows(analytics?.nws_distribution, "NWS Alert").filter(row => row.name !== "None");
+  const districtHtml = districts.length
+    ? `<ol>${districts.map(row => `<li><b>${escapeHtml(row.name)}</b>: ${row.value} site${row.value === 1 ? "" : "s"}</li>`).join("")}</ol>`
+    : "<p>No exposed districts reported.</p>";
+  const alertHtml = nws.length
+    ? `<ol>${nws.map(row => `<li><b>${escapeHtml(row.name)}</b>: ${row.value} site${row.value === 1 ? "" : "s"}</li>`).join("")}</ol>`
+    : "<p>No active watches or warnings reported.</p>";
 
   return `
     <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
@@ -1764,10 +1804,48 @@ function buildSitrepHtml(analytics: any, masterAffectedSites: any[], briefing: s
         <h3 style='color:#2980b9; margin-top: 0;'>AI Meteorological Brief</h3>
         <p style='color: #495057; line-height: 1.5;'>${(briefing || "").replace(/\n/g, "<br>")}</p>
       </div>
-      <h3 style='color:#2980b9;'>Analyst Notes</h3>
+       <h3 style='color:#2980b9;'>Exposure by District</h3>
+       ${districtHtml}
+       <h3 style='color:#2980b9;'>Warning and Watch Counts</h3>
+       ${alertHtml}
+       <h3 style='color:#2980b9;'>Analyst Notes</h3>
       <p style='color: #495057; line-height: 1.5;'>${(notes || "None provided.").replace(/\n/g, "<br>")}</p>
     </div>
   `;
+}
+
+function distributionRows(data: any, nameKey = "District"): { name: string; value: number }[] {
+  if (!Array.isArray(data)) return [];
+  return data
+    .map((row: any) => ({ name: String(row[nameKey] || "Unknown"), value: Number(row.Count ?? row.count ?? 0) }))
+    .filter(row => row.value > 0)
+    .sort((a, b) => b.value - a.value);
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character] || character));
+}
+
+function toBase64(value: string): string {
+  return btoa(unescape(encodeURIComponent(value)));
+}
+
+function buildWeatherCsv(analytics: any): string {
+  const rows = ["Section,Name,Count"];
+  distributionRows(analytics?.district_distribution).forEach(row => rows.push(`District,"${row.name.replace(/"/g, '""')}",${row.value}`));
+  distributionRows(analytics?.nws_distribution, "NWS Alert").forEach(row => rows.push(`NWS Alert,"${row.name.replace(/"/g, '""')}",${row.value}`));
+  return rows.join("\n");
+}
+
+function buildWeatherChartSvg(analytics: any): string {
+  const rows = distributionRows(analytics?.nws_distribution, "NWS Alert").filter(row => row.name !== "None");
+  const max = Math.max(1, ...rows.map(row => row.value));
+  const bars = rows.map((row, index) => {
+    const y = 42 + index * 34;
+    const width = Math.round((row.value / max) * 360);
+    return `<text x="12" y="${y + 14}" font-size="13" fill="#243447">${escapeHtml(row.name)}</text><rect x="130" y="${y}" width="${width}" height="20" rx="4" fill="#2f80ed"/><text x="${140 + width}" y="${y + 14}" font-size="13" fill="#243447">${row.value}</text>`;
+  }).join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="620" height="${Math.max(110, 58 + rows.length * 34)}" viewBox="0 0 620 ${Math.max(110, 58 + rows.length * 34)}"><rect width="100%" height="100%" fill="#ffffff"/><text x="12" y="24" font-size="16" font-weight="700" fill="#172b4d">Weather Warning and Watch Counts</text>${bars || '<text x="12" y="60" font-size="13" fill="#667085">No active watches or warnings</text>'}</svg>`;
 }
 
 function buildHazardHtml(masterAffectedSites: any[]) {

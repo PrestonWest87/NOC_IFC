@@ -1,16 +1,23 @@
 import logging
 from fastapi import APIRouter, Body, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from src.api.auth_guard import require_page
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/email", tags=["email"], dependencies=[Depends(require_page("Reporting & Briefings"))])
 
 
+class EmailAttachment(BaseModel):
+    filename: str = Field("attachment", max_length=120)
+    content_type: str = Field("application/octet-stream", max_length=100)
+    content_base64: str = Field("", max_length=7_000_000)
+
+
 class SendEmailRequest(BaseModel):
-    to: str = ""
-    subject: str = ""
-    html_body: str = ""
+    to: str = Field("", max_length=2000)
+    subject: str = Field("", max_length=200)
+    html_body: str = Field("", max_length=200000)
+    attachments: list[EmailAttachment] = Field(default_factory=list, max_length=5)
 
 
 class BroadcastBriefRequest(BaseModel):
@@ -27,6 +34,7 @@ def send_email(req: SendEmailRequest):
         req.subject, req.html_body,
         recipient_override=req.to,
         is_html=True,
+        attachments=[attachment.model_dump() for attachment in req.attachments],
     )
     logger.info("POST /email/send result: success=%s msg=%s", success, msg)
     return {"status": "ok" if success else "error", "message": msg}

@@ -1,5 +1,8 @@
 import smtplib
 import logging
+import base64
+import os
+from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from src.core.db import SessionLocal
@@ -7,7 +10,7 @@ from src.models.schema import SystemConfig
 
 logger = logging.getLogger(__name__)
 
-def send_alert_email(subject: str, body: str, recipient_override: str = None, is_html: bool = True):
+def send_alert_email(subject: str, body: str, recipient_override: str = None, is_html: bool = True, attachments=None):
     logger.info("send_alert_email: subject=%s recipient_override=%s is_html=%s body_length=%d",
                  subject, recipient_override, is_html, len(body) if body else 0)
     session = SessionLocal()
@@ -35,6 +38,23 @@ def send_alert_email(subject: str, body: str, recipient_override: str = None, is
             msg.attach(MIMEText(html_body, 'html', 'utf-8'))
         else:
             msg.attach(MIMEText(body, 'plain', 'utf-8'))
+
+        for attachment in attachments or []:
+            filename = os.path.basename(str(attachment.get("filename", "attachment")))[:120]
+            content_type = str(attachment.get("content_type", "application/octet-stream"))
+            try:
+                raw_content = base64.b64decode(attachment.get("content_base64", ""), validate=True)
+            except Exception as exc:
+                return False, f"Invalid email attachment: {filename}"
+            if len(raw_content) > 5 * 1024 * 1024:
+                return False, f"Email attachment too large: {filename}"
+            maintype, subtype = (content_type.split("/", 1) + ["octet-stream"])[:2]
+            part = MIMEBase(maintype, subtype)
+            part.set_payload(raw_content)
+            from email import encoders
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", "attachment", filename=filename)
+            msg.attach(part)
 
         logger.debug("send_alert_email: connecting to SMTP server=%s port=%s timeout=10",
                       config.smtp_server, config.smtp_port)
