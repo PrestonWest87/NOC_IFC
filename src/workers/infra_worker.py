@@ -262,6 +262,7 @@ def check_wildfire_proximity(distance_miles=5):
 
         matches = []
         perimeter_names = set()
+        closest_sites = {}
         for perimeter in perimeters:
             name = str(perimeter.get("name") or "Unknown Fire")
             perimeter_names.add(name.strip().upper())
@@ -279,6 +280,11 @@ def check_wildfire_proximity(distance_miles=5):
                 # conservative for the Arkansas operating area and evaluates
                 # the perimeter itself, not just its incident centroid.
                 distance = fire_shape.distance(Point(float(site.lon), float(site.lat))) * 69.0
+                nearest = closest_sites.setdefault(name, [])
+                if not nearest or distance < nearest[0][0] - 0.1:
+                    closest_sites[name] = [(distance, site.name)]
+                elif abs(distance - nearest[0][0]) <= 0.1:
+                    nearest.append((distance, site.name))
                 alert_key = f"{fire_id}:{site.id}"
                 previous = proximity_state.get(alert_key, {})
                 last_alert_distance = previous.get("last_alert_distance")
@@ -293,9 +299,9 @@ def check_wildfire_proximity(distance_miles=5):
                     "last_alert_distance": last_alert_distance,
                 }
 
-        # Include point incidents only when they do not duplicate a plotted
-        # perimeter; this covers active fires before NIFC publishes a polygon.
-        for incident in incidents:
+        # The map uses perimeter geometry as authoritative. Point incidents
+        # are only eligible when the perimeter feed returned no polygons.
+        for incident in (incidents if not perimeters else []):
             name = str(incident.get("name") or "Unknown Fire")
             if name.strip().upper() in perimeter_names:
                 continue
@@ -305,6 +311,11 @@ def check_wildfire_proximity(distance_miles=5):
             fire_point = Point(float(incident["lon"]), float(incident["lat"]))
             for site in sites:
                 distance = fire_point.distance(Point(float(site.lon), float(site.lat))) * 69.0
+                nearest = closest_sites.setdefault(name, [])
+                if not nearest or distance < nearest[0][0] - 0.1:
+                    closest_sites[name] = [(distance, site.name)]
+                elif abs(distance - nearest[0][0]) <= 0.1:
+                    nearest.append((distance, site.name))
                 alert_key = f"{fire_id}:{site.id}"
                 previous = proximity_state.get(alert_key, {})
                 last_alert_distance = previous.get("last_alert_distance")
@@ -336,9 +347,12 @@ def check_wildfire_proximity(distance_miles=5):
         lines = ["NOC WILDFIRE PROXIMITY ALERT", "", f"Active NIFC wildfire activity detected within {distance_miles} miles of a monitored site.", ""]
         for _, name, distance, details, site_name, previously_alerted in matches:
             encroaching = previously_alerted
+            nearest = closest_sites.get(name, [])
+            closest_text = ", ".join(f"{site} ({miles:.1f} mi)" for miles, site in nearest) or "Unknown"
             lines.extend([
                 f"FIRE: {name}",
                 f"ALERT TYPE: {'WARNING - FIRE ENCROACHING' if encroaching else 'INITIAL PROXIMITY ALERT'}",
+                f"CLOSEST MONITORED SITE(S): {closest_text}",
                 f"MONITORED SITE: {site_name}", f"DISTANCE: {distance:.1f} miles",
                 f"STATE: {details.get('state', 'Unknown')}", f"COUNTY: {details.get('county', 'Unknown')}",
                 f"STARTED: {fmt_date(details.get('started'))}",
