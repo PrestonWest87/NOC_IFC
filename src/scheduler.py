@@ -334,6 +334,19 @@ def job_global_brief():
     except Exception as e:
         log(f"[ERROR] Global Brief Error: {e}", "SYSTEM")
 
+def job_rolling_summary():
+    """Refresh the shift handoff brief independently of the web UI."""
+    log("[AI] Generating NOC IFS shift handoff brief...", "SYSTEM")
+    try:
+        from src.services import trigger_rolling_summary
+        result = trigger_rolling_summary()
+        if result.get("status") != "ok":
+            log(f"[WARN] Shift handoff brief was not saved: {result.get('message', 'unknown error')}", "SYSTEM")
+        else:
+            log("[OK] NOC IFS shift handoff brief generated and saved.", "SYSTEM")
+    except Exception as e:
+        log(f"[ERROR] Shift handoff brief Error: {e}", "SYSTEM")
+
 def job_internal_brief():
     """Auto-generates the Internal Asset Risk Brief every 2 hours."""
     log("[AI] Generating Internal Asset Risk Brief...", "SYSTEM")
@@ -855,6 +868,7 @@ if __name__ == "__main__":
     schedule.every(2).hours.do(run_threaded, job_internal_risk)
     
     # Tier 4: LLM briefs — staggered across the day
+    schedule.every(30).minutes.do(run_threaded, job_rolling_summary)
     schedule.every(3).hours.do(run_threaded, job_internal_brief)
     schedule.every(6).hours.do(run_threaded, job_unified_brief)
     schedule.every(7).hours.do(run_threaded, fetch_cisa_kev)

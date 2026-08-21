@@ -106,6 +106,8 @@ class SystemConfig(Base):
     global_risk_offset = Column(Integer, default=0)
     internal_risk_offset = Column(Integer, default=0)
     alerted_eq_ids = Column(Text, default="[]")
+    alerted_wildfire_ids = Column(Text, default="[]")
+    wildfire_proximity_state = Column(Text, default="{}")
     llm_context_window = Column(Integer, default=128000)
     public_app_url = Column(String, default="http://localhost:8501")
 

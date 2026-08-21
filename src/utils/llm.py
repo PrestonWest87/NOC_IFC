@@ -1660,24 +1660,27 @@ def generate_rolling_summary(session):
         logger.warning("generate_rolling_summary: AI is disabled")
         return None
 
-    six_hours_ago = datetime.utcnow() - timedelta(hours=6)
+    # Use a full day so a handoff generated near a shift boundary includes
+    # overnight events and delayed-ingestion telemetry.
+    twenty_four_hours_ago = datetime.utcnow() - timedelta(hours=24)
 
-    arts = session.query(Article).filter(Article.published_date >= six_hours_ago, Article.score >= 50).order_by(Article.score.desc()).limit(10).all()
-    hazards = session.query(RegionalHazard).filter(RegionalHazard.updated_at >= six_hours_ago).limit(10).all()
-    clouds = session.query(CloudOutage).filter(CloudOutage.updated_at >= six_hours_ago).limit(10).all()
+    arts = session.query(Article).filter(Article.published_date >= twenty_four_hours_ago, Article.score >= 50).order_by(Article.score.desc()).limit(15).all()
+    hazards = session.query(RegionalHazard).filter(RegionalHazard.updated_at >= twenty_four_hours_ago).limit(20).all()
+    clouds = session.query(CloudOutage).filter(CloudOutage.updated_at >= twenty_four_hours_ago).limit(15).all()
     logger.debug("generate_rolling_summary: articles=%d hazards=%d clouds=%d", len(arts), len(hazards), len(clouds))
 
     context = "--- CYBER THREATS ---\n"
     context += "\n".join([f"- {a.title}" for a in arts]) if arts else "None."
     context += "\n\n--- PHYSICAL HAZARDS ---\n"
-    context += "\n".join([f"- {h.severity}: {h.title} in {h.location}" for h in hazards]) if hazards else "None."
+    context += "\n".join([f"- {h.severity}: {h.title} in {h.location}. Details: {h.description or 'No additional details.'}" for h in hazards]) if hazards else "None."
     context += "\n\n--- CLOUD OUTAGES ---\n"
     context += "\n".join([f"- {c.provider} ({c.service}): {c.title}" for c in clouds]) if clouds else "None."
 
-    sys_prompt = """You are a Senior NOC Director writing a live Shift Handover Briefing.
-    Synthesize the provided Cyber, Physical, and Cloud telemetry into a cohesive, fast-paced 2-paragraph executive summary. 
-    Highlight any converging threats or severe degradations. Do NOT just list the items; weave them into an authoritative narrative.
-    End with a single bolded sentence assessing the overall 'Grid Status' (e.g., **Grid Status: Nominal**, **Grid Status: Elevated Risk due to X**)."""
+    sys_prompt = """You are a Senior NOC Director writing the NOC IFS BRIEF for shift handover.
+    Synthesize the provided Cyber, Physical, and Cloud telemetry into exactly two cohesive executive paragraphs.
+    Lead with the most important cyber developments, then explain physical hazards and cloud/service impacts with specific locations and providers when available.
+    Describe how threats converge operationally; do not merely list telemetry and do not invent facts.
+    End with a single bolded sentence assessing the overall Grid Status, using this exact form: **Grid Status: [Nominal or Elevated Risk due to specific converging threats]**."""
 
     logger.debug("generate_rolling_summary: calling LLM")
     response = call_llm([{"role": "system", "content": sys_prompt}, {"role": "user", "content": context}], config, temperature=0.2)

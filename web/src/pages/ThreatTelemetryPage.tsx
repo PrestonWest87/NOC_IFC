@@ -440,10 +440,12 @@ export function ThreatTelemetryPage() {
     const d = info.object;
     if (info.layer?.id === "crime-scatter") {
       return {
-        html: `<b>${d.raw_title || "Incident"}</b><br/>
-${d.distance_miles != null ? `<b>Distance:</b> ${d.distance_miles.toFixed(1)} mi<br/>` : ""}
-${d.timestamp ? `<b>Time:</b> ${new Date(d.timestamp).toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}<br/>` : ""}
-${d.category ? `<b>Category:</b> ${d.category}` : ""}`,
+        text: [
+          d.raw_title || "Incident",
+          d.distance_miles != null ? `Distance: ${d.distance_miles.toFixed(1)} mi` : "",
+          d.timestamp ? `Time: ${new Date(d.timestamp).toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}` : "",
+          d.category ? `Category: ${d.category}` : "",
+        ].filter(Boolean).join("\n"),
         style: { background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.78rem", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.5rem" },
       };
     }

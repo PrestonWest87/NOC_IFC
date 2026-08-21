@@ -27,6 +27,13 @@ def geojson():
     }
 
 
+@router.get("/wildfires")
+def wildfires():
+    """Return active NIFC incidents independently of the heavier weather feeds."""
+    logger.debug("GET /wildfires")
+    return svc.get_active_wildfires()
+
+
 @router.post("/compile-map")
 def compile_map(data: dict[str, Any] = Body({})):
     logger.info("POST /compile-map toggles=%s", data.get("toggles", {}))

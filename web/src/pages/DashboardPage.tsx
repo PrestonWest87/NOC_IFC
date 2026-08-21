@@ -187,7 +187,6 @@ export function DashboardPage() {
   const [ubEmail, setUbEmail] = useState("");
   const [globalBriefEmail, setGlobalBriefEmail] = useState("");
   const [internalBriefEmail, setInternalBriefEmail] = useState("");
-  const [forceRefreshKey, setForceRefreshKey] = useState(0);
 
   const [briefGenId, setBriefGenId] = useState<string | null>(() => sessionStorage.getItem("brief_gen_id"));
   const [briefProgress, setBriefProgress] = useState<any>(null);
@@ -220,7 +219,6 @@ export function DashboardPage() {
             if (data.stage === "complete") {
               queryClient.invalidateQueries({ queryKey: ["sys-config"] });
               queryClient.refetchQueries({ queryKey: ["sys-config"] });
-              setForceRefreshKey((k) => k + 1);
             }
             if (data.stage === "error") {
               setBriefProgress(data);
@@ -256,7 +254,6 @@ export function DashboardPage() {
             if (data.stage === "complete") {
               queryClient.invalidateQueries({ queryKey: ["sys-config"] });
               queryClient.refetchQueries({ queryKey: ["sys-config"] });
-              setForceRefreshKey((k) => k + 1);
             }
             if (data.stage === "error") {
               setGlobalBriefProgress(data);
@@ -292,7 +289,6 @@ export function DashboardPage() {
             if (data.stage === "complete") {
               queryClient.invalidateQueries({ queryKey: ["sys-config"] });
               queryClient.refetchQueries({ queryKey: ["sys-config"] });
-              setForceRefreshKey((k) => k + 1);
             }
             if (data.stage === "error") {
               setInternalBriefProgress(data);
@@ -315,9 +311,8 @@ export function DashboardPage() {
   }, [internalBriefGenId, queryClient]);
 
   const refreshBriefingMut = useMutation({
-    mutationFn: () => api.post("/rca/sitrep", { action: "refresh_briefing" }),
+    mutationFn: () => api.post("/dashboard/generate-rolling-summary"),
     onSuccess: () => {
-      setForceRefreshKey((k) => k + 1);
       queryClient.invalidateQueries({ queryKey: ["sys-config"] });
     },
   });
@@ -393,9 +388,6 @@ export function DashboardPage() {
   const { data: hazards } = useQuery({
     queryKey: ["hazards-dash"], queryFn: () => api.get("/dashboard/hazards", { params: { limit: 15 } }).then((r) => r.data), refetchInterval: 120000, enabled: tab === 0,
   });
-  const { data: sitrep } = useQuery({
-    queryKey: ["sitrep-dash", forceRefreshKey], queryFn: () => api.get("/rca/sitrep").then((r) => r.data), refetchInterval: 60000, enabled: tab === 0,
-  });
   const { data: executiveIntel } = useQuery({
     queryKey: ["executive-intel"], queryFn: () => api.get("/dashboard/executive-intel").then((r) => r.data), refetchInterval: 60000, enabled: tab === 0 || tab === 1,
   });
@@ -409,7 +401,7 @@ export function DashboardPage() {
     queryKey: ["internal-risk-history"], queryFn: () => api.get("/dashboard/internal-risk/history", { params: { days: 28 } }).then((r) => r.data), refetchInterval: 300000, enabled: tab === 2,
   });
   const { data: sysConfig } = useQuery({
-    queryKey: ["sys-config"], queryFn: () => api.get("/settings/config").then((r) => r.data), refetchInterval: 120000, enabled: tab !== 0,
+    queryKey: ["sys-config"], queryFn: () => api.get("/settings/config").then((r) => r.data), refetchInterval: 120000,
   });
 
   useEffect(() => {
@@ -734,12 +726,12 @@ export function DashboardPage() {
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "1.5rem" }}>
               <div style={{ background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem", border: "1px solid var(--border-primary, #e2e8f0)" }}>
                 <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                  <FileText size={16} /> AI Shift Briefing
+                  <FileText size={16} /> NOC IFS BRIEF
                 </h3>
                 <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "0.75rem", flexWrap: "wrap" }}>
                   <span style={{ fontSize: "0.75rem", color: "var(--text-muted, #94a3b8)" }}>
                     <Clock size={12} style={{ verticalAlign: "middle", marginRight: "0.25rem" }} />
-                    Last Sync: {sitrep?.rolling_summary_time ? formatInChicago(sitrep.rolling_summary_time) : "N/A"}
+                     Last Sync: {sysConfig?.rolling_summary_time ? formatInChicago(sysConfig.rolling_summary_time) : "N/A"}
                   </span>
                   <button
                     onClick={handleForceRefreshBriefing}
@@ -760,7 +752,7 @@ export function DashboardPage() {
                     lineHeight: 1.6, whiteSpace: "pre-wrap",
                   }}
                 >
-                  {sysConfig?.rolling_summary || (sitrep?.report ? typeof sitrep.report === "string" ? sitrep.report : JSON.stringify(sitrep.report) : "Initializing...")}
+                  {sysConfig?.rolling_summary || "The automated NOC handoff brief is initializing."}
                 </div>
               </div>
               <div style={{ background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem", border: "1px solid var(--border-primary, #e2e8f0)" }}>

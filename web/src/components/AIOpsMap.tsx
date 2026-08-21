@@ -52,7 +52,7 @@ export function AIOpsMap({ sites, viewState = INITIAL_VIEW, height = "100%", tab
     if (!info.object || info.layer?.id !== "sites") return null;
     const d = info.object;
     return {
-      html: `<b>${d.name}</b><br/>Alerts: ${d.alert_count}<br/>Status: ${d.alert_count > 0 ? "\u26a0 Degraded" : "\u2713 Operational"}`,
+      text: `${d.name}\nAlerts: ${d.alert_count}\nStatus: ${d.alert_count > 0 ? "Degraded" : "Operational"}`,
       style: { background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "0.78rem", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.5rem" },
     };
   }, []);

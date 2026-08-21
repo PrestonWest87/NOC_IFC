@@ -2117,37 +2117,136 @@ def set_user_weather_prefs(username, alerts):
 @TTLCache(ttl=900, max_entries=1)
 def get_active_wildfires():
     try:
+        from shapely.geometry import Point, shape
+        from shapely.ops import unary_union
+
         url = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Incident_Locations/FeatureServer/0/query"
-        cutoff_date = (datetime.utcnow() - timedelta(days=7)).strftime('%Y-%m-%d')
         states = "('US-AR', 'US-MO', 'US-TN', 'US-MS', 'US-LA', 'US-TX', 'US-OK')"
+        cutoff_epoch = int((datetime.utcnow() - timedelta(days=7)).timestamp() * 1000)
         params = {
-            "where": f"POOState IN {states} AND IncidentTypeCategory = 'WF' AND (PercentContained < 100 OR PercentContained IS NULL) AND FireDiscoveryDateTime >= '{cutoff_date}'", 
-            "outFields": "IncidentName,IncidentSize,PercentContained,POOState,IncidentTypeCategory", "f": "geojson", "returnGeometry": "true"
+            # The source contains historical rows with null close dates, so
+            # apply the recency window in Python after retrieving active rows.
+            # Nearby states are retained because incidents within 50 miles of
+            # the Arkansas border may still affect Arkansas operations.
+            "where": f"POOState IN {states} AND IncidentTypeCategory = 'WF' AND FireOutDateTime IS NULL AND (PercentContained < 100 OR PercentContained IS NULL)",
+            "outFields": "IncidentName,IncidentSize,PercentContained,POOState,IncidentTypeCategory,FireDiscoveryDateTime,FireOutDateTime,FireCause,POOCounty,IRWINID,UniqueFireIdentifier",
+            "f": "geojson", "returnGeometry": "true", "resultRecordCount": 2000,
         }
-        resp = requests.get(url, params=params, timeout=10)
-        
-        if resp.status_code == 200:
-            active_fires = []
-            for f in resp.json().get("features", []):
+        active_fires = []
+        # Use the actual Arkansas county boundary rather than a large regional
+        # rectangle. Buffering by 0.75 degrees is approximately 50 miles.
+        counties = get_regional_counties_mapping()
+        arkansas = unary_union([
+            shape(info["geometry"])
+            for info in counties.values()
+            if info.get("state_fips") == "05"
+        ]).buffer(0.75)
+        offset = 0
+        while True:
+            page_params = {**params, "resultOffset": offset}
+            resp = requests.get(url, params=page_params, timeout=10)
+            if resp.status_code != 200:
+                return []
+            features = resp.json().get("features", [])
+            for f in features:
                 props, geom = f.get("properties", {}), f.get("geometry", {})
                 if not geom or "coordinates" not in geom: continue
-                
+                lon, lat = geom["coordinates"][:2]
+                if not arkansas.covers(Point(lon, lat)): continue
+                started = props.get("FireDiscoveryDateTime")
+                if started is not None and started < cutoff_epoch: continue
                 inc_name = str(props.get("IncidentName", "Unnamed")).upper()
                 contained_val = 0 if props.get("PercentContained") is None else props.get("PercentContained")
                 size = props.get("IncidentSize", 0)
-                
                 if props.get("IncidentTypeCategory", "") != "WF": continue
                 if " RX" in inc_name or inc_name.startswith("RX ") or "PRESCRIBED" in inc_name: continue
                 if contained_val >= 100 or not size or size <= 0.1: continue
-                if re.search(r'(201\d|202[0-4]|/\d{2}$)', inc_name): continue
-                
                 active_fires.append({
                     "name": props.get("IncidentName", "Unnamed"), "state": props.get("POOState", "Unknown").replace("US-", ""),
-                    "acres": round(size, 2), "contained": contained_val, "lon": geom["coordinates"][0], "lat": geom["coordinates"][1],
-                    "color": [220, 20, 60, 230]
+                    "acres": round(size, 2), "contained": contained_val, "lon": lon, "lat": lat,
+                    "started": started, "cause": props.get("FireCause"),
+                    "county": props.get("POOCounty"), "irwin_id": props.get("IRWINID"),
+                    "unique_id": props.get("UniqueFireIdentifier"), "color": [220, 20, 60, 230]
                 })
-            return active_fires
-        return []
+            if len(features) < 2000:
+                break
+            offset += len(features)
+
+        # The incident-location layer only supplies a point. Join the current
+        # interagency perimeter polygons so the map shows the reported fire
+        # footprint whenever one is available.
+        perimeter_url = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Interagency_Perimeters_YearToDate/FeatureServer/0/query"
+        perimeter_params = {
+            # attr_IsValid appears in the source table export but is not an
+            # exposed/queryable field on the live FeatureServer view.
+            "where": "poly_FeatureCategory = 'Wildfire Daily Fire Perimeter' AND poly_DeleteThis = 'No' AND poly_FeatureAccess = 'Public' AND poly_FeatureStatus = 'Approved' AND poly_IsVisible = 'Yes' AND attr_IncidentTypeCategory = 'WF' AND attr_FireOutDateTime IS NULL",
+            "outFields": "poly_IncidentName,poly_FeatureCategory,poly_DeleteThis,poly_FeatureAccess,poly_FeatureStatus,poly_IsVisible,poly_GISAcres,poly_DateCurrent,poly_PolygonDateTime,poly_IRWINID,attr_PercentContained,attr_FireDiscoveryDateTime,attr_FireCause,attr_FireOutDateTime,attr_IncidentTypeCategory,attr_POOState,attr_POOCounty,poly_MapMethod",
+            "f": "geojson", "returnGeometry": "true", "resultRecordCount": 1000,
+            # Limit the large year-to-date layer to Arkansas and its border
+            # region at the service, then apply the precise county buffer below.
+            "geometry": "-95.5,32.3,-88.7,37.2",
+            "geometryType": "esriGeometryEnvelope", "inSR": 4326,
+            "spatialRel": "esriSpatialRelIntersects",
+        }
+        perimeters_by_name = {}
+        current_perimeters = []
+        try:
+            perimeter_offset = 0
+            while True:
+                perimeter_page = {**perimeter_params, "resultOffset": perimeter_offset}
+                perimeter_resp = requests.get(perimeter_url, params=perimeter_page, timeout=15)
+                if perimeter_resp.status_code != 200:
+                    break
+                perimeter_features = perimeter_resp.json().get("features", [])
+                for feature in perimeter_features:
+                    geometry = feature.get("geometry")
+                    props = feature.get("properties", {})
+                    name = str(props.get("poly_IncidentName") or "").strip().upper()
+                    if not name or not geometry:
+                        continue
+                    polygon = shape(geometry)
+                    if not polygon.intersects(arkansas):
+                        continue
+                    # Prefer the most recently updated polygon for duplicate
+                    # perimeter records belonging to the same incident.
+                    current = perimeters_by_name.get(name)
+                    current_date = props.get("poly_DateCurrent") or props.get("poly_PolygonDateTime") or 0
+                    if current_date and current_date < cutoff_epoch:
+                        continue
+                    if current and current["updated"] >= current_date:
+                        continue
+                    perimeters_by_name[name] = {
+                        "geometry": geometry,
+                        "name": props.get("poly_IncidentName"),
+                        "irwin_id": props.get("poly_IRWINID"),
+                        "acres": props.get("poly_GISAcres"),
+                        "updated": current_date,
+                        "map_method": props.get("poly_MapMethod"),
+                        "contained": props.get("attr_PercentContained"),
+                        "started": props.get("attr_FireDiscoveryDateTime"),
+                        "cause": props.get("attr_FireCause"),
+                        "state": props.get("attr_POOState"),
+                        "county": props.get("attr_POOCounty"),
+                    }
+                if len(perimeter_features) < 1000:
+                    break
+                perimeter_offset += len(perimeter_features)
+            current_perimeters = [
+                {**perimeter, "name": name, "perimeter_updated": perimeter["updated"]}
+                for name, perimeter in perimeters_by_name.items()
+            ]
+        except Exception:
+            logger.warning("Unable to retrieve current NIFC fire perimeters", exc_info=True)
+
+        for fire in active_fires:
+            perimeter = perimeters_by_name.get(str(fire["name"]).strip().upper())
+            if perimeter:
+                fire["perimeter"] = perimeter["geometry"]
+                fire["perimeter_acres"] = perimeter["acres"]
+                fire["perimeter_updated"] = perimeter["updated"]
+                fire["map_method"] = perimeter["map_method"]
+                fire["cause"] = perimeter["cause"]
+        return {"incidents": active_fires, "perimeters": current_perimeters}
     except: return []
 
 def dispatch_perimeter_crime_alerts():

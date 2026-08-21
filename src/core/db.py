@@ -1,6 +1,7 @@
 import time
 import random
 import logging
+import os
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
@@ -65,6 +66,16 @@ def init_db():
             conn.execute(text("ALTER TABLE system_config ADD COLUMN alerted_eq_ids TEXT DEFAULT '[]'"))
     except Exception as e:
         logger.debug("system_config.alerted_eq_ids migration skipped: %s", e)
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN alerted_wildfire_ids TEXT DEFAULT '[]'"))
+    except Exception as e:
+        logger.debug("system_config.alerted_wildfire_ids migration skipped: %s", e)
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN wildfire_proximity_state TEXT DEFAULT '{}'"))
+    except Exception as e:
+        logger.debug("system_config.wildfire_proximity_state migration skipped: %s", e)
 
     article_columns = [
         ("ingested_at", "DATETIME"),
@@ -495,9 +506,15 @@ def init_db():
     except Exception as e:
         logger.warning(f"Could not seed dummy assets: {e}")
 
-    try:
-        from src.services import rescore_all_articles
-        rescored = rescore_all_articles()
-        logger.info(f"Rescored {rescored} existing articles with new keywords.")
-    except Exception as e:
-        logger.warning(f"Could not rescore articles: {e}")
+    # Rescoring thousands of articles is maintenance work, not readiness
+    # work. Running it here made every API/worker/webhook restart block for
+    # over a minute and also caused SQLite contention between containers.
+    if os.environ.get("RESCORE_ON_STARTUP", "false").lower() in {"1", "true", "yes"}:
+        try:
+            from src.services import rescore_all_articles
+            rescored = rescore_all_articles()
+            logger.info(f"Rescored {rescored} existing articles with new keywords.")
+        except Exception as e:
+            logger.warning(f"Could not rescore articles: {e}")
+    else:
+        logger.info("Skipping startup article rescore; run maintenance rescore explicitly when required.")

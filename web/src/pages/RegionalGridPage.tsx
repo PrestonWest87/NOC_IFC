@@ -90,6 +90,17 @@ function formatDt(s: string) {
   return formatInChicago(s, { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", timeZoneName: "short" }, s);
 }
 
+function plainText(value: unknown): string {
+  return String(value ?? "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+}
+
+function formatFireDate(value: unknown): string {
+  if (value == null || value === "") return "Unknown";
+  const numeric = Number(value);
+  const date = new Date(Number.isFinite(numeric) && numeric > 1e11 ? numeric : String(value));
+  return Number.isNaN(date.getTime()) ? "Unknown" : formatInChicago(date.toISOString());
+}
+
 function InfoBox({ type, children }: { type: "info" | "success" | "warning" | "error"; children: React.ReactNode }) {
   const colors: Record<string, { bg: string; border: string; text: string }> = {
     info: { bg: "rgba(59,130,246,0.1)", border: "var(--accent-blue)", text: "#93c5fd" },
@@ -256,6 +267,12 @@ export function RegionalGridPage() {
     queryKey: ["regional-geojson"],
     queryFn: () => api.get("/regional/geojson").then(r => r.data),
     refetchInterval: 120000,
+  });
+
+  const { data: wildfires = [] } = useQuery({
+    queryKey: ["regional-wildfires"],
+    queryFn: () => api.get("/regional/wildfires").then(r => r.data),
+    refetchInterval: 900000,
   });
 
   const { data: alertsLog = [] } = useQuery({
@@ -439,25 +456,46 @@ export function RegionalGridPage() {
       }
     }
 
-    if (mapToggles.active_wildfires && geo.usgs_ar?.features?.length) {
-      const wildFires = geo.usgs_ar.features
-        .filter((f: any) => f.properties?.mag && f.properties.mag > 0.5)
-        .map((f: any) => ({
-          name: f.properties?.place || "Unknown",
-          state: "",
-          acres: (f.properties?.mag || 1) * 200,
-          contained: Math.min(100, Math.round(Math.random() * 70 + 20)),
-          color: [255, 100, 0, 220],
-          lon: f.geometry?.coordinates?.[0] || 0,
-          lat: f.geometry?.coordinates?.[1] || 0,
-        }));
-      if (wildFires.length) {
-        layers.push(new ScatterplotLayer({
+    const wildfirePayload = wildfires as any;
+    const wildFires = Array.isArray(wildfirePayload) ? wildfirePayload : wildfirePayload.incidents || [];
+    if (mapToggles.active_wildfires) {
+      const perimeterData = Array.isArray(wildfirePayload) ? [] : wildfirePayload.perimeters || [];
+      // The current perimeter feed is authoritative. Use incident points as
+      // a fallback only when no approved perimeter was returned.
+      const pointFires = perimeterData.length ? [] : wildFires.filter((f: any) => f.lon != null && f.lat != null);
+      if (pointFires.length || perimeterData.length) {
+        const perimeterFeatures = perimeterData
+          .filter((f: any) => f.geometry)
+          .map((f: any) => ({
+            type: "Feature",
+            geometry: f.geometry,
+            properties: {
+              name: f.name,
+              acres: f.acres,
+              contained: f.contained,
+              started: f.started,
+              perimeter_updated: f.perimeter_updated,
+              map_method: f.map_method,
+            },
+          }));
+        if (perimeterFeatures.length) {
+          layers.push(new GeoJsonLayer({
+            id: "wildfire-perimeters",
+            data: { type: "FeatureCollection", features: perimeterFeatures } as any,
+            pickable: true, stroked: true, filled: true,
+            getFillColor: [255, 45, 0, 85] as [number, number, number, number],
+            getLineColor: [255, 120, 0, 240] as [number, number, number, number],
+            lineWidthMinPixels: 2,
+          }));
+        }
+        if (pointFires.length) layers.push(new ScatterplotLayer({
           id: "wildfires",
-          data: wildFires,
+          data: pointFires,
           pickable: true, opacity: 0.9, stroked: true, filled: true,
-          getRadius: (d: any) => 1500 + d.acres * 15,
-          radiusMinPixels: 5, radiusMaxPixels: 35,
+          // Perimeters carry the scale; point-only incidents stay as small
+          // reference markers instead of obscuring the map with giant circles.
+          getRadius: 1200,
+          radiusMinPixels: 4, radiusMaxPixels: 8,
           lineWidthMinPixels: 1,
           getPosition: (d: any) => [d.lon, d.lat],
           getFillColor: (d: any) => d.color as [number, number, number, number],
@@ -521,7 +559,7 @@ export function RegionalGridPage() {
     }
 
     return layers;
-  }, [geojson, processedGeo, mapToggles, mapDf]);
+  }, [geojson, processedGeo, mapToggles, mapDf, wildfires]);
 
   const handleToggle = (key: string) => {
     setMapToggles(prev => ({ ...prev, [key]: !prev[key] }));
@@ -741,7 +779,7 @@ function GeospatialTab({
   ];
 
   const featureIndex = useMemo(() => buildFeatureIndex(processedGeo, mapToggles), [processedGeo, mapToggles]);
-  const [hoverInfo, setHoverInfo] = useState<{html: string; x: number; y: number} | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<{lines: string[]; x: number; y: number} | null>(null);
 
   const handleHover = useCallback((info: any) => {
     const [lng, lat] = info.coordinate || [];
@@ -750,7 +788,7 @@ function GeospatialTab({
 
     const alerts: string[] = [];
     const sites: string[] = [];
-    let extraInfo = "";
+    let extraInfo: string[] = [];
 
     if (info.object && info.picked) {
       const d = info.object;
@@ -758,21 +796,35 @@ function GeospatialTab({
 
       if (layerId === "facilities" || layerId?.startsWith("facilities")) {
         const name = d.name;
-        sites.push(`<b>${name}</b><br/>Priority: ${d.priority}`);
+        sites.push(`${plainText(name)} | Priority: ${plainText(d.priority)}`);
         for (const site of masterAffectedSites) {
           if (site["Monitored Site"] === name && site.Hazard && !alerts.includes(site.Hazard)) {
-            alerts.push(site.Hazard);
+            alerts.push(plainText(site.Hazard));
           }
         }
       } else if (layerId === "spc" || layerId?.startsWith("spc")) {
-        const label = d.properties?.LABEL || d.properties?.info || "Unknown";
+        const label = plainText(d.properties?.LABEL || d.properties?.info || "Unknown");
         if (!alerts.includes(label)) alerts.push(`SPC: ${label}`);
       } else if (layerId === "wildfires" || layerId?.startsWith("wildfires")) {
-        extraInfo = `<b>${d.name}</b><br/>Acres: ${Math.round(d.acres).toLocaleString()}<br/>Contained: ${d.contained}%`;
+        extraInfo = [
+          plainText(d.name), `Acres: ${Math.round(d.acres).toLocaleString()}`, `Contained: ${plainText(d.contained)}%`,
+          `Started: ${formatFireDate(d.started)}`, d.county ? `County: ${plainText(d.county)}` : "",
+          d.cause ? `Cause: ${plainText(d.cause)}` : "",
+        ].filter(Boolean);
+      } else if (layerId === "wildfire-perimeters" || layerId?.startsWith("wildfire-perimeters")) {
+        const p = d.properties || {};
+        extraInfo = [
+          plainText(p.name),
+          `Mapped acres: ${p.acres ? Math.round(Number(p.acres)).toLocaleString() : "Unknown"}`,
+          `Contained: ${p.contained != null ? plainText(p.contained) + "%" : "Unknown"}`,
+          `Started: ${formatFireDate(p.started)}`,
+          `Perimeter update: ${formatFireDate(p.perimeter_updated)}`,
+          p.map_method ? `Map method: ${plainText(p.map_method)}` : "",
+        ].filter(Boolean);
       } else if (layerId === "earthquakes" || layerId?.startsWith("earthquakes")) {
-        extraInfo = `<b>${d.name}</b><br/>Magnitude: ${d.mag}<br/>Depth: ${d.depth?.toFixed(1)}km<br/>Time: ${d.time ? formatInChicago(d.time) : "Unknown"}`;
+        extraInfo = [plainText(d.name), `Magnitude: ${plainText(d.mag)}`, `Depth: ${d.depth?.toFixed(1)}km`, `Time: ${d.time ? formatInChicago(d.time) : "Unknown"}`];
       } else if (layerId === "fire_risk" || layerId?.startsWith("fire_risk")) {
-        const ev = d.properties?.info || d.properties?.event || "Red Flag Warning";
+        const ev = plainText(d.properties?.info || d.properties?.event || "Red Flag Warning");
         if (!alerts.includes(ev)) alerts.push(ev);
       }
     }
@@ -783,8 +835,8 @@ function GeospatialTab({
       for (const ring of entry.rings) {
         if (pointInPolygon(lng, lat, ring)) {
           const p = entry.props;
-          const ev = p?.info || p?.event || "Alert";
-          const hd = p?.headline || "";
+          const ev = plainText(p?.info || p?.event || "Alert");
+          const hd = plainText(p?.headline || "");
           const line = hd ? `${ev} — ${hd.slice(0, 120)}` : ev;
           if (!alerts.includes(line)) alerts.push(line);
           break;
@@ -792,24 +844,10 @@ function GeospatialTab({
       }
     }
 
-    if (!alerts.length && !sites.length && !extraInfo) { setHoverInfo(null); return; }
-
-    let html = "";
-    if (sites.length > 0) {
-      html += sites.join("<hr style='margin:4px 0;border-color:var(--border-primary)'/>") + (alerts.length > 0 ? "<hr style='margin:6px 0;border-color:var(--border-secondary)'/>" : "");
-    }
-    if (alerts.length > 0) {
-      const maxShow = 6;
-      const shown = alerts.slice(0, maxShow);
-      html += shown.map(a => `<div style="padding:2px 0">• ${a}</div>`).join("");
-      if (alerts.length > maxShow) {
-        html += `<div style="color:var(--text-muted);font-size:0.72rem;margin-top:2px">+${alerts.length - maxShow} more</div>`;
-      }
-    } else if (extraInfo) {
-      html += extraInfo;
-    }
-    if (!html) { setHoverInfo(null); return; }
-    setHoverInfo({ html, x, y });
+    if (!alerts.length && !sites.length && !extraInfo.length) { setHoverInfo(null); return; }
+    const lines = [...sites, ...extraInfo, ...alerts.slice(0, 6).map(a => `• ${a}`)];
+    if (alerts.length > 6) lines.push(`+${alerts.length - 6} more`);
+    setHoverInfo({ lines, x, y });
   }, [featureIndex, masterAffectedSites]);
 
   const affectedSitesSorted = useMemo(() => {
@@ -929,7 +967,7 @@ function GeospatialTab({
                       borderRadius: "var(--radius-sm)", padding: "0.5rem",
                       maxWidth: 320, maxHeight: 280, overflow: "auto",
                       boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-                     }}>{hoverInfo.html}</div>
+                      }}>{hoverInfo.lines.map((line, i) => <div key={i} style={{ padding: "2px 0" }}>{line}</div>)}</div>
                   )}
                 </MapContainer>
               </div>
