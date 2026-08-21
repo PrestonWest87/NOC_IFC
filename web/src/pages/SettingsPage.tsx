@@ -197,9 +197,11 @@ export function SettingsPage() {
     enabled: isAdmin,
   });
 
-  const { data: locations } = useQuery({
+  const { data: locations, isLoading: locationsLoading, isError: locationsError, refetch: refetchLocations } = useQuery({
     queryKey: ["admin-locations"],
     queryFn: () => api.get("/admin/location").then(r => r.data),
+    retry: 2,
+    refetchOnMount: "always",
   });
 
   const { data: lists } = useQuery({
@@ -249,7 +251,7 @@ export function SettingsPage() {
 
       {tab === "profile" && <ProfileTab user={currentUser} onProfileUpdated={refreshUser} />}
       {tab === "theme" && <ThemeTab />}
-      {tab === "facilities" && <FacilitiesTab locations={locations} queryClient={queryClient} />}
+      {tab === "facilities" && <FacilitiesTab locations={locations} locationsLoading={locationsLoading} locationsError={locationsError} refetchLocations={refetchLocations} queryClient={queryClient} />}
       {tab === "assets" && <AssetsTab />}
       {tab === "rss" && <RssTab lists={lists} queryClient={queryClient} />}
       {tab === "ml" && <MlTab mlCounts={mlCounts} />}
@@ -359,7 +361,7 @@ function ProfileTab({ user, onProfileUpdated }: { user: any; onProfileUpdated: (
 /* ============================
    1. FACILITIES TAB
    ============================ */
-function FacilitiesTab({ locations, queryClient }: { locations: any; queryClient: any }) {
+function FacilitiesTab({ locations, locationsLoading, locationsError, refetchLocations, queryClient }: { locations: any; locationsLoading: boolean; locationsError: boolean; refetchLocations: () => unknown; queryClient: any }) {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importMode, setImportMode] = useState<"add" | "upsert" | "replace">("add");
   const [editData, setEditData] = useState<any[]>([]);
@@ -389,9 +391,9 @@ function FacilitiesTab({ locations, queryClient }: { locations: any; queryClient
   });
 
   const locs = Array.isArray(locations) ? locations : [];
-  if (editData.length === 0 && locs.length > 0) {
+  useEffect(() => {
     setEditData(locs.map((l: any) => ({ ...l })));
-  }
+  }, [locations]);
 
   const updateRow = (i: number, field: string, val: any) => {
     setEditData(prev => {
@@ -438,6 +440,21 @@ function FacilitiesTab({ locations, queryClient }: { locations: any; queryClient
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      {locationsLoading && (
+        <Card title="Facility Locations" icon={Globe}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+            <Loader2 size={16} className="spin" /> Loading facility locations...
+          </div>
+        </Card>
+      )}
+      {locationsError && (
+        <Card title="Facility Locations" icon={AlertTriangle}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", color: "var(--accent-red)", fontSize: "0.85rem" }}>
+            <span>Facility locations could not be loaded.</span>
+            <button onClick={() => refetchLocations()} style={btn("var(--accent-blue)")}><RefreshCw size={14} /> Retry</button>
+          </div>
+        </Card>
+      )}
       <Card title="Facility Map" icon={Globe} wide>
         <div style={{ height: "380px", position: "relative", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
           {mapSites.length === 0 ? (
