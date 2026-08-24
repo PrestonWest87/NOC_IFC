@@ -61,10 +61,21 @@ export function useAIOpsWebSocket() {
             return;
           }
             
-          setData(payload);
-          setStoreDashboard(payload);
+           setData(payload);
+           setStoreDashboard(payload);
 
-          for (const alert of payload.alerts ?? []) {
+           // Keep the AIOps query cache in sync with the push channel. This
+           // also works in background tabs where browser timers are throttled.
+           if (payload.type === "dashboard_update") {
+             queryClient.setQueryData(["rca-dashboard"], (current: any) => ({
+               ...(current ?? {}),
+               alerts: payload.alerts ?? current?.alerts ?? [],
+               events: payload.events ?? current?.events ?? [],
+               grid: payload.grid ?? current?.grid ?? [],
+             }));
+           }
+
+           for (const alert of payload.alerts ?? []) {
             const a = alert as Record<string, unknown>;
             const id = String(a.id ?? "");
             if (id && !knownAlertIds.current.has(id)) {

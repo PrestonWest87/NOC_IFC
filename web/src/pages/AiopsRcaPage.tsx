@@ -92,7 +92,14 @@ export function AiopsRcaPage() {
   const investigateMutation = useMutation({
   mutationFn: (params: { site: string; is_investigating: boolean }) =>
     api.post("/rca/investigate", params).then((r) => r.data),
-  onSuccess: () => {
+  onSuccess: (_result, variables) => {
+    queryClient.setQueryData(["rca-dashboard"], (current: any) => {
+      if (!current) return current;
+      const existing = new Set<string>(current.investigating_sites ?? []);
+      if (variables.is_investigating) existing.add(variables.site);
+      else existing.delete(variables.site);
+      return { ...current, investigating_sites: [...existing] };
+    });
     queryClient.invalidateQueries({ queryKey: ["rca-dashboard"] });
   },
 });
@@ -103,12 +110,16 @@ export function AiopsRcaPage() {
     queryKey: ["rca-dashboard"],
     queryFn: () => api.get("/rca/dashboard").then((r) => r.data),
     refetchInterval: pollMs,
+    refetchIntervalInBackground: true,
+    refetchOnReconnect: true,
   });
 
   const { data: analysis, isFetching: analysisLoading, refetch: refetchAnalysis } = useQuery({
     queryKey: ["rca-analyze"],
     queryFn: () => api.post("/rca/analyze").then((r) => r.data),
     refetchInterval: livePolling ? 60000 : false,
+    refetchIntervalInBackground: true,
+    refetchOnReconnect: true,
     enabled: activeTab === 0 || deepAnalysisRun,
     retry: 1,
     staleTime: 10000,
@@ -137,7 +148,19 @@ export function AiopsRcaPage() {
   const dispatchMutation = useMutation({
     mutationFn: ({ alertIds, dispatched }: { alertIds: number[]; dispatched: boolean }) =>
       api.post("/rca/dispatch", { alert_ids: alertIds, is_dispatched: dispatched }).then((r) => r.data),
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
+      // Reflect the completed write immediately; the broadcast/refetch still
+      // reconciles the cache with changes made by other users.
+      queryClient.setQueryData(["rca-dashboard"], (current: any) => {
+        if (!current) return current;
+        const ids = new Set(variables.alertIds);
+        return {
+          ...current,
+          alerts: (current.alerts ?? []).map((alert: any) =>
+            ids.has(alert.id) ? { ...alert, is_dispatched: variables.dispatched } : alert
+          ),
+        };
+      });
       queryClient.invalidateQueries({ queryKey: ["rca-analyze"] });
       queryClient.invalidateQueries({ queryKey: ["rca-dashboard"] });
     },
@@ -146,7 +169,25 @@ export function AiopsRcaPage() {
   const maintMutation = useMutation({
     mutationFn: (params: { site_name: string; is_maint: boolean; etr: string; reason: string }) =>
       api.post("/rca/site-maintenance", params).then((r) => r.data),
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
+      // Update the map from the mutation response path instead of waiting for
+      // the next polling cycle to replace the locations collection.
+      queryClient.setQueryData(["rca-dashboard"], (current: any) => {
+        if (!current) return current;
+        return {
+          ...current,
+          locations: (current.locations ?? []).map((location: any) =>
+            location.name === variables.site_name
+              ? {
+                  ...location,
+                  under_maintenance: variables.is_maint,
+                  maintenance_etr: variables.is_maint && variables.etr ? variables.etr : null,
+                  maintenance_reason: variables.is_maint ? variables.reason : null,
+                }
+              : location
+          ),
+        };
+      });
       queryClient.invalidateQueries({ queryKey: ["rca-dashboard"] });
     },
   });

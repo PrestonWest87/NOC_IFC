@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
 import api from "./api";
+import axios from "axios";
 
 interface User {
   id?: number;
@@ -48,11 +49,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data } = await api.get("/auth/me");
       sessionStorage.setItem("noc_user", JSON.stringify(data));
       setUser(data);
-    } catch {
-      sessionStorage.removeItem("noc_token");
-      sessionStorage.removeItem("noc_user");
-      setUser(null);
-      setToken("");
+    } catch (error) {
+      // A brief network/API failure must not log a user out. Only an explicit
+      // authentication rejection means that the session is no longer valid.
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        sessionStorage.removeItem("noc_token");
+        sessionStorage.removeItem("noc_user");
+        setUser(null);
+        setToken("");
+      } else {
+        console.warn("Unable to refresh authenticated user; retaining session", error);
+      }
     }
   }, []);
 
