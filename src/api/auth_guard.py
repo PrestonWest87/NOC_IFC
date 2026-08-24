@@ -61,8 +61,10 @@ async def authentication_middleware(request: Request, call_next):
     if request.method == "OPTIONS" or public or not path.startswith("/api/v1"):
         return await call_next(request)
 
-    user = svc.get_user_by_token(token_from_request(request))
+    auth_token = token_from_request(request)
+    user = svc.get_user_by_token(auth_token)
     if not user:
         return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
     request.state.user = user
+    request.state.auth_token = auth_token
     return await call_next(request)

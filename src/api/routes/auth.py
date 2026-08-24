@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from src import services as svc
@@ -80,9 +80,9 @@ def me(user=Depends(get_current_user)):
 
 
 @router.post("/logout")
-def logout(user=Depends(get_current_user)):
+def logout(request: Request, user=Depends(get_current_user)):
     logger.info("POST /logout username=%s", user.username)
-    svc.logout_user(user.username)
+    svc.logout_user(user.username, getattr(request.state, "auth_token", ""))
     return {"status": "ok"}
 
 

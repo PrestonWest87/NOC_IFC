@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 # Import your DB setup and models
 from src.database import (
     SessionLocal, Article, FeedSource, Keyword, SystemConfig, CveItem,
-    RegionalHazard, CloudOutage, User, RegistrationInvite, Role, SavedReport, DailyBriefing,
+    RegionalHazard, CloudOutage, User, UserSession, RegistrationInvite, Role, SavedReport, DailyBriefing,
     ExtractedIOC, MonitoredLocation, SolarWindsAlert, TimelineEvent,
     RegionalOutage, BgpAnomaly, GeoJsonCache, DailyThreatScore, ShiftLogEntry,
     SoftwareAsset, HardwareAsset, InternalRiskSnapshot, CrimeIncident,
@@ -490,7 +490,7 @@ def authenticate_user(username, password):
         user = db.query(User).filter(User.username == username).first()
         if user and bcrypt.checkpw(password.encode('utf-8'), user.password_hash.encode('utf-8')):
             new_token = str(uuid.uuid4())
-            user.session_token = new_token
+            db.add(UserSession(user_id=user.id, token=new_token))
             db.commit()
             u = to_dotdict(user)
             perms = get_role_permissions(u.role or "analyst")
@@ -582,20 +582,29 @@ def complete_registration(raw_token, password, full_name, job_title, contact_inf
             default_shift=(default_shift or "No Shift").strip(),
             theme=theme,
         )
-        user.session_token = str(uuid.uuid4())
+        new_token = str(uuid.uuid4())
+        user.session_token = new_token
         invite.used_at = now
         db.add(user)
+        db.flush()
+        db.add(UserSession(user_id=user.id, token=new_token))
         db.commit()
         u = to_dotdict(user)
         perms = get_role_permissions(u.role or "analyst")
         u.allowed_pages = perms["allowed_pages"]
         u.allowed_actions = perms["allowed_actions"]
         u.allowed_site_types = perms["allowed_site_types"]
-        return u, user.session_token
+        return u, new_token
 
 def get_user_by_token(token):
+    if not token:
+        return None
     with SessionLocal() as db:
-        u = to_dotdict(db.query(User).filter(User.session_token == token).first())
+        session = db.query(UserSession).filter(UserSession.token == token).first()
+        user = db.query(User).filter(User.session_token == token).first() if not session else None
+        if session:
+            user = db.query(User).filter(User.id == session.user_id).first()
+        u = to_dotdict(user)
         if u:
             perms = get_role_permissions(u.role or "analyst")
             u.allowed_pages = perms["allowed_pages"]
@@ -635,10 +644,23 @@ def set_user_theme(username, theme):
         db.commit()
     return True
 
-def logout_user(username):
+def logout_user(username, token=None):
     with SessionLocal() as db:
         u = db.query(User).filter(User.username == username).first()
-        if u: u.session_token = None; db.commit()
+        if not u:
+            return
+        if token:
+            db.query(UserSession).filter(
+                UserSession.user_id == u.id, UserSession.token == token
+            ).delete(synchronize_session=False)
+            # Retain compatibility with sessions issued before user_sessions.
+            if u.session_token == token:
+                u.session_token = None
+        else:
+            # Legacy callers without a token retain the old all-sessions behavior.
+            db.query(UserSession).filter(UserSession.user_id == u.id).delete(synchronize_session=False)
+            u.session_token = None
+        db.commit()
 
 
 # ==========================================
@@ -3092,6 +3114,7 @@ def force_reset_pwd(username, new_password):
         user = db.query(User).filter(User.username == username).first()
         if user:
             user.password_hash, user.session_token = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'), None
+            db.query(UserSession).filter(UserSession.user_id == user.id).delete(synchronize_session=False)
             db.commit()
             return True
         return False
@@ -3101,6 +3124,7 @@ def update_user_role(username, new_role):
         u = db.query(User).filter_by(username=username).first()
         if u:
             u.role, u.session_token = new_role, None
+            db.query(UserSession).filter(UserSession.user_id == u.id).delete(synchronize_session=False)
             db.commit()
 
 def save_global_config(data, allow_system_fields=True):

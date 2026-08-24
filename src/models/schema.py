@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, JSON
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, JSON, ForeignKey
 from sqlalchemy.orm import declarative_base
 from datetime import datetime
 
@@ -17,6 +17,15 @@ class User(Base):
     contact_info = Column(String, nullable=True)
     default_shift = Column(String, default="No Shift")
     theme = Column(String, default="standard")
+
+
+class UserSession(Base):
+    """One independently revocable login session per device/browser."""
+    __tablename__ = "user_sessions"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token = Column(String, unique=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class RegistrationInvite(Base):
