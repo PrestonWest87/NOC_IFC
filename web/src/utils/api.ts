@@ -19,6 +19,7 @@ api.interceptors.response.use(
     if (err.response?.status === 401) {
       sessionStorage.removeItem("noc_token");
       sessionStorage.removeItem("noc_user");
+      window.dispatchEvent(new Event("noc:unauthorized"));
       window.location.hash = "#/login";
     }
     return Promise.reject(err);

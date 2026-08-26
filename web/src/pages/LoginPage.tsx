@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../utils/AuthContext";
 import { PAGE_ROUTE_MAP } from "../utils/routeConfig";
 
 export function LoginPage() {
   const { login } = useAuth();
+  const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -16,7 +18,7 @@ export function LoginPage() {
     try {
       const user = await login(username, password);
       const firstAllowed = user.allowed_pages?.[0];
-      window.location.hash = firstAllowed ? `#${PAGE_ROUTE_MAP[firstAllowed] || "/"}` : "#/";
+      navigate(firstAllowed ? PAGE_ROUTE_MAP[firstAllowed] || "/" : "/", { replace: true });
     } catch {
       setError("Invalid credentials");
     } finally {

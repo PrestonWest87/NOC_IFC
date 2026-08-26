@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { PAGE_ROUTE_MAP } from "../utils/routeConfig";
@@ -7,6 +7,7 @@ import { THEMES } from "../components/ThemeSelector";
 
 export function RegistrationPage() {
   const [params] = useSearchParams();
+  const navigate = useNavigate();
   useAuth();
   const inviteToken = params.get("token") || "";
   const [invite, setInvite] = useState<{ username: string; role: string } | null>(null);
@@ -38,7 +39,7 @@ export function RegistrationPage() {
       sessionStorage.setItem("noc_user", JSON.stringify(response.data.user));
       setMessage("Registration complete. Loading your workspace...");
       const firstAllowed = response.data.user.allowed_pages?.[0];
-      window.location.hash = firstAllowed ? `#${PAGE_ROUTE_MAP[firstAllowed] || "/"}` : "#/";
+      navigate(firstAllowed ? PAGE_ROUTE_MAP[firstAllowed] || "/" : "/", { replace: true });
       window.location.reload();
     } catch (reason: any) {
       setError(reason.response?.data?.detail || "Registration failed. Please request a new link.");

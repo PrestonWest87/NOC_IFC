@@ -63,7 +63,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  useEffect(() => { refreshUser(); }, [refreshUser]);
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setUser(null);
+      setToken("");
+    };
+    window.addEventListener("noc:unauthorized", handleUnauthorized);
+    refreshUser();
+    return () => window.removeEventListener("noc:unauthorized", handleUnauthorized);
+  }, [refreshUser]);
 
   const logout = useCallback(() => {
     api.post("/auth/logout").catch(() => {});

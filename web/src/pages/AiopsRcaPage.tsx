@@ -227,8 +227,6 @@ export function AiopsRcaPage() {
 
   const prevAlertCounts = useRef<Record<string, number>>({});
   const prevAlertLength = useRef(0);
-  const hasAutoAnalyzed = useRef(false);
-
   const sites = useMemo(
     () => {
       const mapped = (filteredLocations ?? []).map((l: any) => {
@@ -458,13 +456,6 @@ export function AiopsRcaPage() {
     }
     prevAlertLength.current = curLen;
   }, [alerts.length]);
-
-  useEffect(() => {
-    if (!hasAutoAnalyzed.current) {
-      hasAutoAnalyzed.current = true;
-      refetchAnalysis();
-    }
-  }, [refetchAnalysis]);
 
   const handleRunDeepAnalysis = () => {
     setDeepAnalysisRun(true);
