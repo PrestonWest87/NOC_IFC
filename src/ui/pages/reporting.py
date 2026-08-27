@@ -119,7 +119,7 @@ def render_reporting():
                     cm1, cm2 = st.columns(2)
                     aname = cm1.text_input("Analyst", value=current_user_obj.full_name or st.session_state.current_user)
                     cinfo = cm2.text_input("Contact", value=current_user_obj.contact_info or "")
-                    obj = st.text_area("AI Objective", value="Generate an exhaustive technical report.")
+                    obj = st.text_area("AI Objective", value="Write an evidence-based intelligence assessment with operational implications and prioritized defensive actions.")
 
                     is_rep_cooling = check_cooldown("gen_report_custom", 60)
                     if st.button("Synthesizing..." if is_rep_cooling else "Generate Report", type="primary", disabled=not perms["can_trigger_ai"] or is_rep_cooling, width="stretch"):

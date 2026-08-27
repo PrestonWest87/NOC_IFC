@@ -178,7 +178,7 @@ def truncate_text(text, max_chars=300):
     if not text: return "No details provided."
     return text if len(text) <= max_chars else text[:max_chars] + "..."
 
-def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size=6, progress_callback=None, map_temperature=0.1, reduce_temperature=0.2, skip_reduce=False, skip_noise_filter=False):
+def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size=6, progress_callback=None, map_temperature=0.1, reduce_temperature=0.2, skip_reduce=False, skip_noise_filter=False, force_reduce=False):
     if not items: return None
 
     ctx = get_effective_context_window(config)
@@ -241,7 +241,7 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
         logger.debug("_map_reduce_summarize: skip_reduce=True, returning %d map outputs (total %d chars)", len(batch_summaries), sum(len(s) for s in batch_summaries))
         return batch_summaries
 
-    if len(batch_summaries) > 1:
+    if len(batch_summaries) > 1 or force_reduce:
         if progress_callback:
             progress_callback(total_chunks, total_chunks, total_items, total_items)
         final_context = "\n\n".join(batch_summaries)
@@ -1622,22 +1622,48 @@ def generate_executive_weather_brief(analytics, p1_count, sys_config):
         {"role": "user", "content": prompt}
     ], sys_config, temperature=0.2)
 
-def build_custom_intel_report(articles, objective, session, progress_callback=None):
+def build_custom_intel_report(articles, objective, session, progress_callback=None, target=""):
     config = get_llm_config(session)
     if not config or not articles: return None
 
-    map_p = f"""Extract EVERY technical detail, IOC, targeted system, and threat actor mentioned in the text.
-    Align your extraction with the User Objective: {objective}
-    Provide raw, concise bullet points. No intro."""
+    map_p = f"""You are supporting a senior cyber threat intelligence analyst.
+Extract the significant, source-supported facts from the supplied articles for a later
+analytic assessment. Preserve attribution, dates, named tools, vulnerabilities, targets,
+observed activity, and explicit recommendations. Distinguish reported facts from claims
+or assessments and retain the source title for each important fact.
 
-    reduce_p = f"""You are a Senior CTI Analyst. Compile the raw intelligence below into an EXHAUSTIVE, technical report.
-    OBJECTIVE: {objective}
-    REQUIRED STRUCTURE:
-    ## Executive Threat Summary
-    ## Identified Threat Actors & TTPs
-    ## Indicators of Compromise (IOCs) & Vulnerabilities
-    ## Defensive Posture & Remediation
-    STRICT RULES: Use ONLY the provided data. Do not hallucinate."""
+User objective: {objective}
+Target or report consumer: {target or 'Not specified'}
+
+Return a compact evidence digest, not a finished report. Do not invent facts, fill gaps,
+or turn every noun into an IOC. Bullets are acceptable at this intermediate stage."""
+
+    reduce_p = f"""You are a senior cyber threat intelligence analyst writing a finished report
+for an operational intelligence audience. Use only the evidence digest below. The report
+consumer/target is: {target or 'Not specified'}.
+
+User objective: {objective}
+
+Write a coherent analytic report in Markdown. This must read like an intelligence product,
+not an extraction table or a list of categories:
+
+1. Start with `## Executive Assessment` and write 2-4 connected paragraphs. State what is
+   happening, who is responsible or suspected, why it matters to the target, and the
+   confidence/limitations of the assessment.
+2. Use `## Key Findings`, `## Threat Activity and Tradecraft`, `## Targeting and Exposure`,
+   `## Defensive Priorities`, and `## Sources and Caveats` as useful. Combine or omit a
+   section when the evidence does not support it.
+3. Use paragraphs for analysis and transitions. Use bullets only for a short set of
+   actionable priorities or clearly discrete technical indicators. Never create a long
+   inventory under headings such as threat actors, TTPs, IOCs, or targeted systems.
+4. Explain the operational significance of technical details and connect related facts.
+   Do not merely repeat them. Attribute claims (for example, "the reporting assesses...")
+   and identify unknowns rather than presenting allegations as established fact.
+5. End with a concise overall risk judgment and the most important next action. Do not
+   mention this prompt, the evidence digest, or apologize.
+
+STRICT RULES: Use ONLY the supplied evidence. Do not hallucinate CVEs, dates, victims,
+locations, capabilities, or relationships. If a requested detail is not supported, say so."""
 
     def _format_article(a):
         content = getattr(a, 'full_content', None) or getattr(a, 'summary', '') or ''
@@ -1650,7 +1676,8 @@ def build_custom_intel_report(articles, objective, session, progress_callback=No
     return _map_reduce_summarize(
         articles,
         _format_article,
-        map_p, reduce_p, config, chunk_size=8, progress_callback=progress_callback
+        map_p, reduce_p, config, chunk_size=8, progress_callback=progress_callback,
+        force_reduce=True
     )
 
 def generate_rolling_summary(session):

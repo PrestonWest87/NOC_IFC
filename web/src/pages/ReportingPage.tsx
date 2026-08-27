@@ -328,7 +328,7 @@ function CustomReportBuilder() {
   const [saveTitle, setSaveTitle] = useState("");
   const [emailRecipient, setEmailRecipient] = useState("");
   const [analyst, setAnalyst] = useState("");
-  const [objective, setObjective] = useState("Generate an exhaustive technical report covering threat actors, TTPs, IOCs, and defensive recommendations.");
+  const [objective, setObjective] = useState("Write an evidence-based intelligence assessment explaining the threat, its operational significance to the target, confidence and gaps, and prioritized defensive actions.");
   const [reportGenId, setReportGenId] = useState<string | null>(
     () => sessionStorage.getItem("custom_report_gen_id")
   );
@@ -615,7 +615,7 @@ function CustomReportBuilder() {
               </div>
               <textarea
                 style={textareaStyle}
-                placeholder="Generate an exhaustive technical report..."
+                 placeholder="Describe the analytic question or reporting outcome..."
                  maxLength={4000}
                  value={objective}
                  onChange={e => setObjective(e.target.value)}
@@ -625,7 +625,7 @@ function CustomReportBuilder() {
               onClick={() => {
                 if (selectedIds.size === 0) { alert("Please select at least one article."); return; }
                  const safeAnalyst = analyst.trim() || "Unknown";
-                 const safeObjective = objective.trim() || "Generate an exhaustive technical report.";
+                  const safeObjective = objective.trim() || "Write an evidence-based intelligence assessment with operational implications and prioritized defensive actions.";
                  if (safeAnalyst.length > 120 || safeObjective.length > 4000) { setInputError("Analyst and objective fields exceed their allowed limits."); return; }
                  genMutation.mutate({ article_ids: Array.from(selectedIds), target: target.trim(), days_back: daysBack, objective: safeObjective, analyst: safeAnalyst });
               }}

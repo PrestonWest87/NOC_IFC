@@ -230,8 +230,13 @@ def _run_custom_report_generation(generation_id, target, days_back, article_ids,
                 pct = int((done / total_chunks) * 75) + 20
                 _progress("generating", f"AI map-reduce: chunk {done}/{total_chunks}", pct)
 
-            report_md = build_custom_intel_report(articles, objective, session,
-                                                   progress_callback=_llm_progress)
+            report_md = build_custom_intel_report(
+                articles,
+                objective,
+                session,
+                progress_callback=_llm_progress,
+                target=target,
+            )
 
         if not report_md or "[WARN]" in (report_md or ""):
             _progress("error", "AI report generation failed.", 0)
