@@ -124,12 +124,12 @@ Opens a `SessionLocal` session:
 2. Defines `all_actions` — list of 38 granular action/tab permission strings.
 3. **Admin Role**: Creates or updates a role named `"admin"` with all pages and all actions.
 4. **Analyst Role**: Creates or updates a role named `"analyst"` with all pages except `"Settings & Admin"` and all actions.
-5. **Admin User**: If no users exist, creates the default `"admin"` user with:
+5. **Admin User**: If no users exist and `DEFAULT_ADMIN_PASSWORD` is non-empty, creates an `"admin"` user with:
    - Username: `admin`
-   - Password: `admin123` (bcrypt-hashed with generated salt)
+   - Password: the `DEFAULT_ADMIN_PASSWORD` value (bcrypt-hashed with generated salt)
    - Role: `admin`
-   - Full name: `"Preston"`
-   - Job title: `"Network Operations Analyst"`
+   - Full name: `"Administrator"`
+   - Job title: `"System Admin"`
    - Contact info: `"NOC Desk"`
 6. Commits the transaction. On error, rolls back and logs.
 

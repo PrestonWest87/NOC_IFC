@@ -1,6 +1,6 @@
 # web/tsconfig.json — TypeScript Compiler Configuration
 
-**Path:** `/home/weast/docker/NOC_IFC/web/tsconfig.json`
+**Path:** `web/tsconfig.json`
 
 ## Purpose
 

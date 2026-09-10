@@ -39,17 +39,13 @@ This starts 4 services:
 - **`api`** — FastAPI backend on port 8101
 - **`worker`** — Background scheduler for data ingestion
 - **`webhook`** — Webhook gateway on port 8100
-- **`web`** — React frontend on port 5173
+- **`web`** — React frontend exposed on port 8501 (container port 5173)
 
 ### 3. Access the Application
 
-Open **http://localhost:5173** in your browser.
+Open **http://localhost:8501** in your browser.
 
-Login with the default credentials:
-| Username | Password | Role |
-|----------|----------|------|
-| `admin` | `admin123` | Administrator (full access) |
-| `analyst` | `analyst123` | Analyst (all pages except Settings) |
+Set `DEFAULT_ADMIN_PASSWORD` in `.env` before first startup. The database creates the `admin` user only when no users exist and this value is non-empty. There is no guaranteed hard-coded default password and no automatic analyst-user seed in the current runtime.
 
 ### 4. Verify It's Running
 
@@ -93,6 +89,8 @@ This starts Vite dev server on port 5173 with proxy configuration for `/api` →
 
 ## Environment Configuration
 
+The checked-in `.env.example` is the complete environment template. The API, worker, and webhook load `.env` through Docker Compose. The frontend uses the `VITE_API_URL` value defined in `docker-compose.yml`; it is not read by the Python settings class.
+
 ### Required Variables
 
 | Variable | Example | Description |
@@ -109,13 +107,28 @@ This starts Vite dev server on port 5173 with proxy configuration for `/api` →
 | `NOC_NOTIFY_EMAIL` | NOC notification email (after hours) | After-hours notifications |
 | `NOC_ONPAGE_EMAIL` | On-page destination for NOC devices | Smart on-call paging |
 | `ITNETWORK_ONPAGE_EMAIL` | On-page destination for IT/Network devices | Smart on-call paging |
-| `LLM_API_URL` | Custom LLM endpoint URL | AI features (briefs, summaries, hunting) |
 | `ELASTIC_URL` | Elasticsearch connection URL | Elastic SIEM integration |
 | `ELASTIC_API_KEY` | Elasticsearch API key | Elastic SIEM integration |
+| `DEMO_SEED_DATA` | `true` only for disposable demos | Synthetic asset seed data |
+| `DEFAULT_ADMIN_PASSWORD` | Initial admin password | First boot when no users exist |
+| `LOG_LEVEL` | `INFO` | Python log threshold |
+| `CRIME_ALERT_SMS` | SMS gateway address | Crime notifications |
+| `CRIME_ALERT_EMAIL` | Email address | Crime notifications |
+| `WEBHOOK_HMAC_SECRET` | Shared signing secret | Signed SolarWinds webhooks |
+| `WEBHOOK_SIGNATURE_HEADER` | `X-SolarWinds-Signature` | Webhook signature header name |
+| `WEBHOOK_TIMESTAMP_HEADER` | `X-SolarWinds-Timestamp` | Webhook timestamp header name |
+| `WEBHOOK_REPLAY_WINDOW_SECONDS` | `300` | Webhook replay protection window |
+| `WEBHOOK_MAX_BODY_BYTES` | `1048576` | Maximum webhook request body |
+| `WEBSOCKET_MAX_MESSAGE_BYTES` | `65536` | Maximum client WebSocket message |
+| `ALLOW_PRIVATE_LLM_ENDPOINTS` | `false` | Permit private LLM endpoint URLs |
+| `ALLOW_UNSIGNED_WEBHOOKS` | `false` | Controlled webhook migration exception |
+| `PUBLIC_APP_URL` | `http://localhost:8501` | Registration link base URL |
+| `REGISTRATION_INVITE_TTL_HOURS` | `72` | Registration invite lifetime |
+| `RESCORE_ON_STARTUP` | `false` | Full article rescore during startup |
 
 ### SMTP Configuration
 
-Configure SMTP in the Settings page (AI & SMTP tab) or directly in the database `system_config` table:
+Configure SMTP and LLM settings in the Settings page (AI & SMTP tab) or directly in the database `system_config` table. These are application settings, not environment variables in the current runtime:
 
 | Field | Example |
 |-------|---------|
@@ -282,7 +295,7 @@ docker compose up --build -d --force-recreate web
    - Change the admin password
    - Create individual user accounts
 
-2. **Network isolation**: The webhook port (8100) and API port (8101) should not be exposed to the public internet. Only port 5173 (frontend) should be publicly accessible.
+2. **Network isolation**: The webhook port (8100) and API port (8101) should not be exposed to the public internet. Only port 8501 (production frontend) should be publicly accessible.
 
 3. **Secrets management**: Session tokens are database-backed, while integration settings are supplied through the supported environment variables and Settings UI. Keep `.env` out of version control and use a secret manager in production.
 

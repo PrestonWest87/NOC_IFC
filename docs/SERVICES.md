@@ -11,7 +11,6 @@ Enterprise-grade backend services powering the NOC Intelligence Fusion Center. T
 - [src/services/logic.py — Hybrid Scorer](#srcserviceslogicpy--hybrid-scorer)
 - [src/services/categorizer.py — Article Categorizer](#srcservicescategorizerpy--article-categorizer)
 - [src/services/ioc_extractor.py — Enterprise IOC Extractor](#srcservicesioc_extractorpy--enterprise-ioc-extractor)
-- [src/services/threat_hunter.py — Legacy IOC Extractor](#srcservicesthreat_hunterpy--legacy-ioc-extractor)
 - [src/services/aiops_engine.py — Enterprise AIOps Engine](#srcservicesaiops_enginepy--enterprise-aiops-engine)
 - [src/utils/llm.py — LLM Interaction](#srcutilsllmpy--llm-interaction)
 - [src/utils/mailer.py — Email Sender](#srcutilsmailerpy--email-sender)
@@ -316,35 +315,6 @@ Extracts **18 IOC types** across 5 categories:
 
 ---
 
-## src/services/threat_hunter.py — Legacy IOC Extractor
-
-**Location**: `src/services/threat_hunter.py`  
-**Size**: ~70 lines  
-**Role**: Simplified IOC extraction for the threat hunting UI. Retained for backward compatibility and fast extraction without context windows.
-
-### Supported IOC Types (8)
-
-`ip_address`, `domain`, `url`, `email`, `file_hash_md5`, `file_hash_sha1`, `file_hash_sha256`, `cve_id`
-
-### Functions
-
-| Function | Description |
-|---|---|
-| `extract_all_iocs(raw_text)` | Regex-based extraction for 8 IOC types. Returns a list of `{type, value}` dicts. No deduplication, no context windows, no de-obfuscation — intentionally lightweight. |
-
-### Comparison with EnterpriseIOCExtractor
-
-| Feature | Legacy (`threat_hunter`) | Enterprise (`ioc_extractor`) |
-|---|---|---|
-| IOC types | 8 | 18 |
-| De-obfuscation | No | Yes (refang) |
-| Context windows | No | Yes (±100 chars) |
-| Deduplication | No | Yes |
-| Confidence scoring | No | Yes |
-| Cloud/DevOps IOCs | No | Yes |
-
----
-
 ## src/services/aiops_engine.py — Enterprise AIOps Engine
 
 **Location**: `src/services/aiops_engine.py`  
@@ -497,16 +467,13 @@ When input exceeds the model's context window:
 
 ### Configuration
 
-SMTP settings loaded from `src/core/config.py` → `Settings`:
-- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`
-- TLS enforced via `starttls()`
-- Timeout: 10 seconds per connection
+SMTP settings are loaded from the first `SystemConfig` database row and configured in the Settings UI. The sender requires SMTP enabled, server, sender, and recipient; username/password are optional. It negotiates STARTTLS and uses a 10-second connection timeout.
 
 ### Dependencies
 
 - `smtplib` (stdlib)
 - `email.mime.multipart`, `email.mime.text` (stdlib)
-- `src/core/config.py` (SMTP settings)
+- `src/core/db.py` and `SystemConfig` (SMTP settings)
 
 ---
 
@@ -553,25 +520,11 @@ Score Change Detected
 ## src/core/config.py — Settings
 
 **Location**: `src/core/config.py`  
-**Size**: ~39 lines  
 **Role**: Centralized configuration via Pydantic `BaseSettings` with environment variable loading.
 
 ### Class: `Settings`
 
-Extends `pydantic.BaseSettings` with `.env` file support.
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `DATABASE_URL` | `str` | `sqlite:////app/data/noc_fusion.db` | SQLAlchemy connection string |
-| `ELASTIC_URL` | `str` | `""` | Elasticsearch endpoint (optional) |
-| `ELASTIC_API_KEY` | `str` | `""` | Elasticsearch API key (optional) |
-| `CRIME_ALERT_SMS` | `str` | `""` | Crime alert SMS recipient |
-| `CRIME_ALERT_EMAIL` | `str` | `""` | Crime alert email recipient |
-| `RISK_ALERT_RECIPIENTS` | `str` | `""` | Comma-separated risk alert email list |
-| `SMTP_HOST` | `str` | `""` | SMTP server hostname |
-| `SMTP_PORT` | `int` | `587` | SMTP server port |
-| `SMTP_USER` | `str` | `""` | SMTP username |
-| `SMTP_PASSWORD` | `str` | `""` | SMTP password |
+Extends `pydantic.BaseSettings` with `.env` file support. The complete field table, defaults, and environment mapping are maintained in [`reference/core/config.md`](reference/core/config.md). SMTP and LLM provider settings are stored in `SystemConfig`; they are not `SMTP_*` environment variables in the current runtime.
 
 ### Functions
 
@@ -618,7 +571,7 @@ Called on application startup. Performs schema creation, column migrations, and 
 | 1 | **Create all tables** | `Base.metadata.create_all()` — idempotent |
 | 2 | **Column migrations** | ALTER TABLE ADD COLUMN for each known missing column. Split into per-column try/except blocks to prevent one failure from blocking subsequent migrations. |
 | 3 | **Seed roles** | Inserts default roles: `admin`, `operator`, `viewer` with appropriate permission sets |
-| 4 | **Seed admin user** | Creates `admin` / `admin123` if not exists. bcrypt hashed. |
+| 4 | **Seed admin user** | Creates `admin` with `DEFAULT_ADMIN_PASSWORD` if no users exist and the variable is non-empty. Password is bcrypt hashed. |
 | 5 | **Seed RSS feeds** | Inserts default feed URLs for cybersecurity, weather, crime, and infrastructure news |
 | 6 | **Seed keywords** | Inserts 70 default keywords with weights for the hybrid scorer. **Critical**: keywords must be seeded before any scoring. |
 | 7 | **Rescale scores** | After keyword seeding, rescales all existing article scores to account for new keyword weights |
@@ -693,11 +646,11 @@ services/logic.py ────────────────────�
 
 | Scheduler Job | Service Module | Key Functions |
 |---|---|---|
-| RSS Feed Fetch (15 min) | `services.py` | Article ingestion, deduplication, categorization, scoring |
-| Crime Fetch (3 min) | `services.py` | Crime data ingestion, geocoding, proximity scoring |
-| Regional Hazards (2 min) | `services.py` | NWS alert processing, site intersection calculation |
-| Cloud Outages (5 min) | `services.py` | Cloud provider API polling, deduplication |
-| CISA KEV (6 hours) | `services.py` | KEV catalog sync, CVE enrichment |
+| RSS Feed Fetch (5 min) | `services.py` | Article ingestion, deduplication, categorization, scoring |
+| Crime Fetch (10 min) | `services.py` | Crime data ingestion, geocoding, proximity scoring |
+| Regional Hazards (7 min) | `services.py` | NWS alert processing, site intersection calculation |
+| Cloud Outages (8 min) | `services.py` | Cloud provider API polling, deduplication |
+| CISA KEV (7 hours) | `services.py` | KEV catalog sync, CVE enrichment |
 | Internal Risk (1 hour) | `services.py` | `calculate_internal_cis_score()`, `generate_and_save_internal_risk_snapshot()` |
 | Unified Brief (30 min) | `services.py` + `utils/llm.py` | `trigger_unified_brief()` → map-reduce LLM pipeline |
 | DB Maintenance (60 min) | `services.py` | `deduplicate_articles()`, old data purge, index optimization |

@@ -49,7 +49,7 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. Contains 27 table 
 | `username` | `String` | — | Y (unique) | Login username |
 | `password_hash` | `String` | — | — | bcrypt password hash |
 | `role` | `String` | `"analyst"` | Y | FK to `roles.name` |
-| `session_token` | `String` | `nullable` | Y | Active JWT session token |
+| `session_token` | `String` | `nullable` | Y | Active database-backed session token |
 | `full_name` | `String` | `nullable` | — | Display name |
 | `job_title` | `String` | `nullable` | — | Job title (e.g., "NOC Analyst") |
 | `contact_info` | `String` | `nullable` | — | Email or contact number |

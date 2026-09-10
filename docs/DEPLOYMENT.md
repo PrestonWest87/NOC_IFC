@@ -40,7 +40,7 @@ docker compose ps
 curl http://localhost:8101/health
 ```
 
-Once running, access the UI at `http://localhost:8501` and log in with `admin` / `admin123`.
+Once running, access the UI at `http://localhost:8501`. Log in as `admin` using the value configured in `DEFAULT_ADMIN_PASSWORD`.
 
 ---
 
@@ -52,9 +52,9 @@ Once running, access the UI at `http://localhost:8501` and log in with `admin` /
 |----------|-------|
 | Dockerfile | Project root (`./Dockerfile`) |
 | Base image | `python:3.11-slim` |
-| Command | `uvicorn src.api.main:app --host 0.0.0.0 --port 8101 --reload` |
+| Command | `uvicorn src.api.main:app --host 0.0.0.0 --port 8101` |
 | Port | `8101` |
-| Volumes | `./src:/app/src` (hot reload), `./data:/app/data` |
+| Volumes | `./data:/app/data` |
 | Environment | `.env` file |
 | WebSocket | `ws://localhost:8101/ws` |
 
@@ -66,8 +66,8 @@ Once running, access the UI at `http://localhost:8501` and log in with `admin` /
 | Base image | `python:3.11-slim` |
 | Command | `python -u src/scheduler.py` |
 | Port | None (internal only) |
-| Volumes | `./src:/app/src`, `./data:/app/data` |
-| Memory limit | 1 GB |
+| Volumes | `./data:/app/data` |
+| Memory limit | 1.5 GB |
 | Environment | `.env` file |
 
 Runs all scheduled jobs: RSS feed fetch, crime data, hazard monitoring, cloud outage tracking, CISA KEV updates, internal risk assessments, unified brief generation, DB maintenance, ML retraining, and tiered alert escalation.
@@ -80,7 +80,7 @@ Runs all scheduled jobs: RSS feed fetch, crime data, hazard monitoring, cloud ou
 | Base image | `python:3.11-slim` |
 | Command | `python -u src/webhook_listener.py` |
 | Port | `8100` |
-| Volumes | `./src:/app/src`, `./data:/app/data` |
+| Volumes | `./data:/app/data` |
 | Environment | `.env` file |
 
 Receives SolarWinds alerts at `POST http://localhost:8100/webhook/solarwinds`.
@@ -119,15 +119,30 @@ cp .env.example .env
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | Yes | `sqlite:////app/data/noc_fusion.db` | SQLite (default) or PostgreSQL connection string |
+| `DEMO_SEED_DATA` | No | `false` | Seed synthetic hardware/software assets; use only in disposable environments |
+| `DEFAULT_ADMIN_PASSWORD` | First boot | (empty) | Initial admin password when no users exist |
+| `LOG_LEVEL` | No | `INFO` | Python log threshold |
 | `RISK_ALERT_RECIPIENTS` | For alerts | (empty) | Comma-separated email addresses for risk alerts |
 | `REMEDYFORCE_TICKET_EMAIL` | For RCA | (empty) | Email target for RCA ticket dispatch |
 | `NOC_NOTIFY_EMAIL` | For after-hours | (empty) | NOC team notification email |
 | `NOC_ONPAGE_EMAIL` | For after-hours | (empty) | NOC on-call paging email |
 | `ITNETWORK_ONPAGE_EMAIL` | For after-hours | (empty) | IT Network on-call paging email |
 | `CRIME_ALERT_SMS` | For crime alerts | (empty) | SMS gateway email for crime notifications |
-| `DEFAULT_ADMIN_PASSWORD` | First run | (empty) | Sets initial admin password on first boot |
+| `CRIME_ALERT_EMAIL` | For crime alerts | (empty) | Email destination for crime notifications |
 | `ELASTIC_URL` | Optional | `https://localhost:9200` | Elasticsearch endpoint |
 | `ELASTIC_API_KEY` | Optional | (empty) | Elasticsearch read-only API key |
+| `WEBHOOK_HMAC_SECRET` | Optional | (empty) | Shared secret for signed SolarWinds requests |
+| `WEBHOOK_SIGNATURE_HEADER` | No | `X-SolarWinds-Signature` | Webhook signature header |
+| `WEBHOOK_TIMESTAMP_HEADER` | No | `X-SolarWinds-Timestamp` | Webhook timestamp header |
+| `WEBHOOK_REPLAY_WINDOW_SECONDS` | No | `300` | Accepted webhook timestamp age |
+| `WEBHOOK_MAX_BODY_BYTES` | No | `1048576` | Maximum webhook body size |
+| `WEBSOCKET_MAX_MESSAGE_BYTES` | No | `65536` | Maximum WebSocket client message |
+| `ALLOW_PRIVATE_LLM_ENDPOINTS` | No | `false` | Permit private LLM endpoint URLs |
+| `CORS_ORIGINS` | No | localhost origins | Comma-separated allowed browser origins |
+| `ALLOW_UNSIGNED_WEBHOOKS` | No | `false` | Controlled webhook migration exception |
+| `PUBLIC_APP_URL` | No | `http://localhost:8501` | Registration link base URL |
+| `REGISTRATION_INVITE_TTL_HOURS` | No | `72` | Registration invite lifetime |
+| `RESCORE_ON_STARTUP` | No | `false` | Full article rescore during startup |
 
 **Example production `.env`:**
 
@@ -272,7 +287,7 @@ server {
 
 ### Resource Limits
 
-The worker service has a 1 GB memory limit by default. For production, consider adding limits to other services:
+The worker service has a 1.5 GB memory limit by default. For production, consider adding limits to other services:
 
 ```yaml
 services:
@@ -285,7 +300,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+       memory: 1.5G
 ```
 
 ### Logging and Monitoring
@@ -348,7 +363,7 @@ All containers communicate on the same Docker bridge network. Internal service-t
 | CORS | Permissive | Allows all origins by default; restrict in `main.py` for production |
 | SMTP credentials | Database-stored | `SystemConfig` table, not in env vars |
 | API keys | Env vars + DB | LLM keys in `.env` and `SystemConfig` |
-| Default password | `admin123` | Must be changed post-deployment |
+| Initial password | `DEFAULT_ADMIN_PASSWORD` | Set before first boot; never rely on a hard-coded password |
 | WebSocket | No auth | Connects without authentication |
 
 **Recommended hardening:**

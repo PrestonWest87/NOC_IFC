@@ -80,7 +80,7 @@ All scheduler jobs are defined in `src/scheduler.py` and run inside the **worker
 
 | Attribute | Value |
 |-----------|-------|
-| **Interval** | Every 15 minutes |
+| **Interval** | Every 5 minutes |
 | **Source** | `src/scheduler.py` → feed worker |
 | **DB tables** | `articles`, `extracted_iocs` |
 
@@ -120,7 +120,7 @@ Schedule library fires
 
 | Attribute | Value |
 |-----------|-------|
-| **Interval** | Every 3 minutes |
+| **Interval** | Every 10 minutes |
 | **Source** | `src/scheduler.py` → crime worker |
 | **DB tables** | `crime_incidents` |
 
@@ -151,7 +151,7 @@ Schedule library fires
 
 | Attribute | Value |
 |-----------|-------|
-| **Interval** | Every 2 minutes |
+| **Interval** | Every 7 minutes |
 | **Source** | `src/scheduler.py` → infra worker |
 | **DB tables** | `regional_hazards`, `geojson_cache` |
 
@@ -190,7 +190,7 @@ Schedule library fires
 
 | Attribute | Value |
 |-----------|-------|
-| **Interval** | Every 5 minutes |
+| **Interval** | Every 8 minutes |
 | **Source** | `src/scheduler.py` → cloud worker |
 | **DB tables** | `cloud_outages` |
 
@@ -217,7 +217,7 @@ Schedule library fires
 
 | Attribute | Value |
 |-----------|-------|
-| **Interval** | Every 5 minutes |
+| **Interval** | Every 6 minutes |
 | **Source** | `src/scheduler.py` → telemetry worker |
 | **DB tables** | `bgp_anomalies`, `elastic_events` |
 
@@ -244,7 +244,7 @@ Schedule library fires
 
 | Attribute | Value |
 |-----------|-------|
-| **Interval** | Every 6 hours |
+| **Interval** | Every 7 hours |
 | **Source** | `src/scheduler.py` → cve worker |
 | **DB tables** | `cve_items` |
 

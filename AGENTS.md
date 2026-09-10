@@ -66,20 +66,11 @@ cd web && npm run dev
 
 ### Environment Variables (`.env`)
 
-```
-DATABASE_URL=sqlite:////app/data/noc_fusion.db   # Required
-RISK_ALERT_RECIPIENTS=email1,email2               # Risk alerts
-REMEDYFORCE_TICKET_EMAIL=ticket@solarwinds.com    # Tiered escalation
-NOC_NOTIFY_EMAIL=noc@example.com                  # After-hours NOC notification
-NOC_ONPAGE_EMAIL=noc-page@example.com             # NOC oncall paging
-ITNETWORK_ONPAGE_EMAIL=net-page@example.com       # IT Network oncall
-CRIME_ALERT_SMS=sms@gateway.com                   # Crime alert SMS via email
-DEFAULT_ADMIN_PASSWORD=admin123                   # First-run admin password
-```
+The complete environment template and source mapping are maintained in [`.env.example`](.env.example), [Getting Started](docs/GETTING_STARTED.md#environment-configuration), and [the environment reference](docs/reference/config/env_example.md). Do not maintain a second abbreviated variable list here.
 
-### Default Credentials
+### Initial Access
 
-- Login: `admin` / `admin123`
+- Set `DEFAULT_ADMIN_PASSWORD` before first startup; no hard-coded production password is guaranteed by the current seed logic.
 - Webhook target: `POST http://host:8100/webhook/solarwinds`
 
 ### Risk Levels
@@ -125,17 +116,16 @@ DEFAULT_ADMIN_PASSWORD=admin123                   # First-run admin password
 | File | Purpose |
 |------|---------|
 | `src/api/main.py` | FastAPI app entry, router mounting, WebSocket manager |
-| `src/api/routes/*.py` | 13 route modules (auth, dashboard, threat, regional, hunting, rca, aiops, logbook, reporting, settings, admin, llm, email) |
+| `src/api/routes/*.py` | 14 route modules (auth, dashboard, threat, regional, hunting, rca, aiops, logbook, reporting, settings, admin, llm, email, keyword_analysis) |
 | `src/services.py` | Central Data Access Layer (~3270 lines) |
 | `src/services/aiops_engine.py` | EnterpriseAIOpsEngine — clustering, patient zero, RCA |
 | `src/services/logic.py` | HybridScorer — keyword + ML scoring |
 | `src/services/categorizer.py` | Article categorization (8 categories via regex) |
 | `src/services/ioc_extractor.py` | Enterprise IOC extraction (18 types, 5 categories) |
-| `src/services/threat_hunter.py` | Legacy IOC extraction |
 | `src/core/db.py` | DB engine + session + init_db() (schema + seed data) |
 | `src/core/config.py` | Pydantic settings + logging |
 | `src/models/schema.py` | 27 SQLAlchemy models |
-| `src/scheduler.py` | Background job orchestrator (12 jobs) |
+| `src/scheduler.py` | Background job orchestrator and frequency controls |
 | `src/webhook_listener.py` | SolarWinds webhook gateway (port 8100) |
 | `src/utils/llm.py` | LLM interaction (OpenAI/Ollama), map-reduce brief pipeline |
 | `src/utils/mailer.py` | SMTP email sending |
@@ -146,16 +136,18 @@ DEFAULT_ADMIN_PASSWORD=admin123                   # First-run admin password
 
 | Job | Interval | Description |
 |-----|----------|-------------|
-| RSS Feed Fetch | 15 min | Async RSS ingestion → score → categorize → extract IOCs → dedup |
-| Crime Fetch | 3 min | Crime API data + perimeter alert dispatch |
-| Regional Hazards | 2 min | NWS weather, USGS earthquakes, site intersections |
-| Cloud Outages | 5 min | Google Cloud status |
-| Telemetry Sync | 5 min | BGP anomalies, elastic events |
-| CISA KEV | 6 hours | Known Exploited Vulnerabilities catalog |
-| Internal Risk | 1 hour | Internal CIS scoring pipeline |
-| Unified Brief | 30 min | AI map-reduce brief generation |
-| Global Brief | 1 hour | AI map-reduce US critical infrastructure threat brief (incl. weather & crime) |
-| Internal Brief | 2 hours | AI map-reduce internal asset OSINT correlation brief |
+| RSS Feed Fetch | 5 min | Async RSS ingestion → score → categorize → extract IOCs → dedup |
+| Article Enrichment | 3 min | Full-content extraction for high-score articles |
+| Crime Fetch | 10 min | Crime API data + perimeter alert dispatch |
+| Regional Hazards | 7 min | NWS weather, USGS earthquakes, site intersections |
+| Cloud Outages | 8 min | Cloud provider status |
+| Telemetry Sync | 6 min | BGP anomalies, Elastic events |
+| CISA KEV | 7 hours | Known Exploited Vulnerabilities catalog |
+| Internal Risk | 2 hours | Internal CIS scoring pipeline |
+| Rolling Summary | 30 min | AI shift handoff summary |
+| Unified Brief | 6 hours | AI map-reduce brief generation |
+| Global Brief | Daily 02:00 | AI map-reduce US critical infrastructure threat brief |
+| Internal Brief | 3 hours | AI map-reduce internal asset OSINT correlation brief |
 | Tiered Escalation | 1 min | P1-P5 SLA, cascade, flapping, oncall paging |
 | DB Maintenance | 60 min | Dedup + data purge per retention policy |
 | ML Retrain | Sunday 02:00 | scikit-learn model training + hot reload |

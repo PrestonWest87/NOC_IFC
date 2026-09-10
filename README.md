@@ -15,7 +15,7 @@ cp .env.example .env
 docker compose up --build -d
 ```
 
-Open **http://localhost:5173** — Login: `admin` / `admin123`
+Open **http://localhost:8501**. Set `DEFAULT_ADMIN_PASSWORD` before first startup, then log in as `admin` with that password.
 
 ### Development (hot reload)
 
@@ -28,12 +28,12 @@ docker compose --profile dev up --build -d
 ## Architecture
 
 ```
-Browser (React SPA) → nginx:5173 → FastAPI:8101 → SQLite/PostgreSQL
+Browser (React SPA) → nginx:8501 → FastAPI:8101 → SQLite/PostgreSQL
                                         ↓
                           + Worker + Webhook:8100
 ```
 
-Four Docker services: **api** (FastAPI + WebSocket), **worker** (10 background jobs), **webhook** (SolarWinds gateway on port 8100), **web** (nginx-served React SPA on port 5173).
+Four Docker services: **api** (FastAPI + WebSocket), **worker** (scheduled jobs), **webhook** (SolarWinds gateway on port 8100), **web** (nginx-served React SPA exposed on port 8501).
 
 ---
 
@@ -160,16 +160,7 @@ Run by the `worker` container (`python -u src/scheduler.py`):
 
 ## Environment Variables
 
-| Variable | Required | Default | Purpose |
-|----------|----------|---------|---------|
-| `DATABASE_URL` | Yes | `sqlite:////app/data/noc_fusion.db` | Database connection string |
-| `CORS_ORIGINS` | No | localhost origins | Allowed browser origins |
-| `RISK_ALERT_RECIPIENTS` | No | — | Email recipients for risk alerts |
-| `REMEDYFORCE_TICKET_EMAIL` | No | — | Tiered escalation ticket destination |
-| `NOC_NOTIFY_EMAIL` | No | — | NOC notification (after hours) |
-| `NOC_ONPAGE_EMAIL` | No | — | NOC on-page destination |
-| `ITNETWORK_ONPAGE_EMAIL` | No | — | IT/Network on-page destination |
-| `LLM_API_URL` | No | — | Custom LLM endpoint |
+The complete environment template is [`.env.example`](./.env.example). See [Getting Started](./docs/GETTING_STARTED.md#environment-configuration) and the [environment reference](./docs/reference/config/env_example.md) for defaults, consumers, and security guidance.
 
 ---
 
@@ -184,12 +175,9 @@ The webhook listener normalizes SolarWinds ITSM alerts, classifies devices into 
 
 ---
 
-## Default Credentials
+## Initial Access
 
-| Username | Password | Role |
-|----------|----------|------|
-| `admin` | `admin123` | Administrator |
-| `analyst` | `analyst123` | Analyst |
+Set `DEFAULT_ADMIN_PASSWORD` in `.env` before first startup. The database seeds an `admin` user only when no users exist and a non-empty password is provided. No hard-coded password is guaranteed by the current seed logic.
 
 **Change default passwords immediately in production.**
 

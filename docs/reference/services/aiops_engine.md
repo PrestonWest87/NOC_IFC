@@ -1,6 +1,6 @@
 # Enterprise AIOps Engine Documentation
 
-**File:** `/home/weast/docker/NOC_IFC/src/services/aiops_engine.py`
+**File:** `src/services/aiops_engine.py`
 
 The `EnterpriseAIOpsEngine` class provides root cause analysis, incident clustering, fleet outage detection, and chronic instability insights for the NOC's infrastructure monitoring.
 

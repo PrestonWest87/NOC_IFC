@@ -36,6 +36,10 @@ curl -fsS http://localhost:8101/ready
 | `DEFAULT_ADMIN_PASSWORD` | empty | Setting the first admin password before first boot |
 | `LOG_LEVEL` | `INFO` | Increasing diagnostic detail (`DEBUG`) or reducing noise |
 | `RISK_ALERT_RECIPIENTS` | empty | Enabling risk and daily brief recipients |
+| `REMEDYFORCE_TICKET_EMAIL` | empty | Escalation ticket destination |
+| `NOC_NOTIFY_EMAIL` | empty | After-hours NOC notifications |
+| `NOC_ONPAGE_EMAIL` | empty | After-hours NOC paging |
+| `ITNETWORK_ONPAGE_EMAIL` | empty | After-hours IT/network paging |
 | `CRIME_ALERT_SMS`, `CRIME_ALERT_EMAIL` | empty | Enabling perimeter alert destinations |
 | `ELASTIC_URL`, `ELASTIC_API_KEY` | local URL / empty | Enabling Elastic telemetry |
 | `WEBHOOK_HMAC_SECRET` | empty | Enabling SolarWinds signature validation |

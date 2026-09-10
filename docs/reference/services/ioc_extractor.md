@@ -1,6 +1,6 @@
 # Enterprise IOC Extractor Documentation
 
-**File:** `/home/weast/docker/NOC_IFC/src/services/ioc_extractor.py`
+**File:** `src/services/ioc_extractor.py`
 
 ---
 

@@ -1,6 +1,6 @@
 # .gitignore — Git Exclusion Rules
 
-**Path:** `/home/weast/docker/NOC_IFC/.gitignore`
+**Path:** `.gitignore`
 
 ## Purpose
 

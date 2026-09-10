@@ -1,6 +1,6 @@
 # web/vite.config.ts — Vite Build & Dev Server Configuration
 
-**Path:** `/home/weast/docker/NOC_IFC/web/vite.config.ts`
+**Path:** `web/vite.config.ts`
 
 ## Purpose
 

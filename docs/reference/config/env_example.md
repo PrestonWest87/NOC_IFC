@@ -1,59 +1,37 @@
-# .env.example — Environment Variable Template
+# `.env.example` Environment Reference
 
-**Path:** `/home/weast/docker/NOC_IFC/.env.example`
+**Path:** `.env.example`
 
-## Purpose
+This file is the complete template for environment variables used by the current Python runtime. Copy it to `.env`; Docker injects it into `api`, `worker`, and `webhook`. The frontend-only `VITE_API_URL` values are defined in `docker-compose.yml`.
 
-Template file documenting required environment variables. Users copy this to `.env` (which is gitignored) and populate with real values.
-
-## Variables
-
-### `DATABASE_URL`
-
-| Property | Value |
-|----------|-------|
-| **Required** | Yes |
-| **Type** | `string` |
-| **Default** | `sqlite:////app/data/noc_fusion.db` (assumed — not declared in example) |
-| **Example** | `DATABASE_URL=sqlite:////app/data/noc_fusion.db` |
-| **Example (PostgreSQL)** | `DATABASE_URL=postgresql://user:password@host:5432/noc_fusion` |
-
-**Description:** SQLAlchemy database connection string. Determines which database engine and path the application uses.
-
-- **SQLite (default):** `sqlite:////app/data/noc_fusion.db` — file-based, no separate server required. The database file lives at the path `/app/data/noc_fusion.db` inside the container, mapped to `./data/` on the host via Docker volume.
-- **PostgreSQL:** `postgresql://user:password@host:5432/noc_fusion` — requires a running PostgreSQL server. Install `psycopg2-binary` (already in `requirements.txt`) and set the connection string accordingly.
-
-### `RISK_ALERT_RECIPIENTS`
-
-| Property | Value |
-|----------|-------|
-| **Required** | Yes (if using risk alerts) |
-| **Type** | `string` |
-| **Default** | None |
-| **Example** | `RISK_ALERT_RECIPIENTS=admin@example.com,soc@example.com` |
-
-**Description:** Comma-separated list of email recipients for automated risk alert notifications. When the risk assessment engine detects conditions exceeding a configurable threshold, an email alert is sent to every address in this list.
-
-## Usage
-
-```bash
-# Copy the template
-cp .env.example .env
-
-# Edit with your values
-vim .env
-
-# .env is automatically loaded by docker-compose (env_file: .env)
-# and by python-dotenv (imported in src/core/config.py)
-```
+| Variable | Default in template | Read by | Purpose |
+|---|---|---|---|
+| `DATABASE_URL` | SQLite `/app/data/noc_fusion.db` | `src.core.config` | SQLAlchemy database URL |
+| `DEMO_SEED_DATA` | `false` | `src.core.config` | Enable synthetic asset seed data |
+| `DEFAULT_ADMIN_PASSWORD` | change-me placeholder | `src.core.db` | Initial admin password when the database has no users |
+| `LOG_LEVEL` | `INFO` | `src.core.config` | Python logging threshold |
+| `RISK_ALERT_RECIPIENTS` | empty | scheduler/config | Risk and daily brief recipients |
+| `REMEDYFORCE_TICKET_EMAIL` | empty | scheduler | Required ticket destination for escalation |
+| `NOC_NOTIFY_EMAIL` | empty | scheduler/infra worker | After-hours NOC notification |
+| `NOC_ONPAGE_EMAIL` | empty | scheduler | After-hours NOC paging for SWF/fiber devices |
+| `ITNETWORK_ONPAGE_EMAIL` | empty | scheduler | After-hours IT/network paging |
+| `ELASTIC_URL` | `https://localhost:9200` | `src.core.config` | Elasticsearch endpoint |
+| `ELASTIC_API_KEY` | empty | `src.core.config` | Elasticsearch credential |
+| `CRIME_ALERT_SMS` | empty | `src.core.config` | Crime SMS gateway destination |
+| `CRIME_ALERT_EMAIL` | empty | `src.core.config` | Crime email destination |
+| `WEBHOOK_HMAC_SECRET` | empty | `src.core.config`/webhook | Shared SolarWinds signing secret |
+| `WEBHOOK_SIGNATURE_HEADER` | `X-SolarWinds-Signature` | webhook | Signature header name |
+| `WEBHOOK_TIMESTAMP_HEADER` | `X-SolarWinds-Timestamp` | webhook | Replay timestamp header name |
+| `WEBHOOK_REPLAY_WINDOW_SECONDS` | `300` | webhook | Accepted timestamp age |
+| `WEBHOOK_MAX_BODY_BYTES` | `1048576` | webhook | Maximum request body size |
+| `WEBSOCKET_MAX_MESSAGE_BYTES` | `65536` | API | Maximum client WebSocket message |
+| `ALLOW_PRIVATE_LLM_ENDPOINTS` | `false` | LLM route | Permit private LLM endpoint URLs |
+| `CORS_ORIGINS` | localhost web origins | API | Comma-separated browser origin allowlist |
+| `ALLOW_UNSIGNED_WEBHOOKS` | `false` | webhook | Controlled unsigned-webhook migration exception |
+| `PUBLIC_APP_URL` | `http://localhost:8501` | admin routes | Registration link base URL |
+| `REGISTRATION_INVITE_TTL_HOURS` | `72` | admin routes | Default invite lifetime |
+| `RESCORE_ON_STARTUP` | `false` | database initialization | Explicitly rescore all existing articles at startup |
 
 ## Security
 
-`.env` is listed in `.gitignore` to prevent accidental commit of secrets. Never commit database credentials, API keys, or email server passwords to version control.
-
-## Consumed By
-
-| Service | File | How |
-|---------|------|-----|
-| api, worker, webhook | `docker-compose.yml` | `env_file: .env` — injected as container environment variables |
-| All Python services | `src/core/config.py` | `pydantic-settings` reads `DATABASE_URL`, email config, and other env vars at startup |
+Never commit `.env`. Replace all development defaults before production deployment. SMTP and LLM provider credentials are application settings stored in `SystemConfig`, not additional environment variables in the current runtime.

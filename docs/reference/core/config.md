@@ -23,6 +23,17 @@ Centralized, typed configuration container that reads from environment variables
 | `crime_alert_sms` | `str \| None` | `None` | Phone number or SMS gateway for crime alert notifications. |
 | `crime_alert_email` | `str \| None` | `None` | Email address for crime alert notifications. |
 | `risk_alert_recipients` | `str` | `""` | Comma-separated list of email recipients for risk alert notifications. |
+| `webhook_hmac_secret` | `str \| None` | `None` | Shared secret for SolarWinds HMAC validation. |
+| `webhook_signature_header` | `str` | `X-SolarWinds-Signature` | HMAC signature header name. |
+| `webhook_timestamp_header` | `str` | `X-SolarWinds-Timestamp` | Replay-protection timestamp header name. |
+| `webhook_replay_window_seconds` | `int` | `300` | Maximum accepted webhook timestamp age. |
+| `webhook_max_body_bytes` | `int` | `1048576` | Maximum accepted webhook request size. |
+| `websocket_max_message_bytes` | `int` | `65536` | Maximum accepted client WebSocket message size. |
+| `allow_private_llm_endpoints` | `bool` | `False` | Controls whether private LLM endpoint URLs are accepted. |
+| `cors_origins` | `str` | localhost origins | Comma-separated CORS allowlist. |
+| `allow_unsigned_webhooks` | `bool` | `False` | Controlled exception for unsigned webhook migration. |
+| `public_app_url` | `str` | `http://localhost:8501` | Base URL used for registration links. |
+| `registration_invite_ttl_hours` | `int` | `72` | Default registration invite lifetime. |
 
 ### Inner Class: `Config`
 
@@ -53,7 +64,7 @@ Centralized, typed configuration container that reads from environment variables
 | `CRIME_ALERT_EMAIL` | `settings.crime_alert_email` | `str \| None` | Email for crime alerts. |
 | `RISK_ALERT_RECIPIENTS` | `settings.risk_alert_recipients` | `str` | Risk alert email recipients. |
 
-These are convenience aliases extracted once at import time so that other modules can `from src.core.config import DATABASE_URL` directly.
+The module also exports convenience aliases for the first five fields. Other settings are accessed through the singleton `settings` object.
 
 ---
 

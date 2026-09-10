@@ -793,7 +793,7 @@ Migrates `monitored_locations.priority` from Integer encoding to String encoding
 
 Creates `admin` and `analyst` roles with full page/action permission arrays. Creates `admin` user if `DEFAULT_ADMIN_PASSWORD` env var is set and no users exist.
 
-**Default admin credentials:** `admin` / value of `DEFAULT_ADMIN_PASSWORD` (or `admin123` if unset).
+**Initial admin credentials:** username `admin` and the value of `DEFAULT_ADMIN_PASSWORD`; no user is created when that variable is empty.
 
 ### Phase 6 — Seed RSS feeds (lines 276–299)
 

@@ -21,7 +21,7 @@
 
 ## 1. RSS Feed Ingestion Pipeline
 
-**Trigger:** Scheduler, every 15 minutes
+**Trigger:** Scheduler, every 5 minutes
 **Source files:** `src/scheduler.py:56-216`, `src/services/logic.py`, `src/services/categorizer.py`, `src/services/ioc_extractor.py`
 
 ### Overview
@@ -35,7 +35,7 @@ and deduplicates stale entries.
 
 ```
                          ┌──────────────────────────────────────┐
-                         │   SCHEDULER (every 15 minutes)       │
+                         │   SCHEDULER (every 5 minutes)        │
                          └──────────────┬───────────────────────┘
                                         │
                                         ▼
@@ -1010,7 +1010,7 @@ An increase is strictly: `tier_index(current) > tier_index(previous)`.
 
 ## 8. Weather/Telemetry Ingestion Pipeline
 
-**Trigger:** Scheduler, every 2 minutes (hazards), 5 minutes (cloud/telemetry)
+**Trigger:** Scheduler, every 7 minutes (hazards), 8 minutes (cloud), 6 minutes (telemetry)
 **Source files:** `src/workers/infra_worker.py:1-235`, `src/workers/cloud_worker.py:1-206`, `src/workers/telemetry_worker.py:1-144`, `src/workers/crime_worker.py:1-154`
 
 ### Overview
@@ -1026,7 +1026,7 @@ local crime dispatch data. Each sub-pipeline runs independently on its own sched
 │              WEATHER / TELEMETRY INGESTION PIPELINE                          │
 │                                                                              │
 │  ════════════════════════════════════════════════════════════════════════════ │
-│  SUB-PIPELINE A: Regional Hazards (every 2 minutes)                        │
+│  SUB-PIPELINE A: Regional Hazards (every 7 minutes)                        │
 │  ════════════════════════════════════════════════════════════════════════════ │
 │                                                                              │
 │  fetch_regional_hazards()                                                    │
@@ -1077,7 +1077,7 @@ local crime dispatch data. Each sub-pipeline runs independently on its own sched
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ════════════════════════════════════════════════════════════════════════════ │
-│  SUB-PIPELINE B: Cloud Outages (every 5 minutes)                           │
+│  SUB-PIPELINE B: Cloud Outages (every 8 minutes)                           │
 │  ════════════════════════════════════════════════════════════════════════════ │
 │                                                                              │
 │  fetch_cloud_outages()                                                       │
@@ -1098,7 +1098,7 @@ local crime dispatch data. Each sub-pipeline runs independently on its own sched
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ════════════════════════════════════════════════════════════════════════════ │
-│  SUB-PIPELINE C: Telemetry Sync (every 5 minutes)                          │
+│  SUB-PIPELINE C: Telemetry Sync (every 6 minutes)                          │
 │  ════════════════════════════════════════════════════════════════════════════ │
 │                                                                              │
 │  run_telemetry_sync()                                                        │
@@ -1121,7 +1121,7 @@ local crime dispatch data. Each sub-pipeline runs independently on its own sched
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ════════════════════════════════════════════════════════════════════════════ │
-│  SUB-PIPELINE D: Crime Data (every 3 minutes)                              │
+│  SUB-PIPELINE D: Crime Data (every 10 minutes)                             │
 │  ════════════════════════════════════════════════════════════════════════════ │
 │                                                                              │
 │  fetch_live_crimes()                                                         │
@@ -1146,7 +1146,7 @@ local crime dispatch data. Each sub-pipeline runs independently on its own sched
 │  └────────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 │  ════════════════════════════════════════════════════════════════════════════ │
-│  SUB-PIPELINE E: CISA KEV (every 6 hours)                                  │
+│  SUB-PIPELINE E: CISA KEV (every 7 hours)                                  │
 │  ════════════════════════════════════════════════════════════════════════════ │
 │                                                                              │
 │  fetch_cisa_kev()                                                            │
@@ -1178,10 +1178,10 @@ For each monitored site (Lat, Lon):
 
 | Data Source | Cache Key | TTL |
 |-------------|-----------|-----|
-| SPC Outlooks | `spc_day1`, `spc_day2`, `spc_day3` | 2 min (re-fetched) |
-| NWS Alerts (AR) | `nws_ar` | 2 min |
-| NWS Alerts (OOS) | `nws_oos` | 2 min |
-| USGS Earthquakes | `usgs_ar`, `usgs_oos` | 2 min |
+| SPC Outlooks | `spc_day1`, `spc_day2`, `spc_day3` | 7 min (re-fetched) |
+| NWS Alerts (AR) | `nws_ar` | 7 min |
+| NWS Alerts (OOS) | `nws_oos` | 7 min |
+| USGS Earthquakes | `usgs_ar`, `usgs_oos` | 7 min |
 | GeoJSON Cache (all) | `GeoJsonCache.feed_name` | In-DB, overwritten each cycle |
 
 ---
@@ -1244,17 +1244,17 @@ job_daily_email_unified_brief()
 
 | Job | Interval | Function | Thread Safety |
 |-----|----------|----------|---------------|
-| RSS Feed Fetch | 15 min | `fetch_feeds()` | Threaded |
-| Crime Fetch | 3 min | `fetch_live_crimes()` | Threaded |
-| Regional Hazards | 2 min | `fetch_regional_hazards()` | Threaded |
-| Cloud Outages | 5 min | `fetch_cloud_outages()` | Threaded |
-| CISA KEV | 6 hours | `fetch_cisa_kev()` | Threaded |
+| RSS Feed Fetch | 5 min | `fetch_feeds()` | Threaded |
+| Crime Fetch | 10 min | `fetch_live_crimes()` | Threaded |
+| Regional Hazards | 7 min | `fetch_regional_hazards()` | Threaded |
+| Cloud Outages | 8 min | `fetch_cloud_outages()` | Threaded |
+| CISA KEV | 7 hours | `fetch_cisa_kev()` | Threaded |
 | Internal Risk | 1 hour | `job_internal_risk()` | Threaded |
 | Unified Brief | 30 min | `job_unified_brief()` | Threaded |
 | DB Maintenance | 60 min | `run_database_maintenance()` | Threaded |
 | ML Retrain | Sunday 02:00 | `job_retrain_ml()` | Threaded |
 | Tiered Escalation | 1 min | `job_tiered_alert_escalation()` | Threaded |
-| Telemetry Sync | 5 min | `run_telemetry_sync()` | Threaded |
+| Telemetry Sync | 6 min | `run_telemetry_sync()` | Threaded |
 | Daily Email Brief | 07:00 CST | `job_daily_email_unified_brief()` | Threaded |
 
 All scheduled jobs are wrapped in `run_threaded()` which spawns a daemon thread, preventing

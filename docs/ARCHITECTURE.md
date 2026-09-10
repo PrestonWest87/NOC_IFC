@@ -56,7 +56,7 @@ The router modules are `auth`, `dashboard`, `threat`, `regional`, `hunting`, `rc
 
 `src/services.py` is the central data-access and domain-service module used by routes and jobs. `src/services/` contains focused engines. `src/services/__init__.py` dynamically exposes the sibling `src/services.py` compatibility module; this is intentional and must not be “simplified” without checking all imports.
 
-The API uses `src.core.db`; the scheduler imports the compatibility surface from `src.database`. Both resolve to the same SQLAlchemy-backed model/session system. `src/app.py` and `src/ui/` are legacy Streamlit-era code and are not the Docker runtime entrypoints.
+The API uses `src.core.db`; the scheduler imports the compatibility surface from `src.database`. Both resolve to the same SQLAlchemy-backed model/session system. The former Streamlit entrypoint and `src/ui/` tree have been removed; they are not Docker runtime entrypoints.
 
 ### Correlation and scoring
 

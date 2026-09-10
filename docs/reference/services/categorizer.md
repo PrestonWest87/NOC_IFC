@@ -1,6 +1,6 @@
 # Article Categorizer Documentation
 
-**File:** `/home/weast/docker/NOC_IFC/src/services/categorizer.py`
+**File:** `src/services/categorizer.py`
 
 ---
 

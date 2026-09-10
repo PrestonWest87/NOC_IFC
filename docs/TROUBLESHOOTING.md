@@ -41,6 +41,10 @@ docker compose up -d
 
 The RSS path downloads in chunks of five, scores title and summary text, and skips links seen in the last seven days. A feed can be reachable while producing zero new records because all links are duplicates.
 
+## Elastic Sync Endpoint Returns an Error
+
+The route `POST /api/v1/threat/sync-elastic-cache` currently references `run_elastic_sync`, but the worker module exports `sync_elastic_telemetry` instead. Confirm this naming mismatch in the API and worker logs before treating an Elastic synchronization failure as a connectivity problem. This requires an application-code reconciliation; do not delete `elastic_worker.py`.
+
 ## Scores Are Zero or Unexpected
 
 Check keyword rows and weights in Keyword Analysis/Settings. Keyword changes are persisted in `Keyword.weight`; the scorer can be reloaded through the application. To explicitly rescore existing articles, set `RESCORE_ON_STARTUP=true` for a controlled restart or use the administrative rescore operation if available. Do not leave startup rescoring enabled on every restart for a large database.

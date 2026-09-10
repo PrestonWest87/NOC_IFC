@@ -17,7 +17,7 @@ A full-viewport centered form with:
 - Title "NOC Fusion Center" and subtitle "Intelligence Fusion Gateway"
 - Error message banner (conditionally rendered)
 - Username input field (default: "admin")
-- Password input field (default: "admin123")
+- Password input field (blank until the operator enters the configured password)
 - "Sign In" submit button with loading state
 
 ### Flow
@@ -26,7 +26,7 @@ A full-viewport centered form with:
 | State | Type | Default | Description |
 |-------|------|---------|-------------|
 | `username` | `string` | `"admin"` | Username input value |
-| `password` | `string` | `"admin123"` | Password input value |
+| `password` | `string` | `""` | Password input value |
 | `error` | `string` | `""` | Error message on failed login |
 | `loading` | `boolean` | `false` | Loading indicator during authentication |
 

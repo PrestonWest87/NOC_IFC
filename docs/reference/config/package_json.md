@@ -1,6 +1,6 @@
 # web/package.json — Node.js Project Manifest
 
-**Path:** `/home/weast/docker/NOC_IFC/web/package.json`
+**Path:** `web/package.json`
 
 ## Purpose
 

@@ -13,7 +13,7 @@ The API currently mounts 14 routers, including `/keyword-analysis`. See `docs/CO
 
 Request body:
 ```json
-{"username": "admin", "password": "admin123"}
+{"username": "admin", "password": "<value configured in DEFAULT_ADMIN_PASSWORD>"}
 ```
 Response (200):
 ```json
@@ -105,6 +105,8 @@ Manually triggers RSS feed fetch cycle.
 ### POST /threat/fetch-crime-data
 
 ### POST /threat/sync-elastic-cache?hours_back=24
+
+**Implementation note:** The current route imports `run_elastic_sync`, while `src/workers/elastic_worker.py` exports `sync_elastic_telemetry`, `execute_live_query`, and `purge_stale_elastic_data`. Until those names are reconciled in application code, this endpoint returns the route's error response rather than completing a sync.
 
 ### POST /threat/generate-siem-triage
 Body expects `.events` key. Returns AI-generated SIEM triage summary.

@@ -1,6 +1,6 @@
 # Services Package Init Documentation
 
-**File:** `/home/weast/docker/NOC_IFC/src/services/__init__.py`
+**File:** `src/services/__init__.py`
 
 ---
 

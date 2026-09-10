@@ -9,7 +9,7 @@ This directory is the detailed source-oriented reference corpus. It is part of t
 - `models/`: SQLAlchemy entities and relationships.
 - `services/`: data access, scoring, categorization, IOC extraction, and AIOps algorithms.
 - `utils/`: LLM, mail, and risk-alert behavior.
-- `workers/`: external feed workers and reusable worker lifecycle.
+- `workers/`: external feed workers and scheduled data integrations.
 - `web/`: React pages, components, hooks, state, and utilities.
 - `config/`: Docker, nginx, TypeScript, Vite, dependency, and environment-file notes.
 

@@ -1,6 +1,6 @@
 # web/index.html — SPA Entry Point
 
-**Path:** `/home/weast/docker/NOC_IFC/web/index.html`
+**Path:** `web/index.html`
 
 ## Purpose
 

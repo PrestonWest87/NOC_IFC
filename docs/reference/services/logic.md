@@ -1,6 +1,6 @@
 # Hybrid Scorer Documentation
 
-**File:** `/home/weast/docker/NOC_IFC/src/services/logic.py`
+**File:** `src/services/logic.py`
 
 ---
 

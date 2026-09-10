@@ -1,6 +1,6 @@
 # docker-compose.yml — Multi-Service Orchestration
 
-**Path:** `/home/weast/docker/NOC_IFC/docker-compose.yml`
+**Path:** `docker-compose.yml`
 
 ## Purpose
 
@@ -14,10 +14,10 @@ Defines five services (`api`, `worker`, `webhook`, `web`, `web-dev`) that consti
 |-----|-------|-------------|
 | `build.context` | `.` | Project root as build context. |
 | `build.dockerfile` | `Dockerfile` | Uses main Python Dockerfile. |
-| `command` | `uvicorn src.api.main:app --host 0.0.0.0 --port 8101 --reload` | Launches FastAPI via Uvicorn with hot-reload. Listens on all interfaces port 8101. |
+| `command` | `uvicorn src.api.main:app --host 0.0.0.0 --port 8101` | Launches FastAPI via Uvicorn. Listens on all interfaces port 8101. |
 | `ports` | `"8101:8101"` | Maps host port 8101 to container port 8101. |
 | `env_file` | `.env` | Loads environment variables from `.env` at project root. |
-| `volumes` | `./src:/app/src`, `./data:/app/data` | Mounts source and data directories for live code reload and persistent storage. |
+| `volumes` | `./data:/app/data` | Mounts persistent storage. |
 
 ### `worker` — Background Scheduler
 
@@ -27,8 +27,8 @@ Defines five services (`api`, `worker`, `webhook`, `web`, `web-dev`) that consti
 | `build.dockerfile` | `Dockerfile` | Uses main Python Dockerfile. |
 | `command` | `python -u src/scheduler.py` | Runs the scheduler with unbuffered output (`-u`). |
 | `env_file` | `.env` | Environment from `.env`. |
-| `volumes` | `./src:/app/src`, `./data:/app/data` | Source and data mounts. |
-| `deploy.resources.limits.memory` | `1G` | Caps worker container at 1 GB of RAM. Prevents runaway jobs from exhausting host memory. |
+| `volumes` | `./data:/app/data` | Persistent data mount. |
+| `deploy.resources.limits.memory` | `1.5G` | Caps worker container memory. Prevents runaway jobs from exhausting host memory. |
 
 ### `webhook` — SolarWinds Webhook Gateway
 
@@ -39,7 +39,7 @@ Defines five services (`api`, `worker`, `webhook`, `web`, `web-dev`) that consti
 | `command` | `python -u src/webhook_listener.py` | Runs the webhook listener with unbuffered output. |
 | `ports` | `"8100:8100"` | Maps host port 8100 to container port 8100. |
 | `env_file` | `.env` | Environment from `.env`. |
-| `volumes` | `./src:/app/src`, `./data:/app/data` | Source and data mounts. |
+| `volumes` | `./data:/app/data` | Persistent data mount. |
 
 ### `web` — Frontend Production (Nginx)
 
@@ -47,7 +47,7 @@ Defines five services (`api`, `worker`, `webhook`, `web`, `web-dev`) that consti
 |-----|-------|-------------|
 | `build.context` | `./web` | Web subdirectory as build context. |
 | `build.dockerfile` | `Dockerfile` | Uses the multi-stage web Dockerfile. |
-| `ports` | `"5173:5173"` | Maps host port 5173 to container port 5173. |
+| `ports` | `"8501:5173"` | Maps host port 8501 to container port 5173. |
 | `environment.VITE_API_URL` | `http://localhost:8101` | Injected at build time for API proxy target. Points to host-localhost (not Docker network), since in production the browser connects to the host. |
 | `depends_on` | `api` | Ensures the API container starts before the web container (best-effort — does not wait for readiness). |
 
@@ -74,6 +74,9 @@ Key environment variable consumed:
 |----------|---------|---------|
 | `DATABASE_URL` | api, worker, webhook | SQLAlchemy database connection string. |
 | `RISK_ALERT_RECIPIENTS` | api, worker, webhook | Comma-separated email recipients for risk alerts. |
+| `WEBHOOK_*` | webhook | HMAC, replay, and body-size controls. |
+| `CORS_ORIGINS` | api | Allowed browser origins. |
+| `PUBLIC_APP_URL`, `REGISTRATION_INVITE_TTL_HOURS` | api | Registration URL and invite lifetime. |
 
 ## Profiles
 

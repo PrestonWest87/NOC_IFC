@@ -1,6 +1,6 @@
 # requirements.txt — Python Dependencies
 
-**Path:** `/home/weast/docker/NOC_IFC/requirements.txt`
+**Path:** `requirements.txt`
 
 ## Purpose
 

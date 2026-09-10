@@ -1,6 +1,6 @@
 # web/Dockerfile — Frontend Build (Multi-Stage)
 
-**Path:** `/home/weast/docker/NOC_IFC/web/Dockerfile`
+**Path:** `web/Dockerfile`
 
 ## Purpose
 

@@ -21,7 +21,7 @@ The detailed module pages live under `docs/reference/`. They are organized by im
 | Risk alerts | `src/utils/risk_alert.py` | `reference/utils/risk_alert.md` |
 | Scheduler | `src/scheduler.py` | `SCHEDULER.md` |
 | Workers | `src/workers/*.py` | `reference/workers/` |
-| Webhook | `src/webhook_listener.py` | `WEBHOOK.md`, `reference/ui/webhook_listener.md` |
+| Webhook | `src/webhook_listener.py` | `WEBHOOK.md` |
 
 ## Frontend Modules
 
@@ -36,7 +36,7 @@ The detailed module pages live under `docs/reference/`. They are organized by im
 
 ## Legacy Boundary
 
-`src/app.py`, `src/ui/`, and their pages are retained for historical compatibility. They are not the active Docker SPA runtime. Do not use their behavior as the contract for FastAPI or React changes.
+The former Streamlit entrypoint and `src/ui/` tree have been removed. The active runtime is the FastAPI/React stack described in `ARCHITECTURE.md`.
 
 ## Documentation Quality Rule
 

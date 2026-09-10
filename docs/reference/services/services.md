@@ -1,6 +1,6 @@
 # Services Layer Documentation
 
-**File:** `/home/weast/docker/NOC_IFC/src/services.py`
+**File:** `src/services.py`
 
 The `services.py` module is the central Data Access Layer (DAL) for the NOC Intelligence Fusion Center. It contains 104+ functions that bridge the API routes to the database, providing authentication, dashboards, threat telemetry, regional grid analytics, AIOps RCA, reporting, and administrative operations.
 

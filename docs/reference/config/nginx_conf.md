@@ -1,6 +1,6 @@
 # web/nginx.conf — Nginx Production Server Block
 
-**Path:** `/home/weast/docker/NOC_IFC/web/nginx.conf`
+**Path:** `web/nginx.conf`
 
 ## Purpose
 

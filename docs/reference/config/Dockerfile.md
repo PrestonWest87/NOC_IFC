@@ -1,6 +1,6 @@
 # Dockerfile — API/Worker/Webhook Build
 
-**Path:** `/home/weast/docker/NOC_IFC/Dockerfile`
+**Path:** `Dockerfile`
 
 ## Purpose
 
@@ -30,7 +30,7 @@ Referenced by three services in `docker-compose.yml`:
 
 | Service | Command | Role |
 |---------|---------|------|
-| `api` | `uvicorn src.api.main:app --host 0.0.0.0 --port 8101 --reload` | FastAPI REST + WebSocket server on port 8101 |
+| `api` | `uvicorn src.api.main:app --host 0.0.0.0 --port 8101` | FastAPI REST + WebSocket server on port 8101 |
 | `worker` | `python -u src/scheduler.py` | Background scheduler for data ingestion jobs |
 | `webhook` | `python -u src/webhook_listener.py` | SolarWinds webhook gateway on port 8100 |
 
