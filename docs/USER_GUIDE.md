@@ -18,7 +18,7 @@ The NOC Intelligence Fusion Center is a web-based HUD (Heads-Up Display) for Net
 
 ### Sidebar Layout
 
-The application uses a collapsible sidebar navigation with 8 main sections:
+The application uses a collapsible sidebar navigation with 9 main sections:
 
 ```
 +---------------------------+
@@ -31,6 +31,7 @@ The application uses a collapsible sidebar navigation with 8 main sections:
 |  ◆ AIOps RCA              |  ← Root cause analysis, dispatch
 |  ☰ Shift Logbook          |  ← Shift entries, handoffs
 |  📋 Reporting             |  ← Briefings, custom reports
+|  🔎 Keyword Analysis      |  ← Scoring and category analytics
 |  ⚙ Settings               |  ← Admin configuration
 +---------------------------+
 ```
@@ -181,7 +182,37 @@ Three tools for proactive threat investigation:
 
 ---
 
-### 5. AIOps RCA (`/aiops-rca`)
+### 5. Keyword Analysis (`/keyword-analysis`)
+
+Keyword Analysis explains what is driving article scores and categories. It is intended for analysts, shift leads, and administrators tuning or validating intelligence triage. Access requires the `Keyword Analysis` page permission; the default analyst role may need an administrator to grant it.
+
+#### Overview
+- Total keyword and article counts.
+- Average, minimum, and maximum keyword weights.
+- Used versus unused keywords.
+- Articles with and without persisted keyword matches.
+
+#### Keyword Analysis
+- Search the configured keyword list.
+- Sort by weight, trigger count, or average score contribution.
+- Review the articles associated with a selected keyword.
+- Use the configured keyword weights to understand why articles receive attention.
+
+#### Category Breakdown
+- Compare article volume and average score by category.
+- Filter category results by a selected number of days.
+- Open category details to review top keywords, sources, and recent articles.
+
+#### Timeline and Cross-Reference
+- Track total articles, matched articles, match rate, and average score over time.
+- View score distributions in configurable score buckets.
+- Compare keyword occurrences across article categories.
+
+#### Recategorization
+
+The recategorization action applies the current categorizer rules to the stored article corpus and reports the total number of changed records. It requires `Action: Trigger AI Functions` and should be run deliberately because it processes all stored articles.
+
+### 6. AIOps RCA (`/aiops-rca`)
 
 Three tabs for root cause analysis and response:
 
@@ -224,7 +255,7 @@ Three tabs for root cause analysis and response:
 
 ---
 
-### 6. Shift Logbook (`/shift-logbook`)
+### 7. Shift Logbook (`/shift-logbook`)
 
 Two-column layout for shift documentation:
 
@@ -255,7 +286,7 @@ Two-column layout for shift documentation:
 
 ---
 
-### 7. Reporting (`/reporting`)
+### 8. Reporting (`/reporting`)
 
 Three tabs for intelligence reporting:
 
@@ -284,7 +315,7 @@ Three tabs for intelligence reporting:
 
 ---
 
-### 8. Settings (`/settings`)
+### 9. Settings (`/settings`)
 
 Ten tabs for system administration:
 

@@ -1,6 +1,6 @@
 # NOC Intelligence Fusion Center — Frontend Documentation
 
-Enterprise-grade React single-page application for the Network Operations Center Intelligence Fusion Platform. Provides real-time dashboards, threat telemetry, geospatial visualization, AIOps correlation, and shift management.
+Enterprise-grade React single-page application for the Network Operations Center Intelligence Fusion Platform. Provides real-time dashboards, threat telemetry, geospatial visualization, AIOps correlation, keyword analysis, and shift management.
 
 Branch: `architecture/monolith-to-decoupled`
 
@@ -55,16 +55,17 @@ web/
 └── src/
     ├── main.tsx                # ReactDOM entry, CSS imports, initTheme()
     ├── App.tsx                 # QueryClientProvider, HashRouter, AuthProvider, routes
-    ├── pages/                  # 9 page components (route targets)
+     ├── pages/                  # Page components (route targets)
     │   ├── LoginPage.tsx
     │   ├── DashboardPage.tsx
     │   ├── ThreatTelemetryPage.tsx
     │   ├── RegionalGridPage.tsx
     │   ├── ThreatHuntingPage.tsx
     │   ├── AiopsRcaPage.tsx
-    │   ├── ShiftLogbookPage.tsx
-    │   ├── ReportingPage.tsx
-    │   └── SettingsPage.tsx
+     │   ├── ShiftLogbookPage.tsx
+     │   ├── ReportingPage.tsx
+     │   ├── KeywordAnalysisPage.tsx
+     │   └── SettingsPage.tsx
     ├── components/             # Shared UI components
     │   ├── Layout.tsx          # Sidebar nav, user info, logout
     │   ├── AIOpsMap.tsx        # Map visualization
@@ -135,6 +136,7 @@ Defined in `src/utils/routeConfig.ts:1-14` and wired in `src/App.tsx:31-45`:
 | `/aiops-rca` | `AiopsRcaPage` | `AIOps RCA` |
 | `/shift-logbook` | `ShiftLogbookPage` | `Shift Logbook` |
 | `/reporting` | `ReportingPage` | `Reporting & Briefings` |
+| `/keyword-analysis` | `KeywordAnalysisPage` | `Keyword Analysis` |
 | `/settings` | `SettingsPage` | `Settings & Admin` |
 
 ### Permission Model
@@ -254,6 +256,20 @@ Color logic:
 | **Report Builder** | Custom report with configurable sections |
 | **Saved Reports** | Library of previously generated reports |
 | **Broadcast** | Email distribution management |
+
+### KeywordAnalysisPage (`src/pages/KeywordAnalysisPage.tsx`)
+
+Protected route: `/keyword-analysis`. The page uses React Query to read persisted article and keyword analytics from `/api/v1/keyword-analysis/*`.
+
+| Tab | Purpose |
+|---|---|
+| **Overview** | Keyword/article totals, weight ranges, and used/unused keyword counts |
+| **Keyword Analysis** | Search and sort keyword weights, trigger counts, and score contribution |
+| **Category Breakdown** | Compare category volume and average score over a selected period |
+| **Timeline** | Plot article volume, keyword matches, match rate, and average score over time |
+| **Cross-Reference** | Compare keyword occurrences across article categories |
+
+The page also supports score-distribution buckets, category details, recent articles for a selected keyword, and an authorized all-article recategorization action. The overview query refreshes every 30 seconds; recategorization requires `Action: Trigger AI Functions`.
 
 ### SettingsPage (`src/pages/SettingsPage.tsx`)
 

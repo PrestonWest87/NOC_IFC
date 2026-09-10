@@ -111,6 +111,46 @@ Manually triggers RSS feed fetch cycle.
 ### POST /threat/generate-siem-triage
 Body expects `.events` key. Returns AI-generated SIEM triage summary.
 
+## Keyword Analysis Endpoints (`/keyword-analysis`)
+
+All keyword-analysis endpoints require the exact page permission `Keyword Analysis`. `POST /keyword-analysis/recategorize` also requires `Action: Trigger AI Functions`.
+
+### GET /keyword-analysis/overview
+
+Returns total keyword and article counts, average/minimum/maximum weights, used/unused keyword counts, and article match counts.
+
+### GET /keyword-analysis/keyword-stats?sort_by=trigger_count&order=desc&search=&limit=100
+
+Returns each matching keyword with configured weight, trigger count, and calculated score contribution. `sort_by` accepts `weight`, `trigger_count`, or `avg_score_contribution`.
+
+### GET /keyword-analysis/category-distribution?days=0
+
+Returns article counts, percentages, and average scores by category. `days=0` includes all stored articles.
+
+### GET /keyword-analysis/timeline?keyword=&days=30&interval=day
+
+Returns total articles, matched articles, match rate, and average score grouped by day or week.
+
+### GET /keyword-analysis/keyword-articles?keyword=<word>&limit=50
+
+Returns recent articles whose persisted `keywords_found` list contains the requested keyword.
+
+### GET /keyword-analysis/score-distribution?days=0&bucket_size=10
+
+Returns score buckets and the most common category in each bucket.
+
+### GET /keyword-analysis/category-keyword-matrix?top_n=20
+
+Returns category names, the most frequently occurring keywords, and their occurrence matrix.
+
+### GET /keyword-analysis/category-details?category=<name>&days=0
+
+Returns category totals, average score, top keywords, top sources, and recent matching articles.
+
+### POST /keyword-analysis/recategorize
+
+Re-runs the article categorizer against every stored article and returns `{status, total, changed}`. Requires `Action: Trigger AI Functions`.
+
 ## Regional Endpoints (/regional)
 
 ### GET /regional/locations
