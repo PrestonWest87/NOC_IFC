@@ -329,6 +329,12 @@ The detailed documentation is organized under [`docs/`](./docs/):
 
 The Elastic cache route currently has a naming mismatch between the API route and the worker export. The application documents this limitation in [API.md](./docs/API.md) and [Troubleshooting](./docs/TROUBLESHOOTING.md); the rest of the Elastic worker remains active and should not be removed.
 
+## AI-Generated Project Disclaimer
+
+Please note that this project—including its core logic, UI components, and documentation—was written by an AI coding agent through OpenCode (also available via the OpenCode GitHub App).
+
+The code generation heavily leveraged the Big Pickle model and OpenAI's GPT-5.6 Luna (Medium). While the output has been reviewed by a human, the reviewer considers themselves a novice at best. Please deploy and use this codebase with caution, review critical security paths manually, and be aware that the AI may have introduced unoptimized patterns, hallucinations, or unintended bugs.
+
 ## License
 
 See [LICENSE](./LICENSE).
