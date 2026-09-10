@@ -59,12 +59,14 @@ Four Docker services: **api** (FastAPI + WebSocket), **worker** (10 background j
 | **Setup & Install** | [docs/GETTING_STARTED.md](./docs/GETTING_STARTED.md) | Prerequisites, installation, configuration, troubleshooting |
 | **User Guide** | [docs/USER_GUIDE.md](./docs/USER_GUIDE.md) | Feature usage, navigation, best practices, workflows |
 | **Deployment Guide** | [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) | Production deployment, CI/CD, scaling, hardening |
-| **Architecture** | [Documentation/ARCHITECTURE.md](./Documentation/ARCHITECTURE.md) | System design, routes, scheduler, RBAC, engine ontology |
-| **API Reference** | [Documentation/api/](./Documentation/api/) | All 13 route modules + WebSocket manager |
-| **Frontend Docs** | [Documentation/web/](./Documentation/web/) | All 9 pages, 5 components, hooks, store, utilities |
-| **Model Reference** | [Documentation/models/schema.md](./Documentation/models/schema.md) | All 27 database tables |
-| **Service Docs** | [Documentation/services/](./Documentation/services/) | DAL (104 functions), correlation engine, scoring, IOC extraction |
-| **Worker Docs** | [Documentation/workers/](./Documentation/workers/) | All 8 background workers |
+| **Architecture** | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Runtime topology, routes, data flow, and security |
+| **API Reference** | [docs/API.md](./docs/API.md) | REST endpoint contract and WebSocket overview |
+| **Frontend Docs** | [docs/FRONTEND.md](./docs/FRONTEND.md) | Routes, state, realtime behavior, and UI boundaries |
+| **Model Reference** | [docs/DATABASE_SCHEMA.md](./docs/DATABASE_SCHEMA.md) | Database tables, migrations, and retention |
+| **Service Docs** | [docs/CODE_REFERENCE.md](./docs/CODE_REFERENCE.md) | Function-level reference index under `docs/reference/` |
+| **Scheduler** | [docs/SCHEDULER.md](./docs/SCHEDULER.md) | Current intervals, execution model, and escalation |
+| **Operations Quick Reference** | [docs/OPERATIONS_REFERENCE.md](./docs/OPERATIONS_REFERENCE.md) | Frequencies, variables, commands, and safe DB actions |
+| **Troubleshooting** | [docs/TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md) | Diagnostic commands and remediation runbooks |
 | **Agent Instructions** | [AGENTS.md](./AGENTS.md) | Developer commands, key files, remaining work |
 | **Release Notes** | [CHANGELOG.md](./CHANGELOG.md) | Full changelog for v2.0.0 |
 
@@ -75,11 +77,11 @@ Four Docker services: **api** (FastAPI + WebSocket), **worker** (10 background j
 ### Backend
 - **Framework**: FastAPI (Python 3.11) with uvicorn ASGI
 - **Database**: SQLAlchemy ORM (SQLite default, PostgreSQL supported) with NullPool for SQLite
-- **WebSocket**: Native FastAPI with ConnectionManager and 5-second broadcaster
+- **WebSocket**: Native FastAPI with ConnectionManager and 10-second broadcaster
 - **ML**: Scikit-Learn TfidfVectorizer + LogisticRegression
 - **Geospatial**: Shapely point-in-polygon, Haversine distance
 - **Async**: aiohttp for feed ingestion, BackgroundTasks for webhook processing
-- **Scheduling**: `schedule` library with threaded execution (10 jobs + boot sequence)
+- **Scheduling**: `schedule` library with a bounded two-thread executor and boot sequence
 
 ### Frontend
 - **Framework**: React 18 + TypeScript (strict mode)
@@ -87,7 +89,7 @@ Four Docker services: **api** (FastAPI + WebSocket), **worker** (10 background j
 - **State**: Zustand (client), TanStack React Query v5 (server)
 - **Maps**: deck.gl v9 + react-map-gl + MapLibre GL (free, no API key)
 - **Charts**: Recharts
-- **HTTP**: Axios with JWT token interceptor
+- **HTTP**: Axios with session-token interceptor
 - **Routing**: React Router v7
 - **Styling**: CSS custom properties with 6 dark themes
 - **Icons**: Lucide React
@@ -112,7 +114,7 @@ Four Docker services: **api** (FastAPI + WebSocket), **worker** (10 background j
 
 ## API Endpoints
 
-All routes under `/api/v1/` — 13 route modules:
+All routes under `/api/v1/` — 14 route modules:
 
 | Group | Prefix | Key Endpoints |
 |-------|--------|--------------|
@@ -161,7 +163,7 @@ Run by the `worker` container (`python -u src/scheduler.py`):
 | Variable | Required | Default | Purpose |
 |----------|----------|---------|---------|
 | `DATABASE_URL` | Yes | `sqlite:////app/data/noc_fusion.db` | Database connection string |
-| `SECRET_KEY` | No | Auto-generated | JWT signing key |
+| `CORS_ORIGINS` | No | localhost origins | Allowed browser origins |
 | `RISK_ALERT_RECIPIENTS` | No | — | Email recipients for risk alerts |
 | `REMEDYFORCE_TICKET_EMAIL` | No | — | Tiered escalation ticket destination |
 | `NOC_NOTIFY_EMAIL` | No | — | NOC notification (after hours) |

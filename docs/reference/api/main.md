@@ -19,7 +19,7 @@ None. Runs as an infinite `asyncio` task.
 None caught internally at the top level; exceptions are logged via `logger.error`.
 
 ### Flow
-1. Infinite loop with `asyncio.sleep(5)` interval.
+1. Infinite loop with `asyncio.sleep(10)` interval; when no clients exist it sleeps and skips the query.
 2. Calls `src.services.get_aiops_dashboard_data()` to retrieve alerts, events, and grid state.
 3. Constructs a `dashboard_update` payload containing `type`, `alerts`, `events`, `grid`, and `alert_count`.
 4. Calls `ConnectionManager.broadcast_json()` to push the payload to all connected WebSocket clients.
@@ -66,7 +66,8 @@ None. Control is yielded to the ASGI server after initialization.
 The `FastAPI` ASGI application instance with title `"NOC Fusion Enterprise API"`, version `"2.0.0"`, and the `lifespan` lifecycle handler.
 
 ### Configuration
-- **CORS Middleware**: allows all origins, credentials, methods, and headers.
+- **Authentication middleware**: `authentication_middleware` protects `/api/v1/*` except login, registration, health, and readiness.
+- **CORS Middleware**: uses the comma-separated `CORS_ORIGINS` setting and allows credentials, methods, and headers.
 
 ### Routers Registered
 | Router Module      | Prefix                  |
@@ -84,11 +85,12 @@ The `FastAPI` ASGI application instance with title `"NOC Fusion Enterprise API"`
 | `settings_admin`   | `/api/v1/admin`         |
 | `llm`              | `/api/v1/llm`           |
 | `email`            | `/api/v1/email`         |
+| `keyword_analysis`  | `/api/v1/keyword-analysis` |
 
 ### Dependencies
 - `fastapi.FastAPI`
 - `fastapi.middleware.cors.CORSMiddleware`
-- All 13 route modules under `src.api.routes`
+- All 14 route modules under `src.api.routes`
 
 ---
 
@@ -122,7 +124,7 @@ Returns a dictionary with a static status string and the current WebSocket conne
 ## Endpoint: `WebSocket /ws`
 
 ### Purpose
-Real-time WebSocket endpoint that accepts client connections and keeps the connection alive until the client disconnects.
+Real-time WebSocket endpoint that authenticates a session token, broadcasts dashboard updates through the connection manager, and accepts authorized RCA synchronization commands.
 
 ### Parameters
 | Parameter   | Type        | Description                      |
@@ -137,9 +139,11 @@ None. Maintains an open WebSocket connection, reading (and discarding) text mess
 - Any other exception — logged and triggers disconnect cleanup.
 
 ### Flow
-1. Calls `manager.connect(websocket)` to accept and register the client.
-2. Enters a loop calling `websocket.receive_text()` (messages are logged but not processed).
-3. On `WebSocketDisconnect` or any other exception, calls `manager.disconnect(websocket)` to remove the client.
+1. Reads `token` from the query string and resolves the database user.
+2. Closes with code `1008` if authentication fails; otherwise accepts and registers the socket.
+3. Rejects messages larger than `WEBSOCKET_MAX_MESSAGE_BYTES` with code `1009`.
+4. Parses JSON objects and requires `Action: Dispatch RCA Tickets` for `INVESTIGATING_UPDATE` and `RCA_UPDATE` messages.
+5. Broadcasts authorized synchronization messages; removes the socket on disconnect or error.
 
 ### Dependencies
 - `ConnectionManager.connect()`

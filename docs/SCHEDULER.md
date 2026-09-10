@@ -1,63 +1,43 @@
-## Background Scheduler (src/scheduler.py)
-The master orchestrator running in the worker container. Uses the `schedule` library for timing and runs jobs in daemon threads via `run_threaded()`.
+# Scheduler and Background Jobs
 
-## Architecture
-- Main loop: `while True: schedule.run_pending(); time.sleep(1)`
-- Jobs run in `threading.Thread(daemon=True)` to prevent blocking
-- Pre-loads HybridScorer at startup for efficiency
-- Calls init_db() at import time
+The worker starts with `python -u src/scheduler.py`. Import-time initialization calls `init_db()`, then the `__main__` block registers jobs with the `schedule` library and runs a one-second polling loop.
 
-## Job Registry
+## Current Schedule
 
-| Job | Interval | Source File Function | Purpose |
-|-----|----------|---------------------|---------|
-| fetch_feeds | 15 min | scheduler.fetch_feeds | RSS ingestion |
-| fetch_live_crimes | 3 min | crime_worker.fetch_live_crimes | Crime data |
-| fetch_regional_hazards | 2 min | infra_worker.fetch_regional_hazards | NWS weather |
-| fetch_cloud_outages | 5 min | cloud_worker.fetch_cloud_outages | Cloud status |
-| run_telemetry_sync | 5 min | telemetry_worker.run_telemetry_sync | BGP/elastic |
-| fetch_cisa_kev | 6 hours | cve_worker.fetch_cisa_kev | CISA KEV |
-| job_internal_risk | 1 hour | scheduler.job_internal_risk | Internal CIS |
-| job_unified_brief | 30 min | scheduler.job_unified_brief | AI brief |
-| job_tiered_alert_escalation | 1 min | scheduler.job_tiered_alert_escalation | RCA dispatch |
-| job_retrain_ml | Sunday 02:00 | scheduler.job_retrain_ml | ML training |
-| run_database_maintenance | 60 min | scheduler.run_database_maintenance | Cleanup |
-| job_daily_email_unified_brief | 07:00 CST | scheduler.job_daily_email_unified_brief | Email brief |
+Intervals below are the values in the scheduler source, not historical product targets.
 
-## Boot Sequence
-On startup, runs all jobs immediately in sequence:
-1. job_tiered_alert_escalation
-2. fetch_cisa_kev
-3. fetch_regional_hazards
-4. fetch_cloud_outages
-5. run_telemetry_sync
-6. fetch_live_crimes
-7. fetch_feeds
-8. job_internal_risk
-9. job_unified_brief
+| Job | Schedule | Function | Inputs and outputs |
+|---|---|---|---|
+| Tiered escalation | Every 1 minute | `job_tiered_alert_escalation` | Active `SolarWindsAlert`, weather/cloud/BGP context; sends ticket/notify/on-page mail and marks alerts |
+| RSS capture | Every 5 minutes | `fetch_feeds` | Active `FeedSource`; writes scored `Article` and `ExtractedIOC` rows |
+| Article enrichment | Every 3 minutes | `enrich_pending_articles` | Pending high-score articles; writes full content or failure state |
+| Maintenance expiry | Every 5 minutes | `job_clear_expired_maintenance` | Site ETR state; clears expired maintenance and broadcasts `RCA_UPDATE` |
+| Telemetry | Every 6 minutes | `run_telemetry_sync` | External telemetry; writes BGP and related records |
+| Regional hazards | Every 7 minutes | `fetch_regional_hazards` | NWS/SPC/USGS and hazard feeds; updates cache and hazard records |
+| Cloud outages | Every 8 minutes | `fetch_cloud_outages` | Provider status sources; updates `CloudOutage` |
+| Crime | Every 10 minutes | `fetch_live_crimes` | Crime source; writes incidents and may alert |
+| Database maintenance | Every 60 minutes | `run_database_maintenance` | Retention deletes, orphan cleanup, SQLite optimize/checkpoint |
+| Internal risk | Every 2 hours | `job_internal_risk` | Asset/CVE/OSINT state; saves an `InternalRiskSnapshot` |
+| Rolling summary | Every 30 minutes | `job_rolling_summary` | Shift data; saves an AI handoff summary |
+| Internal brief | Every 3 hours | `job_internal_brief` | Asset snapshot and OSINT/CVE data; saves internal brief |
+| Unified brief | Every 6 hours | `job_unified_brief` | Global physical/cyber context and internal snapshot; saves unified brief |
+| CISA KEV | Every 7 hours | `fetch_cisa_kev` | CISA catalog; updates `CveItem` |
+| Global brief | Daily at 02:00 | `job_global_brief` | Broad OSINT and physical context; saves global threat brief |
+| ML retraining | Sunday at 02:00 | `job_retrain_ml` | Analyst feedback corpus; writes model and reloads scorer |
+| Daily email | 07:00 `America/Chicago` | `job_daily_email_unified_brief` | Saved unified brief and risk context; sends to `RISK_ALERT_RECIPIENTS` |
 
-## Thread Safety
-- Each job runs in its own daemon thread
-- Jobs that need DB access create their own SessionLocal()
-- Global _global_scorer is pre-loaded but force_reload_scorer() during ML retrain is atomic
-- SQLAlchemy NullPool prevents connection contention
+## Execution Model
 
-## Job Details
+`run_threaded` submits work to a two-thread executor. A set protected by a lock prevents the same function name from running twice concurrently. Exceptions are logged, memory is sampled before and after each job, and the running marker is removed in `finally`.
 
-### fetch_feeds (RSS Ingestion)
-Uses async/await with aiohttp for concurrent downloads. Chunks feeds in groups of 5. Parses with feedparser, scores with HybridScorer, extracts IOCs, saves in batches of 100, then deduplicates. GC.collect() after completion.
+The boot sequence runs four groups with 30-second pauses: (1) escalation, maintenance expiry, RSS; (2) KEV, regional hazards, cloud; (3) telemetry, crime, internal risk; (4) unified, global, and internal briefs.
 
-### job_tiered_alert_escalation
-The most complex job. Queries unresolved alerts, clusters by site via AIOpsEngine, evaluates SLA rules per site, checks business hours, detects cascading, checks flapping cooldown, dispatches via SMTP. Runs every 60 seconds. (Full details in ESCALATION.md)
+Boot execution can create immediate outbound traffic and LLM work. Confirm environment recipients and API credentials before starting a production worker.
 
-### job_unified_brief
-Gathers data from InternalRiskSnapshot, RegionalHazard, crime data, and executive grid intel. Calls LLM for map-reduce generation. Saves to SystemConfig. Triggers risk_alert check.
+## Change Frequency
 
-### run_database_maintenance
-Purges old data per retention policy: low-score articles >3d (unpinned), other articles >30d (unpinned), SolarWinds alerts >60d, hazards >48h, outages >12h, CVEs >7d, crimes >7d. Deduplicates articles. Runs SQLite PRAGMA optimize + WAL checkpoint.
+Edit the `schedule.every(...)` declarations in `src/scheduler.py`. Do not edit documentation values as a substitute. Preserve the non-overlap behavior and consider external API rate limits, database locks, LLM cost, and email volume before shortening an interval.
 
-## Logging
-All jobs log via `log(message, source)` format: `[SOURCE] message`. Sources: SYSTEM, WORKER, EMAIL, CLEANUP, AI.
+## Escalation Rules
 
-## Error Handling
-Each job is wrapped in try/except. Errors are logged but never crash the main loop. The scheduler container runs indefinitely.
+The escalation job uses Central time business hours, Monday-Friday 06:00-20:00. It selects day-shift or after-hours rules, prioritizes higher-weight tiers, detects cascades, suppresses node flapping according to cooldown, and mutes a site for one hour after after-hours on-page. `REMEDYFORCE_TICKET_EMAIL` is required for the run to dispatch.

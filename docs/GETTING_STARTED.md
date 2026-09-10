@@ -103,7 +103,7 @@ This starts Vite dev server on port 5173 with proxy configuration for `/api` →
 
 | Variable | Purpose | Required For |
 |----------|---------|-------------|
-| `SECRET_KEY` | JWT signing key | Token security (auto-generated if empty) |
+| `CORS_ORIGINS` | Comma-separated browser origins | CORS allowlist |
 | `RISK_ALERT_RECIPIENTS` | Comma-separated email list for risk alerts | Email risk notifications |
 | `REMEDYFORCE_TICKET_EMAIL` | Primary ticket destination | Tiered alert escalation engine |
 | `NOC_NOTIFY_EMAIL` | NOC notification email (after hours) | After-hours notifications |
@@ -284,7 +284,7 @@ docker compose up --build -d --force-recreate web
 
 2. **Network isolation**: The webhook port (8100) and API port (8101) should not be exposed to the public internet. Only port 5173 (frontend) should be publicly accessible.
 
-3. **Secrets management**: JWT secret key, API keys, and SMTP credentials are stored in the database. The `.env` file contains only the database URL and email notification recipients.
+3. **Secrets management**: Session tokens are database-backed, while integration settings are supplied through the supported environment variables and Settings UI. Keep `.env` out of version control and use a secret manager in production.
 
 4. **HTTPS**: Use a reverse proxy (nginx, Caddy, Traefik) for TLS termination in production.
 

@@ -5,7 +5,9 @@ WebSocket: `ws://localhost:8101/ws`
 
 ## Authentication
 
-Most endpoints accept a `token` query parameter for user authentication. Some RCA endpoints use FastAPI `Depends(require_action(...))` middleware which reads the token from query params and checks `allowed_actions`.
+The API installs `authentication_middleware` for `/api/v1/*`. Login and registration validation are public; protected routes accept `Authorization: Bearer <session-token>` and retain `token`/`session_token` query parameters for compatibility. Route dependencies additionally enforce administrator, page, and action permissions.
+
+The API currently mounts 14 routers, including `/keyword-analysis`. See `docs/CODE_REFERENCE.md` for module-level function documentation and verify endpoint details against the route source before integrating.
 
 ### POST /auth/login
 
