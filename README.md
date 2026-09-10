@@ -319,6 +319,7 @@ The detailed documentation is organized under [`docs/`](./docs/):
 | Understand scheduled work | [Scheduler](./docs/SCHEDULER.md) |
 | Change frequencies and settings | [Operations Reference](./docs/OPERATIONS_REFERENCE.md) |
 | Diagnose problems | [Troubleshooting](./docs/TROUBLESHOOTING.md) |
+| Work with Git and GitHub safely | [Git Operations](./docs/GIT_OPERATIONS.md) |
 | Follow ingestion and trigger flows | [Data Flows](./docs/DATA_FLOWS.md), [Trigger Flows](./docs/TRIGGER_ACTION_FLOWS.md) |
 | Find function-level detail | [Code Reference](./docs/CODE_REFERENCE.md) |
 | Review changes | [Changelog](./CHANGELOG.md) |
