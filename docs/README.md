@@ -15,6 +15,7 @@
 | Change polling, email, and security settings | [OPERATIONS_REFERENCE.md](OPERATIONS_REFERENCE.md) |
 | Diagnose and recover from failures | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) |
 | Work with Git and GitHub safely | [GIT_OPERATIONS.md](GIT_OPERATIONS.md) |
+| Maintain, back up, and recover production | [MAINTENANCE.md](MAINTENANCE.md) |
 | Understand job timing and escalation | [SCHEDULER.md](SCHEDULER.md), [ESCALATION.md](ESCALATION.md) |
 | Understand ingestion pipelines | [DATA_FLOWS.md](DATA_FLOWS.md), [TRIGGER_ACTION_FLOWS.md](TRIGGER_ACTION_FLOWS.md) |
 
