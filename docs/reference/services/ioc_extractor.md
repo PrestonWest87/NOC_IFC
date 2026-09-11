@@ -2,6 +2,10 @@
 
 **File:** `src/services/ioc_extractor.py`
 
+## Current Source Rule
+
+The exact indicator types and regex patterns are compiled by `_compile_rulesets()` at runtime. `extract()` refangs input, validates/normalizes matches, deduplicates by indicator type/value, and attaches context from the source text. Treat the current ruleset as authoritative when the supported IOC list changes.
+
 ---
 
 ## Class: `EnterpriseIOCExtractor`

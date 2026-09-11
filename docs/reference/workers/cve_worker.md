@@ -44,3 +44,6 @@ The URL of the CISA Known Exploited Vulnerabilities catalog:
   - `src.core.db.SessionLocal` - SQLAlchemy session factory
   - `src.models.schema.CveItem` - ORM model
   - `datetime`
+## Current Source Surface
+
+The CISA worker maps the current KEV feed fields into `CveItem`, handles duplicate CVE IDs, commits the update, and rolls back/logs database failures. The scheduler invokes it every seven hours and manual threat routes can invoke the same worker path.

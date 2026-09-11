@@ -13,8 +13,8 @@ The `EnterpriseAIOpsEngine` class provides root cause analysis, incident cluster
 ### Constants
 
 #### `ONTOLOGY` (dict)
-Maps topology domains to their component device types:
-- `PRIMARY_INTERNET` -- VSAT, Cellular, Radio, SD-WAN, Modem
+Maps topology domains to their component device types. The engine’s internal canonical name is `INTERNET`; webhook and permission-facing documentation may call this `PRIMARY_INTERNET`.
+- `INTERNET` -- VSAT, Cellular, Radio, SD-WAN, Modem, ISP, Internet
 - `COMMS_EQUIPMENT` -- Router, Switch, Firewall, Lanolinx-switch, Fabric Interconnect
 - `POWER_SUPPLIES` -- UPS, Generator, DC Power Supply, PDU, PDS, DC Controller
 - `RTU` -- RTU, NTEST RTU
@@ -25,7 +25,7 @@ Maps topology domains to their component device types:
 #### `TIER_RANKING` (dict)
 Maps domains to criticality tiers (1 = highest criticality):
 - `POWER_SUPPLIES`: 1
-- `PRIMARY_INTERNET`: 2
+- `INTERNET`: 2
 - `COMMS_EQUIPMENT`: 3
 - `COMPUTE`: 4
 - `RTU`: 5
@@ -53,9 +53,13 @@ Maps domains to criticality tiers (1 = highest criticality):
 - `node_name` (str) -- Node/device name (default: "")
 - `primary_comms` (str) -- Primary communication method (default: "")
 
-**Returns:** `str` -- One of: "PRIMARY_INTERNET", "POWER_SUPPLIES", "COMMS_EQUIPMENT", "RTU", "SCADA", or "UNKNOWN_DOMAIN".
+**Returns:** `str` -- One of the engine domains, including `INTERNET`, `POWER_SUPPLIES`, `COMMS_EQUIPMENT`, `RTU`, `SCADA`, `COMPUTE`, `FACILITIES`, or `UNKNOWN_DOMAIN`.
 
-**Flow:** Normalizes input to lowercase. Checks for keywords in order: VSAT/cellular/sd-wan/modem -> POWER_SUPPLIES -> router/switch/firewall (with internet check) -> RTU -> SCADA -> falls back to ONTOLOGY matching -> UNKNOWN_DOMAIN.
+**Flow:** First calls `normalize_domain_hint`. If there is no usable hint, it checks internet fingerprints, power fingerprints, router/switch/firewall with an internet override, RTU, SCADA, then ontology type matching, and finally returns `UNKNOWN_DOMAIN`.
+
+### `normalize_domain_hint(cls, value) -> str | None`
+
+Normalizes whitespace and hyphens to underscores, maps `PRIMARY_INTERNET` to the engine’s `INTERNET` domain, accepts canonical domains, and checks aliases such as `WAN`, `ISP`, `NETWORK_DEVICE`, `PALO_ALTO`, `PLC`, `SERVER`, `ESXI`, and `ACCESS_CONTROL`. It returns `None` when no alias matches.
 
 ---
 
@@ -90,7 +94,7 @@ Maps domains to criticality tiers (1 = highest criticality):
 
 **Returns:** `list[dict]` -- Fleet events with provider, affected_sites, event_type, severity.
 
-**Flow:** Groups sites by primary_coms provider. If any provider appears in >= threshold sites with PRIMARY_INTERNET or COMMS_EQUIPMENT domain failures, flags as CRITICAL fleet event.
+**Flow:** Groups sites by primary communications provider. If any provider appears in at least `threshold` sites with `INTERNET` or `COMMS_EQUIPMENT` failures, flags a critical fleet event.
 
 ---
 
@@ -136,7 +140,7 @@ Maps domains to criticality tiers (1 = highest criticality):
 6. Checks BGP correlation: matches ASN against site's primary/secondary comms
 7. If no external correlation found, evaluates by patient_zero domain:
    - POWER_SUPPLIES: catastrophic power failure
-   - PRIMARY_INTERNET/COMMS_EQUIPMENT: transport outage or congestion
+   - INTERNET/COMMS_EQUIPMENT: transport outage or congestion
    - SCADA/RTU: isolated OT telemetry failure
    - Other: generalized infrastructure degradation
 8. Checks maintenance mode: auto-clears expired ETR

@@ -79,3 +79,10 @@ Direct delegation to `svc.search_articles_for_hunting()`.
 
 ### Dependencies
 - `src.services.search_articles_for_hunting()`
+## Current Source Surface
+
+Router prefix: `/api/v1/hunting` with `Threat Hunting & IOCs` page permission.
+
+- `GET /iocs` returns extracted indicators for a bounded `days_back` range of 1–30.
+- `GET /osint-pivot` maps an IOC type/value to external investigation URLs.
+- `GET /search-articles` searches articles for a target with a bounded 1–30 day range.

@@ -116,3 +116,6 @@ List of substrings (e.g. `"eu-"`, `"asia"`, `"london"`) used to identify non-US 
   - `src.core.db.SessionLocal` - SQLAlchemy session factory
   - `src.models.schema.CloudOutage` - ORM model
   - `datetime`, `re`
+## Current Source Surface
+
+Provider definitions, US-region filtering, request handling, and the resolved/unresolved update rules are defined by the current constants and functions in `src/workers/cloud_worker.py`. Provider counts in this page should be treated as source-derived rather than a permanent product promise.

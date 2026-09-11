@@ -2,6 +2,10 @@
 
 AIOps Root Cause Analysis page. Provides three tabs: Active Board (live map + correlation cards), Predictive Analytics & Chronic Degradation, and Deterministic Global Correlation Engine.
 
+## Current Source Behavior
+
+Live dashboard polling is 10 seconds when enabled; analysis polling is 60 seconds. Maintenance state is sticky until manually cleared, investigating state is transitional, and site filtering respects `user.allowed_site_types`. RCA synchronization also arrives through the authenticated WebSocket hook.
+
 ---
 
 ## Constants
@@ -38,7 +42,7 @@ None (uses `useAuth` for user context).
 | State | Type | Default | Description |
 |-------|------|---------|-------------|
 | `activeTab` | `number` | `0` | Active tab index |
-| `livePolling` | `boolean` | `true` | Enables 5s polling |
+| `livePolling` | `boolean` | `true` | Enables 10s dashboard polling and 60s analysis polling |
 | `dispatchChecked` | `Record<string, boolean>` | `{}` | Per-site dispatch checkbox state |
 | `ticketExpanded` | `string \| null` | `null` | Site with expanded ticket panel |
 | `maintExpanded` | `string \| null` | `null` | Site with expanded maintenance panel |
@@ -56,8 +60,8 @@ None (uses `useAuth` for user context).
 #### Data Queries
 | Query Key | Endpoint | Interval | Description |
 |-----------|----------|----------|-------------|
-| `rca-dashboard` | `GET /rca/dashboard` | 5s (when live) | Current dashboard state |
-| `rca-analyze` | `POST /rca/analyze` | 30s (when live) | Root cause analysis |
+| `rca-dashboard` | `GET /rca/dashboard` | 10s (when live) | Current dashboard state |
+| `rca-analyze` | `POST /rca/analyze` | 60s (when live) | Root cause analysis |
 | `rca-sitrep` | `GET /rca/sitrep` | manual only | Global sitrep |
 
 #### Mutations
@@ -70,7 +74,7 @@ None (uses `useAuth` for user context).
 #### Tab Content
 
 **Tab 0 — Active Board:**
-- Live polling toggle (5s interval for dashboard, 30s for analysis)
+- Live polling toggle (10s interval for dashboard, 60s for analysis)
 - deck.gl map with:
   - Site scatter points color-coded by status (Operational=green, No Dispatch=blue, Dispatched=yellow, Investigating=orange, Action Required=red)
   - Alert pulse layer for sites requiring action

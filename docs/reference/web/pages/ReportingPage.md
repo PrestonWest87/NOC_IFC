@@ -2,6 +2,10 @@
 
 Reporting & Briefings page. Provides three tabs: Daily Fusion Briefing, Custom Report Builder, and Shared Library.
 
+## Current Source Behavior
+
+Custom report generation is asynchronous. The page submits `POST /reporting/generate-custom`, stores the returned generation ID, and polls `GET /reporting/generate-custom-status` until the progress/result store reports completion or error. Custom reports may use a target/search scope or explicit article IDs. Recipient validation accepts commas and semicolons, rejects newlines, validates email format, and limits broadcasts to 20 recipients.
+
 ---
 
 ## Constants

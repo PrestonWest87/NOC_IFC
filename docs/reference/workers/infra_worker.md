@@ -166,3 +166,6 @@ Bounding boxes for USGS earthquake queries:
   7. Call `check_earthquake_proximity()` for each region's data.
   8. Run `gc.collect()`.
 - **Dependencies:** All functions in this module; `gc` for garbage collection.
+## Current Source Surface
+
+In addition to the hazard fetch pipeline, the current module contains `check_wildfire_proximity`, `_fetch_spc`, and `fmt_date`. Wildfire proximity state is persisted through the shared SystemConfig state, SPC data is normalized before GeoJSON caching, and date formatting is used for alert/report presentation. Verify hazard thresholds and geographic bounds against the source constants when changing the feed logic.

@@ -1,109 +1,64 @@
-# App.tsx
+# Module: `web/src/App.tsx`
 
-Application root component tree with route definitions, authentication guard, and data provider setup.
-
----
-
-## `PAGE_PERMISSION_MAP`
-
-### Purpose
-Maps URL paths to human-readable page names used for permission-based access control.
-
-### Type
-`Record<string, string>`
-
-### Entries
-| Path | Page Name |
-|------|-----------|
-| `/` | Global Dashboards |
-| `/threat-telemetry` | Threat Telemetry |
-| `/regional-grid` | Regional Grid |
-| `/threat-hunting` | Threat Hunting & IOCs |
-| `/aiops-rca` | AIOps RCA |
-| `/shift-logbook` | Shift Logbook |
-| `/reporting` | Reporting & Briefings |
-| `/settings` | Settings & Admin |
-
----
+Application root for the React SPA. It provides React Query, hash routing, authentication, theme synchronization, a page error boundary, and the realtime AIOps bridge.
 
 ## `ProtectedRoute({ children, path })`
 
-### Purpose
-Authentication and authorization gate that wraps page components. Redirects unauthenticated users to `/login` and unauthorized users (missing page-level permission) to `/`.
+Reads `user` from `useAuth()`.
 
-### Props
-| Prop | Type | Description |
-|------|------|-------------|
-| `children` | `React.ReactNode` | The page component to render when authorized |
-| `path` | `string` (optional) | URL path used to look up the required page permission |
+- No user: redirects to `/login`.
+- Authenticated user with an empty `allowed_pages` array: renders an access-denied message.
+- Missing page permission: redirects to the first allowed page through `PAGE_ROUTE_MAP`, falling back to `/`.
+- Authorized route: renders `<Layout>{children}</Layout>`.
 
-### Returns
-- `<Navigate to="/login" replace />` when `user` is null (not authenticated).
-- `<Navigate to="/" replace />` when the user's `allowed_pages` does not include the mapped page name.
-- `<Layout>{children}</Layout>` when authorized.
-
-### Flow
-1. Calls `useAuth()` to get the current `user`.
-2. If `user` is falsy, redirect to login.
-3. If `path` is provided, looks up `PAGE_PERMISSION_MAP[path]` and checks `user.allowed_pages`.
-4. If the page is not allowed, redirect to dashboard root.
-5. Otherwise renders the `Layout` wrapper around `children`.
-
-### Dependencies
-- `useAuth` from `../utils/AuthContext`
-- `Navigate` from `react-router-dom`
-- `Layout` from `../components/Layout`
-
----
+Page maps are imported from `web/src/utils/routeConfig.ts`; they are not declared in this module.
 
 ## `AppRoutes()`
 
-### Purpose
-Defines the full route configuration for the SPA using React Router's `Routes` and `Route` components.
+Uses `Suspense` around lazy page imports. The fallback is `Loading NOC workspace...`. Routes:
 
-### Returns
-A `<Routes>` block containing:
-- `/login` -> `LoginPage` (unprotected)
-- `/` -> `ProtectedRoute` with `DashboardPage`
-- `/threat-telemetry` -> `ProtectedRoute` with `ThreatTelemetryPage`
-- `/regional-grid` -> `ProtectedRoute` with `RegionalGridPage`
-- `/threat-hunting` -> `ProtectedRoute` with `ThreatHuntingPage`
-- `/aiops-rca` -> `ProtectedRoute` with `AiopsRcaPage`
-- `/shift-logbook` -> `ProtectedRoute` with `ShiftLogbookPage`
-- `/reporting` -> `ProtectedRoute` with `ReportingPage`
-- `/settings` -> `ProtectedRoute` with `SettingsPage`
+| Path | Component | Access |
+|---|---|---|
+| `/login` | `LoginPage` | Public |
+| `/register` | `RegistrationPage` | Public invitation flow |
+| `/` | `DashboardPage` | `Global Dashboards` |
+| `/threat-telemetry` | `ThreatTelemetryPage` | `Threat Telemetry` |
+| `/regional-grid` | `RegionalGridPage` | `Regional Grid` |
+| `/threat-hunting` | `ThreatHuntingPage` | `Threat Hunting & IOCs` |
+| `/aiops-rca` | `AiopsRcaPage` | `AIOps RCA` |
+| `/shift-logbook` | `ShiftLogbookPage` | `Shift Logbook` |
+| `/reporting` | `ReportingPage` | `Reporting & Briefings` |
+| `/settings` | `SettingsPage` | `Settings & Admin` |
+| `/keyword-analysis` | `KeywordAnalysisPage` | `Keyword Analysis` |
 
-### Dependencies
-- `Routes`, `Route` from `react-router-dom`
-- All page components from `../pages/*`
+All protected pages are lazy-loaded with `React.lazy`. A page import/render error is handled by `PageErrorBoundary`, which logs the component stack and offers a full-page reload.
 
----
+## `PageErrorBoundary`
 
-## `App` (default export)
+Class error boundary around `AppRoutes`. `getDerivedStateFromError` stores the error; `componentDidCatch` logs it; the fallback shows the error message and a reload button.
 
-### Purpose
-Root component that composes the provider hierarchy and route definitions.
+## `RealtimeBridge()`
 
-### Returns
-```tsx
-<QueryClientProvider client={queryClient}>
-  <HashRouter>
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
-  </HashRouter>
-</QueryClientProvider>
-```
+Calls `useAIOpsWebSocket()` once inside the authenticated provider tree and renders no visible markup. The hook publishes dashboard state and command behavior to the Zustand store and React Query cache.
 
-### Flow
-1. Creates a `QueryClient` instance for React Query.
-2. Wraps the entire application in `QueryClientProvider` (provides caching/refetching to all pages).
-3. Uses `HashRouter` (hash-based routing suitable for static file serving).
-4. Wraps routes in `AuthProvider` for global authentication context.
-5. Renders `AppRoutes` which handles all page routing and protection.
+## `queryClient`
 
-### Dependencies
-- `QueryClient`, `QueryClientProvider` from `@tanstack/react-query`
-- `HashRouter` from `react-router-dom`
-- `AuthProvider` from `../utils/AuthContext`
-- `AppRoutes` (local)
+Global `QueryClient` defaults:
+
+- Query stale time: 30 seconds.
+- No refetch on window focus.
+- Refetch on reconnect.
+- One retry.
+
+## Default `App()` Export
+
+Provider hierarchy, from outermost to innermost:
+
+1. `QueryClientProvider`.
+2. `HashRouter`.
+3. `AuthProvider`.
+4. `ThemeSync`.
+5. `RealtimeBridge`.
+6. `PageErrorBoundary` around `AppRoutes`.
+
+`HashRouter` allows the nginx static server to serve all client routes without server-side route rewriting.

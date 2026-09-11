@@ -87,3 +87,6 @@ None.
 ### Dependencies
 - `src.core.db.get_db`
 - `src.models.schema.User`
+## Current Source Surface
+
+`GET /config` returns the current system configuration through a database session. `GET /users` returns user/profile information for the authenticated settings context. Administrative writes and role/user/location changes are implemented in the separate `/api/v1/admin` router.

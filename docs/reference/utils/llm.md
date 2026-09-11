@@ -1,5 +1,11 @@
 # Module: `src/utils/llm.py`
 
+## Current Pipeline Surface
+
+The current module includes progress tracking and three specialized map/reduce brief pipelines. The public progress functions are `init_brief_progress`, `update_brief_progress`, `get_brief_progress`, and `clear_brief_progress`. Specialized generators include `generate_global_threat_brief` and `generate_internal_risk_brief`; physical-map helpers include `_consolidate_hazards`, `_dedup_phys_outputs`, `_format_physical_posture`, and `_assemble_global_brief_from_maps`.
+
+The current `_map_reduce_summarize` options include `progress_callback`, `map_temperature`, `reduce_temperature`, `skip_reduce`, `skip_noise_filter`, and `force_reduce`. `call_llm` accepts `messages`, `config`, `temperature=0.1`, and `max_tokens=None`. `generate_aggregated_shift_summary` accepts `generated_by="Unknown"` and `generated_by_role="analyst"`.
+
 LLM interaction utilities for the NOC Intelligence Fusion Center. Provides a comprehensive set of AI-powered intelligence, briefing, and analysis functions powered by a configurable LLM backend (OpenAI-compatible API).
 
 ---

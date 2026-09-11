@@ -253,3 +253,26 @@ None.
 - `src.services.search_articles_for_hunting()`
 - `src.utils.llm.build_custom_intel_report()`
 - `src.core.db.SessionLocal`
+## Current Source Corrections
+
+Router prefix: `/api/v1/reporting`. The router requires page permission `Reporting & Briefings`.
+
+### Request Models
+
+- `BroadcastRequest`: `report_date` max 50 characters, `content` max 200,000, `recipients` max 2,000; recipient validation accepts commas/semicolons, rejects newlines, limits to 20 addresses, and validates email format.
+- `BroadcastCustomRequest`: custom report content and recipient validation using the same recipient rules.
+- `GenerateCustomRequest`: supports `target`, `days_back` constrained to 1–30, `objective`, and optional `article_ids`.
+- `SearchArticlesRequest`: request model for targeted article searches.
+
+### Current Endpoints
+
+| Endpoint | Permission | Behavior |
+|---|---|---|
+| `POST /broadcast-custom` | `Action: Dispatch Exec Report` | Sends a custom report to validated recipients. |
+| `POST /search-articles` | Router page permission | Searches source articles for custom report building. |
+| `POST /generate-custom` | `Action: Trigger AI Functions` | Starts daemon/background custom report generation and returns a generation ID. |
+| `GET /generate-custom-status` | Router page permission | Reads progress/result from the in-memory report stores. |
+| `DELETE /saved-reports/{report_id}` | `Action: Dispatch Exec Report` | Deletes a saved report. |
+| `POST /generate-daily` | `Action: Trigger AI Functions` | Generates the daily report. |
+
+Custom generation uses `_report_progress_store`, `_report_result_store`, and `_report_lock` to coordinate progress and result retrieval. Generation can use either a search `target` or explicit `article_ids`.

@@ -48,7 +48,7 @@ Defines five services (`api`, `worker`, `webhook`, `web`, `web-dev`) that consti
 | `build.context` | `./web` | Web subdirectory as build context. |
 | `build.dockerfile` | `Dockerfile` | Uses the multi-stage web Dockerfile. |
 | `ports` | `"8501:5173"` | Maps host port 8501 to container port 5173. |
-| `environment.VITE_API_URL` | `http://localhost:8101` | Injected at build time for API proxy target. Points to host-localhost (not Docker network), since in production the browser connects to the host. |
+| `environment.VITE_API_URL` | `http://localhost:8101` | Declared for the production container; the built nginx configuration handles production `/api/` and `/ws` proxying directly. |
 | `depends_on` | `api` | Ensures the API container starts before the web container (best-effort — does not wait for readiness). |
 
 ### `web-dev` — Frontend Development (Hot Reload)
@@ -82,7 +82,7 @@ Key environment variable consumed:
 
 | Profile | Service | Purpose |
 |---------|---------|---------|
-| `dev` | `web-dev` | Enables Vite hot-reload dev server. Starts `web-dev` instead of `web`. |
+| `dev` | `web-dev` | Enables the additional Vite hot-reload service. The profile does not inherently remove the production `web` service. |
 
 Activation:
 
@@ -99,12 +99,11 @@ docker compose --profile dev up --build -d
 All services share the default Docker Compose network (bridge). Internal DNS resolution uses service names:
 
 - `http://api:8101` — used by `web-dev` Vite proxy and `web` Nginx proxy
-- `http://localhost:8101` — used by production `web` Nginx proxy (browser-side)
+- `http://api:8101` — used by the production nginx container’s `/api/` and `/ws` upstreams
 
 ## Volume Mounts
 
 | Host Path | Container Path | Services | Purpose |
 |-----------|---------------|----------|---------|
-| `./src` | `/app/src` | api, worker, webhook | Live source code (hot-reload) |
 | `./data` | `/app/data` | api, worker, webhook | Persistent SQLite DB, cached data |
 | `./web` | `/app` | web-dev | Frontend source for Vite HMR |

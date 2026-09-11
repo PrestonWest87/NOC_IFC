@@ -2,6 +2,10 @@
 
 Global NOC Dashboards — the primary landing page. Provides four tabbed views: Operational Dashboard, Global Risk, Internal Risk, and Unified Brief. Each tab surfaces live metrics from multiple API endpoints.
 
+## Current Brief Generation Behavior
+
+The current page treats unified, global, and internal briefs as asynchronous generation jobs. Each request returns a generation ID, persists it in session storage, and polls the matching progress endpoint so navigation does not lose progress. Internal risk snapshot generation remains a separate synchronous operation. The page also renders hardware/software asset posture from the internal risk snapshot and uses the current `Action: Trigger AI Functions` permission for generation actions.
+
 ---
 
 ## Constants

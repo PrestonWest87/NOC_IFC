@@ -2,6 +2,10 @@
 
 **File:** `src/services/categorizer.py`
 
+## Current Source Rule
+
+`CATEGORIES` and `COMPILED_CATEGORIES` are the source of truth for category names and regex fingerprints. `categorize_text(text)` evaluates the current compiled rules and returns the highest-priority matching category or the general fallback; do not copy category names from historical screenshots or older changelogs.
+
 ---
 
 ## Constants

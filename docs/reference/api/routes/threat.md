@@ -251,12 +251,10 @@ Manually triggers synchronization of the Elasticsearch cache for recent data.
 None.
 
 ### Flow
-1. Imports `run_elastic_sync` from `src.workers.elastic_worker`.
-2. Calls the sync function with the hours_back parameter.
-3. Returns success, or catches any exception and returns error message.
+The current route attempts to import `run_elastic_sync`, but the worker exports `sync_elastic_telemetry` instead. The route therefore returns its caught error response until the application symbols are reconciled. The rest of `elastic_worker.py` remains active.
 
 ### Dependencies
-- `src.workers.elastic_worker.run_elastic_sync()`
+- Current worker export: `src.workers.elastic_worker.sync_elastic_telemetry()`
 
 ---
 
@@ -289,3 +287,12 @@ None.
 ### Dependencies
 - `src.utils.llm.generate_siem_triage_summary()`
 - `src.core.db.SessionLocal`
+## Current Source Corrections
+
+The router prefix is `/api/v1/threat` and every route requires the `Threat Telemetry` page permission. Manual synchronization endpoints require `Action: Manually Sync Data`; SIEM triage requires `Action: Trigger AI Functions`.
+
+Current endpoint details:
+
+- `GET /articles/{article_id}` returns one article detail record or a not-found error.
+- `GET /cloud-outages` filters by `active_only` and `days_back`; it does not accept a `limit` parameter.
+- `POST /sync-elastic-cache` currently references `run_elastic_sync`, while the worker exports `sync_elastic_telemetry`. The route is documented as a known implementation mismatch rather than a successful sync contract.

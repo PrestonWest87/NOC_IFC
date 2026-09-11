@@ -144,3 +144,11 @@ Result of `svc.trigger_shift_summary()`, which returns an LLM-generated summary 
 
 ### Dependencies
 - `src.services.trigger_shift_summary()`
+## Current Source Surface
+
+Router prefix: `/api/v1/logbook`.
+
+- `GET /entries` supports role and date-range filtering.
+- `POST /entries` requires `Action: Submit Shift Log`.
+- `PATCH /entries/{entry_id}` requires `Action: Submit Shift Log` and supports content/date/soft-delete updates.
+- `POST /generate-summary` requires `Action: Trigger AI Functions`, uses the authenticated user context, and invokes the shift-summary pipeline.

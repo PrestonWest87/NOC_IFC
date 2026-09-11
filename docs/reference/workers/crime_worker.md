@@ -95,3 +95,6 @@ In-memory cache mapping raw address strings to `(lat, lon, is_approximate)` tupl
   - `src.models.schema.CrimeIncident` - ORM model
   - `src.services.dispatch_perimeter_crime_alerts` - alert dispatch
   - `math`, `random`, `datetime`
+## Current Source Surface
+
+The current crime worker uses its geocoding/cache helper state while fetching and normalizing incidents. Recheck `_GeoCacheProxy` and the active `GEO_CACHE` behavior before changing cache invalidation or geofence calculations; crime alerts can also trigger email/SMS notifications through configured destinations.

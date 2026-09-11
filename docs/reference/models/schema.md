@@ -1,6 +1,6 @@
 # Module: `src.models.schema`
 
-SQLAlchemy ORM models for the NOC Intelligence Fusion Center. Contains 27 table definitions.
+SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declarative schema contains 29 mapped tables/classes; migrations may add compatibility columns to existing deployments.
 
 ---
 
@@ -9,32 +9,34 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. Contains 27 table 
 | # | Table | Class | Description |
 |---|-------|-------|-------------|
 | 1 | `users` | `User` | Authentication & authorization |
-| 2 | `roles` | `Role` | RBAC role definitions |
-| 3 | `saved_reports` | `SavedReport` | Custom report library |
-| 4 | `feed_sources` | `FeedSource` | RSS/Atom feed configuration |
-| 5 | `keywords` | `Keyword` | Scoring keyword registry |
-| 6 | `system_config` | `SystemConfig` | AI/SMTP/risk baseline configuration |
-| 7 | `shift_logs` | `ShiftLogEntry` | Operator shift log entries |
-| 8 | `software_assets` | `SoftwareAsset` | Internal software inventory |
-| 9 | `hardware_assets` | `HardwareAsset` | Internal hardware inventory with vulnerability data |
-| 10 | `internal_risk_snapshots` | `InternalRiskSnapshot` | Asset risk posture history |
-| 11 | `articles` | `Article` | RSS/OSINT intelligence articles |
-| 12 | `extracted_iocs` | `ExtractedIOC` | Autonomously extracted indicators |
-| 13 | `cve_items` | `CveItem` | CISA KEV vulnerability catalog |
-| 14 | `elastic_events` | `ElasticEvent` | Elasticsearch synced security events |
-| 15 | `daily_briefings` | `DailyBriefing` | Daily fusion report archive |
-| 16 | `daily_threat_scores` | `DailyThreatScore` | 14-day threat score baseline |
-| 17 | `regional_hazards` | `RegionalHazard` | Weather/geospatial hazards |
-| 18 | `regional_outages` | `RegionalOutage` | Regional infrastructure outages |
-| 19 | `cloud_outages` | `CloudOutage` | Cloud service status records |
-| 20 | `bgp_anomalies` | `BgpAnomaly` | BGP routing anomalies |
-| 21 | `solarwinds_alerts` | `SolarWindsAlert` | Ingested infrastructure alerts |
-| 22 | `timeline_events` | `TimelineEvent` | Activity feed for RCA board |
-| 23 | `monitored_locations` | `MonitoredLocation` | Facility/site registry |
-| 24 | `crime_incidents` | `CrimeIncident` | Law enforcement CAD data |
-| 25 | `geojson_cache` | `GeoJsonCache` | Cached geospatial GeoJSON |
-| 26 | `node_aliases` | `NodeAlias` | SolarWinds node-to-site mapping |
-| 27 | `user_weather_prefs` | `UserWeatherPreference` | User weather alert preferences |
+| 2 | `user_sessions` | `UserSession` | Independently revocable browser/device sessions |
+| 3 | `registration_invites` | `RegistrationInvite` | Hashed user-registration invitations and expiry |
+| 4 | `roles` | `Role` | RBAC role definitions |
+| 5 | `saved_reports` | `SavedReport` | Custom report library |
+| 6 | `feed_sources` | `FeedSource` | RSS/Atom feed configuration |
+| 7 | `keywords` | `Keyword` | Scoring keyword registry |
+| 8 | `system_config` | `SystemConfig` | AI/SMTP/risk/brief configuration |
+| 9 | `shift_logs` | `ShiftLogEntry` | Operator shift log entries |
+| 10 | `software_assets` | `SoftwareAsset` | Internal software inventory |
+| 11 | `hardware_assets` | `HardwareAsset` | Internal hardware inventory with vulnerability data |
+| 12 | `internal_risk_snapshots` | `InternalRiskSnapshot` | Asset risk posture history |
+| 13 | `articles` | `Article` | RSS/OSINT intelligence articles |
+| 14 | `extracted_iocs` | `ExtractedIOC` | Autonomously extracted indicators |
+| 15 | `cve_items` | `CveItem` | CISA KEV vulnerability catalog |
+| 16 | `elastic_events` | `ElasticEvent` | Elasticsearch synced security events |
+| 17 | `daily_briefings` | `DailyBriefing` | Daily fusion report archive |
+| 18 | `daily_threat_scores` | `DailyThreatScore` | Historical threat score records |
+| 19 | `regional_hazards` | `RegionalHazard` | Weather/geospatial hazards |
+| 20 | `regional_outages` | `RegionalOutage` | Regional infrastructure outages |
+| 21 | `cloud_outages` | `CloudOutage` | Cloud service status records |
+| 22 | `bgp_anomalies` | `BgpAnomaly` | BGP routing anomalies |
+| 23 | `solarwinds_alerts` | `SolarWindsAlert` | Ingested infrastructure alerts |
+| 24 | `timeline_events` | `TimelineEvent` | Activity feed for RCA board |
+| 25 | `monitored_locations` | `MonitoredLocation` | Facility/site registry |
+| 26 | `crime_incidents` | `CrimeIncident` | Law enforcement CAD data |
+| 27 | `geojson_cache` | `GeoJsonCache` | Cached geospatial GeoJSON |
+| 28 | `node_aliases` | `NodeAlias` | SolarWinds node-to-site mapping |
+| 29 | `user_weather_prefs` | `UserWeatherPreference` | User weather alert preferences |
 
 ---
 
@@ -54,6 +56,31 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. Contains 27 table 
 | `job_title` | `String` | `nullable` | — | Job title (e.g., "NOC Analyst") |
 | `contact_info` | `String` | `nullable` | — | Email or contact number |
 | `default_shift` | `String` | `"No Shift"` | — | Default Morning/Afternoon/Night/No Shift |
+| `theme` | `String` | `"standard"` | — | User-selected UI theme |
+
+### UserSession
+**Table**: `user_sessions`
+
+| Column | Type | Default | Description |
+|---|---|---|---|
+| `id` | `Integer PK` | auto | Session row identifier |
+| `user_id` | `Integer` | required | Logical reference to `users.id` |
+| `token` | `String` | required | Unique independently revocable session token |
+| `created_at` | `DateTime` | UTC now | Session creation time |
+
+### RegistrationInvite
+**Table**: `registration_invites`
+
+| Column | Type | Default | Description |
+|---|---|---|---|
+| `id` | `Integer PK` | auto | Invitation identifier |
+| `username` | `String` | required | Account name to create |
+| `role` | `String` | `analyst` | Role assigned at registration |
+| `token_hash` | `String` | required/unique | Hashed invitation token |
+| `created_by` | `String` | required | Administrator who created the invitation |
+| `created_at` | `DateTime` | UTC now | Creation timestamp |
+| `expires_at` | `DateTime` | required | Invitation expiration |
+| `used_at` | `DateTime` | nullable | Completion timestamp |
 
 ---
 
@@ -95,6 +122,10 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. Contains 27 table 
 | `baseline_override_phys` | `Float` | `0.0` | Manual override for physical baseline |
 | `unified_brief` | `Text` | `nullable` | Latest AI-generated unified brief |
 | `unified_brief_time` | `DateTime` | `nullable` | Brief generation timestamp |
+| `global_brief` | `Text` | `nullable` | Latest global threat brief |
+| `global_brief_time` | `DateTime` | `nullable` | Global brief generation timestamp |
+| `internal_brief` | `Text` | `nullable` | Latest internal asset-risk brief |
+| `internal_brief_time` | `DateTime` | `nullable` | Internal brief generation timestamp |
 | `last_global_risk` | `String` | `nullable` | Last calculated global risk level |
 | `last_internal_risk` | `String` | `nullable` | Last calculated internal risk level |
 | `last_risk_alert_time` | `DateTime` | `nullable` | Last risk alert sent time |
@@ -110,6 +141,10 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. Contains 27 table 
 | `global_risk_offset` | `Integer` | `0` | Manual offset for global risk level |
 | `internal_risk_offset` | `Integer` | `0` | Manual offset for internal risk level |
 | `alerted_eq_ids` | `Text` | `"[]"` | JSON list of alerted earthquake IDs |
+| `alerted_wildfire_ids` | `Text` | `"[]"` | JSON list of alerted wildfire IDs |
+| `wildfire_proximity_state` | `Text` | `"{}"` | JSON wildfire proximity state |
+| `llm_context_window` | `Integer` | `128000` | Effective LLM context-window limit |
+| `public_app_url` | `String` | `http://localhost:8501` | Base URL used for registration links |
 
 ---
 

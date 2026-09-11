@@ -137,3 +137,14 @@ Updates a user's profile fields and optionally changes the password.
 
 ### Dependencies
 - `src.services.update_user_profile()`
+## Current Source Surface
+
+Public endpoints are login, registration validation, and registration. Protected endpoints use `get_current_user`.
+
+- `POST /login` returns a database-backed session token and public user object.
+- `GET /register/validate` checks an invitation token without authenticating the caller.
+- `POST /register` completes an invitation-based account with profile, password, shift, and theme data.
+- `GET /me` returns the current user/permission payload.
+- `POST /logout` revokes the current session.
+- `POST /update-profile` validates profile/password changes.
+- `POST /update-theme` persists the selected user theme.

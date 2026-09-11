@@ -6,7 +6,7 @@ This file is the complete template for environment variables used by the current
 
 | Variable | Default in template | Read by | Purpose |
 |---|---|---|---|
-| `DATABASE_URL` | SQLite `/app/data/noc_fusion.db` | `src.core.config` | SQLAlchemy database URL |
+| `DATABASE_URL` | SQLite container path `/app/data/noc_fusion.db` | `src.core.config` | SQLAlchemy database URL; Docker maps `/app/data` to repository `./data` |
 | `DEMO_SEED_DATA` | `false` | `src.core.config` | Enable synthetic asset seed data |
 | `DEFAULT_ADMIN_PASSWORD` | change-me placeholder | `src.core.db` | Initial admin password when the database has no users |
 | `LOG_LEVEL` | `INFO` | `src.core.config` | Python logging threshold |
@@ -30,7 +30,7 @@ This file is the complete template for environment variables used by the current
 | `ALLOW_UNSIGNED_WEBHOOKS` | `false` | webhook | Controlled unsigned-webhook migration exception |
 | `PUBLIC_APP_URL` | `http://localhost:8501` | admin routes | Registration link base URL |
 | `REGISTRATION_INVITE_TTL_HOURS` | `72` | admin routes | Default invite lifetime |
-| `RESCORE_ON_STARTUP` | `false` | database initialization | Explicitly rescore all existing articles at startup |
+| `RESCORE_ON_STARTUP` | `false` | `src.core.db` | Explicitly rescore all existing articles at startup; direct environment control, not a `Settings` field |
 
 ## Security
 

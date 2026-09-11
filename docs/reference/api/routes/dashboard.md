@@ -401,3 +401,30 @@ None.
 - `src.models.schema.Article`
 - `src.core.db.SessionLocal`
 - `src.services.save_ai_bluf()`
+## Current Source Corrections
+
+The router prefix is `/api/v1/dashboard` and the router-wide dependency requires page permission `Global Dashboards`.
+
+### Async Brief Endpoints
+
+These endpoints require `Action: Trigger AI Functions` and use the shared progress store from `src.utils.llm`:
+
+| Endpoint | Behavior |
+|---|---|
+| `POST /generate-unified-brief` | Starts a daemon thread calling `trigger_unified_brief(progress_generation_id=...)`. |
+| `GET /brief-generation-status?generation_id=...` | Returns progress or `{"status":"unknown"}`. |
+| `POST /generate-global-brief` | Starts `trigger_global_brief` asynchronously and returns a generation ID. |
+| `GET /global-brief-generation-status?generation_id=...` | Reads global brief progress. |
+| `POST /generate-internal-brief` | Starts `trigger_internal_brief` asynchronously and returns a generation ID. |
+| `GET /internal-brief-generation-status?generation_id=...` | Reads internal brief progress. |
+
+The three POST endpoints return `{"status":"started","generation_id":"..."}` immediately. Background exceptions update the progress record to `stage="error"` rather than escaping through the HTTP response.
+
+### Synchronous AI and Article Actions
+
+- `POST /generate-internal-risk` calls `generate_and_save_internal_risk_snapshot` synchronously.
+- `POST /generate-rolling-summary` and `POST /generate-scoring-rationale` require `Action: Trigger AI Functions`.
+- Pinning requires `Action: Pin Articles`.
+- Score boosting requires `Action: Boost Threat Score` and `amount` is constrained to 1–100.
+- Article feedback requires `Action: Trigger AI Functions` and accepts feedback values 0–2.
+- BLUF generation requires `Action: Trigger AI Functions` and returns an error payload when the article does not exist or AI generation fails.

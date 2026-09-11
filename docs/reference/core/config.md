@@ -2,97 +2,52 @@
 
 **File:** `src/core/config.py`
 
-Provides application-wide configuration loading from environment variables and standardized logging setup. Uses Pydantic's `BaseSettings` for validation and `.env` file support.
+Loads typed environment configuration with Pydantic Settings, imports `.env` values with `python-dotenv`, exposes a small set of compatibility aliases, and configures stdout logging.
 
----
+## `Settings(BaseSettings)`
 
-## Class: `Settings`
-
-Pydantic `BaseSettings` subclass that loads and validates all environment-driven configuration for the NOC Fusion application.
-
-### Purpose
-Centralized, typed configuration container that reads from environment variables (`.env` file) and exposes all tunable parameters.
-
-### Configuration Fields
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `database_url` | `str` | `sqlite:////app/data/noc_fusion.db` | SQLAlchemy database connection string. Supports any SQLAlchemy-compatible backend (SQLite, PostgreSQL, etc.). |
-| `elastic_url` | `str` | `https://localhost:9200` | Elasticsearch endpoint URL for SIEM event queries. |
-| `elastic_api_key` | `str` | `your_read_only_api_key` | API key for authenticating against the Elasticsearch instance. |
-| `crime_alert_sms` | `str \| None` | `None` | Phone number or SMS gateway for crime alert notifications. |
-| `crime_alert_email` | `str \| None` | `None` | Email address for crime alert notifications. |
-| `risk_alert_recipients` | `str` | `""` | Comma-separated list of email recipients for risk alert notifications. |
-| `webhook_hmac_secret` | `str \| None` | `None` | Shared secret for SolarWinds HMAC validation. |
-| `webhook_signature_header` | `str` | `X-SolarWinds-Signature` | HMAC signature header name. |
-| `webhook_timestamp_header` | `str` | `X-SolarWinds-Timestamp` | Replay-protection timestamp header name. |
-| `webhook_replay_window_seconds` | `int` | `300` | Maximum accepted webhook timestamp age. |
-| `webhook_max_body_bytes` | `int` | `1048576` | Maximum accepted webhook request size. |
-| `websocket_max_message_bytes` | `int` | `65536` | Maximum accepted client WebSocket message size. |
-| `allow_private_llm_endpoints` | `bool` | `False` | Controls whether private LLM endpoint URLs are accepted. |
-| `cors_origins` | `str` | localhost origins | Comma-separated CORS allowlist. |
-| `allow_unsigned_webhooks` | `bool` | `False` | Controlled exception for unsigned webhook migration. |
+| Field | Type | Default | Purpose |
+|---|---|---|---|
+| `database_url` | `str` | `sqlite:////app/data/noc_fusion.db` | SQLAlchemy database URL. |
+| `demo_seed_data` | `bool` | `False` | Enables synthetic asset seeds for disposable demonstrations. |
+| `log_level` | `str` | `INFO` | Declared logging setting; `setup_logging()` also reads `LOG_LEVEL` directly when no level is supplied. |
+| `elastic_url` | `str` | `https://localhost:9200` | Elasticsearch endpoint. |
+| `elastic_api_key` | `str` | `your_read_only_api_key` | Development placeholder/read-only Elastic credential. |
+| `crime_alert_sms` | `str \| None` | `None` | Crime SMS gateway destination. |
+| `crime_alert_email` | `str \| None` | `None` | Crime email destination. |
+| `risk_alert_recipients` | `str` | `""` | Comma-separated risk/daily-brief recipients. |
+| `webhook_hmac_secret` | `str \| None` | `None` | SolarWinds signing secret. |
+| `webhook_signature_header` | `str` | `X-SolarWinds-Signature` | Signature header name. |
+| `webhook_timestamp_header` | `str` | `X-SolarWinds-Timestamp` | Replay timestamp header name. |
+| `webhook_replay_window_seconds` | `int` | `300` | Accepted webhook timestamp age. |
+| `webhook_max_body_bytes` | `int` | `1048576` | Maximum webhook request body. |
+| `websocket_max_message_bytes` | `int` | `65536` | Maximum client WebSocket message. |
+| `allow_private_llm_endpoints` | `bool` | `False` | Allows private LLM endpoint URLs when true. |
+| `cors_origins` | `str` | `http://localhost:8501,http://localhost:5173` | Comma-separated CORS origin list. |
+| `allow_unsigned_webhooks` | `bool` | `False` | Explicit migration exception for unsigned webhook requests. |
 | `public_app_url` | `str` | `http://localhost:8501` | Base URL used for registration links. |
 | `registration_invite_ttl_hours` | `int` | `72` | Default registration invite lifetime. |
 
-### Inner Class: `Config`
+### Pydantic configuration
 
-| Attribute | Value | Description |
-|-----------|-------|-------------|
-| `env_file` | `".env"` | Path to the `.env` file for local overrides. |
-| `extra` | `"ignore"` | Silently ignore any extra fields in the environment not defined in the model. |
+The nested `Config` sets `env_file = ".env"` and `extra = "ignore"`. `load_dotenv()` runs at import time before the singleton `settings = Settings()` is created. Pydantic maps environment names to lowercase field names case-insensitively.
 
-### Flow
-1. `load_dotenv()` is called at module import time to populate `os.environ` from `.env`.
-2. `Settings()` constructor reads from environment variables, applying defaults where values are missing.
-3. The singleton `settings` instance is created at module level.
+## Module-Level Aliases
 
-### Dependencies
-- `pydantic_settings.BaseSettings` — validation and env-file loading.
-- `dotenv.load_dotenv` — loads `.env` file into the process environment.
+The module exports these aliases for older imports:
 
----
+`DATABASE_URL`, `ELASTIC_URL`, `ELASTIC_API_KEY`, `CRIME_ALERT_SMS`, `CRIME_ALERT_EMAIL`, and `RISK_ALERT_RECIPIENTS`.
 
-## Module-Level Constants
+Other settings must be read from the `settings` singleton.
 
-| Constant | Source | Type | Description |
-|----------|--------|------|-------------|
-| `DATABASE_URL` | `settings.database_url` | `str` | Database connection URL used by SQLAlchemy engine. |
-| `ELASTIC_URL` | `settings.elastic_url` | `str` | Elasticsearch endpoint URL. |
-| `ELASTIC_API_KEY` | `settings.elastic_api_key` | `str` | Elasticsearch API key. |
-| `CRIME_ALERT_SMS` | `settings.crime_alert_sms` | `str \| None` | SMS gateway for crime alerts. |
-| `CRIME_ALERT_EMAIL` | `settings.crime_alert_email` | `str \| None` | Email for crime alerts. |
-| `RISK_ALERT_RECIPIENTS` | `settings.risk_alert_recipients` | `str` | Risk alert email recipients. |
+## `setup_logging(level=None)`
 
-The module also exports convenience aliases for the first five fields. Other settings are accessed through the singleton `settings` object.
+Configures the root logger with `logging.basicConfig(..., force=True)`:
 
----
+- When `level` is not `None`, uses the supplied logging level.
+- When `level` is `None`, reads `LOG_LEVEL` from the process environment and uppercases it.
+- Invalid level names fall back to `logging.WARNING`.
+- Writes to `sys.stdout` using `%(asctime)s [%(levelname)s] %(name)s: %(message)s`.
+- Uses `%H:%M:%S` timestamps.
 
-## Function: `setup_logging(level=logging.INFO)`
-
-### Purpose
-Configures the root Python logger with a standardized format and stdout handler. Intended to be called once at application startup.
-
-### Parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `level` | `int` | `logging.INFO` | Logging threshold level (e.g., `logging.INFO`, `logging.DEBUG`). |
-
-### Returns
-`None`
-
-### Raises
-None.
-
-### Flow
-1. Calls `logging.basicConfig()` with:
-   - Level set to the provided `level`.
-   - Format string: `"%(asctime)s [%(levelname)s] %(name)s: %(message)s"`.
-   - Date format: `"%H:%M:%S"` (hours:minutes:seconds).
-   - Single `StreamHandler` writing to `sys.stdout`.
-   - `force=True` to override any pre-existing logger configuration.
-
-### Dependencies
-- `logging` — standard library logging.
-- `sys` — for `sys.stdout` stream.
+The API, worker, and webhook call this during startup. Repeated calls replace the prior root logger configuration because `force=True` is intentional.

@@ -2,6 +2,10 @@
 
 Settings & Admin page. Provides ten tabs: Profile, Theme, Facilities, Internal Assets, RSS Sources, ML Training, AI & SMTP, Users & Roles, Backup & Restore, and Danger Zone.
 
+## Current Source Behavior
+
+The role editor includes page, action, and allowed-site-type permissions. Current administration also supports keyword weight editing (1–100), hardware/software asset imports, registration invites, database upload/export/import, scoped crime/weather cleanup, and ML retraining. The frontend route is protected by `Settings & Admin`; backend admin routes require administrator role.
+
 ---
 
 ## Constants

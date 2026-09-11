@@ -1,43 +1,32 @@
-# API Client
+# Module: `web/src/utils/api.ts`
 
-## Overview
+Exports a singleton Axios client configured for the browser API.
 
-Axios-based HTTP client pre-configured with the `/api/v1` base URL. Injects the authentication token from `sessionStorage` into every request as a query parameter, and handles 401 responses by clearing session data and redirecting to the login page.
+## Axios Instance
 
----
+```ts
+axios.create({ baseURL: "/api/v1" })
+```
 
-## Module: `api`
+The relative base URL allows Vite’s development proxy and production nginx `/api/` proxy to use the same frontend code.
 
-### `api` (default export)
+## Request Interceptor
 
-- **Type**: `AxiosInstance`
-- **Created via**: `axios.create({ baseURL: "/api/v1" })`
-- **Purpose**: Singleton Axios instance used by all page components and utilities to communicate with the FastAPI backend.
+Reads `noc_token` from `sessionStorage`. When present, it adds:
 
----
+```http
+Authorization: Bearer <session-token>
+```
 
-## Interceptors
+The current frontend does not append the token as a query parameter. The backend retains query-token compatibility for older clients.
 
-### Request Interceptor
+## Response Interceptor
 
-| Event | Behavior |
-|-------|----------|
-| **Before request** | Reads `noc_token` from `sessionStorage`. If present, merges it into the request params as `{ token }`. |
+Successful responses pass through unchanged. A `401` response:
 
-- **Flow**: Every outgoing request gets `?token=<stored_token>` appended to its query parameters.
+1. Removes `noc_token` and `noc_user` from `sessionStorage`.
+2. Dispatches the browser event `noc:unauthorized`.
+3. Sets `window.location.hash` to `#/login`.
+4. Rejects the original Axios error so the caller can handle it.
 
-### Response Interceptor
-
-| Event | Behavior |
-|-------|----------|
-| **On error** | If `err.response.status === 401`, clears `noc_token` and `noc_user` from `sessionStorage` and sets `window.location.hash` to `#/login`. |
-
-- **Flow**: Catches all response errors. On 401, logs the user out locally (clears session) and redirects to the login page. Always re-throws the error via `Promise.reject(err)` so callers can handle it further.
-
----
-
-## Dependencies
-
-| Dependency | Purpose |
-|-----------|---------|
-| `axios` | HTTP client library |
+Other response errors are rethrown without local session cleanup.

@@ -6,14 +6,14 @@
 
 ## Class: `HybridScorer`
 
-**Purpose:** Hybrid scoring engine that combines keyword-based scoring with an optional ML model (random forest classifier) to score articles on a 0-100 scale. The ML model can boost hidden threats, penalize noise, or provide synergy bonuses.
+**Purpose:** Hybrid scoring engine that combines keyword-based scoring with an optional joblib/scikit-learn model to score articles on a 0-100 scale. The ML model can boost hidden threats, penalize noise, or provide synergy bonuses.
 
 ### `__init__(self, model_path="src/ml_model.pkl")`
 
 **Purpose:** Initializes the scorer by loading the ML model (if available) and keyword weights from the database.
 
 **Parameters:**
-- `model_path` (str) -- Path to the pickled ML model file (default: "src/ml_model.pkl")
+- `model_path` (str) -- Repository-relative runtime path by default: `src/ml_model.pkl`. It is resolved relative to the process working directory, not the module file.
 
 **Attributes:**
 - `model_path` (str) -- Path to ML model file
@@ -23,8 +23,9 @@
 **Dependencies:** `os`, `joblib`, `SessionLocal`, `Keyword`
 
 **Flow:**
-1. Checks if model_path exists on disk; if so, loads via `joblib.load()`
-2. Queries all Keyword records from database, stores as `{word.lower(): weight}` dict
+1. Checks if `model_path` exists on disk; if so, loads via `joblib.load()`.
+2. If the file is absent, continues with keyword-only scoring.
+3. Queries all Keyword records from the database and stores `{word.lower(): weight}`.
 
 ---
 
@@ -43,7 +44,7 @@
 1. **Keyword Scoring:** Lowercases text. For each keyword, checks if it exists in text. Accumulates `kw_score += weight` and appends keyword to reasons list.
 2. **ML Augmentation (if model is loaded):**
    - Calls `model.predict_proba([text_lower])` to get class probabilities
-   - Extracts probability of class 1 (keep/relevant) as `keep_prob`
+    - Extracts probability of class 1 (keep/relevant) as `keep_prob`. For a one-class model, class `1` maps to probability `1.0`; another sole class maps to `0.0`.
    - **AI Boost:** If `keep_prob >= 0.75` and `final_score < 50.0`, sets `final_score = max(final_score, 65.0)` -- catches hidden threats missed by keywords
    - **AI Penalty:** If `keep_prob <= 0.25` and `final_score >= 50.0`, applies a 60% penalty -- reduces noise articles
    - **AI Synergy:** If `keep_prob > 0.50` and `final_score > 0`, adds `keep_prob * 10.0` bonus

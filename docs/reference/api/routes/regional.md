@@ -270,3 +270,14 @@ None.
 ### Dependencies
 - `src.workers.infra_worker.fetch_regional_hazards()`
 - `src.services.get_cached_geojson.clear()` (LRU cache clear)
+## Current Source Surface
+
+Current regional route behavior includes:
+
+- `POST /compile-map`: compiles toggled hazard layers, view state, site diagnostics, affected-site sets, and analytics.
+- `GET/POST /weather-prefs`: reads or updates user alert preferences.
+- `GET /weather-alerts-log`: returns persisted weather-alert history.
+- `GET /site-types`: merges default site types with distinct database location types.
+- `POST /sync-hazards`: manually invokes the active regional hazard worker.
+
+The compile-map response remains the positional six-element contract documented in `docs/ARCHITECTURE.md`.

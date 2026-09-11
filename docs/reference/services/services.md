@@ -2,6 +2,20 @@
 
 **File:** `src/services.py`
 
+## Current Source Surface
+
+This module is loaded through `src/services/__init__.py` and is the active data-access/domain service surface. The current implementation additionally includes the following operational groups that must be kept in sync with this reference:
+
+- Registration/session helpers: `_invite_token_hash`, `create_registration_invite`, `get_registration_invite`, `complete_registration`.
+- User/theme helpers: `set_user_theme`, profile and permission resolution.
+- Article/report helpers: `get_article_detail`, `get_articles_by_ids`, `parse_search_terms`, `generate_custom_report_email_html`.
+- Brief helpers: `generate_global_brief_email_html`, `generate_internal_brief_email_html`, `trigger_global_brief`, `trigger_internal_brief`, and progress-generation IDs.
+- Import/export helpers: `import_software_assets_csv`, `import_hardware_assets_csv`, `export_all_tables`, `import_all_tables`, `restore_from_db_upload`.
+- Regional helpers: `get_trigger_token`, `get_eq_color`, `process_usgs_quakes`, `rank_hazard`, and `get_primary_label`.
+- Scoring/AI helpers: `update_keyword_weight`, `_build_fallback_summary`, and `run_llm`.
+
+When a signature or default differs from an older section below, the current function definition in `src/services.py` is authoritative and that section must be corrected rather than copied forward.
+
 The `services.py` module is the central Data Access Layer (DAL) for the NOC Intelligence Fusion Center. It contains 104+ functions that bridge the API routes to the database, providing authentication, dashboards, threat telemetry, regional grid analytics, AIOps RCA, reporting, and administrative operations.
 
 ---

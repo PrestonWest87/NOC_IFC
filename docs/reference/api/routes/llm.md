@@ -83,3 +83,6 @@ None.
 ### Dependencies
 - `src.utils.llm.generate_executive_weather_brief()`
 - `src.services.get_cached_config()`
+## Current Source Surface
+
+`_safe_llm_endpoint` validates endpoint policy, including the `ALLOW_PRIVATE_LLM_ENDPOINTS` setting. `POST /test-connection` checks the configured/requested provider, while `POST /executive-weather-brief` builds a weather summary from the supplied analytics payload and active LLM configuration.

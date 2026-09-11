@@ -1,66 +1,44 @@
-# useAIOpsWebSocket
+# Hook: `useAIOpsWebSocket`
 
-## Overview
+**Source:** `web/src/hooks/useAIOpsWebSocket.ts`
 
-Custom React hook that establishes and maintains a persistent WebSocket connection to the backend. Receives real-time dashboard update payloads, stores them in the Zustand app store, and triggers browser notifications for CRITICAL or HIGH severity alerts.
+Maintains the authenticated browser WebSocket connection and synchronizes realtime AIOps events with local Zustand and React Query state.
 
----
+## Return Value
 
-## Interfaces
+```ts
+{ data: DashboardPayload | null; connected: boolean }
+```
 
-### `DashboardPayload`
+The hook also publishes a `sendMessage` callback into `useAppStore` for components that need to send authorized UI commands.
 
-Defined in `useAppStore`. See [Store: useAppStore](../store/useAppStore.md).
+## Connection Flow
 
----
+1. Reads the session token from `useAuth()`.
+2. Does not connect until a token exists.
+3. Uses `wss` for HTTPS pages and `ws` otherwise.
+4. Connects to the current host at `/ws?token=<encoded-token>`.
+5. Sets local and store connected state on open and resets retry count.
+6. Reconnects after close with exponential backoff: `1s`, `2s`, `4s`, up to `30s`.
+7. Closes the socket and clears the retry timer during effect cleanup.
 
-## Functions
+## Outbound Messages
 
-### `useAIOpsWebSocket()` (hook)
+The store callback serializes and sends a message only when the socket is open. The API currently authorizes RCA-related message types according to the authenticated user’s action permissions.
 
-- **Purpose**: Connects to the backend WebSocket at the current host (`ws://` or `wss://` depending on page protocol) and streams dashboard payloads into the Zustand store. Implements exponential-backoff reconnection and deduplicated critical alert notifications.
-- **Returns**:
+## Inbound Message Handling
 
-| Return Property | Type | Description |
-|----------------|------|-------------|
-| `data` | `DashboardPayload \| null` | The most recent WebSocket message payload |
-| `connected` | `boolean` | Whether the WebSocket is currently open |
+| Message type | Behavior |
+|---|---|
+| `INVESTIGATING_UPDATE` | Updates the Zustand investigating-site state. |
+| `RCA_UPDATE` | Invalidates `rca-dashboard` and `rca-analyze` queries. |
+| `dashboard_update` | Updates local/store dashboard state and merges alerts/events/grid into an existing `rca-dashboard` query without creating a partial query before the initial GET. |
 
-- **Flow**:
-  1. On mount, calls the inner `connect()` function.
-  2. `connect()` determines the protocol (`ws:` or `wss:`) and creates a new `WebSocket` to `{protocol}//{host}/ws`.
-  3. **onopen**: Sets `connected` to `true` in both local state and the Zustand store. Resets `retryRef` to 0.
-  4. **onmessage**: Parses the JSON payload as a `DashboardPayload`. Updates local `data` state and calls `setStoreDashboard()`. Iterates over `payload.alerts` — for each alert with an unseen ID (tracked in `knownAlertIds`), if severity is `"CRITICAL"` or `"HIGH"`, calls `triggerCriticalNotification()` and adds the ID to the dedup set.
-  5. **onclose**: Sets `connected` to `false` in both local state and the store. Schedules a reconnection via `setTimeout` with exponential backoff capped at 30 seconds (`min(1000 * 2^retry, 30000)`).
-  6. **onerror**: Calls `ws.close()` to trigger the `onclose` handler.
-  7. On cleanup (unmount), closes the WebSocket.
-- **Dependencies**: `[setStoreDashboard, setStoreConnected]` — these are stable zustand selectors.
-
----
-
-## Refs
-
-| Ref | Type | Description |
-|-----|------|-------------|
-| `wsRef` | `MutableRefObject<WebSocket \| null>` | Holds the current WebSocket instance |
-| `retryRef` | `MutableRefObject<number>` | Incremented on each reconnect attempt for exponential backoff calculation |
-| `knownAlertIds` | `MutableRefObject<Set<string>>` | Deduplication set for alert notifications; prevents duplicate browser notifications |
-
----
-
-## State
-
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `data` | `DashboardPayload \| null` | `null` | Latest dashboard payload from WebSocket |
-| `connected` | `boolean` | `false` | WebSocket connection status |
-
----
+Malformed JSON is ignored. New CRITICAL/HIGH alert IDs trigger browser notifications once per hook lifetime using a `Set` of known IDs.
 
 ## Dependencies
 
-| Dependency | Purpose |
-|-----------|---------|
-| `react` (useEffect, useRef, useState) | React lifecycle and mutable refs |
-| `../utils/notifications` (`triggerCriticalNotification`) | Browser Notification API wrapper |
-| `../store/useAppStore` (`useAppStore`, `DashboardPayload`) | Zustand global store for dashboard state |
+- `useAuth` for the current session token.
+- `useQueryClient` for RCA invalidation and cache synchronization.
+- `useAppStore` for dashboard, connection, investigating-site, and send-message state.
+- `triggerCriticalNotification` for browser alert notifications.

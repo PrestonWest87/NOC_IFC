@@ -575,3 +575,16 @@ None.
 ### Dependencies
 - `src.train_model.train()`
 - `src.services.logic.force_reload_scorer()`
+## Current Source Corrections
+
+The admin router is protected router-wide by `Depends(require_admin)`. Current administrative operations include:
+
+- `PATCH /keywords/{keyword_id}` with integer weight validation from 1 through 100.
+- `POST /assets/software` and `POST /assets/hardware` for asset imports.
+- `POST /registration-invites` for expiring registration links.
+- `POST /upload-db`, `GET /export-all`, and `POST /import-all` for database operations.
+- `POST /nuke/crime` and `POST /nuke/weather` for scoped cleanup actions.
+- `POST /ml-retrain` to trigger model training.
+- `POST /location/import` with `mode=add|upsert|replace`; response includes the selected mode and import count.
+
+`save_config()` passes `allow_system_fields=False` to the service layer so protected system fields cannot be changed through the general configuration form.

@@ -2,178 +2,87 @@
 
 **File:** `src/core/db.py`
 
-Provides the SQLAlchemy engine, session factory, database initialization (schema creation, migrations, defaults seeding), and a FastAPI-compatible dependency injection helper.
+Provides the SQLAlchemy engine, session factory, SQLite startup tuning, additive schema migration, default-data seeding, and the FastAPI database dependency.
 
----
-
-## Module-Level Objects
+## Module Objects
 
 ### `engine`
 
-SQLAlchemy `Engine` instance created with the configured `DATABASE_URL`. For SQLite, it passes `connect_args={"check_same_thread": False, "timeout": 30}` to allow cross-thread access and a 30-second connection timeout.
+Created with `create_engine(DATABASE_URL, poolclass=NullPool, connect_args=...)`.
+
+- SQLite uses `check_same_thread=False` and a 30-second timeout.
+- PostgreSQL/other URLs use empty `connect_args`.
+- `NullPool` is used for the current configuration to avoid long-lived SQLite connection contention.
 
 ### `SessionLocal`
 
-`sessionmaker` bound to `engine`, configured with `autocommit=False` and `autoflush=False`. Used as the session factory throughout the application.
+`sessionmaker(autocommit=False, autoflush=False, bind=engine)`. Callers must close sessions; most service code uses `with SessionLocal() as session`.
 
----
+## `_set_sqlite_pragmas()`
 
-## Event Listener: `set_sqlite_pragma`
+Called once at import when `engine.dialect.name == "sqlite"`. It opens a connection and applies:
 
-### Purpose
-SQLAlchemy event listener attached to the engine's `"connect"` event. Executes performance-optimizing PRAGMA statements on every new SQLite connection.
+| PRAGMA | Value | Purpose |
+|---|---|---|
+| `journal_mode` | `WAL` | Better read concurrency during writes. |
+| `synchronous` | `NORMAL` | Balanced durability/performance under WAL. |
+| `cache_size` | `-16000` | 16,000 KiB page cache. |
+| `temp_store` | `MEMORY` | In-memory temporary tables. |
+| `mmap_size` | `67108864` | 64 MiB memory mapping. |
 
-### Parameters
+It retries up to three times with waits of 0.5, 1.0, and 1.5 seconds. A final failure is logged as a warning because another process may already have enabled WAL.
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `dbapi_connection` | `object` | The raw DBAPI connection object (e.g., `sqlite3.Connection`). |
-| `connection_record` | `object` | The connection record from SQLAlchemy's connection pool. |
+## `get_db()`
 
-### Returns
-`None`
+Generator dependency:
 
-### Raises
-None.
+1. Creates a `SessionLocal` instance.
+2. Yields it to FastAPI.
+3. Closes it in `finally`, including when the route raises.
 
-### Flow
-1. Obtains a cursor from the raw connection.
-2. Executes five PRAGMA statements in sequence:
-   - `journal_mode=WAL` — enables Write-Ahead Logging for better concurrent reads.
-   - `synchronous=NORMAL` — reduces fsync calls for improved write performance.
-   - `cache_size=-16000` — sets page cache to 16 MB (negative = kibibytes).
-   - `temp_store=MEMORY` — stores temporary tables/indexes in memory.
-   - `mmap_size=268435456` — enables memory-mapped I/O with 256 MB limit.
-3. Closes the cursor.
+## `init_db()`
 
-### Dependencies
-- `sqlalchemy.event` — for `@event.listens_for` decorator.
-- SQLite `DBAPI` — the PRAGMA statements are SQLite-specific.
+Runs during API and worker startup. It is additive and intended to be idempotent.
 
----
+### Schema creation
 
-## Generator: `get_db()`
+Calls `Base.metadata.create_all(bind=engine)`. Existing tables and columns are not dropped. A failure at this stage is logged and raised because the application cannot safely continue without a base schema.
 
-### Purpose
-FastAPI dependency generator that yields a database session and ensures it is closed after the request completes.
+### Additive migrations and indexes
 
-### Parameters
-None.
+The function executes guarded `ALTER TABLE` operations for fields introduced over time, including:
 
-### Yields
-| Type | Description |
-|------|-------------|
-| `sqlalchemy.orm.Session` | A new `SessionLocal` instance. |
+- `system_config`: alert tracking, wildfire state, enrichment/brief fields, risk tracking, scoring overrides, offsets, LLM context, and public app URL.
+- `articles`: ingestion/enrichment state, attempts, error timestamps, and full content.
+- `roles`: `allowed_site_types`.
+- `solarwinds_alerts`: dispatch/ticket/acknowledgment fields.
+- `monitored_locations`: district, maintenance, status tracking, and automatic/escalation timestamps.
+- `shift_logs`: author role and soft-delete state.
+- `crime_incidents`: alert-dispatched state.
+- `users`: theme and default shift.
+- `user_weather_prefs`: table and username index.
 
-### Raises
-None.
+It creates indexes for article score/published/pinned queries, risk snapshots, SolarWinds status/node queries, cloud status, crime filtering, shift-log deletion, and weather preferences. Each migration is attempted with autocommit and an error is logged or debug-logged so an already-existing column does not prevent later migrations from running.
 
-### Flow
-1. Creates a new `SessionLocal()` session.
-2. `yield`s the session to the caller (FastAPI route handler).
-3. In the `finally` block, closes the session, releasing the connection back to the pool.
+### Role and user seeds
 
-### Dependencies
-- `SessionLocal` — session factory defined in this module.
+The function creates or updates `admin` and `analyst` roles with the current page/action permission arrays and site-type support. It creates the first `admin` user only when no user exists and `DEFAULT_ADMIN_PASSWORD` is non-empty. The password is bcrypt-hashed; there is no guaranteed hard-coded password.
 
----
+### Feed and keyword seeds
 
-## Function: `init_db()`
+It inserts missing default RSS feed URLs and missing scoring keywords without replacing existing operator changes. The keyword list is maintained in the source seed array; the application uses the persisted `Keyword.weight` values at scoring time.
 
-### Purpose
-Comprehensive database initialization routine. Creates all tables from SQLAlchemy ORM models, applies schema migrations for columns added after initial deployment, seeds default roles, an admin user, RSS feed sources, and scoring keywords, then triggers article rescoring.
+### System configuration and demo assets
 
-### Parameters
-None.
+If no `SystemConfig` exists, it creates an inactive default row. When `DEMO_SEED_DATA` is true, it adds synthetic hardware/software assets only when the relevant tables are empty.
 
-### Returns
-`None`
+### Optional article rescoring
 
-### Raises
-None. All exceptions are caught, logged, and suppressed to make initialization resilient to partial failures.
+The final stage checks `RESCORE_ON_STARTUP` directly from the process environment. Values `1`, `true`, and `yes` trigger `src.services.rescore_all_articles()`. The default is false, so normal startup does not rescore the complete corpus.
 
-### Flow
+## Operational Notes
 
-#### Phase 1 — Random Sleep
-Sleeps a random interval between 0.1 and 1.5 seconds to stagger initialization when multiple processes start simultaneously.
-
-#### Phase 2 — Schema Creation
-Calls `Base.metadata.create_all(bind=engine)` to create all tables defined in model classes. Errors are logged but do not halt execution.
-
-#### Phase 3 — Schema Migrations (Idempotent `ALTER TABLE`)
-Each migration is wrapped in a `try/except` block that silently passes on failure (column already exists). Executed with `AUTOCOMMIT` isolation level:
-
-1. `roles` → add `allowed_site_types` (JSON)
-2. `solarwinds_alerts` → add `is_dispatched` (BOOLEAN, default 0)
-3. `monitored_locations` → add `district` (VARCHAR, default `'Central'`)
-4. `shift_logs` → add `author_role` (VARCHAR, default `'analyst'`)
-5. `system_config` → add `baseline_override_cyber` and `baseline_override_phys` (FLOAT, default 0.0)
-6. `monitored_locations` → add `under_maintenance`, `maintenance_etr`, `maintenance_reason`
-7. Create `user_weather_prefs` table if not exists, with index on `username`
-8. `shift_logs` → add `is_deleted` (BOOLEAN, default 0)
-9. `system_config` → add `unified_brief`, `unified_brief_time`
-10. `users` → add `default_shift` (VARCHAR, default `'No Shift'`)
-11. `crime_incidents` → add `is_alert_dispatched` (BOOLEAN, default 0)
-12. `system_config` → add `last_global_risk`, `last_internal_risk`, `last_risk_alert_time`, `sys_countermeasures`, `net_countermeasures`
-13. `solarwinds_alerts` → add `is_ticketed`; `monitored_locations` → add `last_auto_ticket`, `last_escalation_ticket`, `last_auto_dispatch`, `last_escalation_dispatch`, `status_modified_by`, `status_modified_at`
-
-#### Phase 4 — Roles and Admin User Seeding
-Opens a `SessionLocal` session:
-
-1. Defines `all_pages` — list of 8 top-level navigation page names.
-2. Defines `all_actions` — list of 38 granular action/tab permission strings.
-3. **Admin Role**: Creates or updates a role named `"admin"` with all pages and all actions.
-4. **Analyst Role**: Creates or updates a role named `"analyst"` with all pages except `"Settings & Admin"` and all actions.
-5. **Admin User**: If no users exist and `DEFAULT_ADMIN_PASSWORD` is non-empty, creates an `"admin"` user with:
-   - Username: `admin`
-   - Password: the `DEFAULT_ADMIN_PASSWORD` value (bcrypt-hashed with generated salt)
-   - Role: `admin`
-   - Full name: `"Administrator"`
-   - Job title: `"System Admin"`
-   - Contact info: `"NOC Desk"`
-6. Commits the transaction. On error, rolls back and logs.
-
-#### Phase 5 — RSS Feed Sources Seeding
-Opens a separate `SessionLocal` session. Inserts 7 default RSS feed sources if they do not already exist (checked by URL):
-
-| URL | Name |
-|-----|------|
-| `https://feeds.feedburner.com/TheHackersNews` | The Hacker News |
-| `https://krebsonsecurity.com/feed/` | Krebs on Security |
-| `https://www.bleepingcomputer.com/feed/` | BleepingComputer |
-| `https://feeds.a.dj.com/rss/RSSWorldNews.xml` | WSJ World News |
-| `https://www.cisa.gov/cybersecurity-advisories/all.xml` | CISA Advisories |
-| `https://www.darkreading.com/rss.xml` | Dark Reading |
-| `https://therecord.media/feed/` | The Record |
-
-Logs the count of newly added feeds.
-
-#### Phase 6 — Keywords Seeding
-Opens a separate `SessionLocal` session. Inserts 70 default scoring keywords with weights if they do not already exist (checked by word). Keywords cover:
-
-- **Threat types**: ransomware, breach, zero-day, exploit, malware, ddos, phishing, backdoor, trojan, spyware, wiper, botnet, C2 infrastructure
-- **Attack techniques**: lateral movement, privilege escalation, data exfiltration, supply chain, RCE
-- **Tools/Frameworks**: Cobalt Strike, Log4j, Log4Shell, SolarWinds
-- **Threat actors/groups**: LockBit, BlackCat, Clop, AlphV, Conti, APT, nation-state
-- **Organizations**: CISA, FBI, NSA, NATO
-- **Topics**: disinformation, deepfake, AI/ML, drones/UAVs, military, defense, critical infrastructure, power grid, energy, financial, cryptocurrency
-- **Network/infrastructure**: BGP, submarine cable, outage, degraded, disruption
-
-Logs the count of newly added keywords.
-
-#### Phase 7 — Article Rescoring
-Imports `rescore_all_articles` from `src.services` and calls it to re-score all existing articles against the newly seeded keywords. Logs the number of rescored articles.
-
-### Dependencies
-
-| Dependency | Usage |
-|------------|-------|
-| `sqlalchemy` (`create_engine`, `text`, `event`) | Engine creation, raw SQL execution |
-| `sqlalchemy.orm.sessionmaker` | Session factory |
-| `src.models.Base` | Declarative base for `create_all` |
-| `src.core.config.DATABASE_URL` | Database connection string |
-| `src.models.schema.Role`, `User`, `FeedSource`, `Keyword` | ORM models for seeding |
-| `bcrypt` | Password hashing for default admin user |
-| `src.services.rescore_all_articles` | Article rescoring after keyword seeding |
-| `logging` | Error/warning logging |
-| `time`, `random` | Staggered sleep |
+- Run `init_db()` manually only after creating a backup.
+- Schema migration failures should be investigated rather than hidden by repeated restarts.
+- The hourly scheduler maintenance job, not `init_db()`, handles normal retention deletion and orphan IOC cleanup.
+- SQLite is suitable for a single-node deployment; use PostgreSQL for multiple writers or replicas.

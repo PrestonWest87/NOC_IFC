@@ -109,3 +109,6 @@ HTTP request headers including a modern Chrome User-Agent, `Accept: application/
   3. Call `fetch_ioda_isp_outages()`.
   4. Log `"Multi-Domain Telemetry Sync Complete."`.
 - **Dependencies:** All functions in this module.
+## Current Source Surface
+
+The active telemetry worker synchronizes external routing/network signals and persists normalized records for dashboard and RCA context. Recheck source URLs, thresholds, and cleanup windows before changing provider integrations; the scheduler invokes `run_telemetry_sync` every six minutes.

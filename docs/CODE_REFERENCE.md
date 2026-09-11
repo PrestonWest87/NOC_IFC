@@ -1,6 +1,6 @@
 # Code and Function Reference
 
-The detailed module pages live under `docs/reference/`. They are organized by implementation boundary and are intended to answer four questions for every public or operational symbol: what it does, what it accepts, what it returns or changes, and what algorithm or dependency it uses.
+The detailed module pages live under `docs/reference/`. The current source-to-reference map is [reference/SOURCE_COVERAGE.md](reference/SOURCE_COVERAGE.md). Pages are organized by implementation boundary and are intended to answer four questions for every public or operational symbol: what it does, what it accepts, what it returns or changes, and what algorithm or dependency it uses.
 
 ## Backend Modules
 
@@ -8,6 +8,7 @@ The detailed module pages live under `docs/reference/`. They are organized by im
 |---|---|---|
 | Configuration | `src/core/config.py` | `reference/core/config.md` |
 | Database lifecycle | `src/core/db.py` | `reference/core/db.md` |
+| Database compatibility surface | `src/database.py` | `reference/database_compat.md` |
 | API lifecycle/auth/health | `src/api/main.py`, `src/api/auth_guard.py` | `reference/api/main.md` |
 | WebSocket manager | `src/api/ws_manager.py` | `reference/api/ws_manager.md` |
 | API route handlers | `src/api/routes/*.py` | `reference/api/routes/` |
@@ -19,17 +20,19 @@ The detailed module pages live under `docs/reference/`. They are organized by im
 | LLM/map-reduce | `src/utils/llm.py` | `reference/utils/llm.md` |
 | Email delivery | `src/utils/mailer.py` | `reference/utils/mailer.md` |
 | Risk alerts | `src/utils/risk_alert.py` | `reference/utils/risk_alert.md` |
-| Scheduler | `src/scheduler.py` | `SCHEDULER.md` |
+| Scheduler | `src/scheduler.py` | `SCHEDULER.md`, `reference/scheduler.md` |
 | Workers | `src/workers/*.py` | `reference/workers/` |
-| Webhook | `src/webhook_listener.py` | `WEBHOOK.md` |
+| Webhook | `src/webhook_listener.py` | `WEBHOOK.md`, `reference/api/webhook_listener.md` |
+| ML training | `src/train_model.py` | `reference/train_model.md` |
 
 ## Frontend Modules
 
 | Area | Source | Reference |
 |---|---|---|
 | Application/router/providers | `web/src/App.tsx` | `reference/web/App.md` |
-| Auth and API client | `web/src/utils/AuthContext.tsx`, `web/src/utils/api.ts` | `reference/web/utils/` |
-| Routing and permissions | `web/src/utils/routeConfig.ts`, `permissions.ts` | `FRONTEND.md`, `reference/web/utils/permissions.md` |
+| Auth and API client | `web/src/utils/AuthContext.tsx`, `web/src/utils/api.ts` | `reference/web/utils/AuthContext.md`, `reference/web/utils/api.md` |
+| Routing and permissions | `web/src/utils/routeConfig.ts`, `permissions.ts` | `FRONTEND.md`, `reference/web/utils/routeConfig.md`, `reference/web/utils/permissions.md` |
+| Timezone and Markdown rendering | `web/src/utils/timezone.ts`, `web/src/components/MarkdownContent.tsx` | `reference/web/utils/timezone.md`, `reference/web/components/MarkdownContent.md` |
 | Realtime hook | `web/src/hooks/useAIOpsWebSocket.ts` | `reference/web/hooks/useAIOpsWebSocket.md` |
 | Pages | `web/src/pages/*.tsx` | `reference/web/pages/` |
 | Components and theme | `web/src/components/` | `reference/web/` |

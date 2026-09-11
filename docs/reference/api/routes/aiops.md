@@ -133,3 +133,11 @@ None.
 - `src.core.db.get_db`
 - `src.models.schema.SolarWindsAlert`
 - `src.services.acknowledge_cluster()`
+## Current Source Surface
+
+Router prefix: `/api/v1/aiops`, protected by page permission `AIOps RCA`.
+
+- `GET /dashboard` calls the current AIOps dashboard service.
+- `GET /sitrep` uses a database session and returns the current site situation report.
+- `GET /sites` returns monitored sites with current alert/status data.
+- `PATCH /sites/{site_id}/acknowledge` requires the authenticated user and records acknowledgment state.

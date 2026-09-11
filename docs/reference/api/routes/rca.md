@@ -411,3 +411,14 @@ Resolves a specific alert by alert ID or by node name.
 
 ### Dependencies
 - `src.services.resolve_alert()`
+## Current Source Corrections
+
+The router prefix is `/api/v1/rca`. Its local `require_action(action)` wrapper delegates to `require_authorized_action(action)`; it does not independently parse query tokens.
+
+- `set_investigate(background_tasks, data=Body(...), ...)` broadcasts updates through FastAPI background tasks.
+- `acknowledge` passes `user.username` to the service layer.
+- `dispatch` passes `user.username` as `dispatched_by`.
+- `send_ticket` builds a body beginning with `*** MANUAL TICKET ***` and includes the target SLA before ticket details.
+- `generate_ticket` requires a JSON body containing `site`, `priority`, `patient_zero`, `root_cause`, and `cluster`.
+- `resolve_alert` accepts `alert_id: int = 0` and `node_name: str = ""`.
+- `sitrep` returns `{"report": ...}` from the reduced SystemConfig context.

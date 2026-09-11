@@ -62,3 +62,6 @@ Generates and persists the Daily Fusion Report for the NOC. Listens for the 06:0
   - `time.sleep` - loop pacing
   - `run_daily_report()` - actual report generation
   - `datetime`, `zoneinfo`
+## Current Runtime Boundary
+
+The primary production daily brief path is `job_daily_email_unified_brief()` in `src/scheduler.py`. This report worker remains a separately documented scheduler helper and must not be assumed to own the current daily email path without checking its call site.
