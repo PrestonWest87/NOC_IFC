@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Query, Body, Depends
+import json
+from fastapi import APIRouter, Query, Body, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 import logging
 
 from src import services as svc
@@ -6,6 +8,22 @@ from src.api.auth_guard import require_page, require_action
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/threat", tags=["threat"], dependencies=[Depends(require_page("Threat Telemetry"))])
+
+
+class SIEMEventInput(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str | int | None = None
+    timestamp: str | None = Field(default=None, max_length=64)
+    index_name: str | None = Field(default=None, max_length=256)
+    severity: str | int | float | None = None
+    message: str | None = Field(default=None, max_length=2000)
+    source_ip: str | None = Field(default=None, max_length=128)
+    event_category: str | None = Field(default=None, max_length=256)
+
+
+class SIEMTriageRequest(BaseModel):
+    events: list[SIEMEventInput] = Field(min_length=1, max_length=50)
 
 
 @router.get("/cves")
@@ -96,22 +114,29 @@ def fetch_crime_data():
 
 
 @router.post("/sync-elastic-cache", dependencies=[Depends(require_action("Action: Manually Sync Data"))])
-def sync_elastic_cache(hours_back: int = Query(24, ge=1)):
+def sync_elastic_cache(hours_back: int = Query(24, ge=1, le=168)):
     logger.info("POST /threat/sync-elastic-cache hours_back=%d", hours_back)
     from src.workers.elastic_worker import run_elastic_sync
     try:
-        run_elastic_sync(hours_back=hours_back)
-        return {"status": "ok", "message": "Elastic cache synced."}
+        result = run_elastic_sync(hours_back=hours_back)
+        if isinstance(result, dict) and result.get("status") == "error":
+            raise HTTPException(status_code=502, detail=result.get("message", "Elastic cache sync failed."))
+        return {"status": "ok", "message": "Elastic cache synced.", "result": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("sync-elastic-cache error: %s", e)
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(status_code=502, detail="Elastic cache sync failed.") from e
 
 
 @router.post("/generate-siem-triage", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
-def generate_siem_triage(data: dict = Body({})):
-    logger.info("POST /threat/generate-siem-triage events_count=%d", len(data.get("events", [])))
+def generate_siem_triage(data: SIEMTriageRequest = Body(...)):
+    events = [event.model_dump(exclude_none=True) for event in data.events]
+    if len(json.dumps(events, separators=(",", ":"))) > 100_000:
+        raise HTTPException(status_code=413, detail="SIEM triage payload is too large")
+    logger.info("POST /threat/generate-siem-triage events_count=%d", len(events))
     from src.utils.llm import generate_siem_triage_summary
     from src.core.db import SessionLocal
     with SessionLocal() as session:
-        summary = generate_siem_triage_summary(session, data.get("events", []))
+        summary = generate_siem_triage_summary(session, events)
     return {"summary": summary or "Unable to generate triage summary."}

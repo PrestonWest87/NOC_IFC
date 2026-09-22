@@ -109,6 +109,10 @@ The checked-in `.env.example` is the complete environment template. The API, wor
 | `ITNETWORK_ONPAGE_EMAIL` | On-page destination for IT/Network devices | Smart on-call paging |
 | `ELASTIC_URL` | Elasticsearch connection URL | Elastic SIEM integration |
 | `ELASTIC_API_KEY` | Elasticsearch API key | Elastic SIEM integration |
+| `ELASTIC_VERIFY_CERTS` | `true` | Verify Elasticsearch TLS certificates |
+| `ELASTIC_CA_CERTS` | Empty | Optional CA bundle path for Elasticsearch |
+| `ELASTIC_REQUEST_TIMEOUT` | `15` | Elasticsearch request timeout in seconds |
+| `ELASTIC_MAX_RESULTS` | `500` | Maximum results per Elastic query page |
 | `DEMO_SEED_DATA` | `true` only for disposable demos | Synthetic asset seed data |
 | `DEFAULT_ADMIN_PASSWORD` | Initial admin password | First boot when no users exist |
 | `LOG_LEVEL` | `INFO` | Python log threshold |

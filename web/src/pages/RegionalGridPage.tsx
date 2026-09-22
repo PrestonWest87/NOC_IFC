@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MapContainer } from "../components/MapContainer";
 import { MarkdownContent } from "../components/MarkdownContent";
@@ -236,13 +236,12 @@ export function RegionalGridPage() {
   // Geospatial tab state
   const [mapToggles, setMapToggles] = useState<Record<string, boolean>>({
     radar: false, spc: false, warn: false, watch: false, oos: false,
-    fire_risk: false, active_wildfires: false, earthquakes: false,
+    active_wildfires: false, earthquakes: false,
   });
   const [showRadarPanel, setShowRadarPanel] = useState(false);
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [selectedPrios, setSelectedPrios] = useState<string[]>([]);
-  const [viewState, setViewState] = useState<MapViewState>(INITIAL_VIEW);
 
   // Executive tab state
   const [briefing, setBriefing] = useState("Click 'Generate Briefing' to synthesize current telemetry.");
@@ -255,45 +254,64 @@ export function RegionalGridPage() {
   const [selectedAlertIdx, setSelectedAlertIdx] = useState<number | null>(null);
 
   const [targetSite, setTargetSite] = useState("");
+  const locationsEnabled = ["geospatial", "executive", "hazard", "matrix", "atmos"].includes(activeTab);
+  const geoEnabled = ["geospatial", "executive", "hazard", "alerts", "atmos"].includes(activeTab);
 
   // Data fetching
   const { data: locations = [] } = useQuery({
     queryKey: ["regional-locations"],
     queryFn: () => api.get("/regional/locations").then(r => r.data),
     refetchInterval: 120000,
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
+    enabled: locationsEnabled,
   });
 
   const { data: geojson } = useQuery({
     queryKey: ["regional-geojson"],
     queryFn: () => api.get("/regional/geojson").then(r => r.data),
     refetchInterval: 120000,
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
+    enabled: geoEnabled,
   });
 
   const { data: wildfires = [] } = useQuery({
     queryKey: ["regional-wildfires"],
     queryFn: () => api.get("/regional/wildfires").then(r => r.data),
     refetchInterval: 900000,
+    staleTime: 600000,
+    refetchOnWindowFocus: false,
+    enabled: activeTab === "geospatial",
   });
 
   const { data: alertsLog = [] } = useQuery({
     queryKey: ["regional-alerts-log"],
     queryFn: () => api.get("/regional/weather-alerts-log").then(r => r.data),
     refetchInterval: 120000,
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
+    enabled: activeTab === "alerts",
   });
 
   const { data: forecast } = useQuery({
-    queryKey: ["regional-forecast", targetSite],
+    queryKey: ["regional-forecast", targetSite, (locations as any[]).find((l: any) => l.name === targetSite)?.lat, (locations as any[]).find((l: any) => l.name === targetSite)?.lon],
     queryFn: () => {
       const site = (locations as any[]).find((l: any) => l.name === targetSite);
-      return api.get("/regional/forecast", { params: { lat: site?.lat || 34.8, lon: site?.lon || -92.2 } }).then(r => r.data);
+      return api.get("/regional/forecast", { params: { lat: site.lat, lon: site.lon } }).then(r => r.data);
     },
-    enabled: !!targetSite,
+    enabled: activeTab === "atmos" && !!targetSite && Number.isFinite(Number((locations as any[]).find((l: any) => l.name === targetSite)?.lat)) && Number.isFinite(Number((locations as any[]).find((l: any) => l.name === targetSite)?.lon)),
     refetchInterval: 300000,
+    staleTime: 240000,
+    refetchOnWindowFocus: false,
   });
 
   const { data: userPrefs } = useQuery({
-    queryKey: ["regional-weather-prefs"],
+    queryKey: ["regional-weather-prefs", user?.username],
     queryFn: () => api.get("/regional/weather-prefs", { params: { username: (() => { try { return JSON.parse(sessionStorage.getItem("noc_user") || "{}").username || ""; } catch { return ""; } })() } }).then(r => r.data),
+    enabled: activeTab === "atmos" && !!user?.username,
+    staleTime: 300000,
+    refetchOnWindowFocus: false,
   });
 
   // Derived data
@@ -341,10 +359,16 @@ export function RegionalGridPage() {
     }
   }, [activeEventTypes]);
 
-  const { data: compileResult } = useQuery({
-    queryKey: ["regional-compile-map", mapToggles, selectedEvents, selectedTypes, selectedPrios, geojson],
+  const compileKey = JSON.stringify({
+    toggles: mapToggles,
+    events: [...selectedEvents].sort(),
+    types: [...selectedTypes].sort(),
+    priorities: [...selectedPrios].sort(),
+    locations: mapDf.map((l: any) => [l.id, l.name, l.lat, l.lon, l.priority]),
+  });
+  const { data: compileResult, isLoading: compileLoading, isError: compileError, refetch: refetchCompile } = useQuery({
+    queryKey: ["regional-compile-map", compileKey],
     queryFn: async () => {
-      const geo = geojson as any;
       const payload: any = {
         toggles: mapToggles,
         selected_events: selectedEvents,
@@ -353,18 +377,13 @@ export function RegionalGridPage() {
           Priority: l.priority, Lat: l.lat, Lon: l.lon, current_spc_risk: l.current_spc_risk,
         })),
       };
-      if (geo) {
-        payload.spc_data = geo.spc_day1;
-        payload.ar_data = geo.nws_ar;
-        payload.oos_data = geo.nws_oos;
-        payload.usgs_ar_data = geo.usgs_ar;
-        payload.usgs_oos_data = geo.usgs_oos;
-      }
       const res = await api.post("/regional/compile-map", payload);
       return res.data;
     },
-    enabled: (activeTab === "geospatial" || activeTab === "executive") && geojson != null,
+    enabled: ["geospatial", "executive", "hazard"].includes(activeTab) && geojson != null,
     refetchInterval: 120000,
+    staleTime: 60000,
+    refetchOnWindowFocus: false,
   });
 
   const compileResponse = compileResult as any;
@@ -372,6 +391,69 @@ export function RegionalGridPage() {
   const toggledAffectedSites: any[] = Array.isArray(compileResponse) ? compileResponse[3] || [] : [];
   const masterAffectedSites: any[] = Array.isArray(compileResponse) ? compileResponse[4] || [] : [];
   const analytics: any = Array.isArray(compileResponse) ? compileResponse[5] || null : null;
+  const staleFeeds = useMemo(
+    () => Object.entries((geojson as any)?.meta || {}).filter(([, value]: any) => value?.status === "stale").map(([name]) => name),
+    [geojson],
+  );
+
+  const earthquakeData = useMemo(() => {
+    const data = geojson as any;
+    const features = [...(data?.usgs_ar?.features || []), ...(data?.usgs_oos?.features || [])];
+    const seen = new Set<string>();
+    return features
+      .filter((f: any) => {
+        const coordinates = f.geometry?.coordinates;
+        const key = String(f.id || `${f.properties?.time || ""}:${coordinates?.[0] || ""}:${coordinates?.[1] || ""}`);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return Number.isFinite(Number(coordinates?.[0])) && Number.isFinite(Number(coordinates?.[1]));
+      })
+      .filter((f: any) => Number(f.properties?.mag || 0) >= 2.0)
+      .map((f: any) => {
+        const mag = Number(f.properties?.mag || 0);
+        const color = mag >= 5 ? [255, 0, 0, 200] : mag >= 4 ? [255, 165, 0, 200] : mag >= 3 ? [255, 255, 0, 200] : [0, 0, 255, 200];
+        return {
+          name: f.properties?.place || "Unknown", mag, depth: f.geometry.coordinates[2] ?? 0,
+          time: f.properties?.time ? new Date(f.properties.time).toISOString() : null,
+          radius: mag * 3000 + 1000, color, lon: Number(f.geometry.coordinates[0]), lat: Number(f.geometry.coordinates[1]),
+        };
+      });
+  }, [(geojson as any)?.usgs_ar, (geojson as any)?.usgs_oos]);
+
+  const wildfireData = useMemo(() => {
+    const payload = wildfires as any;
+    const incidents = Array.isArray(payload) ? payload : payload?.incidents || [];
+    const perimeters = Array.isArray(payload) ? [] : payload?.perimeters || [];
+    const pointFires = perimeters.length ? [] : incidents.filter((f: any) => f.lon != null && f.lat != null);
+    const perimeterFeatures = perimeters.filter((f: any) => f.geometry).map((f: any) => ({
+      type: "Feature", geometry: f.geometry,
+      properties: { name: f.name, acres: f.acres, contained: f.contained, started: f.started, perimeter_updated: f.perimeter_updated, map_method: f.map_method },
+    }));
+    return { pointFires, perimeterFeatures };
+  }, [wildfires]);
+
+  const facilityData = useMemo(() => mapDf.map((l: any) => ({
+    name: l.name,
+    position: [l.lon, l.lat],
+    priority: l.priority,
+  })), [mapDf]);
+
+  const spcLayerData = useMemo(() => {
+    const data = (geojson as any)?.spc_day1;
+    if (!data?.features?.length) return null;
+    return {
+      ...data,
+      features: data.features.map((f: any) => ({
+        ...f,
+        properties: {
+          ...f.properties,
+          fill_color: SPC_FILL[f.properties?.LABEL as string] || [0, 0, 0, 0],
+          line_color: [0, 0, 0, 255],
+        },
+      })),
+    };
+  }, [(geojson as any)?.spc_day1]);
+
 
   // Map layers
   const mapLayers = useMemo(() => {
@@ -384,24 +466,14 @@ export function RegionalGridPage() {
         id: "radar",
         image: "https://mesonet.agron.iastate.edu/data/gis/images/4326/USCOMP/n0q_0.png",
         bounds: [-126.0, 21.0, -66.0, 50.0],
-        opacity: 0.55,
+        opacity: 0.5,
       }));
     }
 
-    if (mapToggles.spc && geo.spc_day1?.features?.length) {
+    if (mapToggles.spc && spcLayerData?.features?.length) {
       layers.push(new GeoJsonLayer({
         id: "spc",
-        data: {
-          ...geo.spc_day1,
-          features: geo.spc_day1.features.map((f: any) => ({
-            ...f,
-            properties: {
-              ...f.properties,
-              fill_color: SPC_FILL[f.properties?.LABEL as string] || [0, 0, 0, 0],
-              line_color: [0, 0, 0, 255],
-            },
-          })),
-        },
+        data: spcLayerData,
         pickable: true, stroked: true, filled: true,
         getFillColor: (d: any) => d.properties.fill_color as [number, number, number, number],
         getLineColor: (d: any) => d.properties.line_color as [number, number, number, number],
@@ -440,44 +512,11 @@ export function RegionalGridPage() {
       }
     }
 
-    if (mapToggles.fire_risk && geo.nws_ar?.features?.length) {
-      const fireFeatures = geo.nws_ar.features.filter((f: any) =>
-        /fire|red flag|burn/i.test(f.properties?.event || "")
-      );
-      if (fireFeatures.length) {
-        layers.push(new GeoJsonLayer({
-          id: "fire_risk",
-          data: { type: "FeatureCollection", features: fireFeatures },
-          pickable: true, stroked: true, filled: true,
-          getFillColor: [255, 69, 0, 120] as [number, number, number, number],
-          getLineColor: [255, 0, 0, 200] as [number, number, number, number],
-          lineWidthMinPixels: 2,
-        }));
-      }
-    }
-
-    const wildfirePayload = wildfires as any;
-    const wildFires = Array.isArray(wildfirePayload) ? wildfirePayload : wildfirePayload.incidents || [];
     if (mapToggles.active_wildfires) {
-      const perimeterData = Array.isArray(wildfirePayload) ? [] : wildfirePayload.perimeters || [];
+      const { pointFires, perimeterFeatures } = wildfireData;
       // The current perimeter feed is authoritative. Use incident points as
       // a fallback only when no approved perimeter was returned.
-      const pointFires = perimeterData.length ? [] : wildFires.filter((f: any) => f.lon != null && f.lat != null);
-      if (pointFires.length || perimeterData.length) {
-        const perimeterFeatures = perimeterData
-          .filter((f: any) => f.geometry)
-          .map((f: any) => ({
-            type: "Feature",
-            geometry: f.geometry,
-            properties: {
-              name: f.name,
-              acres: f.acres,
-              contained: f.contained,
-              started: f.started,
-              perimeter_updated: f.perimeter_updated,
-              map_method: f.map_method,
-            },
-          }));
+      if (pointFires.length || perimeterFeatures.length) {
         if (perimeterFeatures.length) {
           layers.push(new GeoJsonLayer({
             id: "wildfire-perimeters",
@@ -504,31 +543,10 @@ export function RegionalGridPage() {
       }
     }
 
-    if (mapToggles.earthquakes && geo.usgs_oos?.features?.length) {
-      const eqData = geo.usgs_oos.features
-        .filter((f: any) => (f.properties?.mag || 0) >= 2.0)
-        .map((f: any) => {
-          const mag = f.properties?.mag || 0;
-          let color: number[];
-          if (mag >= 5) color = [255, 0, 0, 200];
-          else if (mag >= 4) color = [255, 165, 0, 200];
-          else if (mag >= 3) color = [255, 255, 0, 200];
-          else color = [0, 0, 255, 200];
-          return {
-            name: f.properties?.place || "Unknown",
-            mag,
-            depth: f.geometry?.coordinates?.[2] ?? 0,
-            time: f.properties?.time ? new Date(f.properties.time).toISOString() : null,
-            radius: mag * 3000 + 1000,
-            color,
-            lon: f.geometry?.coordinates?.[0] || 0,
-            lat: f.geometry?.coordinates?.[1] || 0,
-          };
-        });
-      if (eqData.length) {
+    if (mapToggles.earthquakes && earthquakeData.length) {
         layers.push(new ScatterplotLayer({
           id: "earthquakes",
-          data: eqData,
+          data: earthquakeData,
           pickable: true, opacity: 0.9, stroked: true, filled: true,
           getRadius: (d: any) => d.radius,
           radiusMinPixels: 4, radiusMaxPixels: 30,
@@ -537,17 +555,12 @@ export function RegionalGridPage() {
           getFillColor: (d: any) => d.color as [number, number, number, number],
           getLineColor: [0, 0, 0, 255] as [number, number, number, number],
         }));
-      }
     }
 
-    if (mapDf.length) {
+    if (facilityData.length) {
       layers.push(new ScatterplotLayer({
         id: "facilities",
-        data: mapDf.map((l: any) => ({
-          name: l.name,
-          position: [l.lon, l.lat],
-          priority: l.priority,
-        })),
+        data: facilityData,
         pickable: true, opacity: 0.9, stroked: true, filled: true,
         radiusMinPixels: 4, radiusMaxPixels: 12,
         lineWidthMinPixels: 1,
@@ -559,7 +572,7 @@ export function RegionalGridPage() {
     }
 
     return layers;
-  }, [geojson, processedGeo, mapToggles, mapDf, wildfires]);
+  }, [geojson, processedGeo, mapToggles, wildfireData, earthquakeData, facilityData, spcLayerData]);
 
   const handleToggle = (key: string) => {
     setMapToggles(prev => ({ ...prev, [key]: !prev[key] }));
@@ -617,7 +630,8 @@ export function RegionalGridPage() {
   const handleSaveWeatherPrefs = useCallback(async (prefs: string[]) => {
     try {
       await api.post("/regional/weather-prefs", null, {
-        params: { username: (() => { try { return JSON.parse(sessionStorage.getItem("noc_user") || "{}").username || ""; } catch { return ""; } })() || "", alerts: prefs.join(",") },
+        params: { username: (() => { try { return JSON.parse(sessionStorage.getItem("noc_user") || "{}").username || ""; } catch { return ""; } })() || "" },
+        data: prefs,
       });
       alert("Preferences saved!");
     } catch { /* ignore */ }
@@ -662,7 +676,11 @@ export function RegionalGridPage() {
 
       {/* Tab Content */}
       <div style={{ flex: 1, overflow: "auto" }}>
-        <div style={{ display: activeTab === "geospatial" ? '' : 'none' }}>
+        {activeTab === "geospatial" && (
+          <>
+          {staleFeeds.length > 0 && <InfoBox type="warning">Stale regional feeds: {staleFeeds.join(", ")}. Displayed hazards may be older than 15 minutes.</InfoBox>}
+          {compileLoading && <InfoBox type="info">Compiling regional hazard layers...</InfoBox>}
+          {compileError && <InfoBox type="error">Regional hazard layers could not be compiled. <button onClick={() => refetchCompile()} style={{ ...BTN_SECONDARY, marginLeft: "0.5rem" }}>Retry</button></InfoBox>}
           <GeospatialTab
             mapToggles={mapToggles}
             onToggle={handleToggle}
@@ -678,15 +696,14 @@ export function RegionalGridPage() {
             selectedPrios={selectedPrios}
             setSelectedPrios={setSelectedPrios}
             mapLayers={mapLayers}
-            viewState={viewState}
-            onViewStateChange={setViewState}
             toggledAffectedSites={toggledAffectedSites}
             masterAffectedSites={masterAffectedSites}
             processedGeo={processedGeo}
           />
-        </div>
+          </>
+        )}
 
-        <div style={{ display: activeTab === "executive" ? '' : 'none' }}>
+        {activeTab === "executive" && (
           <ExecutiveTab
             analytics={analytics as any}
             masterAffectedSites={masterAffectedSites}
@@ -701,30 +718,30 @@ export function RegionalGridPage() {
             expandedSections={expandedSections}
             toggleSection={toggleSection}
           />
-        </div>
+        )}
 
-        <div style={{ display: activeTab === "hazard" ? '' : 'none' }}>
+        {activeTab === "hazard" && (
           <HazardTab
             masterAffectedSites={masterAffectedSites}
             hazardRecip={hazardRecip}
             setHazardRecip={setHazardRecip}
             onSendHazardSitrep={handleSendHazardSitrep}
           />
-        </div>
+        )}
 
-        <div style={{ display: activeTab === "matrix" ? '' : 'none' }}>
+        {activeTab === "matrix" && (
           <MatrixTab mapDf={mapDf} />
-        </div>
+        )}
 
-        <div style={{ display: activeTab === "alerts" ? '' : 'none' }}>
+        {activeTab === "alerts" && (
           <AlertsTab
             alertsLog={alertsLog as any[]}
             selectedAlertIdx={selectedAlertIdx}
             setSelectedAlertIdx={setSelectedAlertIdx}
           />
-        </div>
+        )}
 
-        <div style={{ display: activeTab === "atmos" ? '' : 'none' }}>
+        {activeTab === "atmos" && (
           <AtmosTab
             userPrefs={userPrefs as any}
             mapDf={mapDf}
@@ -734,7 +751,7 @@ export function RegionalGridPage() {
             forecast={forecast as any}
             onSavePrefs={handleSaveWeatherPrefs}
           />
-        </div>
+        )}
       </div>
     </div>
   );
@@ -752,7 +769,7 @@ function GeospatialTab({
   activeEventTypes, selectedEvents, setSelectedEvents,
   availableTypes, selectedTypes, setSelectedTypes,
   availablePrios, selectedPrios, setSelectedPrios,
-  mapLayers, viewState, onViewStateChange, toggledAffectedSites,
+  mapLayers, toggledAffectedSites,
   masterAffectedSites, processedGeo,
 }: {
   mapToggles: Record<string, boolean>; onToggle: (k: string) => void;
@@ -760,7 +777,7 @@ function GeospatialTab({
   activeEventTypes: string[]; selectedEvents: string[]; setSelectedEvents: (v: string[]) => void;
   availableTypes: string[]; selectedTypes: string[]; setSelectedTypes: (v: string[]) => void;
   availablePrios: string[]; selectedPrios: string[]; setSelectedPrios: (v: string[]) => void;
-  mapLayers: any[]; viewState: MapViewState; onViewStateChange: (v: MapViewState) => void;
+  mapLayers: any[];
   toggledAffectedSites: any[];
   masterAffectedSites: any[];
   processedGeo: any;
@@ -773,12 +790,17 @@ function GeospatialTab({
     { key: "oos", label: "Out-of-State" },
   ];
   const fireToggle = [
-    { key: "fire_risk", label: "NWS Fire Weather & Red Flags" },
     { key: "active_wildfires", label: "Active Wildfires (NIFC)" },
     { key: "earthquakes", label: "Earthquakes (USGS)" },
   ];
 
-  const featureIndex = useMemo(() => buildFeatureIndex(processedGeo, mapToggles), [processedGeo, mapToggles]);
+  const featureIndex = useMemo(() => buildFeatureIndex(processedGeo, {
+    warn: mapToggles.warn,
+    watch: mapToggles.watch,
+    oos: mapToggles.oos,
+  }), [processedGeo, mapToggles.warn, mapToggles.watch, mapToggles.oos]);
+  const [viewState, setViewState] = useState<MapViewState>(INITIAL_VIEW);
+  const lastHoverKey = useRef("");
   const [hoverInfo, setHoverInfo] = useState<{lines: string[]; x: number; y: number} | null>(null);
 
   const handleHover = useCallback((info: any) => {
@@ -823,9 +845,6 @@ function GeospatialTab({
         ].filter(Boolean);
       } else if (layerId === "earthquakes" || layerId?.startsWith("earthquakes")) {
         extraInfo = [plainText(d.name), `Magnitude: ${plainText(d.mag)}`, `Depth: ${d.depth?.toFixed(1)}km`, `Time: ${d.time ? formatInChicago(d.time) : "Unknown"}`];
-      } else if (layerId === "fire_risk" || layerId?.startsWith("fire_risk")) {
-        const ev = plainText(d.properties?.info || d.properties?.event || "Red Flag Warning");
-        if (!alerts.includes(ev)) alerts.push(ev);
       }
     }
 
@@ -844,9 +863,18 @@ function GeospatialTab({
       }
     }
 
-    if (!alerts.length && !sites.length && !extraInfo.length) { setHoverInfo(null); return; }
+    if (!alerts.length && !sites.length && !extraInfo.length) {
+      if (lastHoverKey.current) {
+        lastHoverKey.current = "";
+        setHoverInfo(null);
+      }
+      return;
+    }
     const lines = [...sites, ...extraInfo, ...alerts.slice(0, 6).map(a => `• ${a}`)];
     if (alerts.length > 6) lines.push(`+${alerts.length - 6} more`);
+    const hoverKey = lines.join("\n");
+    if (hoverKey === lastHoverKey.current) return;
+    lastHoverKey.current = hoverKey;
     setHoverInfo({ lines, x, y });
   }, [featureIndex, masterAffectedSites]);
 
@@ -885,11 +913,9 @@ function GeospatialTab({
           {fireToggle.map(t => (
             <ToggleSwitch key={t.key} checked={mapToggles[t.key]} onChange={() => onToggle(t.key)} label={t.label} />
           ))}
-          {(mapToggles.fire_risk || mapToggles.active_wildfires || mapToggles.earthquakes) && (
+          {(mapToggles.active_wildfires || mapToggles.earthquakes) && (
             <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", marginTop: "0.5rem", padding: "0.5rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)" }}>
               <div style={{ fontWeight: 600, marginBottom: "0.3rem", color: "var(--text-muted)", fontSize: "0.72rem" }}>Fire Desk Legend:</div>
-              {mapToggles.fire_risk && <div>🔴 Red Flag Warning (Extreme/Burn Ban)</div>}
-              {mapToggles.fire_risk && <div>🟠 Fire Weather Watch (High Risk)</div>}
               {mapToggles.active_wildfires && <div>🔥 Active Wildfire (Scales by Acreage)</div>}
               {mapToggles.earthquakes && <div>📊 Earthquake (Blue: M2-3, Yellow: M3-4, Orange: M4-5, Red: M5+)</div>}
             </div>
@@ -951,7 +977,7 @@ function GeospatialTab({
                   <DeckGL
                     layers={mapLayers}
                     viewState={viewState}
-                    onViewStateChange={({ viewState: vs }: any) => onViewStateChange(vs)}
+                    onViewStateChange={({ viewState: vs }: any) => setViewState(vs)}
                     controller={true}
                     style={{ height: "100%", width: "100%" }}
                     onHover={handleHover}

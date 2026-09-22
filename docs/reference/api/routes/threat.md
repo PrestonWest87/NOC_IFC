@@ -19,7 +19,7 @@ Returns CVE (Common Vulnerabilities and Exposures) entries with configurable loo
 List of CVE objects.
 
 ### Raises
-None.
+Returns HTTP 502 when the Elasticsearch sync cannot be completed.
 
 ### Flow
 Direct delegation to `svc.get_cves()`.
@@ -126,13 +126,14 @@ None.
 ### Returns
 ```json
 {
-  "status": "ok" | "error",
-  "message": "<description>"
+  "status": "ok",
+  "message": "Elastic cache synced.",
+  "result": {"status": "ok", "imported": 0}
 }
 ```
 
 ### Raises
-None.
+Returns HTTP 502 when the Elasticsearch sync cannot be completed.
 
 ### Flow
 1. Imports `fetch_feeds` from `src.scheduler`.
@@ -251,10 +252,12 @@ Manually triggers synchronization of the Elasticsearch cache for recent data.
 None.
 
 ### Flow
-The current route attempts to import `run_elastic_sync`, but the worker exports `sync_elastic_telemetry` instead. The route therefore returns its caught error response until the application symbols are reconciled. The rest of `elastic_worker.py` remains active.
+1. Imports the worker's `run_elastic_sync` entry point.
+2. Synchronizes bounded, high-severity events into the local cache.
+3. Returns the worker result or HTTP 502 on a synchronization failure.
 
 ### Dependencies
-- Current worker export: `src.workers.elastic_worker.sync_elastic_telemetry()`
+- `src.workers.elastic_worker.run_elastic_sync()`
 
 ---
 
@@ -266,7 +269,7 @@ Generates an AI-powered SIEM triage summary for a given set of security events.
 ### Parameters
 | Parameter | Type               | Description                                   |
 |-----------|--------------------|-----------------------------------------------|
-| `data`    | `dict`             | JSON body with optional `events` list.        |
+| `data`    | object             | JSON body containing 1-50 bounded event objects. |
 
 ### Returns
 ```json
@@ -276,13 +279,13 @@ Generates an AI-powered SIEM triage summary for a given set of security events.
 ```
 
 ### Raises
-None.
+Returns HTTP 413 when the serialized event payload exceeds 100 KB.
 
 ### Flow
 1. Imports `generate_siem_triage_summary` from `src.utils.llm`.
 2. Opens a database session.
 3. Calls the triage generator with the session and events list.
-4. Returns the summary or a fallback message if generation failed.
+4. Returns the generated summary or a controlled failure message.
 
 ### Dependencies
 - `src.utils.llm.generate_siem_triage_summary()`
@@ -295,4 +298,4 @@ Current endpoint details:
 
 - `GET /articles/{article_id}` returns one article detail record or a not-found error.
 - `GET /cloud-outages` filters by `active_only` and `days_back`; it does not accept a `limit` parameter.
-- `POST /sync-elastic-cache` currently references `run_elastic_sync`, while the worker exports `sync_elastic_telemetry`. The route is documented as a known implementation mismatch rather than a successful sync contract.
+- `POST /sync-elastic-cache` is retained for Threat Telemetry clients; the Threat Hunting UI uses the equivalent `/hunting` endpoints so page and tab permissions align.

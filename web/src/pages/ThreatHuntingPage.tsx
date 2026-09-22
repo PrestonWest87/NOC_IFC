@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { Fragment, useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import api from "../utils/api";
 import { MarkdownContent } from "../components/MarkdownContent";
@@ -44,6 +44,24 @@ function osintPivotLink(iocType: string, value: string): string | null {
     case "MITRE ATT&CK": return `https://attack.mitre.org/techniques/${value.replace(/\./g, "/")}`;
     default: return null;
   }
+}
+
+function safeExternalUrl(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 2048) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function yaraEscape(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\r\n]/g, " ");
+}
+
+function queryLiteral(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\r\n]/g, " ");
 }
 
 function formatDt(s: string | null | undefined): string {
@@ -158,6 +176,10 @@ export function ThreatHuntingPage() {
     }
   }, [allowedHuntTabs.join(",")]);
 
+  if (tabs.length === 0) {
+    return <div style={{ padding: "1.25rem" }}><InfoBox type="error">You do not have access to any Threat Hunting workspace.</InfoBox></div>;
+  }
+
   return (
     <div style={{ padding: "1.25rem", height: "100%", display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexShrink: 0 }}>
@@ -198,15 +220,15 @@ export function ThreatHuntingPage() {
 function IocMatrixTab() {
   const [typeFilter, setTypeFilter] = useState<string[]>(["IPv4", "SHA256", "Domain", "CVE", "MITRE ATT&CK"]);
   const [expandedFilter, setExpandedFilter] = useState(false);
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
-  const { data: iocs = [], isLoading } = useQuery({
+  const { data: iocs = [], isLoading, isError, error, isFetching, refetch } = useQuery({
     queryKey: ["hunting-iocs"],
     queryFn: () => api.get("/hunting/iocs", { params: { days_back: 3 } }).then(r => r.data),
     refetchInterval: 120000,
   });
 
-  const data = iocs as any[];
+  const data = (Array.isArray(iocs) ? iocs : (iocs as any)?.items || []) as any[];
 
   const filtered = useMemo(() => {
     if (!data || data.length === 0) return [];
@@ -221,11 +243,11 @@ function IocMatrixTab() {
     return sorted.length > 0 ? sorted : IOC_TYPE_OPTIONS;
   }, [data]);
 
-  const toggleRow = useCallback((idx: number) => {
+  const toggleRow = useCallback((rowKey: string) => {
     setExpandedRows(prev => {
       const next = new Set(prev);
-      if (next.has(idx)) next.delete(idx);
-      else next.add(idx);
+      if (next.has(rowKey)) next.delete(rowKey);
+      else next.add(rowKey);
       return next;
     });
   }, []);
@@ -258,11 +280,14 @@ function IocMatrixTab() {
               Automated IOC extraction from ingested threat intelligence — {filtered.length} matching
             </div>
           </div>
-          <button onClick={handleExport} disabled={filtered.length === 0} style={{
-            ...BTN_SECONDARY, opacity: filtered.length === 0 ? 0.5 : 1,
-          }}>
-            <FileDown size={14} /> Export CSV
-          </button>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+              <button onClick={() => refetch()} disabled={isFetching} style={{ ...BTN_SECONDARY, opacity: isFetching ? 0.5 : 1 }}>
+                <RefreshCw size={14} style={{ animation: isFetching ? "spin 1s linear infinite" : "none" }} /> Refresh
+              </button>
+              <button onClick={handleExport} disabled={filtered.length === 0} style={{ ...BTN_SECONDARY, opacity: filtered.length === 0 ? 0.5 : 1 }}>
+                <FileDown size={14} /> Export CSV
+              </button>
+            </div>
         </div>
 
         <div style={{
@@ -305,6 +330,8 @@ function IocMatrixTab() {
             <Loader2 size={24} style={{ animation: "spin 1s linear infinite", margin: "0 auto 0.5rem" }} />
             Loading IOCs...
           </div>
+        ) : isError ? (
+          <InfoBox type="error">IOC telemetry could not be loaded. {((error as any)?.response?.data?.detail || (error as any)?.message || "Try again.")}</InfoBox>
         ) : filtered.length === 0 ? (
           <InfoBox type="info">No IOCs extracted in the last 72 hours matching the selected filters.</InfoBox>
         ) : (
@@ -321,18 +348,20 @@ function IocMatrixTab() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((i: any, idx: number) => {
+                 {filtered.map((i: any, idx: number) => {
                   const type = i.Type || i.indicator_type || "";
                   const value = i.Indicator || i.indicator_value || "";
                   const context = i.Context || i.context || "";
                   const detected = i.Detected || i.detected_at || "";
-                  const sourceLink = i["Source Article"] || i.source_article || i.source_link || "";
+                   const sourceLink = safeExternalUrl(i["Source Article"] || i.source_article || i.source_link || "");
                   const pivotLink = osintPivotLink(type, value);
                   const sources = i.sources || [];
                   const articleCount = i.article_count || 1;
-                  const isExpanded = expandedRows.has(idx);
-                  return (
-                    <tr key={i.id || idx} style={{ background: idx % 2 === 0 ? "transparent" : "var(--bg-secondary)" }}>
+                   const rowKey = `${type}:${value}`;
+                   const isExpanded = expandedRows.has(rowKey);
+                   return (
+                     <Fragment key={rowKey}>
+                     <tr style={{ background: idx % 2 === 0 ? "transparent" : "var(--bg-secondary)" }}>
                       <td style={TD}><Badge label={type} /></td>
                       <td style={{ ...TD, fontFamily: "'SF Mono', 'Fira Code', 'Cascadia Code', monospace", fontSize: "0.78rem", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis" }}>
                         {value}
@@ -350,7 +379,7 @@ function IocMatrixTab() {
                       <td style={TD}>
                         {sources.length > 1 ? (
                           <button
-                            onClick={() => toggleRow(idx)}
+                             onClick={() => toggleRow(rowKey)}
                             style={{
                               background: "rgba(59,130,246,0.1)", border: "1px solid var(--accent-blue)",
                               borderRadius: "var(--radius-sm)", padding: "0.2rem 0.5rem", cursor: "pointer",
@@ -360,8 +389,8 @@ function IocMatrixTab() {
                           >
                             {articleCount} articles {isExpanded ? "\u25B2" : "\u25BC"}
                           </button>
-                        ) : sourceLink ? (
-                          <a href={sourceLink} target="_blank" rel="noopener noreferrer" style={{
+                         ) : sourceLink ? (
+                           <a href={sourceLink} target="_blank" rel="noopener noreferrer" style={{
                             color: "var(--accent-blue)", textDecoration: "none", fontSize: "0.78rem",
                             display: "inline-flex", alignItems: "center", gap: "0.25rem",
                           }}>
@@ -383,8 +412,21 @@ function IocMatrixTab() {
                           <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>--</span>
                         )}
                       </td>
-                    </tr>
-                  );
+                     </tr>
+                     {isExpanded && (
+                       <tr>
+                         <td colSpan={6} style={{ ...TD, background: "var(--bg-secondary)" }}>
+                           <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                             {sources.map((source: any, sourceIndex: number) => {
+                               const link = safeExternalUrl(source.link);
+                               return link ? <a key={`${link}-${sourceIndex}`} href={link} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-blue)" }}>{source.title || link}</a> : <span key={sourceIndex}>{source.title || "Unknown source"}</span>;
+                             })}
+                           </div>
+                         </td>
+                       </tr>
+                     )}
+                     </Fragment>
+                   );
                 })}
               </tbody>
             </table>
@@ -462,14 +504,14 @@ function DeepHuntTab() {
               <SlidersHorizontal size={12} style={{ verticalAlign: "middle", marginRight: "0.25rem" }} />
               Historical Depth: {huntDepth} days
             </label>
-            <input
-              type="range" min={7} max={90} value={huntDepth}
+             <input
+               type="range" min={7} max={30} value={huntDepth}
               onChange={e => setHuntDepth(Number(e.target.value))}
               style={{ width: "100%", accentColor: "var(--accent-blue)", cursor: "pointer" }}
             />
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: "var(--text-muted)" }}>
               <span>7 days</span>
-              <span>90 days</span>
+               <span>30 days</span>
             </div>
           </div>
 
@@ -507,9 +549,9 @@ function DeepHuntTab() {
                   padding: "0.4rem 0", borderBottom: "1px solid var(--border-secondary)",
                   fontSize: "0.82rem",
                 }}>
-                  <div style={{ color: "var(--text-primary)", fontWeight: 500 }}>
-                    {a.link ? (
-                      <a href={a.link} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-blue)", textDecoration: "none" }}>
+                   <div style={{ color: "var(--text-primary)", fontWeight: 500 }}>
+                     {safeExternalUrl(a.link) ? (
+                       <a href={safeExternalUrl(a.link) || undefined} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-blue)", textDecoration: "none" }}>
                         {a.title || a.source || "Article " + (i + 1)}
                       </a>
                     ) : (a.title || a.source || "Article " + (i + 1))}
@@ -609,14 +651,15 @@ function buildDetectionPackage(target: string, articles: any[]): string {
   sections.push("");
   sections.push("  Splunk / Elastic Search:");
   sections.push("");
+  const escapedTarget = queryLiteral(target);
   sections.push(`  # Hunt for indicators related to: ${target}`);
-  sections.push(`  index=* "${target}"`);
+  sections.push(`  index=* "${escapedTarget}"`);
   sections.push("  | stats count by src_ip, dest_ip, user");
   sections.push("  | where count > 0");
   sections.push("  | sort -count");
   sections.push("");
   sections.push("  Alternative query patterns:");
-  sections.push(`  event.dataset:("winlog" OR "syslog") AND message:*${target.replace(/\s+/g, "* AND message:*")}*`);
+  sections.push(`  event.dataset:("winlog" OR "syslog") AND message:*${escapedTarget.replace(/\s+/g, "* AND message:*")}*`);
   sections.push("  | within 7d");
   sections.push("  | top 20 source.ip, destination.ip");
   sections.push("");
@@ -627,18 +670,18 @@ function buildDetectionPackage(target: string, articles: any[]): string {
   sections.push("```yara");
   sections.push(`rule hunt_${target.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase()}_iocs {`);
   sections.push("  meta:");
-  sections.push(`    description = "Detection rule for ${target} indicators"`);
+   sections.push(`    description = "Detection rule for ${yaraEscape(target)} indicators"`);
   sections.push(`    author = "NOC Intelligence Fusion Center"`);
   sections.push(`    date = "${chicagoDateString()}"`);
   sections.push("    hash = \"auto-generated\"");
   sections.push("  strings:");
   const keywords = target.split(/\s+/).filter(Boolean);
   keywords.forEach((kw, i) => {
-    sections.push(`    $s${i + 1} = "${kw}" nocase`);
+    sections.push(`    $s${i + 1} = "${yaraEscape(kw)}" nocase`);
   });
   if (articles.length > 0) {
     const sampleTitle = (articles[0].title || articles[0].source || "").slice(0, 40).replace(/[^a-zA-Z0-9 ]/g, "");
-    if (sampleTitle) sections.push(`    $ref = "${sampleTitle}" ascii wide`);
+    if (sampleTitle) sections.push(`    $ref = "${yaraEscape(sampleTitle)}" ascii wide`);
   }
   sections.push("  condition:");
   sections.push("    any of them");
@@ -654,12 +697,11 @@ function buildDetectionPackage(target: string, articles: any[]): string {
 
 function ElasticSiemTab() {
   const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
-  const { data: events = [], isLoading, refetch } = useQuery({
+  const { data: events = [], isLoading, isError, error, isFetching, refetch, dataUpdatedAt } = useQuery({
     queryKey: ["elastic-events"],
-    queryFn: () => api.get("/threat/elastic-events", { params: { hours_back: 24 } }).then(r => r.data).catch(() => {
-      return [];
-    }),
+    queryFn: () => api.get("/hunting/elastic-events", { params: { hours_back: 24, page: 1, page_size: 100 } }).then(r => r.data),
     refetchInterval: 120000,
     retry: 1,
   });
@@ -667,28 +709,31 @@ function ElasticSiemTab() {
   const eventsList = (Array.isArray(events) ? events : events?.items || events?.events || []) as any[];
 
   const [triageResult, setTriageResult] = useState<string | null>(null);
+  const [triageError, setTriageError] = useState<string | null>(null);
   const [triageLoading, setTriageLoading] = useState(false);
 
   const handleSync = async () => {
     setSyncing(true);
+    setSyncError(null);
     try {
-      await api.post("/threat/sync-elastic-cache", { hours_back: 24 });
+      const response = await api.post("/hunting/sync-elastic-cache", null, { params: { hours_back: 24 } });
+      if (response.data?.status === "error") throw new Error(response.data.message || "Elastic cache sync failed.");
       refetch();
-    } catch { /* ignore */ }
+    } catch (err: any) {
+      setSyncError(err?.response?.data?.detail || err?.response?.data?.message || err?.message || "Elastic cache sync failed.");
+    }
     setSyncing(false);
   };
 
   const handleTriage = async () => {
     if (eventsList.length === 0) return;
     setTriageLoading(true);
+    setTriageError(null);
     try {
-      const res = await api.post("/threat/generate-siem-triage", { events: eventsList.slice(0, 50) });
+      const res = await api.post("/hunting/generate-siem-triage", { events: eventsList.slice(0, 50) });
       setTriageResult(res.data.summary || res.data.triage || res.data.result || JSON.stringify(res.data));
-    } catch {
-      const ctx = eventsList.slice(0, 30).map((e: any) =>
-        `[${e.timestamp || e["@timestamp"] || ""}] ${e.severity || e.event?.severity || "INFO"}: ${(e.message || e.event?.original || "")}`,
-      ).join("\n");
-      setTriageResult(`=== SIEM TRIAGE SUMMARY (Client-Side) ===\n\nEvents Analyzed: ${eventsList.length}\n\n${ctx.slice(0, 2000)}`);
+    } catch (err: any) {
+      setTriageError(err?.response?.data?.detail || err?.message || "AI triage failed. No summary was generated.");
     }
     setTriageLoading(false);
   };
@@ -738,6 +783,10 @@ function ElasticSiemTab() {
           </button>
         </div>
 
+        {syncError && <InfoBox type="error">{syncError}</InfoBox>}
+        {isError && <InfoBox type="error">Elastic events could not be loaded. {((error as any)?.response?.data?.detail || (error as any)?.message || "Try again.")}</InfoBox>}
+        {dataUpdatedAt > 0 && <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>Last refreshed: {formatDt(new Date(dataUpdatedAt).toISOString())}{isFetching ? " · Refreshing..." : ""}</div>}
+
         {eventsList.length > 0 && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.75rem", marginBottom: "1rem" }}>
             <div style={{ background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", padding: "0.75rem 1rem", textAlign: "center" }}>
@@ -762,7 +811,7 @@ function ElasticSiemTab() {
             <Loader2 size={20} style={{ animation: "spin 1s linear infinite" }} />
             <div style={{ marginTop: "0.5rem" }}>Loading Elastic events...</div>
           </div>
-        ) : eventsList.length === 0 ? (
+        ) : isError ? null : eventsList.length === 0 ? (
           <InfoBox type="info">
             No high-severity SIEM alerts logged locally in the last 24 hours. Click "Sync Local Cache" to pull from Elastic, or verify the Elastic worker is running.
           </InfoBox>
@@ -838,6 +887,7 @@ function ElasticSiemTab() {
           </div>
         </div>
       )}
+      {triageError && <InfoBox type="error">{triageError}</InfoBox>}
     </div>
   );
 }

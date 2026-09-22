@@ -1,6 +1,6 @@
 import logging
 import pandas as pd
-from fastapi import APIRouter, Query, Body, Depends
+from fastapi import APIRouter, Query, Body, Depends, HTTPException
 from typing import Any
 
 from src import services as svc
@@ -24,6 +24,7 @@ def geojson():
         "spc_day1": spc_d1, "spc_day2": spc_d2, "spc_day3": spc_d3,
         "nws_ar": ar, "nws_oos": oos,
         "usgs_ar": usgs_ar, "usgs_oos": usgs_oos,
+        "meta": svc.get_cached_geojson_status(),
     }
 
 
@@ -45,6 +46,12 @@ def compile_map(data: dict[str, Any] = Body({})):
     usgs_oos = data.get("usgs_oos_data")
     selected = tuple(data.get("selected_events", []))
     raw_map_df = data.get("map_df", [])
+
+    # The browser no longer needs to echo the full GeoJSON snapshot back to the
+    # API. Keep accepting the old fields for compatibility, but use the server's
+    # coherent cached snapshot when they are omitted.
+    if not any((spc, ar, oos, usgs_ar, usgs_oos)):
+        spc, _, _, ar, oos, usgs_ar, usgs_oos = svc.get_cached_geojson()
 
     if raw_map_df:
         map_df = pd.DataFrame(raw_map_df)
@@ -167,8 +174,11 @@ def sync_hazards():
     try:
         fetch_regional_hazards()
         svc.get_cached_geojson.clear()
+        svc.get_cached_geojson_status.clear()
+        svc._precompute_geo_matrix.clear()
+        svc.get_active_wildfires.clear()
         logger.info("POST /sync-hazards: sync complete")
         return {"status": "ok", "message": "Regional hazards synced."}
     except Exception as e:
         logger.error("POST /sync-hazards failed: %s", e)
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(status_code=502, detail="Regional hazard sync failed.") from e

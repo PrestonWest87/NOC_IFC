@@ -9,7 +9,8 @@ import json
 import os
 import hashlib
 import secrets
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
+import ipaddress
 from datetime import datetime, timedelta
 from sqlalchemy import text, or_
 from sqlalchemy.types import Boolean, DateTime
@@ -148,29 +149,31 @@ def get_cached_locations():
 
 @TTLCache(ttl=120, max_entries=1)
 def get_cached_geojson():
-    spc_d1, spc_d2, spc_d3, ar, oos = None, None, None, None, None
-    usgs_ar, usgs_oos = None, None
+    feed_names = ("spc_day1", "spc_day2", "spc_day3", "nws_ar", "nws_oos", "usgs_ar", "usgs_oos")
     with SessionLocal() as db:
-        # Pull all three SPC days
-        d1_rec = db.query(GeoJsonCache).filter_by(feed_name="spc_day1").first() # Or "spc" depending on your current naming
-        d2_rec = db.query(GeoJsonCache).filter_by(feed_name="spc_day2").first()
-        d3_rec = db.query(GeoJsonCache).filter_by(feed_name="spc_day3").first()
-        
-        ar_rec = db.query(GeoJsonCache).filter_by(feed_name="nws_ar").first()
-        oos_rec = db.query(GeoJsonCache).filter_by(feed_name="nws_oos").first()
-        
-        usgs_ar_rec = db.query(GeoJsonCache).filter_by(feed_name="usgs_ar").first()
-        usgs_oos_rec = db.query(GeoJsonCache).filter_by(feed_name="usgs_oos").first()
-        
-        if d1_rec: spc_d1 = d1_rec.data
-        if d2_rec: spc_d2 = d2_rec.data
-        if d3_rec: spc_d3 = d3_rec.data
-        if ar_rec: ar = ar_rec.data
-        if oos_rec: oos = oos_rec.data
-        if usgs_ar_rec: usgs_ar = usgs_ar_rec.data
-        if usgs_oos_rec: usgs_oos = usgs_oos_rec.data
-        
-    return spc_d1, spc_d2, spc_d3, ar, oos, usgs_ar, usgs_oos
+        records = db.query(GeoJsonCache).filter(GeoJsonCache.feed_name.in_(feed_names)).all()
+    feeds = {record.feed_name: record.data for record in records}
+    return tuple(feeds.get(name) for name in feed_names)
+
+
+@TTLCache(ttl=120, max_entries=1)
+def get_cached_geojson_status():
+    """Return freshness metadata without transferring the feed payload again."""
+    feed_names = ("spc_day1", "spc_day2", "spc_day3", "nws_ar", "nws_oos", "usgs_ar", "usgs_oos")
+    with SessionLocal() as db:
+        records = db.query(GeoJsonCache).filter(GeoJsonCache.feed_name.in_(feed_names)).all()
+    return {
+        name: {
+            "updated_at": record.updated_at.isoformat() if record.updated_at else None,
+            "feature_count": len((record.data or {}).get("features", [])) if isinstance(record.data, dict) else 0,
+            "status": "empty" if not record.data else (
+                "stale" if not record.updated_at or datetime.utcnow() - record.updated_at > timedelta(minutes=15) else "ok"
+            ),
+        }
+        for name in feed_names
+        for record in records
+        if record.feed_name == name
+    }
 
 @TTLCache(ttl=3600, max_entries=1)
 def get_ar_counties_mapping():
@@ -2819,16 +2822,22 @@ def nuke_crime_data():
 # 6. THREAT HUNTING & IOCs
 # ==========================================
 
-def get_iocs(days_back=3):
+def get_iocs(days_back=3, limit=1000):
     with SessionLocal() as db:
         t = datetime.utcnow() - timedelta(days=days_back)
-        iocs = db.query(ExtractedIOC).filter(ExtractedIOC.detected_at >= t).order_by(ExtractedIOC.detected_at.desc()).all()
+        rows = (
+            db.query(ExtractedIOC, Article)
+            .outerjoin(Article, Article.id == ExtractedIOC.article_id)
+            .filter(ExtractedIOC.detected_at >= t)
+            .order_by(ExtractedIOC.detected_at.desc(), ExtractedIOC.id.desc())
+            .limit(min(max(int(limit), 1), 1000))
+            .all()
+        )
 
         cve_groups = {}
         non_cve = []
 
-        for ioc in iocs:
-            art = db.query(Article).filter_by(id=ioc.article_id).first()
+        for ioc, art in rows:
             source_link = art.link if art else "Unknown"
             source_title = art.title if art else "Unknown"
 
@@ -2887,11 +2896,25 @@ def search_articles_for_hunting(target, days_back):
     days_back = max(1, min(int(days_back), 30))
     with SessionLocal() as db:
         cutoff = datetime.utcnow() - timedelta(days=days_back)
-        term_filters = [
-            Article.title.ilike(f"%{term}%") | Article.summary.ilike(f"%{term}%")
-            for term in terms
-        ]
-        arts = db.query(Article).filter(Article.published_date >= cutoff, or_(*term_filters)).limit(30).all()
+        def like_pattern(term):
+            escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            return f"%{escaped}%"
+
+        term_filters = []
+        for term in terms:
+            pattern = like_pattern(term)
+            term_filters.append(
+                Article.title.ilike(pattern, escape="\\")
+                | Article.summary.ilike(pattern, escape="\\")
+                | Article.full_content.ilike(pattern, escape="\\")
+            )
+        arts = (
+            db.query(Article)
+            .filter(Article.published_date >= cutoff, or_(*term_filters))
+            .order_by(Article.published_date.desc(), Article.id.desc())
+            .limit(30)
+            .all()
+        )
         return to_dotdict_list(arts)
 
 def get_articles_by_ids(ids):
@@ -2900,12 +2923,57 @@ def get_articles_by_ids(ids):
         return to_dotdict_list(arts)
 
 def get_osint_pivot_link(ioc_type, value):
-    if ioc_type in ["SHA256", "MD5", "SHA1"]: return f"https://www.virustotal.com/gui/file/{value}"
-    elif ioc_type == "IPv4": return f"https://www.shodan.io/host/{value}"
-    elif ioc_type == "Domain": return f"https://www.virustotal.com/gui/domain/{value}"
-    elif ioc_type == "CVE": return f"https://nvd.nist.gov/vuln/detail/{value}"
-    elif ioc_type == "MITRE ATT&CK": return f"https://attack.mitre.org/techniques/{value.replace('.', '/')}"
+    value = str(value or "").strip()
+    if not value or len(value) > 512:
+        return None
+    if ioc_type in ["SHA256", "MD5", "SHA1"]:
+        expected = {"SHA256": 64, "SHA1": 40, "MD5": 32}[ioc_type]
+        if not re.fullmatch(rf"[a-fA-F0-9]{{{expected}}}", value):
+            return None
+        return f"https://www.virustotal.com/gui/file/{value}"
+    if ioc_type == "IPv4":
+        try:
+            if ipaddress.ip_address(value).version != 4:
+                return None
+        except ValueError:
+            return None
+        return f"https://www.shodan.io/host/{quote(value, safe='')}"
+    if ioc_type == "Domain" and re.fullmatch(r"(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}", value):
+        return f"https://www.virustotal.com/gui/domain/{quote(value, safe='')}"
+    if ioc_type == "CVE" and re.fullmatch(r"CVE-\d{4}-\d{4,7}", value, re.IGNORECASE):
+        return f"https://nvd.nist.gov/vuln/detail/{quote(value.upper(), safe='')}"
+    if ioc_type == "MITRE ATT&CK" and re.fullmatch(r"T\d{4}(?:\.\d{3})?", value, re.IGNORECASE):
+        return f"https://attack.mitre.org/techniques/{quote(value.replace('.', '/').upper(), safe='/')}"
     return None
+
+
+def get_elastic_events(hours_back=24, page=1, page_size=100):
+    hours_back = max(1, min(int(hours_back), 168))
+    page = max(1, int(page))
+    page_size = max(1, min(int(page_size), 500))
+    with SessionLocal() as db:
+        cutoff = datetime.utcnow() - timedelta(hours=hours_back)
+        query = db.query(ElasticEvent).filter(ElasticEvent.timestamp >= cutoff)
+        total = query.count()
+        events = query.order_by(ElasticEvent.timestamp.desc(), ElasticEvent.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+        return {
+            "items": [
+                {
+                    "id": event.id,
+                    "timestamp": event.timestamp.isoformat() if event.timestamp else None,
+                    "index_name": event.index_name,
+                    "severity": event.severity,
+                    "message": event.message,
+                    "source_ip": event.source_ip,
+                    "event_category": event.event_category,
+                }
+                for event in events
+            ],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "hours_back": hours_back,
+        }
 
 
 # ==========================================
@@ -3996,7 +4064,7 @@ def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, usgs_ar_data,
     
     # 1. RADAR
     if show_radar:
-        layers.append(pdk.Layer("BitmapLayer", image="https://mesonet.agron.iastate.edu/data/gis/images/4326/USCOMP/n0q_0.png", bounds=[-126.0, 21.0, -66.0, 50.0], opacity=0.55, pickable=False))
+        layers.append(pdk.Layer("BitmapLayer", image="https://mesonet.agron.iastate.edu/data/gis/images/4326/USCOMP/n0q_0.png", bounds=[-126.0, 21.0, -66.0, 50.0], opacity=0.5, pickable=False))
         
     # 2. Add Pre-computed Layers instantly based on toggles
     if show_spc and cache["spc_micro"]["features"]: 

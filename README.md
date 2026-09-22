@@ -196,6 +196,8 @@ The complete environment template is [`.env.example`](./.env.example). The most 
 | `ITNETWORK_ONPAGE_EMAIL` | Receives after-hours paging for network and other device categories. |
 | `WEBHOOK_HMAC_SECRET` | Enables signed SolarWinds webhook validation when configured. |
 | `ELASTIC_URL`, `ELASTIC_API_KEY` | Enable Elastic-backed telemetry workflows. |
+| `ELASTIC_VERIFY_CERTS`, `ELASTIC_CA_CERTS` | Configure Elasticsearch TLS verification and an optional CA bundle. |
+| `ELASTIC_REQUEST_TIMEOUT`, `ELASTIC_MAX_RESULTS` | Bound Elasticsearch request duration and result volume. |
 | `DEMO_SEED_DATA` | Adds synthetic assets for disposable demonstrations. Keep false in production. |
 
 SMTP and LLM provider details are configured in the Settings page under the AI & SMTP area and stored in the application configuration. They are not additional `SMTP_*` or `LLM_API_URL` environment variables in the current runtime.

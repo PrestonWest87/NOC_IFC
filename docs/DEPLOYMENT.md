@@ -131,6 +131,10 @@ cp .env.example .env
 | `CRIME_ALERT_EMAIL` | For crime alerts | (empty) | Email destination for crime notifications |
 | `ELASTIC_URL` | Optional | `https://localhost:9200` | Elasticsearch endpoint |
 | `ELASTIC_API_KEY` | Optional | (empty) | Elasticsearch read-only API key |
+| `ELASTIC_VERIFY_CERTS` | No | `true` | Verify Elasticsearch TLS certificates |
+| `ELASTIC_CA_CERTS` | No | (empty) | Optional CA bundle path for Elasticsearch |
+| `ELASTIC_REQUEST_TIMEOUT` | No | `15` | Elasticsearch request timeout in seconds |
+| `ELASTIC_MAX_RESULTS` | No | `500` | Maximum results per Elastic query page |
 | `WEBHOOK_HMAC_SECRET` | Optional | (empty) | Shared secret for signed SolarWinds requests |
 | `WEBHOOK_SIGNATURE_HEADER` | No | `X-SolarWinds-Signature` | Webhook signature header |
 | `WEBHOOK_TIMESTAMP_HEADER` | No | `X-SolarWinds-Timestamp` | Webhook timestamp header |

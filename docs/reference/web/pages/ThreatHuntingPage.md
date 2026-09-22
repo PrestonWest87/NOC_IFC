@@ -179,7 +179,7 @@ Targeted LLM Deep Hunt & Detection Engine — searches articles for a target ent
 
 ### Returns
 - Target Entity input (with icon, Enter key to submit)
-- Historical Depth slider (7-90 days)
+- Historical Depth slider (7-30 days)
 - Compile Detection Package button
 - Search results list (up to 15 articles)
 - Auto-generated detection package in monospace textarea
@@ -231,16 +231,16 @@ Advanced SIEM Fusion & Hunt — displays cached Elastic events with AI triage.
 
 ### Returns
 - Summary metric cards (Local Events, Unique Threat IPs, Critical Density %)
-- Sync Local Cache button (triggers `POST /threat/sync-elastic-cache`)
+- Sync Local Cache button (triggers `POST /hunting/sync-elastic-cache?hours_back=24`)
 - Events table (Timestamp, Severity, Category, Source IP, Message) — up to 100 rows
-- AI Triage & Summarize Results button (triggers `POST /threat/generate-siem-triage`)
+- AI Triage & Summarize Results button (triggers `POST /hunting/generate-siem-triage`)
 - Triage summary display area
 
 ### Flow
-1. Fetches events via `GET /threat/elastic-events?hours_back=24` (2min refetch).
-2. `handleSync` syncs cache via `POST /threat/sync-elastic-cache` then refetches.
-3. `handleTriage` posts up to 50 events to `POST /threat/generate-siem-triage`.
-4. On error, generates a client-side triage summary from the raw event data.
+1. Fetches events via `GET /hunting/elastic-events?hours_back=24&page=1&page_size=100` (2min refetch).
+2. `handleSync` syncs cache via `POST /hunting/sync-elastic-cache` then refetches.
+3. `handleTriage` posts up to 50 events to `POST /hunting/generate-siem-triage`.
+4. API, sync, and triage failures are shown to the operator rather than presented as empty or successful results.
 5. Severity color function maps severity strings to colors (CRITICAL=red, HIGH=orange, etc.).
 6. Memoized calculations for `uniqueIps` and `criticalCount`.
 

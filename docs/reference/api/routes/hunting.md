@@ -13,9 +13,10 @@ Returns Indicators of Compromise (IOCs) observed within a configurable lookback 
 | Parameter   | Type  | Default | Constraints | Description                              |
 |-------------|-------|---------|-------------|------------------------------------------|
 | `days_back` | `int` | `3`     | 1-30        | Number of days of IOC history to return. |
+| `limit`     | `int` | `1000`  | 1-1000      | Maximum IOC rows to inspect.             |
 
 ### Returns
-List of IOC objects.
+Bounded list of IOC objects.
 
 ### Raises
 None.
@@ -86,3 +87,6 @@ Router prefix: `/api/v1/hunting` with `Threat Hunting & IOCs` page permission.
 - `GET /iocs` returns extracted indicators for a bounded `days_back` range of 1–30.
 - `GET /osint-pivot` maps an IOC type/value to external investigation URLs.
 - `GET /search-articles` searches articles for a target with a bounded 1–30 day range.
+- `GET /elastic-events` returns paginated cached SIEM events and requires the Elastic SIEM tab permission.
+- `POST /sync-elastic-cache` synchronizes high-severity Elastic events and requires manual sync permission.
+- `POST /generate-siem-triage` accepts up to 50 bounded events and requires the AI action permission.

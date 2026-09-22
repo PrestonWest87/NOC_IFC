@@ -43,7 +43,7 @@ The RSS path downloads in chunks of five, scores title and summary text, and ski
 
 ## Elastic Sync Endpoint Returns an Error
 
-The route `POST /api/v1/threat/sync-elastic-cache` currently references `run_elastic_sync`, but the worker module exports `sync_elastic_telemetry` instead. Confirm this naming mismatch in the API and worker logs before treating an Elastic synchronization failure as a connectivity problem. This requires an application-code reconciliation; do not delete `elastic_worker.py`.
+Use `POST /api/v1/hunting/sync-elastic-cache?hours_back=24` from the Threat Hunting workspace. The endpoint returns HTTP 502 when Elasticsearch is unavailable, authentication fails, or the request cannot be completed. Check `docker compose logs --tail=300 worker` for the underlying connection or query error, then verify `ELASTIC_URL`, `ELASTIC_API_KEY`, certificate settings, and network reachability.
 
 ## Scores Are Zero or Unexpected
 

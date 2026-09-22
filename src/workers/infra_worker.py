@@ -384,8 +384,8 @@ def fetch_regional_hazards():
             executor.submit(fetch_nws_alerts_for_region, "AR", "nws_ar"),
             executor.submit(fetch_nws_alerts_for_region, "OK,MS,MO", "nws_oos"),
             executor.submit(fetch_usgs_earthquakes, "ar", "usgs_ar"),
+            executor.submit(fetch_usgs_earthquakes, "oos", "usgs_oos"),
         ]
-        executor.submit(fetch_usgs_earthquakes, "oos", "usgs_oos")
 
         for f in concurrent.futures.as_completed(futures):
             try:

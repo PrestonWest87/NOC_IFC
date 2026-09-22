@@ -1,6 +1,7 @@
 import sys
 import os
 import logging
+from pydantic import Field
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
@@ -13,6 +14,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     elastic_url: str = "https://localhost:9200"
     elastic_api_key: str = "your_read_only_api_key"
+    elastic_verify_certs: bool = True
+    elastic_ca_certs: str | None = None
+    elastic_request_timeout: float = Field(default=15.0, gt=0, le=120)
+    elastic_max_results: int = Field(default=500, gt=0, le=5000)
     crime_alert_sms: str | None = None
     crime_alert_email: str | None = None
     risk_alert_recipients: str = ""
@@ -38,6 +43,10 @@ settings = Settings()
 DATABASE_URL = settings.database_url
 ELASTIC_URL = settings.elastic_url
 ELASTIC_API_KEY = settings.elastic_api_key
+ELASTIC_VERIFY_CERTS = settings.elastic_verify_certs
+ELASTIC_CA_CERTS = settings.elastic_ca_certs
+ELASTIC_REQUEST_TIMEOUT = settings.elastic_request_timeout
+ELASTIC_MAX_RESULTS = settings.elastic_max_results
 CRIME_ALERT_SMS = settings.crime_alert_sms
 CRIME_ALERT_EMAIL = settings.crime_alert_email
 RISK_ALERT_RECIPIENTS = settings.risk_alert_recipients

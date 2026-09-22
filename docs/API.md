@@ -106,7 +106,7 @@ Manually triggers RSS feed fetch cycle.
 
 ### POST /threat/sync-elastic-cache?hours_back=24
 
-**Implementation note:** The current route imports `run_elastic_sync`, while `src/workers/elastic_worker.py` exports `sync_elastic_telemetry`, `execute_live_query`, and `purge_stale_elastic_data`. Until those names are reconciled in application code, this endpoint returns the route's error response rather than completing a sync.
+Returns a success result with the number of imported events, or HTTP 502 when the Elastic sync fails. The preferred Threat Hunting UI endpoint is `/hunting/sync-elastic-cache`.
 
 ### POST /threat/generate-siem-triage
 Body expects `.events` key. Returns AI-generated SIEM triage summary.
@@ -157,10 +157,10 @@ Re-runs the article categorizer against every stored article and returns `{statu
 Cached list of all MonitoredLocation records.
 
 ### GET /regional/geojson
-Returns all cached GeoJSON layers: spc_day1-3, nws_ar, nws_oos, usgs_ar, usgs_oos.
+Returns all cached GeoJSON layers: spc_day1-3, nws_ar, nws_oos, usgs_ar, usgs_oos, plus per-feed freshness metadata.
 
 ### POST /regional/compile-map
-The heavy computation endpoint. Body keys: `toggles`, `spc_data`, `ar_data`, `oos_data`, `usgs_ar_data`, `usgs_oos_data`, `selected_events`, `map_df`.
+The heavy computation endpoint. Body keys: `toggles`, `selected_events`, and `map_df`. The server uses its coherent cached hazard snapshot; legacy raw feed keys remain accepted for compatibility.
 Returns 6-element array: `[layers, viewState, diagnostics, toggled_affected_sites, master_affected_sites, analytics]`.
 
 ### GET /regional/weather-prefs?username=
@@ -176,7 +176,7 @@ Body: `{alerts: ["Tornado Warning", "Severe Thunderstorm Warning", ...]}`
 Merges default site types with DB `loc_type` values.
 
 ### POST /regional/sync-hazards
-Manually triggers regional hazard fetch.
+Manually triggers regional hazard fetch and cache invalidation. Returns HTTP 502 when synchronization fails.
 
 ## Hunting Endpoints (/hunting)
 
@@ -187,7 +187,16 @@ Returns list of extracted IOCs with source article links.
 Returns external pivot URL (VirusTotal, Shodan, NVD, MITRE).
 
 ### GET /hunting/search-articles?target=&days_back=3
-Full-text search of articles by target string.
+Searches article title, summary, and full content by target string. Results are deterministically ordered and capped at 30 articles.
+
+### GET /hunting/elastic-events?hours_back=24&page=1&page_size=100
+Returns a paginated view of locally cached high-severity Elastic events. Requires the Threat Hunting page and Elastic SIEM tab permission.
+
+### POST /hunting/sync-elastic-cache?hours_back=24
+Synchronizes high-severity Elastic events into the local cache. Requires the Threat Hunting page and manual sync action permission.
+
+### POST /hunting/generate-siem-triage
+Generates an AI triage summary from up to 50 bounded, flat SIEM events. Requires the Threat Hunting page and AI action permission.
 
 ## RCA Endpoints (/rca)
 

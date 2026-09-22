@@ -17,6 +17,10 @@ This file is the complete template for environment variables used by the current
 | `ITNETWORK_ONPAGE_EMAIL` | empty | scheduler | After-hours IT/network paging |
 | `ELASTIC_URL` | `https://localhost:9200` | `src.core.config` | Elasticsearch endpoint |
 | `ELASTIC_API_KEY` | empty | `src.core.config` | Elasticsearch credential |
+| `ELASTIC_VERIFY_CERTS` | `true` | `src.core.config` | Verify Elasticsearch TLS certificates |
+| `ELASTIC_CA_CERTS` | empty | `src.core.config` | Optional CA bundle path |
+| `ELASTIC_REQUEST_TIMEOUT` | `15` | `src.core.config` | Elasticsearch request timeout in seconds |
+| `ELASTIC_MAX_RESULTS` | `500` | `src.core.config` | Maximum results per Elastic query page |
 | `CRIME_ALERT_SMS` | empty | `src.core.config` | Crime SMS gateway destination |
 | `CRIME_ALERT_EMAIL` | empty | `src.core.config` | Crime email destination |
 | `WEBHOOK_HMAC_SECRET` | empty | `src.core.config`/webhook | Shared SolarWinds signing secret |
