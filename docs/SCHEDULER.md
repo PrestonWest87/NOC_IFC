@@ -13,6 +13,7 @@ Intervals below are the values in the scheduler source, not historical product t
 | Article enrichment | Every 3 minutes | `enrich_pending_articles` | Pending high-score articles; writes full content or failure state |
 | Maintenance expiry | Every 5 minutes | `job_clear_expired_maintenance` | Site ETR state; clears expired maintenance and broadcasts `RCA_UPDATE` |
 | Telemetry | Every 6 minutes | `run_telemetry_sync` | External telemetry; writes BGP and related records |
+| Elasticsearch cache | Every 6 minutes | `job_sync_elastic` | Queries configured Elasticsearch and stores high-severity events in `ElasticEvent` |
 | Regional hazards | Every 7 minutes | `fetch_regional_hazards` | NWS/SPC/USGS and hazard feeds; updates cache and hazard records |
 | Cloud outages | Every 8 minutes | `fetch_cloud_outages` | Provider status sources; updates `CloudOutage` |
 | Crime | Every 10 minutes | `fetch_live_crimes` | Crime source; writes incidents and may alert |
@@ -30,7 +31,7 @@ Intervals below are the values in the scheduler source, not historical product t
 
 `run_threaded` submits work to a two-thread executor. A set protected by a lock prevents the same function name from running twice concurrently. Exceptions are logged, memory is sampled before and after each job, and the running marker is removed in `finally`.
 
-The boot sequence runs four groups with 30-second pauses: (1) escalation, maintenance expiry, RSS; (2) KEV, regional hazards, cloud; (3) telemetry, crime, internal risk; (4) unified, global, and internal briefs.
+The boot sequence runs four groups with 30-second pauses: (1) escalation, maintenance expiry, RSS; (2) KEV, regional hazards, cloud; (3) telemetry, Elasticsearch, crime, internal risk; (4) unified, global, and internal briefs.
 
 Boot execution can create immediate outbound traffic and LLM work. Confirm environment recipients and API credentials before starting a production worker.
 

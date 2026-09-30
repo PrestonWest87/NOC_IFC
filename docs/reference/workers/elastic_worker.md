@@ -4,7 +4,7 @@
 
 ## Overview
 
-Connects to an Elasticsearch cluster (using URL + API key authentication), queries for high-severity log events from the past N hours, and synchronises them into the local `ElasticEvent` table for unified alerting. Also provides an ad-hoc query interface and a data purging utility for lifecycle management.
+Connects to a configured Elasticsearch cluster, queries for high-severity log events from the past N hours, and synchronises them into the local `ElasticEvent` table for unified alerting. The worker scheduler runs this sync every six minutes. A blank `ELASTIC_URL` disables scheduled sync cleanly. The optional API key and TLS settings come from `src.core.config`.
 
 ---
 
@@ -26,25 +26,18 @@ Module-level client cache. The Elasticsearch client is created lazily on first u
 - **Returns:** `{"status": "ok", "imported": N}` or a controlled error result.
 - **Raises:** `ValueError` for a non-positive/non-integer look-back value; request and database failures are returned as controlled errors.
 - **Flow:**
-   1. Lazily create the client with API-key authentication and configured TLS/request timeout.
-  2. Build Elasticsearch query:
-     - `range` filter on `@timestamp` >= `(UTC now - hours_back)`.
-     - `should` clause: match `log.level` in `[emergency, alert, critical, error, severe]` **OR** `event.severity` <= 3.
-     - `minimum_should_match: 1`.
-      - Size: configured maximum results per page, sorted by `@timestamp` descending.
-   3. Execute search-after pages against all non-hidden indices (`*,-.*`) with a bounded page count.
+  1. Skip cleanly if `ELASTIC_URL` is blank; otherwise lazily create the client with optional API-key authentication and configured TLS/request timeout.
+  2. Build an Elasticsearch query with a range filter on `@timestamp` and a `should` clause matching `log.level` in `[emergency, alert, critical, error, severe]` **OR** `event.severity` <= 3.
+  3. Execute bounded scroll pages against all non-hidden indices (`*,-.*`), sorting by `@timestamp` with date-aware handling for unmapped indices. Clear the scroll context afterward; do not sort on Elasticsearch's non-sortable `_id` field.
   4. For each hit:
-      a. Use an index-qualified document ID and skip existing legacy or composite IDs.
-     b. Resolve severity:
-        - Use `log.level` if present, uppercased.
-         - Else map numeric or numeric-string `event.severity`: <=2 -> `CRITICAL`, <=3 -> `HIGH`, else `WARNING`.
-        - Fallback: `UNKNOWN`.
+     a. Use an index-qualified document ID and skip existing legacy or composite IDs.
+     b. Resolve severity from `log.level`, numeric or numeric-string `event.severity`, or fall back to `UNKNOWN`.
      c. Extract `message` from `message` or `event.original`.
      d. Extract `source_ip` from `source.ip` or `log.source.address`.
      e. Extract `event_category` from `event.category` (list or scalar).
-     f. Build `ElasticEvent` row and add to session.
-  5. Commit session.
-   6. On failure, log the internal error and return a generic error result.
+     f. Build an `ElasticEvent` row and add it to the session.
+  5. Commit the session.
+  6. Log the endpoint host, configuration state, page counts, and failures without logging the API key; return a controlled result.
 - **Dependencies:**
   - `elasticsearch.Elasticsearch` - Elasticsearch client
   - `src.core.db.SessionLocal` - SQLAlchemy session factory

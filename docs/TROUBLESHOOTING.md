@@ -43,7 +43,7 @@ The RSS path downloads in chunks of five, scores title and summary text, and ski
 
 ## Elastic Sync Endpoint Returns an Error
 
-Use `POST /api/v1/hunting/sync-elastic-cache?hours_back=24` from the Threat Hunting workspace. The endpoint returns HTTP 502 when Elasticsearch is unavailable, authentication fails, or the request cannot be completed. Check `docker compose logs --tail=300 worker` for the underlying connection or query error, then verify `ELASTIC_URL`, `ELASTIC_API_KEY`, certificate settings, and network reachability.
+Use `POST /api/v1/hunting/sync-elastic-cache?hours_back=24` from the Threat Hunting workspace. A blank `ELASTIC_URL` disables scheduled sync; the manual endpoint reports that configuration state. Otherwise, the worker runs a sync every six minutes and logs the endpoint host, page counts, and request errors (never the API key). Check `docker compose logs --tail=300 worker` for connection, authentication, mapping, or database details. In Docker, `localhost` points to the API/worker container, so configure an Elasticsearch URL reachable from those containers. Verify `ELASTIC_API_KEY`, certificate settings, and network reachability. The sync uses scroll pagination and does not sort on `_id`.
 
 ## Scores Are Zero or Unexpected
 

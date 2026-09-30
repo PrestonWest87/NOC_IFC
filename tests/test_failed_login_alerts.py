@@ -1,8 +1,12 @@
+import asyncio
+import json
 import unittest
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from fastapi import BackgroundTasks
+from starlette.requests import Request
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -131,6 +135,78 @@ class FailedLoginAlertTests(unittest.TestCase):
             send_email.call_args.kwargs["recipient_override"],
             "security@example.com, noc@example.com",
         )
+
+    def test_login_background_alert_runs_and_logs_when_smtp_is_disabled(self):
+        from src.api.routes.auth import LoginRequest, login
+
+        with self.session_factory() as db:
+            config = db.query(SystemConfig).first()
+            config.smtp_enabled = False
+            config.smtp_server = ""
+            config.smtp_sender = ""
+            db.commit()
+
+        request = Request({
+            "type": "http",
+            "headers": [],
+            "client": ("192.0.2.50", 12345),
+        })
+        responses = []
+        with patch.object(svc, "authenticate_user", return_value=(None, None)):
+            for attempt_number in range(3):
+                response = login(
+                    LoginRequest(username=f"invalid-{attempt_number}", password="wrong"),
+                    request,
+                    BackgroundTasks(),
+                )
+                self.assertEqual(response.status_code, 401)
+                self.assertEqual(json.loads(response.body), {"detail": "Invalid credentials"})
+                self.assertIsNotNone(response.background)
+                responses.append(response)
+
+        self.assertEqual(len(responses[0].background.tasks), 0)
+        self.assertEqual(len(responses[1].background.tasks), 0)
+        self.assertEqual(len(responses[2].background.tasks), 1)
+
+        with patch("src.utils.mailer.SessionLocal", self.session_factory), patch(
+            "src.utils.mailer.smtplib.SMTP"
+        ) as smtp_connect:
+            with self.assertLogs("src.api.routes.auth", level="ERROR") as alert_logs:
+                with self.assertLogs("src.utils.mailer", level="WARNING") as mailer_logs:
+                    sent_messages = []
+
+                    async def receive():
+                        return {"type": "http.request", "body": b"", "more_body": False}
+
+                    async def send(message):
+                        sent_messages.append(message)
+
+                    asyncio.run(responses[2](
+                        {
+                            "type": "http",
+                            "asgi": {"version": "3.0", "spec_version": "2.3"},
+                            "http_version": "1.1",
+                            "method": "POST",
+                            "scheme": "http",
+                            "path": "/api/v1/auth/login",
+                            "raw_path": b"/api/v1/auth/login",
+                            "query_string": b"",
+                            "headers": [],
+                            "server": ("testserver", 80),
+                            "client": ("192.0.2.50", 12345),
+                        },
+                        receive,
+                        send,
+                    ))
+
+        smtp_connect.assert_not_called()
+        response_start = next(message for message in sent_messages if message["type"] == "http.response.start")
+        self.assertEqual(response_start["status"], 401)
+        self.assertIn("Failed-login alert email delivery failed", "\n".join(alert_logs.output))
+        self.assertIn("SMTP is disabled in Settings", "\n".join(mailer_logs.output))
+
+        with self.session_factory() as db:
+            self.assertEqual(db.query(FailedLoginAttempt).count(), 3)
 
     def test_alert_recipient_list_is_only_returned_to_administrators(self):
         from src.api.routes.settings import get_config

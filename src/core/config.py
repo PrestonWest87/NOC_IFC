@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:////app/data/noc_fusion.db"
     demo_seed_data: bool = False
     log_level: str = "INFO"
-    elastic_url: str = "https://localhost:9200"
-    elastic_api_key: str = "your_read_only_api_key"
+    elastic_url: str = ""
+    elastic_api_key: str = ""
     elastic_verify_certs: bool = True
     elastic_ca_certs: str | None = None
     elastic_request_timeout: float = Field(default=15.0, gt=0, le=120)
