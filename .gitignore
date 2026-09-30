@@ -3,6 +3,8 @@
 
 docker-compose.yml
 
+src/ml_model.pkl
+
 # Runtime data
 data/
 
