@@ -1,6 +1,7 @@
 import json
 import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from src import services as svc
@@ -46,50 +47,77 @@ class RegistrationRequest(BaseModel):
 def _send_failed_login_alert(alert):
     from src.utils.mailer import send_alert_email
 
+    attempts = alert["attempts"]
+    recipient_count = len([
+        value for value in alert["recipients"].replace(";", ",").split(",")
+        if value.strip()
+    ])
+    logger.info(
+        "Attempting failed-login alert delivery attempts=%d threshold=%d window_minutes=%d recipients=%d",
+        len(attempts), alert["threshold"], alert["window_minutes"], recipient_count,
+    )
     lines = [
         "NOC Fusion Center security alert",
-        f"{len(alert['attempts'])} failed login attempts occurred within the previous {alert['window_minutes']} minute(s).",
+        f"{len(attempts)} failed login attempts occurred within the previous {alert['window_minutes']} minute(s).",
         f"Alert threshold: {alert['threshold']} attempts.",
         f"Detected at: {alert['triggered_at']} (UTC)",
         "",
         "Attempted usernames (as submitted):",
     ]
-    for attempt in alert["attempts"]:
+    for attempt in attempts:
         ip = f" from {attempt['source_ip']}" if attempt.get("source_ip") else ""
         lines.append(
             f"- {attempt['attempted_at']} — {json.dumps(attempt['username'], ensure_ascii=False)}{ip}"
         )
     lines.extend(["", "Passwords are not collected or included in this alert."])
 
-    success, message = send_alert_email(
-        subject="Multiple failed login attempts detected",
-        body="\n".join(lines),
-        recipient_override=alert["recipients"],
-        is_html=False,
-    )
+    try:
+        success, message = send_alert_email(
+            subject="Multiple failed login attempts detected",
+            body="\n".join(lines),
+            recipient_override=alert["recipients"],
+            is_html=False,
+        )
+    except Exception:
+        logger.exception("Failed-login alert background task raised unexpectedly.")
+        return
+
     if success:
-        logger.warning(
-            "Failed-login alert sent for %d attempts to configured recipients.",
-            len(alert["attempts"]),
+        logger.info(
+            "Failed-login alert email delivered attempts=%d recipients=%d",
+            len(attempts), recipient_count,
         )
     else:
-        logger.error("Failed-login alert email could not be sent: %s", message)
+        logger.error(
+            "Failed-login alert email delivery failed attempts=%d recipients=%d reason=%s",
+            len(attempts), recipient_count, message,
+        )
 
 
 @router.post("/login")
 def login(req: LoginRequest, request: Request, background_tasks: BackgroundTasks):
-    logger.info("POST /login username=%s", req.username)
+    logger.info("POST /login")
     user, token = svc.authenticate_user(req.username, req.password)
     if not user:
-        logger.warning("POST /login failed for username=%s", req.username)
+        logger.warning("POST /login failed")
         try:
             source_ip = request.client.host if request.client else None
             alert = svc.record_failed_login_attempt(req.username, source_ip)
             if alert:
                 background_tasks.add_task(_send_failed_login_alert, alert)
+                logger.info(
+                    "Failed-login alert task queued attempts=%d threshold=%d window_minutes=%d",
+                    len(alert["attempts"]), alert["threshold"], alert["window_minutes"],
+                )
         except Exception:
             logger.exception("Unable to record failed login attempt for security alerting.")
-        raise HTTPException(401, "Invalid credentials")
+        # Raising HTTPException bypasses the endpoint response's background tasks.
+        # Return the same 401 payload as a response so the queued alert is executed.
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Invalid credentials"},
+            background=background_tasks,
+        )
     logger.info("POST /login success username=%s role=%s", req.username, user.get('role'))
     return {"user": _public_user(user), "token": token}
 

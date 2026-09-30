@@ -60,8 +60,9 @@ def sync_elastic_cache(hours_back: int = Query(24, ge=1, le=168)):
     logger.info("POST /hunting/sync-elastic-cache hours_back=%d", hours_back)
     from src.workers.elastic_worker import run_elastic_sync
     result = run_elastic_sync(hours_back=hours_back)
-    if isinstance(result, dict) and result.get("status") == "error":
-        raise HTTPException(status_code=502, detail=result.get("message", "Elastic cache sync failed."))
+    if isinstance(result, dict) and result.get("status") in {"error", "skipped"}:
+        status_code = 503 if result.get("status") == "skipped" else 502
+        raise HTTPException(status_code=status_code, detail=result.get("message", "Elastic cache sync failed."))
     return {"status": "ok", "message": "Elastic cache synced.", "result": result}
 
 

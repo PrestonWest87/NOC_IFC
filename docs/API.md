@@ -20,7 +20,7 @@ Response (200):
 {"user": {"id": 1, "username": "admin", ...}, "token": "uuid-string"}
 ```
 
-When failed-login alerts are enabled in Admin > Settings > AI & SMTP, failed credentials are counted across users. Reaching the configured threshold (default: 5 attempts in 5 minutes) sends a background email to the configured alert recipient list with submitted usernames and source IPs when available. A maximum of one alert is sent per configured window; login failures continue to return the generic `401 Invalid credentials` response.
+When failed-login alerts are enabled in Admin > Settings > AI & SMTP, failed credentials are counted across users. Reaching the configured threshold (default: 5 attempts in 5 minutes) queues a background email to the configured alert recipient list with submitted usernames and source IPs when available. SMTP delivery failures are logged; a maximum of one alert is attempted per configured window, and login failures continue to return the generic `401 Invalid credentials` response.
 
 ### GET /auth/me?token=
 

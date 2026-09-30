@@ -41,7 +41,7 @@ curl -fsS http://localhost:8101/ready
 | `NOC_ONPAGE_EMAIL` | empty | After-hours NOC paging |
 | `ITNETWORK_ONPAGE_EMAIL` | empty | After-hours IT/network paging |
 | `CRIME_ALERT_SMS`, `CRIME_ALERT_EMAIL` | empty | Enabling perimeter alert destinations |
-| `ELASTIC_URL`, `ELASTIC_API_KEY` | local URL / empty | Enabling Elastic telemetry |
+| `ELASTIC_URL`, `ELASTIC_API_KEY` | empty / empty | Enabling Elastic telemetry from an endpoint reachable by the containers |
 | `WEBHOOK_HMAC_SECRET` | empty | Enabling SolarWinds signature validation |
 | `WEBHOOK_SIGNATURE_HEADER` | `X-SolarWinds-Signature` | Matching sender header name |
 | `WEBHOOK_TIMESTAMP_HEADER` | `X-SolarWinds-Timestamp` | Matching sender timestamp header name |

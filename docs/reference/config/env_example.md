@@ -15,7 +15,7 @@ This file is the complete template for environment variables used by the current
 | `NOC_NOTIFY_EMAIL` | empty | scheduler/infra worker | After-hours NOC notification |
 | `NOC_ONPAGE_EMAIL` | empty | scheduler | After-hours NOC paging for SWF/fiber devices |
 | `ITNETWORK_ONPAGE_EMAIL` | empty | scheduler | After-hours IT/network paging |
-| `ELASTIC_URL` | `https://localhost:9200` | `src.core.config` | Elasticsearch endpoint |
+| `ELASTIC_URL` | empty | `src.core.config` | Elasticsearch endpoint reachable from API/worker containers; empty disables sync |
 | `ELASTIC_API_KEY` | empty | `src.core.config` | Elasticsearch credential |
 | `ELASTIC_VERIFY_CERTS` | `true` | `src.core.config` | Verify Elasticsearch TLS certificates |
 | `ELASTIC_CA_CERTS` | empty | `src.core.config` | Optional CA bundle path |

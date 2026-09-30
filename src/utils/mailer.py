@@ -10,9 +10,18 @@ from src.models.schema import SystemConfig
 
 logger = logging.getLogger(__name__)
 
+
+def _recipient_count(value):
+    if not value:
+        return 0
+    return len([recipient for recipient in value.replace(";", ",").split(",") if recipient.strip()])
+
+
 def send_alert_email(subject: str, body: str, recipient_override: str = None, is_html: bool = True, attachments=None):
-    logger.info("send_alert_email: subject=%s recipient_override=%s is_html=%s body_length=%d",
-                 subject, recipient_override, is_html, len(body) if body else 0)
+    logger.info(
+        "send_alert_email: subject=%s recipient_override_set=%s is_html=%s body_length=%d",
+        subject, bool(recipient_override), is_html, len(body) if body else 0,
+    )
     session = SessionLocal()
     try:
         config = session.query(SystemConfig).first()
@@ -21,11 +30,14 @@ def send_alert_email(subject: str, body: str, recipient_override: str = None, is
             return False, "SMTP is disabled in Settings."
 
         target_recipient = recipient_override if recipient_override else config.smtp_recipient
-        logger.debug("send_alert_email: target_recipient=%s", target_recipient)
+        target_count = _recipient_count(target_recipient)
+        logger.debug("send_alert_email: target_recipient_count=%d", target_count)
 
         if not config.smtp_server or not config.smtp_sender or not target_recipient:
-            logger.warning("send_alert_email: incomplete SMTP config server=%s sender=%s recipient=%s",
-                            config.smtp_server, config.smtp_sender, target_recipient)
+            logger.warning(
+                "send_alert_email: incomplete SMTP config server_set=%s sender_set=%s recipient_count=%d",
+                bool(config.smtp_server), bool(config.smtp_sender), target_count,
+            )
             return False, "SMTP configuration is incomplete (Missing Server, Sender, or Recipient)."
 
         msg = MIMEMultipart()
@@ -71,14 +83,14 @@ def send_alert_email(subject: str, body: str, recipient_override: str = None, is
             return False, "SMTP TLS negotiation failed."
 
         if config.smtp_username and config.smtp_password:
-            logger.debug("send_alert_email: logging in as %s", config.smtp_username)
+            logger.debug("send_alert_email: authenticating with configured SMTP credentials")
             server.login(config.smtp_username, config.smtp_password)
             logger.debug("send_alert_email: login successful")
 
-        logger.debug("send_alert_email: sending message to %s", target_recipient)
+        logger.debug("send_alert_email: sending message to recipient_count=%d", target_count)
         server.send_message(msg)
         server.quit()
-        logger.info("send_alert_email: email sent successfully to %s", target_recipient)
+        logger.info("send_alert_email: email sent successfully recipient_count=%d", target_count)
 
         return True, "Email sent successfully."
 

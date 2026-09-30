@@ -535,7 +535,11 @@ def record_failed_login_attempt(username, source_ip=None):
     now = datetime.utcnow()
     with SessionLocal() as db:
         config = db.query(SystemConfig).first()
-        if not config or not config.failed_login_alert_enabled:
+        if not config:
+            logger.debug("Failed-login alerting skipped because system configuration is missing.")
+            return None
+        if not config.failed_login_alert_enabled:
+            logger.debug("Failed-login alerting is disabled; attempt not retained for alerting.")
             return None
 
         try:
@@ -586,6 +590,10 @@ def record_failed_login_attempt(username, source_ip=None):
         recent_attempts = db.query(FailedLoginAttempt).filter(
             FailedLoginAttempt.attempted_at >= cutoff
         ).order_by(FailedLoginAttempt.attempted_at.asc(), FailedLoginAttempt.id.asc()).all()
+        logger.info(
+            "Failed-login attempt recorded window_count=%d threshold=%d window_minutes=%d",
+            len(recent_attempts), threshold, window_minutes,
+        )
         if len(recent_attempts) < threshold:
             db.commit()
             return None
@@ -604,6 +612,11 @@ def record_failed_login_attempt(username, source_ip=None):
             synchronize_session=False,
         )
         if not claimed:
+            logger.info(
+                "Failed-login threshold reached but an alert is already claimed for this window "
+                "(attempts=%d threshold=%d window_minutes=%d).",
+                len(recent_attempts), threshold, window_minutes,
+            )
             db.commit()
             return None
 
@@ -622,6 +635,10 @@ def record_failed_login_attempt(username, source_ip=None):
             ],
         }
         db.commit()
+        logger.warning(
+            "Failed-login alert threshold claimed attempts=%d threshold=%d window_minutes=%d",
+            len(recent_attempts), threshold, window_minutes,
+        )
         return alert
 
 

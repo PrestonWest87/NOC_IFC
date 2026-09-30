@@ -808,6 +808,23 @@ def job_retrain_ml():
         log(f"[ERROR] ML Training Pipeline failed: {e}", "SYSTEM")
 
 
+def job_sync_elastic():
+    """Periodically cache high-severity Elasticsearch events locally."""
+    from src.workers.elastic_worker import sync_elastic_telemetry
+
+    result = sync_elastic_telemetry()
+    if result.get("status") == "skipped":
+        log(result.get("message", "Elasticsearch is not configured."), "ELASTIC", logging.INFO)
+    elif result.get("status") == "error":
+        log(result.get("message", "Elasticsearch sync failed."), "ELASTIC", logging.ERROR)
+    else:
+        log(
+            f"Elasticsearch sync complete; imported={result.get('imported', 0)}",
+            "ELASTIC",
+            logging.INFO,
+        )
+
+
 # =====================================================================
 # 4. THE THREADED MASTER ORCHESTRATOR
 # =====================================================================
@@ -862,6 +879,7 @@ if __name__ == "__main__":
     schedule.every(3).minutes.do(run_threaded, enrich_pending_articles)
     schedule.every(5).minutes.do(run_threaded, job_clear_expired_maintenance)
     schedule.every(6).minutes.do(run_threaded, run_telemetry_sync)
+    schedule.every(6).minutes.do(run_threaded, job_sync_elastic)
     schedule.every(7).minutes.do(run_threaded, fetch_regional_hazards)
     schedule.every(8).minutes.do(run_threaded, fetch_cloud_outages)
     schedule.every(10).minutes.do(run_threaded, fetch_live_crimes)
@@ -890,11 +908,11 @@ if __name__ == "__main__":
     
     log("[START] Master Orchestrator Online. Firing Boot Sequence...", "SYSTEM")
 
-    # 3. Staggered Boot Sequence — groups of 3 with 30s delays to avoid CPU storm
+    # 3. Staggered Boot Sequence — small groups with 30s delays to avoid CPU storms
     boot_groups = [
         [job_tiered_alert_escalation, job_clear_expired_maintenance, fetch_feeds],
         [fetch_cisa_kev, fetch_regional_hazards, fetch_cloud_outages],
-        [run_telemetry_sync, fetch_live_crimes, job_internal_risk],
+        [run_telemetry_sync, job_sync_elastic, fetch_live_crimes, job_internal_risk],
         [job_unified_brief, job_global_brief, job_internal_brief],
     ]
     for i, group in enumerate(boot_groups):

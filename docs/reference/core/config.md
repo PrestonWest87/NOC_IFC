@@ -11,8 +11,8 @@ Loads typed environment configuration with Pydantic Settings, imports `.env` val
 | `database_url` | `str` | `sqlite:////app/data/noc_fusion.db` | SQLAlchemy database URL. |
 | `demo_seed_data` | `bool` | `False` | Enables synthetic asset seeds for disposable demonstrations. |
 | `log_level` | `str` | `INFO` | Declared logging setting; `setup_logging()` also reads `LOG_LEVEL` directly when no level is supplied. |
-| `elastic_url` | `str` | `https://localhost:9200` | Elasticsearch endpoint. |
-| `elastic_api_key` | `str` | `your_read_only_api_key` | Development placeholder/read-only Elastic credential. |
+| `elastic_url` | `str` | `""` | Elasticsearch endpoint; a blank value disables Elastic sync. |
+| `elastic_api_key` | `str` | `""` | Optional Elasticsearch API key. |
 | `crime_alert_sms` | `str \| None` | `None` | Crime SMS gateway destination. |
 | `crime_alert_email` | `str \| None` | `None` | Crime email destination. |
 | `risk_alert_recipients` | `str` | `""` | Comma-separated risk/daily-brief recipients. |

@@ -129,7 +129,7 @@ cp .env.example .env
 | `ITNETWORK_ONPAGE_EMAIL` | For after-hours | (empty) | IT Network on-call paging email |
 | `CRIME_ALERT_SMS` | For crime alerts | (empty) | SMS gateway email for crime notifications |
 | `CRIME_ALERT_EMAIL` | For crime alerts | (empty) | Email destination for crime notifications |
-| `ELASTIC_URL` | Optional | `https://localhost:9200` | Elasticsearch endpoint |
+| `ELASTIC_URL` | Optional | (empty) | Elasticsearch endpoint reachable from API/worker containers; blank disables sync |
 | `ELASTIC_API_KEY` | Optional | (empty) | Elasticsearch read-only API key |
 | `ELASTIC_VERIFY_CERTS` | No | `true` | Verify Elasticsearch TLS certificates |
 | `ELASTIC_CA_CERTS` | No | (empty) | Optional CA bundle path for Elasticsearch |
