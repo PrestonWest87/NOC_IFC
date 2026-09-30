@@ -1,5 +1,6 @@
+import json
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from src import services as svc
@@ -42,12 +43,52 @@ class RegistrationRequest(BaseModel):
     theme: str = "standard"
 
 
+def _send_failed_login_alert(alert):
+    from src.utils.mailer import send_alert_email
+
+    lines = [
+        "NOC Fusion Center security alert",
+        f"{len(alert['attempts'])} failed login attempts occurred within the previous {alert['window_minutes']} minute(s).",
+        f"Alert threshold: {alert['threshold']} attempts.",
+        f"Detected at: {alert['triggered_at']} (UTC)",
+        "",
+        "Attempted usernames (as submitted):",
+    ]
+    for attempt in alert["attempts"]:
+        ip = f" from {attempt['source_ip']}" if attempt.get("source_ip") else ""
+        lines.append(
+            f"- {attempt['attempted_at']} — {json.dumps(attempt['username'], ensure_ascii=False)}{ip}"
+        )
+    lines.extend(["", "Passwords are not collected or included in this alert."])
+
+    success, message = send_alert_email(
+        subject="Multiple failed login attempts detected",
+        body="\n".join(lines),
+        recipient_override=alert["recipients"],
+        is_html=False,
+    )
+    if success:
+        logger.warning(
+            "Failed-login alert sent for %d attempts to configured recipients.",
+            len(alert["attempts"]),
+        )
+    else:
+        logger.error("Failed-login alert email could not be sent: %s", message)
+
+
 @router.post("/login")
-def login(req: LoginRequest):
+def login(req: LoginRequest, request: Request, background_tasks: BackgroundTasks):
     logger.info("POST /login username=%s", req.username)
     user, token = svc.authenticate_user(req.username, req.password)
     if not user:
         logger.warning("POST /login failed for username=%s", req.username)
+        try:
+            source_ip = request.client.host if request.client else None
+            alert = svc.record_failed_login_attempt(req.username, source_ip)
+            if alert:
+                background_tasks.add_task(_send_failed_login_alert, alert)
+        except Exception:
+            logger.exception("Unable to record failed login attempt for security alerting.")
         raise HTTPException(401, "Invalid credentials")
     logger.info("POST /login success username=%s role=%s", req.username, user.get('role'))
     return {"user": _public_user(user), "token": token}

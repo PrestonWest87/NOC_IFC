@@ -37,7 +37,7 @@ from src.database import (
     SessionLocal, Article, FeedSource, RegionalHazard, CloudOutage,
     ExtractedIOC, engine, init_db, SolarWindsAlert, BgpAnomaly,
     CveItem, RegionalOutage, CrimeIncident, MonitoredLocation,
-    InternalRiskSnapshot, TimelineEvent, ElasticEvent
+    InternalRiskSnapshot, TimelineEvent, ElasticEvent, FailedLoginAttempt
 )
 
 from src.workers.cve_worker import fetch_cisa_kev
@@ -475,6 +475,9 @@ def run_database_maintenance():
             session.query(InternalRiskSnapshot).filter(InternalRiskSnapshot.timestamp < days_90_ago).delete()
             session.query(TimelineEvent).filter(TimelineEvent.timestamp < days_90_ago).delete()
             session.query(ElasticEvent).filter(ElasticEvent.timestamp < hours_72_ago).delete()
+            session.query(FailedLoginAttempt).filter(
+                FailedLoginAttempt.attempted_at < hours_24_ago
+            ).delete()
             
             # Cleanup orphaned IOCs
             session.execute(text("DELETE FROM extracted_iocs WHERE article_id NOT IN (SELECT id FROM articles);"))

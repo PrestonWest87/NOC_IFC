@@ -28,6 +28,15 @@ class UserSession(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class FailedLoginAttempt(Base):
+    """Short-lived record of a failed login for threshold-based security alerts."""
+    __tablename__ = "failed_login_attempts"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(128), nullable=False)
+    source_ip = Column(String(64), nullable=True)
+    attempted_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
 class RegistrationInvite(Base):
     __tablename__ = "registration_invites"
     id = Column(Integer, primary_key=True, index=True)
@@ -104,6 +113,11 @@ class SystemConfig(Base):
     last_risk_alert_time = Column(DateTime, nullable=True)
     sys_countermeasures = Column(Integer, default=3)
     net_countermeasures = Column(Integer, default=3)
+    failed_login_alert_enabled = Column(Boolean, default=False, nullable=False)
+    failed_login_alert_recipients = Column(Text, default="", nullable=False)
+    failed_login_alert_threshold = Column(Integer, default=5, nullable=False)
+    failed_login_alert_window_minutes = Column(Integer, default=5, nullable=False)
+    failed_login_alert_last_sent = Column(DateTime, nullable=True)
 
     scoring_mode = Column(String, default="auto")
     cyber_criticality_override = Column(Integer, default=0)

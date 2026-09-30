@@ -203,6 +203,7 @@ AI & SMTP configuration.
 ### Returns
 - LLM Configuration card (endpoint, API key with show/hide, model name, tech stack, enable toggle, test connection button)
 - SMTP Broadcast card (server, port, username, password, sender, recipient, enabled toggle)
+- Failed Login Alerts card (enable toggle, recipient list, attempt threshold, and time window; requires SMTP to be enabled)
 - Threat Matrix Baseline Overrides card (cyber baseline, physical baseline)
 - CIS Countermeasures card (system and network sliders 1-5)
 - Save Configuration button

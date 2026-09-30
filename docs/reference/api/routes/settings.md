@@ -7,7 +7,7 @@ System configuration and user list retrieval routes. Prefix: `/api/v1/settings`.
 ## Endpoint: `GET /config`
 
 ### Purpose
-Returns the current system configuration including LLM settings, SMTP settings, tech stack, monitored ASNs, and brief generation times.
+Returns the current system configuration including LLM settings, SMTP settings, failed-login alert settings, tech stack, monitored ASNs, and brief generation times.
 
 ### Parameters
 None (uses `db: Session` via `Depends(get_db)`).
@@ -23,6 +23,10 @@ None (uses `db: Session` via `Depends(get_db)`).
   "smtp_port": ...,
   "smtp_sender": "...",
   "smtp_recipient": "...",
+  "failed_login_alert_enabled": true | false,
+  "failed_login_alert_recipients": "security@example.com, noc@example.com",
+  "failed_login_alert_threshold": 5,
+  "failed_login_alert_window_minutes": 5,
   "tech_stack": "...",
   "monitored_asns": "...",
   "sys_countermeasures": "...",
@@ -35,6 +39,7 @@ None (uses `db: Session` via `Depends(get_db)`).
 ```
 
 Returns an empty object `{}` if no `SystemConfig` row exists.
+The configured failed-login recipient list is included only for administrators.
 
 ### Raises
 None.

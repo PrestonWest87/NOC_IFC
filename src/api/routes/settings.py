@@ -3,14 +3,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from src.core.db import get_db
-from src.api.auth_guard import get_current_user
+from src.api.auth_guard import get_current_user, is_admin
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
 
 @router.get("/config")
-def get_config(db: Session = Depends(get_db)):
+def get_config(db: Session = Depends(get_db), user=Depends(get_current_user)):
     logger.debug("GET /settings/config")
     from src.models.schema import SystemConfig
     config = db.query(SystemConfig).first()
@@ -39,6 +39,12 @@ def get_config(db: Session = Depends(get_db)):
         "internal_risk_offset": config.internal_risk_offset,
         "sys_countermeasures": config.sys_countermeasures,
         "net_countermeasures": config.net_countermeasures,
+        "failed_login_alert_enabled": config.failed_login_alert_enabled,
+        "failed_login_alert_recipients": (
+            config.failed_login_alert_recipients or "" if is_admin(user) else ""
+        ),
+        "failed_login_alert_threshold": config.failed_login_alert_threshold,
+        "failed_login_alert_window_minutes": config.failed_login_alert_window_minutes,
         "llm_context_window": config.llm_context_window,
         "public_app_url": config.public_app_url or "",
         "unified_brief": config.unified_brief,

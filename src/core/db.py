@@ -213,6 +213,22 @@ def init_db():
     except Exception as e:
         logger.debug("system_config public_app_url migration skipped: %s", e)
 
+    failed_login_alert_columns = [
+        ("failed_login_alert_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ("failed_login_alert_recipients", "TEXT NOT NULL DEFAULT ''"),
+        ("failed_login_alert_threshold", "INTEGER NOT NULL DEFAULT 5"),
+        ("failed_login_alert_window_minutes", "INTEGER NOT NULL DEFAULT 5"),
+        ("failed_login_alert_last_sent", "DATETIME"),
+    ]
+    for column_name, column_definition in failed_login_alert_columns:
+        try:
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                conn.execute(text(
+                    f"ALTER TABLE system_config ADD COLUMN {column_name} {column_definition}"
+                ))
+        except Exception as e:
+            logger.debug("system_config.%s migration skipped: %s", column_name, e)
+
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN theme VARCHAR DEFAULT 'standard'"))

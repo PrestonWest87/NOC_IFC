@@ -163,6 +163,7 @@ The app uses `HashRouter` (`App.tsx:49`), so all routes are hash-based (`/#/thre
 ### LoginPage (`src/pages/LoginPage.tsx`)
 
 - Username/password form with `POST /auth/login`.
+- Displays a restricted-system notice stating that access is for authorized users and may be monitored, recorded, and audited.
 - On success, stores token and user object in `sessionStorage` via `AuthContext.login()`.
 - Redirects to the first page in `user.allowed_pages`, or `/` for admin users.
 

@@ -303,6 +303,11 @@ This schema uses **no formal foreign key constraints**. All cross-table referenc
 | `internal_risk_offset` | Integer | NO | `0` | — |
 | `alerted_eq_ids` | Text | NO | `"[]"` | — |
 | `llm_context_window` | Integer | NO | `128000` | — |
+| `failed_login_alert_enabled` | Boolean | NO | `False` | — |
+| `failed_login_alert_recipients` | Text | NO | `""` | — |
+| `failed_login_alert_threshold` | Integer | NO | `5` | — |
+| `failed_login_alert_window_minutes` | Integer | NO | `5` | — |
+| `failed_login_alert_last_sent` | DateTime | YES | NULL | — |
 
 > **Singleton pattern:** Only one row exists. Inserted by `init_db()` if absent.
 
@@ -598,6 +603,15 @@ This schema uses **no formal foreign key constraints**. All cross-table referenc
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
 | `username` | String | NO | — | YES | → `users.username` |
 | `alert_type` | String | NO | — | — | Weather alert type |
+
+### 2.28 `failed_login_attempts` — Short-Lived Authentication Alert Evidence
+
+| Column | Type | Nullable | Default | Index | Constraints |
+|---|---|---|---|---|---|
+| `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
+| `username` | String(128) | NO | — | — | Sanitized submitted username |
+| `source_ip` | String(64) | YES | NULL | — | Client IP when available |
+| `attempted_at` | DateTime | NO | `utcnow` | YES | Failed login time; rows retained for at most 24 hours |
 
 ---
 
@@ -908,6 +922,7 @@ All retention is enforced by the **hourly `db_maintenance` scheduler job** (`src
 | `internal_risk_snapshots` | **> 90 days:** delete | `WHERE timestamp < now()-90d` |
 | `timeline_events` | **> 90 days:** delete | `WHERE timestamp < now()-90d` |
 | `elastic_events` | **> 72 hours:** delete | `WHERE timestamp < now()-72h` |
+| `failed_login_attempts` | **> 24 hours:** delete | `WHERE attempted_at < now()-24h` |
 
 ### Worker-Specific Purge
 

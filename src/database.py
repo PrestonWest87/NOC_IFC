@@ -7,6 +7,7 @@ from src.models.schema import (
     Base,
     User,
     UserSession,
+    FailedLoginAttempt,
     RegistrationInvite,
     Role,
     SavedReport,

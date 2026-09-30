@@ -20,6 +20,8 @@ Response (200):
 {"user": {"id": 1, "username": "admin", ...}, "token": "uuid-string"}
 ```
 
+When failed-login alerts are enabled in Admin > Settings > AI & SMTP, failed credentials are counted across users. Reaching the configured threshold (default: 5 attempts in 5 minutes) sends a background email to the configured alert recipient list with submitted usernames and source IPs when available. A maximum of one alert is sent per configured window; login failures continue to return the generic `401 Invalid credentials` response.
+
 ### GET /auth/me?token=
 
 Returns the authenticated user object with permissions attached.
@@ -321,6 +323,7 @@ Body: `{weight: N}`. Validates 1-100, force-reloads scorer.
 
 ### POST /admin/config
 Body: arbitrary key-value pairs to upsert on SystemConfig.
+Failed-login alert fields: `failed_login_alert_enabled`, `failed_login_alert_recipients` (comma/semicolon/newline-separated email addresses), `failed_login_alert_threshold` (2-100), and `failed_login_alert_window_minutes` (1-60). Enabling alerts requires at least one valid recipient and enabled SMTP with a server and sender.
 
 ### POST /admin/assets/software
 Body: `{csv_body: "..."}`. Replaces all software assets.

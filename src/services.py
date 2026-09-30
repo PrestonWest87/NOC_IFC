@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 # Import your DB setup and models
 from src.database import (
     SessionLocal, Article, FeedSource, Keyword, SystemConfig, CveItem,
-    RegionalHazard, CloudOutage, User, UserSession, RegistrationInvite, Role, SavedReport, DailyBriefing,
+    RegionalHazard, CloudOutage, User, UserSession, FailedLoginAttempt, RegistrationInvite, Role, SavedReport, DailyBriefing,
     ExtractedIOC, MonitoredLocation, SolarWindsAlert, TimelineEvent,
     RegionalOutage, BgpAnomaly, GeoJsonCache, DailyThreatScore, ShiftLogEntry,
     SoftwareAsset, HardwareAsset, InternalRiskSnapshot, CrimeIncident,
@@ -502,6 +502,127 @@ def authenticate_user(username, password):
             u.allowed_site_types = perms["allowed_site_types"]
             return u, new_token
         return None, None
+
+
+def _normalize_failed_login_alert_recipients(value):
+    if value is None:
+        value = ""
+    if not isinstance(value, str):
+        raise ValueError("Failed login alert recipients must be a text list of email addresses.")
+
+    email_pattern = re.compile(
+        r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+        r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
+        r"[A-Za-z]{2,63}$"
+    )
+    recipients = []
+    seen = set()
+    for candidate in re.split(r"[,;\n]+", value):
+        address = candidate.strip()
+        if not address:
+            continue
+        if len(address) > 254 or not email_pattern.fullmatch(address):
+            raise ValueError(f"Invalid failed login alert email address: {address[:80]}")
+        normalized = address.casefold()
+        if normalized not in seen:
+            recipients.append(address)
+            seen.add(normalized)
+    return ", ".join(recipients)
+
+
+def record_failed_login_attempt(username, source_ip=None):
+    """Persist enabled-alert login failures and claim at most one alert per window."""
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        config = db.query(SystemConfig).first()
+        if not config or not config.failed_login_alert_enabled:
+            return None
+
+        try:
+            recipients = _normalize_failed_login_alert_recipients(
+                config.failed_login_alert_recipients
+            )
+        except ValueError:
+            logger.warning("Failed login alerts are enabled but recipient configuration is invalid.")
+            return None
+        if not recipients:
+            logger.warning("Failed login alerts are enabled but no recipients are configured.")
+            return None
+
+        try:
+            threshold = int(config.failed_login_alert_threshold or 5)
+        except (TypeError, ValueError):
+            threshold = 5
+        threshold = max(2, min(threshold, 100))
+        try:
+            window_minutes = int(config.failed_login_alert_window_minutes or 5)
+        except (TypeError, ValueError):
+            window_minutes = 5
+        window_minutes = max(1, min(window_minutes, 60))
+
+        submitted_username = "" if username is None else str(username)
+        safe_username = "".join(
+            character if character.isprintable() else " "
+            for character in submitted_username
+        )[:128] or "(blank)"
+        safe_source_ip = None
+        if source_ip:
+            try:
+                safe_source_ip = str(ipaddress.ip_address(str(source_ip)))[:64]
+            except ValueError:
+                safe_source_ip = None
+
+        db.query(FailedLoginAttempt).filter(
+            FailedLoginAttempt.attempted_at < now - timedelta(hours=24)
+        ).delete(synchronize_session=False)
+        db.add(FailedLoginAttempt(
+            username=safe_username,
+            source_ip=safe_source_ip,
+            attempted_at=now,
+        ))
+        db.flush()
+
+        cutoff = now - timedelta(minutes=window_minutes)
+        recent_attempts = db.query(FailedLoginAttempt).filter(
+            FailedLoginAttempt.attempted_at >= cutoff
+        ).order_by(FailedLoginAttempt.attempted_at.asc(), FailedLoginAttempt.id.asc()).all()
+        if len(recent_attempts) < threshold:
+            db.commit()
+            return None
+
+        # The conditional update is a cross-worker claim: concurrent requests can
+        # only claim this alert window once, even when the API has multiple workers.
+        claimed = db.query(SystemConfig).filter(
+            SystemConfig.id == config.id,
+            SystemConfig.failed_login_alert_enabled.is_(True),
+            or_(
+                SystemConfig.failed_login_alert_last_sent.is_(None),
+                SystemConfig.failed_login_alert_last_sent <= cutoff,
+            ),
+        ).update(
+            {SystemConfig.failed_login_alert_last_sent: now},
+            synchronize_session=False,
+        )
+        if not claimed:
+            db.commit()
+            return None
+
+        alert = {
+            "recipients": recipients,
+            "threshold": threshold,
+            "window_minutes": window_minutes,
+            "triggered_at": now.isoformat(timespec="seconds") + "Z",
+            "attempts": [
+                {
+                    "username": attempt.username,
+                    "source_ip": attempt.source_ip,
+                    "attempted_at": attempt.attempted_at.isoformat(timespec="seconds") + "Z",
+                }
+                for attempt in recent_attempts
+            ],
+        }
+        db.commit()
+        return alert
 
 
 def _invite_token_hash(token: str) -> str:
@@ -3203,6 +3324,20 @@ def save_global_config(data, allow_system_fields=True):
         data.setdefault("baseline_override_cyber", data.pop("cyber_baseline"))
     if "physical_baseline" in data:
         data.setdefault("baseline_override_phys", data.pop("physical_baseline"))
+    if "failed_login_alert_recipients" in data:
+        data["failed_login_alert_recipients"] = _normalize_failed_login_alert_recipients(
+            data["failed_login_alert_recipients"]
+        )
+    if "failed_login_alert_enabled" in data and not isinstance(data["failed_login_alert_enabled"], bool):
+        raise ValueError("failed_login_alert_enabled must be a boolean.")
+    for field_name, minimum, maximum in (
+        ("failed_login_alert_threshold", 2, 100),
+        ("failed_login_alert_window_minutes", 1, 60),
+    ):
+        if field_name in data:
+            value = data[field_name]
+            if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+                raise ValueError(f"{field_name} must be an integer between {minimum} and {maximum}.")
     editable_fields = {
         "llm_endpoint", "llm_api_key", "llm_model_name", "is_active", "tech_stack",
         "monitored_asns", "smtp_server", "smtp_port", "smtp_username", "smtp_password",
@@ -3212,7 +3347,8 @@ def save_global_config(data, allow_system_fields=True):
         "physical_criticality_override", "physical_lethality_override",
         "internal_criticality_override", "internal_lethality_override", "global_risk_offset",
         "internal_risk_offset", "llm_context_window",
-        "public_app_url",
+        "public_app_url", "failed_login_alert_enabled", "failed_login_alert_recipients",
+        "failed_login_alert_threshold", "failed_login_alert_window_minutes",
     }
     system_fields = {
         "alerted_eq_ids", "rolling_summary", "rolling_summary_time",
@@ -3235,7 +3371,23 @@ def save_global_config(data, allow_system_fields=True):
         data = {**data, "public_app_url": public_url}
     with SessionLocal() as db:
         config = db.query(SystemConfig).first()
-        if not config: config = SystemConfig(); db.add(config)
+        if not config:
+            config = SystemConfig()
+            db.add(config)
+        effective_alert_enabled = data.get(
+            "failed_login_alert_enabled", bool(config.failed_login_alert_enabled)
+        )
+        effective_recipients = data.get(
+            "failed_login_alert_recipients", config.failed_login_alert_recipients or ""
+        )
+        if effective_alert_enabled:
+            if not effective_recipients:
+                raise ValueError("Configure at least one failed login alert recipient before enabling alerts.")
+            smtp_enabled = data.get("smtp_enabled", bool(config.smtp_enabled))
+            smtp_server = data.get("smtp_server", config.smtp_server)
+            smtp_sender = data.get("smtp_sender", config.smtp_sender)
+            if not smtp_enabled or not smtp_server or not smtp_sender:
+                raise ValueError("Failed login alerts require enabled SMTP with a server and sender configured.")
         for key, value in data.items(): setattr(config, key, value)
         db.commit()
     get_cached_config.clear()

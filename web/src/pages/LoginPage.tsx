@@ -33,6 +33,18 @@ export function LoginPage() {
           <h1 style={{ color: "#fff", fontSize: "1.3rem", margin: "0 0 0.25rem" }}>NOC Fusion Center</h1>
           <p style={{ color: "#64748b", fontSize: "0.85rem", margin: 0 }}>Intelligence Fusion Gateway</p>
         </div>
+        <section
+          role="note"
+          aria-label="Restricted system notice"
+          style={{ background: "#0f172a", border: "1px solid #475569", borderLeft: "3px solid #f59e0b", borderRadius: 4, padding: "0.7rem 0.75rem", marginBottom: "1rem" }}
+        >
+          <div style={{ color: "#fbbf24", fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.04em", marginBottom: "0.3rem" }}>
+            RESTRICTED SYSTEM — AUTHORIZED USE ONLY
+          </div>
+          <p style={{ color: "#cbd5e1", fontSize: "0.7rem", lineHeight: 1.45, margin: 0 }}>
+            This system is for authorized users only. Access and activity may be monitored, recorded, and audited. By accessing this system, you consent to such monitoring. Unauthorized use is prohibited and may result in disciplinary action and civil or criminal penalties.
+          </p>
+        </section>
         {error && <div style={{ background: "#7f1d1d", color: "#fca5a5", padding: "0.5rem", borderRadius: 4, marginBottom: "1rem", fontSize: "0.85rem", textAlign: "center" }}>{error}</div>}
         <div style={{ marginBottom: "1rem" }}>
           <label style={{ display: "block", color: "#94a3b8", fontSize: "0.8rem", marginBottom: "0.3rem" }}>Username</label>

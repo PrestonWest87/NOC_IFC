@@ -47,11 +47,13 @@ Authenticates a user by username and password, returning a user object and sessi
 
 ### Flow
 1. Calls `svc.authenticate_user(req.username, req.password)`.
-2. If the result is falsy, raises 401.
-3. Otherwise returns the user dict and token.
+2. If credentials fail, records the submitted username and client IP when failed-login alerts are enabled.
+3. When the configured threshold is reached within its time window, schedules one background email for the configured recipient list with the attempted usernames and source IPs.
+4. Returns the same generic 401 for invalid credentials; otherwise returns the user dict and token.
 
 ### Dependencies
 - `src.services.authenticate_user()`
+- `src.services.record_failed_login_attempt()`
 
 ---
 

@@ -1,6 +1,6 @@
 # Module: `src.models.schema`
 
-SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declarative schema contains 29 mapped tables/classes; migrations may add compatibility columns to existing deployments.
+SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declarative schema contains 30 mapped tables/classes; migrations may add compatibility columns to existing deployments.
 
 ---
 
@@ -10,33 +10,34 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declar
 |---|-------|-------|-------------|
 | 1 | `users` | `User` | Authentication & authorization |
 | 2 | `user_sessions` | `UserSession` | Independently revocable browser/device sessions |
-| 3 | `registration_invites` | `RegistrationInvite` | Hashed user-registration invitations and expiry |
-| 4 | `roles` | `Role` | RBAC role definitions |
-| 5 | `saved_reports` | `SavedReport` | Custom report library |
-| 6 | `feed_sources` | `FeedSource` | RSS/Atom feed configuration |
-| 7 | `keywords` | `Keyword` | Scoring keyword registry |
-| 8 | `system_config` | `SystemConfig` | AI/SMTP/risk/brief configuration |
-| 9 | `shift_logs` | `ShiftLogEntry` | Operator shift log entries |
-| 10 | `software_assets` | `SoftwareAsset` | Internal software inventory |
-| 11 | `hardware_assets` | `HardwareAsset` | Internal hardware inventory with vulnerability data |
-| 12 | `internal_risk_snapshots` | `InternalRiskSnapshot` | Asset risk posture history |
-| 13 | `articles` | `Article` | RSS/OSINT intelligence articles |
-| 14 | `extracted_iocs` | `ExtractedIOC` | Autonomously extracted indicators |
-| 15 | `cve_items` | `CveItem` | CISA KEV vulnerability catalog |
-| 16 | `elastic_events` | `ElasticEvent` | Elasticsearch synced security events |
-| 17 | `daily_briefings` | `DailyBriefing` | Daily fusion report archive |
-| 18 | `daily_threat_scores` | `DailyThreatScore` | Historical threat score records |
-| 19 | `regional_hazards` | `RegionalHazard` | Weather/geospatial hazards |
-| 20 | `regional_outages` | `RegionalOutage` | Regional infrastructure outages |
-| 21 | `cloud_outages` | `CloudOutage` | Cloud service status records |
-| 22 | `bgp_anomalies` | `BgpAnomaly` | BGP routing anomalies |
-| 23 | `solarwinds_alerts` | `SolarWindsAlert` | Ingested infrastructure alerts |
-| 24 | `timeline_events` | `TimelineEvent` | Activity feed for RCA board |
-| 25 | `monitored_locations` | `MonitoredLocation` | Facility/site registry |
-| 26 | `crime_incidents` | `CrimeIncident` | Law enforcement CAD data |
-| 27 | `geojson_cache` | `GeoJsonCache` | Cached geospatial GeoJSON |
-| 28 | `node_aliases` | `NodeAlias` | SolarWinds node-to-site mapping |
-| 29 | `user_weather_prefs` | `UserWeatherPreference` | User weather alert preferences |
+| 3 | `failed_login_attempts` | `FailedLoginAttempt` | Short-lived failed-login alert evidence |
+| 4 | `registration_invites` | `RegistrationInvite` | Hashed user-registration invitations and expiry |
+| 5 | `roles` | `Role` | RBAC role definitions |
+| 6 | `saved_reports` | `SavedReport` | Custom report library |
+| 7 | `feed_sources` | `FeedSource` | RSS/Atom feed configuration |
+| 8 | `keywords` | `Keyword` | Scoring keyword registry |
+| 9 | `system_config` | `SystemConfig` | AI/SMTP/risk/brief configuration |
+| 10 | `shift_logs` | `ShiftLogEntry` | Operator shift log entries |
+| 11 | `software_assets` | `SoftwareAsset` | Internal software inventory |
+| 12 | `hardware_assets` | `HardwareAsset` | Internal hardware inventory with vulnerability data |
+| 13 | `internal_risk_snapshots` | `InternalRiskSnapshot` | Asset risk posture history |
+| 14 | `articles` | `Article` | RSS/OSINT intelligence articles |
+| 15 | `extracted_iocs` | `ExtractedIOC` | Autonomously extracted indicators |
+| 16 | `cve_items` | `CveItem` | CISA KEV vulnerability catalog |
+| 17 | `elastic_events` | `ElasticEvent` | Elasticsearch synced security events |
+| 18 | `daily_briefings` | `DailyBriefing` | Daily fusion report archive |
+| 19 | `daily_threat_scores` | `DailyThreatScore` | Historical threat score records |
+| 20 | `regional_hazards` | `RegionalHazard` | Weather/geospatial hazards |
+| 21 | `regional_outages` | `RegionalOutage` | Regional infrastructure outages |
+| 22 | `cloud_outages` | `CloudOutage` | Cloud service status records |
+| 23 | `bgp_anomalies` | `BgpAnomaly` | BGP routing anomalies |
+| 24 | `solarwinds_alerts` | `SolarWindsAlert` | Ingested infrastructure alerts |
+| 25 | `timeline_events` | `TimelineEvent` | Activity feed for RCA board |
+| 26 | `monitored_locations` | `MonitoredLocation` | Facility/site registry |
+| 27 | `crime_incidents` | `CrimeIncident` | Law enforcement CAD data |
+| 28 | `geojson_cache` | `GeoJsonCache` | Cached geospatial GeoJSON |
+| 29 | `node_aliases` | `NodeAlias` | SolarWinds node-to-site mapping |
+| 30 | `user_weather_prefs` | `UserWeatherPreference` | User weather alert preferences |
 
 ---
 
@@ -145,6 +146,21 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declar
 | `wildfire_proximity_state` | `Text` | `"{}"` | JSON wildfire proximity state |
 | `llm_context_window` | `Integer` | `128000` | Effective LLM context-window limit |
 | `public_app_url` | `String` | `http://localhost:8501` | Base URL used for registration links |
+| `failed_login_alert_enabled` | `Boolean` | `False` | Enable failed-login email alerts |
+| `failed_login_alert_recipients` | `Text` | `""` | Comma-separated security alert recipient list |
+| `failed_login_alert_threshold` | `Integer` | `5` | Failed attempts required to alert (2-100) |
+| `failed_login_alert_window_minutes` | `Integer` | `5` | Rolling threshold window (1-60 minutes) |
+| `failed_login_alert_last_sent` | `DateTime` | `nullable` | Cross-worker alert cooldown timestamp |
+
+### FailedLoginAttempt
+**Table**: `failed_login_attempts`
+
+| Column | Type | Default | Index | Description |
+|--------|------|---------|-------|-------------|
+| `id` | `Integer PK` | auto | Y | Primary key |
+| `username` | `String(128)` | — | — | Sanitized username submitted during a failed login |
+| `source_ip` | `String(64)` | `nullable` | — | Client IP when available |
+| `attempted_at` | `DateTime` | UTC now | Y | Attempt time; records older than 24 hours are removed |
 
 ---
 

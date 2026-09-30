@@ -940,6 +940,10 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation }: { config: any;
       smtp_sender: config.smtp_sender || "",
       smtp_recipient: config.smtp_recipient || "",
       smtp_enabled: config.smtp_enabled ?? false,
+      failed_login_alert_enabled: config.failed_login_alert_enabled ?? false,
+      failed_login_alert_recipients: config.failed_login_alert_recipients || "",
+      failed_login_alert_threshold: config.failed_login_alert_threshold ?? 5,
+      failed_login_alert_window_minutes: config.failed_login_alert_window_minutes ?? 5,
       cyber_baseline: config.cyber_baseline ?? 3,
       physical_baseline: config.physical_baseline ?? 3,
       sys_countermeasures: config.sys_countermeasures ?? 3,
@@ -1055,6 +1059,51 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation }: { config: any;
           <input type="checkbox" checked={form.smtp_enabled} onChange={e => upd("smtp_enabled", e.target.checked)} />
           SMTP Enabled
         </label>
+      </Card>
+
+      <Card title="Failed Login Alerts" icon={Shield}>
+        <p style={{ margin: "0 0 0.75rem", color: "var(--text-muted)", fontSize: "0.75rem" }}>
+          Send an email when the configured number of failed sign-in attempts occurs within the selected time window. One alert is sent per window; the alert includes submitted usernames and source IP addresses when available. SMTP must be enabled above.
+        </p>
+        <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.75rem", fontSize: "0.8rem", color: "var(--text-primary)", cursor: "pointer" }}>
+          <input type="checkbox" checked={form.failed_login_alert_enabled} onChange={e => upd("failed_login_alert_enabled", e.target.checked)} />
+          Enable failed login alerts
+        </label>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <SectionTitle text="Alert Recipients (comma, semicolon, or newline separated)" />
+            <textarea
+              style={textareaStyle}
+              value={form.failed_login_alert_recipients}
+              onChange={e => upd("failed_login_alert_recipients", e.target.value)}
+              placeholder="security@example.com, noc@example.com"
+            />
+          </div>
+          <div>
+            <SectionTitle text="Failed Attempts Before Alert" />
+            <input
+              style={inputStyle}
+              type="number"
+              min={2}
+              max={100}
+              step={1}
+              value={form.failed_login_alert_threshold}
+              onChange={e => upd("failed_login_alert_threshold", Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <SectionTitle text="Time Window (Minutes)" />
+            <input
+              style={inputStyle}
+              type="number"
+              min={1}
+              max={60}
+              step={1}
+              value={form.failed_login_alert_window_minutes}
+              onChange={e => upd("failed_login_alert_window_minutes", Number(e.target.value))}
+            />
+          </div>
+        </div>
       </Card>
 
       <Card title="Threat Matrix Baseline Overrides" icon={Shield}>
