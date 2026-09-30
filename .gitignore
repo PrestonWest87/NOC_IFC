@@ -18,6 +18,37 @@ __pycache__/
 .vscode/
 .idea/
 
+debug_raw_payloads.json
+export_payloads.py
+noc_fusion_MASTER_BACKUP_2026-06-30_13-43.tar.gz
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node
+web/node_modules/
+web/dist/
+*.tsbuildinfo# Environment files (secrets)
+.env
+
+docker-compose.yml
+
+src/ml_model.pkl
+
+# Runtime data
+data/
+
+# Python bytecode
+src/__pycache__/
+*.pyc
+*.pyo
+__pycache__/
+
+# IDE
+.vscode/
+.idea/
+
 # OS files
 .DS_Store
 Thumbs.db
