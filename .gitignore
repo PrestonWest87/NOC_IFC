@@ -18,6 +18,10 @@ __pycache__/
 .vscode/
 .idea/
 
+debug_raw_payloads.json
+export_payloads.py
+noc_fusion_MASTER_BACKUP_2026-06-30_13-43.tar.gz
+
 # OS files
 .DS_Store
 Thumbs.db
