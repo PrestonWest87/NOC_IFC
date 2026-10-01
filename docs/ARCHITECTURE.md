@@ -87,13 +87,17 @@ Workers cache hazard GeoJSON. The regional route compiles layers, view state, di
 
 ## Authentication and Authorization
 
-The API middleware reads the session token supplied by the frontend client and attaches the authenticated user to protected requests. Login creates a database-backed session token; this is not JWT authentication. The WebSocket endpoint requires `?token=<session token>` and closes unauthenticated connections with code `1008`.
+The API middleware reads the session token supplied by the frontend client and attaches the authenticated user to protected requests. Login creates a database-backed session token; this is not JWT authentication. 401 responses invalidate the frontend session; 403 responses return a structured missing-permission code and preserve it. The WebSocket endpoint requires `?token=<session token>`, AIOps page access, periodically revalidates the session, and filters dashboard data by allowed site types.
 
-RBAC is represented by role page permissions, action permissions, and allowed site types. The frontend uses the same permission strings for navigation and controls, while sensitive backend operations use route-level checks. Important exact strings include `Action: Dispatch RCA Tickets`, `Action: Manage Site Maintenance`, `Tab: Settings -> Internal Assets`, and `Tab: Dashboards -> Unified Brief`.
+RBAC is represented by role page permissions, action permissions, tab permissions, and allowed site types. `src/core/permissions.py` is the canonical permission catalog used by the role editor and validated by frontend-key tests. Sensitive operations have distinct grants for report generation, email, risk overrides, scheduler changes, user management, and recovery review. Backend route dependencies remain authoritative; the frontend hides/labels controls for usability.
+
+Individual accounts are created through email invitations. Administrator-created display accounts may omit email and use administrator-assisted recovery. Recovery-email changes and password resets are queued for permission-based user-administrator review; approved recovery addresses must also be mailbox-verified.
+
+Risk overrides and editable scheduler schedules are under Settings > Application Settings. The worker reads a per-job registry with safe bounds and reloads saved schedule revisions dynamically without restarting.
 
 ## Database Lifecycle
 
-`init_db()` calls `Base.metadata.create_all`, then applies additive migrations with guarded `ALTER TABLE` statements, creates indexes, seeds roles, optional users, feeds, keywords, and `SystemConfig`, and optionally seeds demo assets. Existing tables and columns are not dropped. Set `RESCORE_ON_STARTUP=true` only when an explicit startup rescore is acceptable.
+`init_db()` calls `Base.metadata.create_all`, then applies additive migrations with guarded `ALTER TABLE` statements, creates indexes, seeds roles, optional users, feeds, keywords, and `SystemConfig`, and optionally seeds demo assets. Existing tables and columns are not dropped. A one-time permission-catalog migration removes the old analyst startup grant union; subsequent startup does not broaden edited roles. Set `RESCORE_ON_STARTUP=true` only when an explicit startup rescore is acceptable.
 
 SQLite startup enables WAL, `synchronous=NORMAL`, memory temp storage, a 16 MB cache, a 64 MB mmap, and a 30-second connection timeout. SQLite uses `NullPool`.
 
@@ -113,9 +117,10 @@ SQLite startup enables WAL, `synchronous=NORMAL`, memory temp storage, a 16 MB c
 | Engine/session/migrations/seeds | `src/core/db.py` |
 | API lifecycle and WebSocket | `src/api/main.py`, `src/api/ws_manager.py` |
 | Authentication middleware | `src/api/auth_guard.py` |
+| Canonical permissions | `src/core/permissions.py` |
 | Route handlers | `src/api/routes/*.py` |
 | Services and DAL | `src/services.py`, `src/services/*.py` |
-| Scheduler and intervals | `src/scheduler.py` |
+| Scheduler registry, persistence, and reload | `src/core/scheduler_registry.py`, `src/scheduler.py` |
 | Webhook gateway | `src/webhook_listener.py` |
 | React routing and providers | `web/src/App.tsx` |
 | Container topology | `docker-compose.yml` |

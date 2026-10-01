@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api from "../utils/api";
+import api, { getApiErrorMessage } from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
-import { getAllowedTabs } from "../utils/permissions";
+import { getAllowedTabs, hasActionPermission } from "../utils/permissions";
 import { formatDateInChicago, chicagoDateString, formatInChicago } from "../utils/timezone";
 import { MarkdownContent } from "../components/MarkdownContent";
 import {
@@ -154,18 +154,15 @@ export function ReportingPage() {
    ============================== */
 function DailyFusionBriefing() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const canGenerate = hasActionPermission(user, "Action: Generate Reports");
+  const canDispatch = hasActionPermission(user, "Action: Dispatch Exec Report");
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [recipients, setRecipients] = useState("");
 
   const { data: briefings, isLoading: briefingsLoading } = useQuery({
     queryKey: ["daily-briefings"],
     queryFn: () => api.get("/reporting/daily-briefings").then(r => r.data),
-    refetchInterval: 60000,
-  });
-
-  const { data: config } = useQuery({
-    queryKey: ["settings-config"],
-    queryFn: () => api.get("/settings/config").then(r => r.data),
     refetchInterval: 60000,
   });
 
@@ -202,14 +199,14 @@ function DailyFusionBriefing() {
           AI-synthesized situational report covering Cyber, Vulnerabilities, Physical Hazards, and Cloud Infrastructure.
         </p>
         <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" }}>
-          <button
+          {canGenerate && <button
             onClick={() => genMutation.mutate()}
             disabled={genMutation.isPending}
             style={btn("var(--accent-blue)")}
           >
             {genMutation.isPending ? <Spinner /> : <Plus size={14} />}
             {genMutation.isPending ? "Generating..." : "Generate Yesterday's Report"}
-          </button>
+          </button>}
           {genMutation.data && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", fontSize: "0.8rem", color: "var(--accent-green)" }}>
               <CheckCircle size={14} />
@@ -271,7 +268,7 @@ function DailyFusionBriefing() {
             )}
           </div>
 
-          {selected && (
+          {selected && canDispatch && (
             <div style={cardStyle}>
               <h4 style={{ margin: "0 0 0.75rem", fontSize: "0.9rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
                 <Mail size={15} />
@@ -286,13 +283,13 @@ function DailyFusionBriefing() {
                   <input
                     style={inputStyle}
                     placeholder="admin@example.com, operator@example.com"
-                    value={recipients || config?.smtp_recipient || ""}
+                    value={recipients}
                     onChange={e => setRecipients(e.target.value)}
                   />
                 </div>
                 <button
                   onClick={() => {
-                    const r = recipients || config?.smtp_recipient || "";
+                    const r = recipients;
                     if (!r) { alert("Please enter at least one recipient email."); return; }
                     broadcastMutation.mutate({
                       report_date: selected.report_date?.slice ? chicagoDateString(new Date(selected.report_date)) : String(selected.report_date),
@@ -320,6 +317,9 @@ function DailyFusionBriefing() {
    ============================== */
 function CustomReportBuilder() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const canGenerate = hasActionPermission(user, "Action: Generate Reports");
+  const canDispatch = hasActionPermission(user, "Action: Dispatch Exec Report");
   const [target, setTarget] = useState("");
   const [daysBack, setDaysBack] = useState(7);
   const [generated, setGenerated] = useState<string | null>(
@@ -621,7 +621,7 @@ function CustomReportBuilder() {
                  onChange={e => setObjective(e.target.value)}
               />
             </div>
-            <button
+            {canGenerate && <button
               onClick={() => {
                 if (selectedIds.size === 0) { alert("Please select at least one article."); return; }
                  const safeAnalyst = analyst.trim() || "Unknown";
@@ -634,10 +634,10 @@ function CustomReportBuilder() {
             >
               {isGenerating ? <Spinner /> : <FileText size={14} />}
               {isGenerating ? "Generating..." : `Generate Report from ${selectedIds.size} Articles`}
-            </button>
+            </button>}
             {genMutation.isError && (
               <span style={{ fontSize: "0.8rem", color: "var(--accent-red)" }}>
-                {(genMutation.error as any)?.response?.data?.detail || "Failed"}
+                {getApiErrorMessage(genMutation.error, "Report generation failed.")}
               </span>
             )}
           </div>
@@ -700,7 +700,7 @@ function CustomReportBuilder() {
                  onChange={e => setSaveTitle(e.target.value.slice(0, 200))}
               />
             </div>
-            <button
+            {canDispatch && <button
               onClick={() => {
                 if (!saveTitle.trim()) { alert("Please enter a report title."); return; }
                  saveMutation.mutate({ title: saveTitle.trim().slice(0, 200), author: analyst.trim().slice(0, 120) || "Unknown", content: generated.slice(0, 200000) });
@@ -710,8 +710,8 @@ function CustomReportBuilder() {
             >
               {saveMutation.isPending ? <Spinner /> : <Save size={14} />}
               {saveMutation.isPending ? "Saving..." : "Save to Library"}
-            </button>
-            <div style={{ flex: 1, minWidth: 220 }}>
+            </button>}
+            {canDispatch && <div style={{ flex: 1, minWidth: 220 }}>
               <div style={sectionTitle}><Mail size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />Recipient Email</div>
               <input
                 style={inputStyle}
@@ -721,8 +721,8 @@ function CustomReportBuilder() {
                  maxLength={2000}
                  onChange={e => setEmailRecipient(e.target.value.slice(0, 2000))}
               />
-            </div>
-            <button
+            </div>}
+            {canDispatch && <button
               onClick={() => {
                  if (!emailRecipient.trim()) { alert("Please enter a recipient email."); return; }
                  const recipientError = validateRecipients(emailRecipient.trim());
@@ -734,7 +734,7 @@ function CustomReportBuilder() {
             >
               {emailMutation.isPending ? <Spinner /> : <Mail size={14} />}
               {emailMutation.isPending ? "Emailing..." : "Email Report"}
-            </button>
+            </button>}
           </div>
           <div style={{ marginTop: "0.75rem" }}>
             <button
@@ -755,6 +755,8 @@ function CustomReportBuilder() {
    ============================== */
 function SharedLibrary() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const canDispatch = hasActionPermission(user, "Action: Dispatch Exec Report");
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const { data: reports, isLoading } = useQuery({
@@ -851,7 +853,7 @@ function SharedLibrary() {
                     }}>
                        <MarkdownContent content={r.content as string} />
                     </div>
-                    <button
+                    {canDispatch && <button
                       onClick={() => {
                         if (window.confirm(`Delete report "${r.title}"?`)) deleteMutation.mutate(r.id);
                       }}
@@ -860,7 +862,7 @@ function SharedLibrary() {
                     >
                       {deleteMutation.isPending ? <Spinner /> : <Trash2 size={13} />}
                       Delete
-                    </button>
+                    </button>}
                   </div>
                 )}
               </div>

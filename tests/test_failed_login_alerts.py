@@ -160,7 +160,9 @@ class FailedLoginAlertTests(unittest.TestCase):
                     BackgroundTasks(),
                 )
                 self.assertEqual(response.status_code, 401)
-                self.assertEqual(json.loads(response.body), {"detail": "Invalid credentials"})
+                self.assertEqual(json.loads(response.body), {
+                    "detail": {"code": "invalid_credentials", "message": "Invalid credentials"}
+                })
                 self.assertIsNotNone(response.background)
                 responses.append(response)
 
@@ -209,11 +211,11 @@ class FailedLoginAlertTests(unittest.TestCase):
             self.assertEqual(db.query(FailedLoginAttempt).count(), 3)
 
     def test_alert_recipient_list_is_only_returned_to_administrators(self):
-        from src.api.routes.settings import get_config
+        from src.api.routes.application_settings import get_application_settings
 
-        with self.session_factory() as db:
-            analyst_config = get_config(db, SimpleNamespace(role="analyst"))
-            admin_config = get_config(db, SimpleNamespace(role="admin"))
+        with patch("src.core.db.SessionLocal", self.session_factory):
+            analyst_config = get_application_settings(SimpleNamespace(role="analyst", allowed_actions=[]))
+            admin_config = get_application_settings(SimpleNamespace(role="admin", allowed_actions=[]))
 
         self.assertEqual(analyst_config["failed_login_alert_recipients"], "")
         self.assertEqual(

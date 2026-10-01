@@ -1,10 +1,10 @@
 # SettingsPage.tsx
 
-Settings & Admin page. Provides ten tabs: Profile, Theme, Facilities, Internal Assets, RSS Sources, ML Training, AI & SMTP, Users & Roles, Backup & Restore, and Danger Zone.
+Settings & Admin page. Provides eleven tabs: Profile, Theme, Facilities, Internal Assets, RSS Sources, ML Training, AI & SMTP, Application Settings, Users & Roles, Backup & Restore, and Danger Zone.
 
 ## Current Source Behavior
 
-The role editor includes page, action, and allowed-site-type permissions. Current administration also supports keyword weight editing (1–100), hardware/software asset imports, registration invites, database upload/export/import, scoped crime/weather cleanup, and ML retraining. The frontend route is protected by `Settings & Admin`; backend admin routes require administrator role.
+The role editor loads the backend permission catalog and groups page, tab, action, and site-type grants. User management is a searchable directory with separate individual-invitation and display-account creation, account status and access history, session revocation, and reviewed recovery requests. Application Settings contains risk scoring, scheduler, and global defaults. Existing backup, restore, danger-zone, facilities, assets, RSS, and AI/SMTP administration remain administrator-only.
 
 ---
 
@@ -236,7 +236,7 @@ A section with clickable chip-style labels that toggle options in/out of the sel
 ## `UsersRolesTab({ roles, users, queryClient })`
 
 ### Purpose
-User & Role management — create/edit users, roles, and password resets.
+User & Role management — invite individuals by required email; create email-optional display accounts; search/filter users; edit identity and role; disable/reactivate; revoke sessions; review password-reset and recovery-email requests.
 
 ### Props
 | Prop | Type | Description |

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, JSON, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, JSON, ForeignKey, Index
 from sqlalchemy.orm import declarative_base
 from datetime import datetime
 
@@ -17,6 +17,17 @@ class User(Base):
     contact_info = Column(String, nullable=True)
     default_shift = Column(String, default="No Shift")
     theme = Column(String, default="standard")
+    account_type = Column(String(20), nullable=False, default="individual", index=True)
+    email = Column(String(254), nullable=True)
+    email_normalized = Column(String(254), nullable=True)
+    email_verified_at = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_login_at = Column(DateTime, nullable=True, index=True)
+    last_activity_at = Column(DateTime, nullable=True, index=True)
+
+
+Index("uq_users_email_normalized", User.email_normalized, unique=True)
 
 
 class UserSession(Base):
@@ -47,6 +58,75 @@ class RegistrationInvite(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     expires_at = Column(DateTime, nullable=False, index=True)
     used_at = Column(DateTime, nullable=True)
+    email = Column(String(254), nullable=False)
+    email_normalized = Column(String(254), nullable=False, index=True)
+    account_type = Column(String(20), nullable=False, default="individual")
+
+
+class EmailChangeRequest(Base):
+    __tablename__ = "email_change_requests"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    requested_email = Column(String(254), nullable=False)
+    requested_email_normalized = Column(String(254), nullable=False, index=True)
+    status = Column(String(32), nullable=False, default="pending_review", index=True)
+    requested_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    reviewed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    decision_reason = Column(Text, nullable=True)
+    verification_token_hash = Column(String(64), nullable=True, unique=True, index=True)
+    verification_expires_at = Column(DateTime, nullable=True)
+    verified_at = Column(DateTime, nullable=True)
+
+
+class PasswordResetRequest(Base):
+    __tablename__ = "password_reset_requests"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    identifier_hash = Column(String(64), nullable=False, index=True)
+    requester_ip = Column(String(64), nullable=True, index=True)
+    status = Column(String(32), nullable=False, default="pending_review", index=True)
+    requested_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    reviewed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    decision_reason = Column(Text, nullable=True)
+    reset_email_sent_at = Column(DateTime, nullable=True)
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+    id = Column(Integer, primary_key=True, index=True)
+    request_id = Column(Integer, ForeignKey("password_reset_requests.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    used_at = Column(DateTime, nullable=True)
+
+
+class AccountAuditEvent(Base):
+    __tablename__ = "account_audit_events"
+    id = Column(Integer, primary_key=True, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    subject_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    event_type = Column(String(64), nullable=False, index=True)
+    event_detail = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+
+class SchedulerJobConfig(Base):
+    __tablename__ = "scheduler_job_config"
+    id = Column(Integer, primary_key=True, index=True)
+    job_key = Column(String(80), nullable=False, unique=True, index=True)
+    schedule_type = Column(String(16), nullable=False, default="interval")
+    every_value = Column(Integer, nullable=True)
+    unit = Column(String(16), nullable=True)
+    run_at = Column(String(5), nullable=True)
+    weekday = Column(String(12), nullable=True)
+    timezone = Column(String(64), nullable=False, default="America/Chicago")
+    enabled = Column(Boolean, nullable=False, default=True)
+    updated_by = Column(String(128), nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class Role(Base):
@@ -133,6 +213,9 @@ class SystemConfig(Base):
     wildfire_proximity_state = Column(Text, default="{}")
     llm_context_window = Column(Integer, default=128000)
     public_app_url = Column(String, default="http://localhost:8501")
+    permission_catalog_version = Column(Integer, nullable=False, default=0)
+    scheduler_revision = Column(Integer, nullable=False, default=0)
+    scheduler_applied_revision = Column(Integer, nullable=False, default=0)
 
 
 class ShiftLogEntry(Base):
@@ -353,6 +436,7 @@ class TimelineEvent(Base):
     source = Column(String, index=True)
     event_type = Column(String, index=True)
     message = Column(String)
+    site_name = Column(String(255), nullable=True, index=True)
 
 
 class MonitoredLocation(Base):

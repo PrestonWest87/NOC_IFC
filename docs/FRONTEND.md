@@ -56,8 +56,11 @@ web/
     ├── main.tsx                # ReactDOM entry, CSS imports, initTheme()
     ├── App.tsx                 # QueryClientProvider, HashRouter, AuthProvider, routes
      ├── pages/                  # Page components (route targets)
-    │   ├── LoginPage.tsx
-    │   ├── DashboardPage.tsx
+     │   ├── LoginPage.tsx
+     │   ├── ForgotPasswordPage.tsx
+     │   ├── ResetPasswordPage.tsx
+     │   ├── VerifyRecoveryEmailPage.tsx
+     │   ├── DashboardPage.tsx
     │   ├── ThreatTelemetryPage.tsx
     │   ├── RegionalGridPage.tsx
     │   ├── ThreatHuntingPage.tsx
@@ -70,8 +73,9 @@ web/
     │   ├── Layout.tsx          # Sidebar nav, user info, logout
     │   ├── AIOpsMap.tsx        # Map visualization
     │   ├── MapContainer.tsx    # Fullscreen-capable map wrapper
-    │   ├── ThemeSelector.tsx   # Theme picker with 6 presets
-    │   └── BidirectionalCommands.tsx  # WebSocket command UI
+     │   ├── ThemeSelector.tsx   # Theme picker with 6 presets
+     │   ├── UsersRolesTab.tsx   # Searchable account directory and reviewer queues
+     │   ├── ApplicationSettingsTab.tsx # Risk controls and dynamic schedules
     ├── hooks/
     │   └── useAIOpsWebSocket.ts  # WebSocket real-time hook
     ├── utils/
@@ -129,6 +133,9 @@ Defined in `src/utils/routeConfig.ts:1-14` and wired in `src/App.tsx:31-45`:
 | Route | Page Component | Permission Key |
 |-------|---------------|----------------|
 | `/login` | `LoginPage` | None (public) |
+| `/forgot-password` | `ForgotPasswordPage` | None (public; generic reviewed request) |
+| `/reset-password` | `ResetPasswordPage` | None (public; single-use token required) |
+| `/verify-email` | `VerifyRecoveryEmailPage` | None (public; approved verification token required) |
 | `/` | `DashboardPage` | `Global Dashboards` |
 | `/threat-telemetry` | `ThreatTelemetryPage` | `Threat Telemetry` |
 | `/regional-grid` | `RegionalGridPage` | `Regional Grid` |
@@ -148,9 +155,11 @@ Defined in `src/utils/routeConfig.ts:1-14` and wired in `src/App.tsx:31-45`:
 `App.tsx:18-29` — `ProtectedRoute` wraps all authenticated pages:
 
 1. If no `user` in `AuthContext`, redirects to `/login`.
-2. If the route has a required permission (via `PAGE_PERMISSION_MAP`), checks `user.allowed_pages`.
-3. If the user lacks the permission, redirects to their first allowed page (via `PAGE_ROUTE_MAP`), falling back to `/`.
-4. Renders children inside `<Layout>` (sidebar navigation).
+2. If the route has a required permission (via `PAGE_PERMISSION_MAP`), checks the user's page grants.
+3. If the user lacks access, renders an access-denied explanation and retains the session.
+4. Renders children inside `<Layout>` (sidebar navigation), filtering links by page grants.
+
+API endpoints independently enforce page, tab, action, and site-type permissions. The role editor loads the permission catalog from `/permissions/catalog`; sensitive operations such as sending email, generating reports, changing risk overrides, scheduler editing, user administration, and recovery review have separate action grants. API 403s show an access notice without clearing the session; 401s clear the session and return to login.
 
 ### HashRouter
 
@@ -164,6 +173,7 @@ The app uses `HashRouter` (`App.tsx:49`), so all routes are hash-based (`/#/thre
 
 - Username/password form with `POST /auth/login`.
 - Displays a restricted-system notice stating that access is for authorized users and may be monitored, recorded, and audited.
+- Provides a generic forgot-password request. Reset links are sent only after a permitted user administrator approves the request.
 - On success, stores token and user object in `sessionStorage` via `AuthContext.login()`.
 - Redirects to the first page in `user.allowed_pages`, or `/` for admin users.
 
@@ -276,13 +286,16 @@ The page also supports score-distribution buckets, category details, recent arti
 
 Administrative interface with sections:
 
+Tab visibility follows the caller's `Tab: Settings -> ...` grants rather than an administrator-role check. Individual action permissions gate user administration, recovery review, ML training, risk changes, scheduler edits, and other mutations; legacy backup/destructive controls remain administrator-only and display a read-only notice to other tab-authorized users.
+
 | Section | Description |
 |---------|-------------|
 | **Facilities** | Manage monitored locations and site metadata |
 | **Internal Assets** | CSV import for hardware/software asset inventories |
 | **RSS Feeds** | Add/remove RSS sources with inline weight editing for keywords |
 | **AI/LLM** | Configure LLM connection, model selection, temperature |
-| **Users & Roles** | User management, role assignment, permission configuration |
+| **Users & Roles** | Searchable account directory, email invitations, display accounts, recovery requests, role assignment |
+| **Application Settings** | Risk-scoring overrides, bounded scheduler schedules, and global application defaults |
 | **Backup & Restore** | Database backup download, restore from file, DB file upload |
 | **Database** | Direct SQLite file upload for database replacement |
 
@@ -297,6 +310,7 @@ Full-height sidebar navigation:
 - **Collapsed/expanded toggle**: Sidebar width transitions between 56px and 230px.
 - **Permission-filtered nav**: Only renders nav items where `item.label` is in `user.allowed_pages`.
 - **User info panel**: Displays `full_name` and `job_title` (or `role` fallback) at sidebar bottom.
+- **Recovery-email prompt**: Individual accounts without an approved recovery email receive a persistent prompt explaining administrator approval and mailbox verification; display accounts are exempt.
 - **Logout button**: Calls `AuthContext.logout()`.
 - **Lucide icons**: Each nav item has an associated icon (`Activity`, `Globe`, `Crosshair`, `Shield`, `Radio`, `BookOpen`, `FileText`, `Settings`).
 
@@ -327,20 +341,16 @@ Theme picker rendering 6 preset buttons:
 
 Applies theme via `data-theme` attribute on `<body>`. Persists selection to `localStorage` under key `noc_theme`. `initTheme()` is called at app startup (`main.tsx:9`) to restore saved theme before first render.
 
-### BidirectionalCommands (`src/components/BidirectionalCommands.tsx:1-33`)
-
-WebSocket command interface for acknowledging sites via `PATCH /aiops/sites/{id}/acknowledge`. Accepts a site ID input and sends acknowledgment commands.
-
 ---
 
 ## 7. Custom Hooks
 
 ### useAIOpsWebSocket (`src/hooks/useAIOpsWebSocket.ts:1-104`)
 
-Manages the persistent WebSocket connection to the backend:
+Manages the persistent WebSocket connection to the backend for users with AIOps RCA page access:
 
 **Connection**:
-- Connects to `ws(s)://{host}/ws` based on current protocol.
+- Connects to `ws(s)://{host}/ws?token=...` based on current protocol. The backend periodically revalidates the session and filters site data by the user's permitted site types.
 - Auto-reconnect with exponential backoff: `min(1000 × 2^attempt, 30000)` ms.
 
 **Message handling**:
@@ -373,7 +383,8 @@ interface AuthContextType {
 
 - **Persistence**: `user` and `token` stored in `sessionStorage` (keys: `noc_user`, `noc_token`).
 - **Auto-refresh**: `refreshUser()` calls `GET /auth/me` on mount to validate/refresh the session.
-- **401 handling**: Axios interceptor (`api.ts:15-25`) clears session and redirects to `#/login` on 401 responses.
+- **401 handling**: Axios interceptor clears the session and redirects to `#/login` on 401 responses.
+- **403 handling**: Keeps the session active and displays an accessible permission-specific notice.
 
 **User interface** (`AuthContext.tsx:4-15`):
 
@@ -384,6 +395,14 @@ interface User {
   full_name?: string;
   job_title?: string;
   contact_info?: string;
+  account_type?: "individual" | "display";
+  email?: string | null;
+  email_verified_at?: string | null;
+  recovery_email_status?: string;
+  is_active?: boolean;
+  created_at?: string | null;
+  last_login_at?: string | null;
+  last_activity_at?: string | null;
   default_shift?: string;
   role?: string;
   allowed_pages?: string[];      // Page-level permissions
@@ -430,10 +449,11 @@ const api = axios.create({
 ```
 
 **Request interceptor** (`api.ts:7-13`):
-- Attaches `token` query parameter from `sessionStorage` to every request.
+- Attaches `Authorization: Bearer <token>` from `sessionStorage` to every request.
 
 **Response interceptor** (`api.ts:15-25`):
 - On 401: clears `noc_token` and `noc_user` from `sessionStorage`, redirects to `#/login`.
+- On 403: retains the session and emits an accessible permission notice with the missing grant.
 - All other errors propagate normally.
 
 **Usage pattern**:

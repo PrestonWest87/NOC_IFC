@@ -13,10 +13,13 @@ This module is loaded through `src/services/__init__.py` and is the active data-
 - Import/export helpers: `import_software_assets_csv`, `import_hardware_assets_csv`, `export_all_tables`, `import_all_tables`, `restore_from_db_upload`.
 - Regional helpers: `get_trigger_token`, `get_eq_color`, `process_usgs_quakes`, `rank_hazard`, and `get_primary_label`.
 - Scoring/AI helpers: `update_keyword_weight`, `_build_fallback_summary`, and `run_llm`.
+- Account administration: user-directory/profile/role/status helpers, individual invitations, email-change review and verification, password-reset review and single-use tokens, session revocation, and account audit events.
+- Site authorization: `get_allowed_site_names_for_user`, `user_can_access_site`, `ensure_user_can_access_alerts`, and `filter_aiops_payload_for_user` enforce site-type scopes on AIOps data.
+- Scheduler configuration: `get_scheduler_settings`, `save_scheduler_setting`, and `mark_scheduler_revision_applied` persist and track dynamic worker schedule changes.
 
 When a signature or default differs from an older section below, the current function definition in `src/services.py` is authoritative and that section must be corrected rather than copied forward.
 
-The `services.py` module is the central Data Access Layer (DAL) for the NOC Intelligence Fusion Center. It contains 104+ functions that bridge the API routes to the database, providing authentication, dashboards, threat telemetry, regional grid analytics, AIOps RCA, reporting, and administrative operations.
+The `services.py` module is the central Data Access Layer (DAL) for the NOC Intelligence Fusion Center. Its functions bridge API routes to the database for authentication, dashboards, threat telemetry, regional grid analytics, AIOps RCA, reporting, user administration, recovery workflows, and scheduler configuration.
 
 ---
 
@@ -316,31 +319,18 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 **Dependencies:** `User`, `SessionLocal`, `bcrypt`
 
-**Flow:** Looks up user, verifies password with bcrypt, generates new UUID session token, fetches role permissions, returns user DotDict with permissions attached.
+**Flow:** Looks up an active user, verifies password with bcrypt, records durable last sign-in/activity timestamps, generates a UUID session token, and returns the user DotDict with current role permissions and recovery-email state.
 
 ---
 
 ### `get_user_by_token(token: str) -> DotDict | None`
 
-**Purpose:** Retrieves a user by session token.
+**Purpose:** Retrieves an active user by session token, resolves role grants in the current database session, and throttles last-activity updates to once per five minutes.
 
 **Parameters:**
 - `token` (str) -- Session token
 
 **Returns:** `DotDict | None` -- User DotDict with permissions, or None.
-
-**Dependencies:** `User`, `SessionLocal`
-
----
-
-### `get_user_by_username(username: str) -> DotDict | None`
-
-**Purpose:** Retrieves a user by username.
-
-**Parameters:**
-- `username` (str) -- Username
-
-**Returns:** `DotDict | None` -- User DotDict, or None.
 
 **Dependencies:** `User`, `SessionLocal`
 
@@ -1110,7 +1100,7 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ### `create_user(username, password, role, full_name="") -> bool`
 
-**Purpose:** Creates a new user with hashed password.
+**Purpose:** Backward-compatible administrator creation of an email-optional display account with a hashed 12+ character password.
 
 **Parameters:**
 - `username` (str) -- Username
@@ -1118,7 +1108,7 @@ A utility class extending `dict` to allow dot-notation attribute access.
 - `role` (str) -- Role name
 - `full_name` (str) -- Full name (default: "")
 
-**Returns:** `bool` -- True if created, False if already exists.
+**Returns:** `bool` -- True if created; duplicate usernames raise a validation error.
 
 **Dependencies:** `User`, `SessionLocal`, `bcrypt`
 
@@ -1126,7 +1116,7 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ### `force_reset_pwd(username, new_password) -> bool`
 
-**Purpose:** Force-resets a user's password (admin operation).
+**Purpose:** Force-resets a user's password (administrator-assisted operation), applies the shared password policy, and revokes all sessions and outstanding reset tokens.
 
 **Parameters:**
 - `username` (str) -- Username

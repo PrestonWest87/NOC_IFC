@@ -1,4 +1,3 @@
-import time
 import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -38,14 +37,3 @@ def run_daily_report():
         session.rollback()
     finally:
         session.close()
-
-
-def start_report_scheduler():
-    logger.debug("Online. Standing by for 06:00 AM CST...")
-    while True:
-        now_cst = datetime.now(LOCAL_TZ)
-        if now_cst.hour == 6 and now_cst.minute < 10:
-            run_daily_report()
-            time.sleep(3600)
-        else:
-            time.sleep(60)

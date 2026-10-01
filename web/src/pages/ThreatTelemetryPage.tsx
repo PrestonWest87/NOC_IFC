@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
-import { getAllowedTabs } from "../utils/permissions";
+import { getAllowedTabs, hasActionPermission } from "../utils/permissions";
 import { formatInChicago, chicagoDateString, chicagoNow } from "../utils/timezone";
 
 const CATEGORIES = [
@@ -221,6 +221,14 @@ export function ThreatTelemetryPage() {
   const queryClient = useQueryClient();
   const allowedThreatTabs = getAllowedTabs(user?.allowed_actions, "threatTelemetry");
   const isAdmin = ["admin", "administrator"].includes(String(user?.role || "").toLowerCase());
+  const canPin = hasActionPermission(user, "Action: Pin Articles");
+  const canBoost = hasActionPermission(user, "Action: Boost Threat Score");
+  const canAi = hasActionPermission(user, "Action: Trigger AI Functions");
+  const canSync = hasActionPermission(user, "Action: Manually Sync Data");
+  const canRss = isAdmin || allowedThreatTabs.includes("0");
+  const canCisa = isAdmin || allowedThreatTabs.includes("1");
+  const canCloud = isAdmin || allowedThreatTabs.includes("2");
+  const canCrime = isAdmin || allowedThreatTabs.includes("3");
   const THREAT_TABS = ["RSS Triage", "CISA KEV", "Cloud Services", "Perimeter Crime"];
   const [activeTab, setActiveTab] = useState(0);
   const [subTab, setSubTab] = useState(0);
@@ -248,7 +256,7 @@ export function ThreatTelemetryPage() {
   const articleDetailQuery = useQuery({
     queryKey: ["article-detail", expandedArticleId],
     queryFn: () => api.get(`/threat/articles/${expandedArticleId}`).then(r => r.data),
-    enabled: expandedArticleId !== null,
+    enabled: expandedArticleId !== null && activeTab === 0 && canRss,
   });
 
   const feedType = SUB_TABS[subTab].toLowerCase();
@@ -270,30 +278,34 @@ export function ThreatTelemetryPage() {
       }).then(r => r.data);
     },
     refetchInterval: 60000,
+    enabled: activeTab === 0 && canRss,
   });
 
   const cvesQuery = useQuery({
     queryKey: ["cves"],
     queryFn: () => api.get("/threat/cves", { params: { limit: 50, days_back: 30 } }).then(r => r.data),
     refetchInterval: 300000,
+    enabled: activeTab === 1 && canCisa,
   });
 
   const outagesQuery = useQuery({
     queryKey: ["outages"],
     queryFn: () => api.get("/threat/cloud-outages", { params: { active_only: true } }).then(r => r.data),
     refetchInterval: 120000,
+    enabled: activeTab === 2 && canCloud,
   });
 
   const resolvedQuery = useQuery({
     queryKey: ["resolved-outages"],
     queryFn: () => api.get("/threat/cloud-outages", { params: { active_only: false } }).then(r => r.data),
-    enabled: activeTab === 2,
+    enabled: activeTab === 2 && canCloud,
   });
 
   const crimesQuery = useQuery({
     queryKey: ["crimes", radiusFilter],
     queryFn: () => api.get("/threat/crime-incidents", { params: { hours_back: 168, max_distance: radiusFilter } }).then(r => r.data),
     refetchInterval: 180000,
+    enabled: activeTab === 3 && canCrime,
   });
 
   const togglePinMut = useMutation({
@@ -689,24 +701,24 @@ export function ThreatTelemetryPage() {
                   )}
 
                   <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-                    <button
+                    {canPin && <button
                       onClick={(e) => { e.stopPropagation(); togglePinMut.mutate(art.id); }}
                       style={art.is_pinned ? s.btnDanger : s.btn}
                       title={art.is_pinned ? "Unpin" : "Pin"}
                     >
                       {art.is_pinned ? <PinOff size={12} style={{ verticalAlign: "middle" }} /> : <Pin size={12} style={{ verticalAlign: "middle" }} />}
                       {" "}{art.is_pinned ? "Unpin" : "Pin"}
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); boostScoreMut.mutate(art.id); }} style={s.btn} title="+15 Score">
+                    </button>}
+                    {canBoost && <button onClick={(e) => { e.stopPropagation(); boostScoreMut.mutate(art.id); }} style={s.btn} title="+15 Score">
                       +15 Score
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); feedbackMut.mutate({ articleId: art.id, feedback: 2 }); }} style={s.btn} title="Keep">
+                    </button>}
+                    {canAi && <button onClick={(e) => { e.stopPropagation(); feedbackMut.mutate({ articleId: art.id, feedback: 2 }); }} style={s.btn} title="Keep">
                       <ThumbsUp size={12} style={{ verticalAlign: "middle" }} /> Keep
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); feedbackMut.mutate({ articleId: art.id, feedback: 1 }); }} style={{ ...s.btn, color: "#f87171" }} title="Dismiss">
+                    </button>}
+                    {canAi && <button onClick={(e) => { e.stopPropagation(); feedbackMut.mutate({ articleId: art.id, feedback: 1 }); }} style={{ ...s.btn, color: "#f87171" }} title="Dismiss">
                       <ThumbsDown size={12} style={{ verticalAlign: "middle" }} /> Dismiss
-                    </button>
-                    {!art.ai_bluf && (
+                    </button>}
+                    {canAi && !art.ai_bluf && (
                       <button onClick={(e) => { e.stopPropagation(); blufMut.mutate(art.id); }} style={{ ...s.btn, color: "var(--accent-blue, #38bdf8)" }} title="Generate BLUF">
                         <Brain size={12} style={{ verticalAlign: "middle" }} /> BLUF
                       </button>
@@ -722,24 +734,24 @@ export function ThreatTelemetryPage() {
 
           {!isExpanded && (
             <div style={{ padding: "0 1rem 0.75rem", display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
-              <button
+              {canPin && <button
                 onClick={(e) => { e.stopPropagation(); togglePinMut.mutate(art.id); }}
                 style={art.is_pinned ? s.btnDanger : s.btn}
                 title={art.is_pinned ? "Unpin" : "Pin"}
               >
                 {art.is_pinned ? <PinOff size={12} style={{ verticalAlign: "middle" }} /> : <Pin size={12} style={{ verticalAlign: "middle" }} />}
                 {" "}{art.is_pinned ? "Unpin" : "Pin"}
-              </button>
-              <button onClick={(e) => { e.stopPropagation(); boostScoreMut.mutate(art.id); }} style={s.btn} title="+15 Score">
+              </button>}
+              {canBoost && <button onClick={(e) => { e.stopPropagation(); boostScoreMut.mutate(art.id); }} style={s.btn} title="+15 Score">
                 +15 Score
-              </button>
-              <button onClick={(e) => { e.stopPropagation(); feedbackMut.mutate({ articleId: art.id, feedback: 2 }); }} style={s.btn} title="Keep">
+              </button>}
+              {canAi && <button onClick={(e) => { e.stopPropagation(); feedbackMut.mutate({ articleId: art.id, feedback: 2 }); }} style={s.btn} title="Keep">
                 <ThumbsUp size={12} style={{ verticalAlign: "middle" }} /> Keep
-              </button>
-              <button onClick={(e) => { e.stopPropagation(); feedbackMut.mutate({ articleId: art.id, feedback: 1 }); }} style={{ ...s.btn, color: "#f87171" }} title="Dismiss">
+              </button>}
+              {canAi && <button onClick={(e) => { e.stopPropagation(); feedbackMut.mutate({ articleId: art.id, feedback: 1 }); }} style={{ ...s.btn, color: "#f87171" }} title="Dismiss">
                 <ThumbsDown size={12} style={{ verticalAlign: "middle" }} /> Dismiss
-              </button>
-              {!art.ai_bluf && (
+              </button>}
+              {canAi && !art.ai_bluf && (
                 <button onClick={(e) => { e.stopPropagation(); blufMut.mutate(art.id); }} style={{ ...s.btn, color: "var(--accent-blue, #38bdf8)" }} title="Generate BLUF">
                   <Brain size={12} style={{ verticalAlign: "middle" }} /> BLUF
                 </button>
@@ -779,14 +791,14 @@ export function ThreatTelemetryPage() {
             >
               {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
-            <button
+            {canSync && <button
               onClick={() => syncFeedsMut.mutate()}
               disabled={cooldownRss || syncFeedsMut.isPending}
               style={{ ...s.btnPrimary, opacity: cooldownRss ? 0.5 : 1, display: "flex", alignItems: "center", gap: "0.3rem" }}
             >
               <RefreshCw size={14} className={syncFeedsMut.isPending ? "spin" : ""} />
               {cooldownRss ? "Syncing..." : "Force Fetch Feeds"}
-            </button>
+            </button>}
           </div>
 
           <div style={{ display: "flex", gap: "0.4rem", marginBottom: "1rem", flexWrap: "wrap" }}>
@@ -865,14 +877,14 @@ export function ThreatTelemetryPage() {
       {/* === TAB 1: CISA KEV === */}
       <div style={{ display: activeTab === 1 ? '' : 'none' }}>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1rem" }}>
-            <button
+            {canSync && <button
               onClick={() => syncKevMut.mutate()}
               disabled={cooldownKev || syncKevMut.isPending}
               style={{ ...s.btnPrimary, opacity: cooldownKev ? 0.5 : 1, display: "flex", alignItems: "center", gap: "0.3rem" }}
             >
               <RefreshCw size={14} className={syncKevMut.isPending ? "spin" : ""} />
               {cooldownKev ? "Syncing..." : "Sync CISA KEV"}
-            </button>
+            </button>}
           </div>
           {cvesQuery.isLoading ? (
             <div style={{ ...s.card, textAlign: "center", padding: "2rem" }}>
@@ -921,14 +933,14 @@ export function ThreatTelemetryPage() {
       {/* === TAB 2: CLOUD SERVICES === */}
       <div style={{ display: activeTab === 2 ? '' : 'none' }}>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "1rem" }}>
-            <button
+            {canSync && <button
               onClick={() => syncCloudMut.mutate()}
               disabled={cooldownCloud || syncCloudMut.isPending}
               style={{ ...s.btnPrimary, opacity: cooldownCloud ? 0.5 : 1, display: "flex", alignItems: "center", gap: "0.3rem" }}
             >
               <RefreshCw size={14} className={syncCloudMut.isPending ? "spin" : ""} />
               {cooldownCloud ? "Syncing..." : "Sync Cloud Status"}
-            </button>
+            </button>}
           </div>
 
           {outagesQuery.isLoading ? (
@@ -1058,14 +1070,14 @@ export function ThreatTelemetryPage() {
                   <option value={10}>10 Miles</option>
                 </select>
               </div>
-              <button
+              {canSync && <button
                 onClick={() => fetchCrimeMut.mutate()}
                 disabled={fetchCrimeMut.isPending}
                 style={{ ...s.btnPrimary, display: "flex", alignItems: "center", gap: "0.3rem", height: "fit-content" }}
               >
                 <RefreshCw size={14} className={fetchCrimeMut.isPending ? "spin" : ""} />
                 Force Fetch LRPD
-              </button>
+              </button>}
             </div>
           </div>
 

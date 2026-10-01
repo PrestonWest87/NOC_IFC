@@ -44,6 +44,32 @@ class RegistrationRequest(BaseModel):
     theme: str = "standard"
 
 
+class PasswordResetRequest(BaseModel):
+    identifier: str
+
+
+class PasswordResetCompletion(BaseModel):
+    token: str
+    new_password: str
+
+
+class RecoveryEmailRequest(BaseModel):
+    email: str
+
+
+def _send_account_recovery_notice(subject, body, recipients):
+    from src.utils.mailer import send_alert_email
+
+    success, message = send_alert_email(
+        subject=subject,
+        body=body,
+        recipient_override=", ".join(recipients),
+        is_html=False,
+    )
+    if not success:
+        logger.error("Account recovery notification delivery failed recipient_count=%d reason=%s", len(recipients), message)
+
+
 def _send_failed_login_alert(alert):
     from src.utils.mailer import send_alert_email
 
@@ -115,7 +141,7 @@ def login(req: LoginRequest, request: Request, background_tasks: BackgroundTasks
         # Return the same 401 payload as a response so the queued alert is executed.
         return JSONResponse(
             status_code=401,
-            content={"detail": "Invalid credentials"},
+            content={"detail": {"code": "invalid_credentials", "message": "Invalid credentials"}},
             background=background_tasks,
         )
     logger.info("POST /login success username=%s role=%s", req.username, user.get('role'))
@@ -140,6 +166,121 @@ def register(req: RegistrationRequest):
         return {"user": _public_user(user), "token": token}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/request-password-reset")
+def request_password_reset(
+    body: PasswordResetRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
+    source_ip = request.client.host if request.client else None
+    result = svc.submit_password_reset_request(body.identifier, source_ip)
+    recipients = result.get("notify", [])
+    if recipients:
+        body_text = (
+            "A password-reset request is awaiting review in Users & Roles. "
+            f"Request reference: {result['request_id']}. Sign in to approve or deny it."
+        )
+        background_tasks.add_task(
+            _send_account_recovery_notice,
+            "NOC Fusion Center password-reset request",
+            body_text,
+            recipients,
+        )
+    return {
+        "status": "accepted",
+        "message": (
+            "If this account can use recovery, its request has been submitted for administrator review. "
+            "Accounts without an approved recovery email require administrator-assisted recovery."
+        ),
+    }
+
+
+@router.post("/reset-password")
+def complete_password_reset(body: PasswordResetCompletion):
+    try:
+        completed = svc.complete_password_reset(body.token, body.new_password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not completed:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_reset_token", "message": "This password-reset link is invalid or expired."},
+        )
+    return {"status": "ok", "message": "Password reset successfully. Sign in with your new password."}
+
+
+@router.get("/verify-recovery-email")
+def verify_recovery_email(token: str = Query("")):
+    if not svc.verify_recovery_email(token):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_email_verification", "message": "This verification link is invalid or expired."},
+        )
+    return {"status": "verified", "message": "Your recovery email has been approved and verified."}
+
+
+@router.post("/request-recovery-email")
+def request_recovery_email(
+    body: RecoveryEmailRequest,
+    background_tasks: BackgroundTasks,
+    user=Depends(get_current_user),
+):
+    try:
+        request_id = svc.submit_email_change_request(user.id, body.email)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    recipients = svc.get_recovery_reviewer_emails(
+        "Action: Approve Recovery Email Changes", exclude_user_id=user.id
+    )
+    if recipients:
+        background_tasks.add_task(
+            _send_account_recovery_notice,
+            "NOC Fusion Center recovery-email change request",
+            f"A recovery-email change request is awaiting review in Users & Roles. Request reference: {request_id}.",
+            recipients,
+        )
+        message = "Your recovery-email request was submitted. A user administrator must approve it before it can be used for account recovery."
+    else:
+        logger.warning("Recovery-email request has no other verified reviewer request_id=%s", request_id)
+        if str(user.role or "").casefold() in {"admin", "administrator"}:
+            message = (
+                "Your request was recorded, but no other verified recovery-email reviewer is configured. "
+                "For initial administrator setup, configure DEFAULT_ADMIN_EMAIL and restart the API/worker, "
+                "or add another verified user administrator to review it."
+            )
+        else:
+            message = (
+                "Your request was recorded, but no verified recovery-email reviewer is configured. "
+                "A user administrator must have a verified recovery email before this request can be approved."
+            )
+    return {
+        "status": "pending_approval",
+        "message": message,
+    }
+
+
+@router.post("/resend-recovery-email-verification")
+def resend_recovery_email_verification(
+    background_tasks: BackgroundTasks,
+    user=Depends(get_current_user),
+):
+    try:
+        verification = svc.resend_recovery_email_verification(user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    from src.core.config import settings
+    config = svc.get_cached_config() or {}
+    public_app_url = str(config.get("public_app_url") or settings.public_app_url).rstrip("/")
+    verify_url = f"{public_app_url}/#/verify-email?token={verification['token']}"
+    background_tasks.add_task(
+        _send_account_recovery_notice,
+        "Verify your NOC Fusion Center recovery email",
+        f"Use this link to verify your recovery email address:\n\n{verify_url}",
+        [verification["email"]],
+    )
+    return {"status": "sent", "message": "A new verification link was sent to the pending recovery email."}
 
 
 @router.get("/me")

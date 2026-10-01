@@ -59,14 +59,18 @@ The function executes guarded `ALTER TABLE` operations for fields introduced ove
 - `monitored_locations`: district, maintenance, status tracking, and automatic/escalation timestamps.
 - `shift_logs`: author role and soft-delete state.
 - `crime_incidents`: alert-dispatched state.
-- `users`: theme and default shift.
+- `users`: theme, account type, optional normalized email/recovery status, active state, creation time, last sign-in, and throttled last activity.
+- `registration_invites`: email-bound individual invitations; legacy email-less invites are invalidated during migration.
+- `email_change_requests`, `password_reset_requests`, `password_reset_tokens`, and `account_audit_events`: administrator-reviewed recovery workflow and audit records.
+- `timeline_events`: structured `site_name` metadata used to filter AIOps event delivery by role site scope.
+- `scheduler_job_config`: validated per-job schedules; `system_config.scheduler_revision` signals worker reloads.
 - `user_weather_prefs`: table and username index.
 
-It creates indexes for article score/published/pinned queries, risk snapshots, SolarWinds status/node queries, cloud status, crime filtering, shift-log deletion, and weather preferences. Each migration is attempted with autocommit and an error is logged or debug-logged so an already-existing column does not prevent later migrations from running.
+It creates indexes for article score/published/pinned queries, risk snapshots, SolarWinds status/node queries, cloud status, crime filtering, shift-log deletion, and weather preferences. Additive timestamp and boolean column declarations use portable SQL types/defaults for SQLite and PostgreSQL. Each migration is attempted with autocommit and an error is logged or debug-logged so an already-existing column does not prevent later migrations from running.
 
 ### Role and user seeds
 
-The function creates or updates `admin` and `analyst` roles with the current page/action permission arrays and site-type support. It creates the first `admin` user only when no user exists and `DEFAULT_ADMIN_PASSWORD` is non-empty. The password is bcrypt-hashed; there is no guaranteed hard-coded password.
+The function creates the `admin`, `analyst`, `viewer`, and `user-admin` starter roles if missing. It updates the built-in administrator grants, migrates the old broad analyst grant once, and does not union grants into roles on every startup. Custom role grants are retained and the legacy AI grant is mapped to report generation only. It creates the first `admin` user only when no user exists and `DEFAULT_ADMIN_PASSWORD` is non-empty. A valid `DEFAULT_ADMIN_EMAIL` is trusted bootstrap configuration: it is verified at admin creation or applied to an existing email-less bootstrap admin, completing any matching pending initial recovery-email request.
 
 ### Feed and keyword seeds
 

@@ -10,6 +10,8 @@ import {
   ArrowUpDown, Target, AlertTriangle,
 } from "lucide-react";
 import api from "../utils/api";
+import { useAuth } from "../utils/AuthContext";
+import { hasActionPermission } from "../utils/permissions";
 
 const COLORS = [
   "#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6",
@@ -51,6 +53,8 @@ function StatCard({ label, value, icon, color }: { label: string; value: string 
 
 export function KeywordAnalysisPage() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const canRunAi = hasActionPermission(user, "Action: Trigger AI Functions");
   const [subTab, setSubTab] = useState<"overview" | "keywords" | "categories" | "timeline" | "matrix">("overview");
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("trigger_count");
@@ -316,10 +320,10 @@ export function KeywordAnalysisPage() {
                 </button>
               ))}
             </div>
-            <button onClick={() => recatMut.mutate()} disabled={recatMut.isPending}
+            {canRunAi && <button onClick={() => recatMut.mutate()} disabled={recatMut.isPending}
               style={{ padding: "0.4rem 0.75rem", border: "1px solid var(--accent-blue, #3b82f6)", borderRadius: "var(--radius-sm, 4px)", background: "transparent", color: "var(--accent-blue, #3b82f6)", cursor: "pointer", fontSize: "0.8rem", fontWeight: 500, display: "flex", alignItems: "center", gap: "0.3rem" }}>
               {recatMut.isPending ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} Recategorize All
-            </button>
+            </button>}
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>

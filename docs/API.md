@@ -5,9 +5,11 @@ WebSocket: `ws://localhost:8101/ws`
 
 ## Authentication
 
-The API installs `authentication_middleware` for `/api/v1/*`. Login and registration validation are public; protected routes accept `Authorization: Bearer <session-token>` and retain `token`/`session_token` query parameters for compatibility. Route dependencies additionally enforce administrator, page, and action permissions.
+The API installs `authentication_middleware` for `/api/v1/*`. Login, invitation validation/registration, password-reset request/completion, and recovery-email verification are public. Protected routes accept `Authorization: Bearer <session-token>` and retain `token`/`session_token` query parameters for compatibility. Route dependencies enforce page, tab, action, role, and site-type permissions.
 
-The API currently mounts 14 routers, including `/keyword-analysis`. See `docs/CODE_REFERENCE.md` for module-level function documentation and verify endpoint details against the route source before integrating.
+401 responses mean the session is missing, expired, or invalid. 403 responses preserve the session and return a structured permission error, for example `detail.code = "permission_denied"` with the missing `permission`. Site-scope denials use `detail.code = "site_scope_denied"`.
+
+The API mounts the REST, account-administration, application-settings, and permission-catalog routers. See `docs/CODE_REFERENCE.md` for module-level function documentation and verify endpoint details against the route source before integrating.
 
 ### POST /auth/login
 
@@ -20,7 +22,7 @@ Response (200):
 {"user": {"id": 1, "username": "admin", ...}, "token": "uuid-string"}
 ```
 
-When failed-login alerts are enabled in Admin > Settings > AI & SMTP, failed credentials are counted across users. Reaching the configured threshold (default: 5 attempts in 5 minutes) queues a background email to the configured alert recipient list with submitted usernames and source IPs when available. SMTP delivery failures are logged; a maximum of one alert is attempted per configured window, and login failures continue to return the generic `401 Invalid credentials` response.
+When failed-login alerts are enabled in Settings > Application Settings, failed credentials are counted across users. Reaching the configured threshold queues a background email to the configured alert recipient list. Login failures return generic `401` responses.
 
 ### GET /auth/me?token=
 
@@ -35,6 +37,49 @@ Clears the user's session token.
 Body: `{full_name, job_title, contact_info, default_shift, old_password, new_password}`
 
 Returns `{"status": "ok", "message": "..."}`
+
+### POST /auth/request-recovery-email
+
+Authenticated users submit `{ "email": "person@example.com" }`. The address remains pending until a user administrator approves the request and the user verifies mailbox ownership.
+
+### POST /auth/request-password-reset
+
+Public body: `{ "identifier": "username-or-approved-email" }`. Always returns a generic accepted response. Matching requests are placed in the user-administrator review queue; an approved request sends a one-hour, single-use reset link to the verified recovery email.
+
+### POST /auth/reset-password
+
+Public body: `{ "token": "...", "new_password": "..." }`. Requires at least 12 characters. Successful reset revokes all existing sessions; reset tokens are hashed, expiring, and single-use.
+
+### GET /auth/verify-recovery-email?token=
+
+Verifies an administrator-approved pending recovery-email change.
+
+## Permission Catalog (`/permissions`)
+
+### GET /permissions/catalog
+
+Returns the canonical page, tab, action, and description catalog to an authenticated role editor.
+
+## User Administration (`/user-admin`)
+
+User-management routes require the Settings page, Users & Roles tab, and `Action: Manage Users`; role editing requires `Action: Manage Roles`; reset review and recovery-email approval have separate permissions. Built-in administrators retain the full-access override.
+
+- `GET /user-admin/users` — directory data including account type, email/recovery status, active state, last sign-in, and last activity.
+- `GET /user-admin/roles` — roles assignable to accounts.
+- `POST /user-admin/display-accounts` — email-optional display account with administrator-selected password and role.
+- `POST /user-admin/invitations` — email-required individual invitation delivered to that address.
+- `GET /user-admin/invitations`, `POST /user-admin/invitations/{id}/resend`, and `DELETE /user-admin/invitations/{id}` — manage pending invitations.
+- `PUT /user-admin/users/{username}/profile`
+- `PUT /user-admin/users/{username}/role`
+- `PATCH /user-admin/users/{username}/status`
+- `PATCH /user-admin/users/{username}/account-type`
+- `POST /user-admin/users/{username}/administrator-reset` — display/email-less accounts only for delegated user managers; root administrators may perform assisted resets.
+- `POST /user-admin/users/{username}/revoke-sessions`
+- `GET /user-admin/recovery-requests` and `POST /user-admin/recovery-requests/{id}/decision`
+- `GET /user-admin/email-change-requests` and `POST /user-admin/email-change-requests/{id}/decision`
+- `GET /user-admin/role-definitions`, `POST /user-admin/roles`, and `PUT /user-admin/roles/{name}` — require role-management permission.
+
+Non-administrator role editors cannot grant pages, actions, or site types that their own role does not have and cannot assign the built-in administrator role.
 
 ## Dashboard Endpoints (/dashboard)
 
@@ -69,6 +114,9 @@ Spawns background thread to generate Unified Risk Brief. Returns `{"status": "st
 ### GET /dashboard/brief-generation-status?generation_id=
 Returns progress: `{stage, message, total_items, processed_items, percent}` or `{"status": "unknown"}`.
 Stage values: starting, gathering, cyber_map, phys_map, synthesizing, complete, error.
+
+### GET /dashboard/briefs
+Returns only saved dashboard briefs whose tabs the caller is allowed to view.
 
 ### POST /dashboard/generate-rolling-summary
 
@@ -296,10 +344,18 @@ Body: `{target, days_back, objective, analyst}`
 ## Settings Endpoints (/settings)
 
 ### GET /settings/config
-Returns all SystemConfig rows.
+Returns LLM/SMTP configuration fields. Requires the Settings page and AI & SMTP tab; secret values are not returned.
 
 ### GET /settings/users
-Returns all users.
+Compatibility endpoint for the user directory; requires `Action: Manage Users`.
+
+## Application Settings (`/application-settings`)
+
+- `GET /application-settings` and `PUT /application-settings` — global application defaults and failed-login alert settings.
+- `GET /application-settings/risk-scoring` and `PUT /application-settings/risk-scoring` — writes require `Action: Adjust Risk Scoring Overrides`.
+- `GET /application-settings/scheduler` — registered jobs, defaults, bounds, and current schedules.
+- `PATCH /application-settings/scheduler/jobs/{job_key}` — writes require `Action: Manage Scheduler Settings`; settings are bounded and reloaded by the worker without restart.
+- `GET /application-settings/ml-counts` and `POST /application-settings/ml-retrain` — training requires the ML Training tab and `Action: Train ML Model`.
 
 ## Admin Endpoints (/admin)
 
@@ -322,8 +378,7 @@ Body: `{weight: N}`. Validates 1-100, force-reloads scorer.
 ### GET /admin/ml-counts
 
 ### POST /admin/config
-Body: arbitrary key-value pairs to upsert on SystemConfig.
-Failed-login alert fields: `failed_login_alert_enabled`, `failed_login_alert_recipients` (comma/semicolon/newline-separated email addresses), `failed_login_alert_threshold` (2-100), and `failed_login_alert_window_minutes` (1-60). Enabling alerts requires at least one valid recipient and enabled SMTP with a server and sender.
+Administrator-only compatibility endpoint for global configuration. Risk scoring, application defaults, and scheduler edits use the category-specific `/application-settings/*` routes and action permissions.
 
 ### POST /admin/assets/software
 Body: `{csv_body: "..."}`. Replaces all software assets.
@@ -340,7 +395,10 @@ Body: `{name, allowed_pages, allowed_actions, allowed_site_types}`
 Body: `{allowed_pages, allowed_actions, allowed_site_types}`
 
 ### POST /admin/users
-Body: `{username, password, role, full_name}`
+Administrator-only compatibility path for creating a display account without email. New UI uses `/user-admin/display-accounts`.
+
+### POST /admin/registration-invites
+Body: `{username, email, role, ttl_hours}`. Email is required; the invitation is delivered to that address.
 
 ### PUT /admin/users/{username}/role
 Body: `{role}`
@@ -387,7 +445,7 @@ Wipes all weather/hazard/GeoJSON data.
 Runs database maintenance (dedup, purge old data).
 
 ### POST /admin/ml-retrain
-Runs ML training pipeline and force-reloads scorer.
+Administrator-only compatibility endpoint for ML training. Delegated retraining uses `POST /application-settings/ml-retrain` with `Action: Train ML Model`.
 
 ## LLM Endpoints (/llm)
 
@@ -400,21 +458,21 @@ Body: `{analytics, p1_at_risk}`. Generates weather brief.
 ## Email Endpoints (/email)
 
 ### POST /email/send
-Body: `{to, subject, html_body}`. Sends email via SMTP.
+Body: `{to, subject, html_body}`. Sends email via SMTP; requires `Action: Send Email`.
 
 ### POST /email/broadcast-brief
-Body: `{email}`. Sends the current unified brief via email.
+Body: `{email}`. Sends the current unified brief via email; requires the Global Dashboards or Reporting page and `Action: Dispatch Exec Report`.
 
 ### POST /email/broadcast-global-brief
-Body: `{email}`. Sends the current global threat brief via email (red header, US CI focus).
+Body: `{email}`. Sends the current global threat brief via email (red header, US CI focus); requires `Action: Dispatch Exec Report`.
 
 ### POST /email/broadcast-internal-brief
-Body: `{email}`. Sends the current internal asset risk brief via email (purple header, asset risk focus).
+Body: `{email}`. Sends the current internal asset risk brief via email (purple header, asset risk focus); requires `Action: Dispatch Exec Report`.
 
 ## WebSocket
 
-Connect to `ws://localhost:8101/ws`.
+Connect to `ws://localhost:8101/ws?token=<session-token>`. The user must have AIOps RCA page permission. Dashboard pushes are filtered by allowed site types, and the connection is periodically revalidated so revoked sessions or grants are closed.
 
 Receives JSON messages with type `dashboard_update` every 10 seconds containing metrics data.
 
-Send JSON commands for bidirectional control. Broadcasts `RCA_UPDATE` events when RCA actions (investigate, dispatch, acknowledge, site-maintenance, send-ticket) occur.
+Send only authorized JSON commands. `INVESTIGATING_UPDATE` and `RCA_UPDATE` require the relevant RCA action; investigating-site commands are filtered by site-type access. The server broadcasts `RCA_UPDATE` after permitted RCA actions.

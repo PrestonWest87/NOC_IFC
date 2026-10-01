@@ -12,18 +12,24 @@ import secrets
 from urllib.parse import quote, urlparse
 import ipaddress
 from datetime import datetime, timedelta
-from sqlalchemy import text, or_
+from sqlalchemy import text, or_, func
 from sqlalchemy.types import Boolean, DateTime
 from zoneinfo import ZoneInfo
 # Import your DB setup and models
 from src.database import (
     SessionLocal, Article, FeedSource, Keyword, SystemConfig, CveItem,
-    RegionalHazard, CloudOutage, User, UserSession, FailedLoginAttempt, RegistrationInvite, Role, SavedReport, DailyBriefing,
+    RegionalHazard, CloudOutage, User, UserSession, FailedLoginAttempt, RegistrationInvite,
+    EmailChangeRequest, PasswordResetRequest, PasswordResetToken, AccountAuditEvent,
+    SchedulerJobConfig, Role, SavedReport, DailyBriefing,
     ExtractedIOC, MonitoredLocation, SolarWindsAlert, TimelineEvent,
     RegionalOutage, BgpAnomaly, GeoJsonCache, DailyThreatScore, ShiftLogEntry,
     SoftwareAsset, HardwareAsset, InternalRiskSnapshot, CrimeIncident,
     ElasticEvent, UserWeatherPreference, NodeAlias
 )
+from src.core.permissions import (
+    ACTION_KEYS, ADMIN_ACTIONS, PAGE_KEYS, TAB_KEYS,
+)
+from src.core.scheduler_registry import JOB_REGISTRY, default_schedule, validate_schedule
 
 LOCAL_TZ = ZoneInfo("America/Chicago")
 VALID_THEMES = {
@@ -220,10 +226,13 @@ def get_regional_counties_mapping():
         logger.error("Error fetching county GeoJSON: %s", e)
         return {}
 
-def get_all_site_types():
+def get_all_site_types(db=None):
     DEFAULT_SITE_TYPES = ["NOC", "SOC", "Data Center", "Field Office", "HQ", "Remote Site", "Cloud"]
     from src.database import MonitoredLocation
-    with SessionLocal() as db:
+    if db is None:
+        with SessionLocal() as session:
+            db_types = [t[0] for t in session.query(MonitoredLocation.loc_type).distinct().all() if t[0]]
+    else:
         db_types = [t[0] for t in db.query(MonitoredLocation.loc_type).distinct().all() if t[0]]
     seen = set()
     merged = []
@@ -448,55 +457,73 @@ def get_filtered_notification_alerts(username, ar_data, oos_data, locs):
 # 1. AUTHENTICATION & USER PROFILE
 # ==========================================
 
-def get_role_permissions(role_name):
-    """Return allowed_pages, allowed_actions, allowed_site_types for a role.
-    Admin users always get full access regardless of DB state."""
-    if role_name == "admin":
+def get_role_permissions(role_name, db=None):
+    """Return the effective grants using one caller-owned session when available."""
+    normalized_role = str(role_name or "").strip().casefold()
+
+    def full_access(session=None):
         return {
-            "allowed_pages": [
-                "Global Dashboards", "Threat Telemetry", "Regional Grid",
-                "Threat Hunting & IOCs", "AIOps RCA", "Shift Logbook",
-                "Reporting & Briefings", "Settings & Admin",
-                "Keyword Analysis"
-            ],
-            "allowed_actions": [
-                "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score",
-                "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
-                "Action: Submit Shift Log", "Action: Dispatch RCA Tickets", "Action: Acknowledge RCA Alerts", "Action: Manage Site Maintenance",
-                "Tab: Dashboards -> Operational", "Tab: Dashboards -> Global Risk", "Tab: Dashboards -> Internal Risk", "Tab: Dashboards -> Unified Brief",
-                "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV",
-                "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",
-                "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash",
-                "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", "Tab: Regional Grid -> Atmos Weather",
-                "Tab: Threat Hunting -> Global IOC Matrix", "Tab: Threat Hunting -> Deep Hunt Builder", "Tab: Reporting -> Elastic SIEM Report",
-                "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
-                "Tab: Shift Log -> Active Shift", "Tab: Shift Log -> History",
-                "Tab: Reporting -> Daily Fusion", "Tab: Reporting -> Report Builder", "Tab: Reporting -> Shared Library",
-                "Tab: Settings -> Facility Locations", "Tab: Settings -> Internal Assets", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training",
-                "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
-            ],
-            "allowed_site_types": get_all_site_types(),
+            "allowed_pages": list(PAGE_KEYS),
+            "allowed_actions": list(ADMIN_ACTIONS),
+            "allowed_site_types": get_all_site_types(session),
         }
-    with SessionLocal() as db:
-        role = db.query(Role).filter(Role.name == role_name).first()
-        if role:
-            return {
-                "allowed_pages": role.allowed_pages or [],
-                "allowed_actions": role.allowed_actions or [],
-                "allowed_site_types": role.allowed_site_types or [],
-            }
-    return {"allowed_pages": [], "allowed_actions": [], "allowed_site_types": []}
+
+    if normalized_role in {"admin", "administrator"}:
+        return full_access(db)
+
+    def lookup(session):
+        role = session.query(Role).filter(func.lower(Role.name) == normalized_role).first()
+        if not role:
+            return {"allowed_pages": [], "allowed_actions": [], "allowed_site_types": []}
+        return {
+            "allowed_pages": list(role.allowed_pages or []),
+            "allowed_actions": list(role.allowed_actions or []),
+            "allowed_site_types": list(role.allowed_site_types or []),
+        }
+
+    if db is not None:
+        return lookup(db)
+    with SessionLocal() as session:
+        return lookup(session)
+
+
+def _attach_recovery_email_state(user_view, user_row, db):
+    if str(user_row.account_type or "individual") == "display":
+        user_view.recovery_email_status = "exempt"
+        user_view.pending_email = None
+        return user_view
+    request = db.query(EmailChangeRequest).filter(
+        EmailChangeRequest.user_id == user_row.id,
+        EmailChangeRequest.status.in_(["pending_review", "pending_verification"]),
+    ).order_by(EmailChangeRequest.requested_at.desc()).first()
+    if request and request.status == "pending_review":
+        user_view.recovery_email_status = "pending_approval"
+    elif request:
+        user_view.recovery_email_status = "pending_verification"
+    elif user_row.email_verified_at:
+        user_view.recovery_email_status = "verified"
+    elif user_row.email:
+        user_view.recovery_email_status = "unverified"
+    else:
+        user_view.recovery_email_status = "missing"
+    user_view.pending_email = request.requested_email if request else None
+    return user_view
 
 
 def authenticate_user(username, password):
     with SessionLocal() as db:
         user = db.query(User).filter(User.username == username).first()
-        if user and bcrypt.checkpw(password.encode('utf-8'), user.password_hash.encode('utf-8')):
+        if (user and user.is_active and user.password_hash
+                and bcrypt.checkpw(password.encode('utf-8'), user.password_hash.encode('utf-8'))):
             new_token = str(uuid.uuid4())
+            now = datetime.utcnow()
+            user.last_login_at = now
+            user.last_activity_at = now
             db.add(UserSession(user_id=user.id, token=new_token))
             db.commit()
             u = to_dotdict(user)
-            perms = get_role_permissions(u.role or "analyst")
+            _attach_recovery_email_state(u, user, db)
+            perms = get_role_permissions(u.role or "analyst", db=db)
             u.allowed_pages = perms["allowed_pages"]
             u.allowed_actions = perms["allowed_actions"]
             u.allowed_site_types = perms["allowed_site_types"]
@@ -646,9 +673,24 @@ def _invite_token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def create_registration_invite(username: str, role: str, created_by: str, ttl_hours: int = 72):
+EMAIL_ADDRESS_PATTERN = re.compile(
+    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+    r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
+    r"[A-Za-z]{2,63}$"
+)
+
+
+def normalize_user_email(value: str) -> tuple[str, str]:
+    email = str(value or "").strip()
+    if not email or len(email) > 254 or not EMAIL_ADDRESS_PATTERN.fullmatch(email):
+        raise ValueError("Enter a valid email address.")
+    return email, email.casefold()
+
+
+def create_registration_invite(username: str, email: str, role: str, created_by: str, ttl_hours: int = 72):
     username = username.strip()
     role = role.strip()
+    display_email, normalized_email = normalize_user_email(email)
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{2,63}", username):
         raise ValueError("Username must be 3-64 characters and contain only letters, numbers, '.', '_' or '-'.")
     if not role or len(role) > 64:
@@ -659,15 +701,35 @@ def create_registration_invite(username: str, role: str, created_by: str, ttl_ho
     with SessionLocal() as db:
         if db.query(User).filter(User.username == username).first():
             raise ValueError("That username is already registered.")
+        if db.query(User).filter(User.email_normalized == normalized_email).first():
+            raise ValueError("That email address is already associated with an account.")
+        if db.query(EmailChangeRequest).filter(
+            EmailChangeRequest.requested_email_normalized == normalized_email,
+            EmailChangeRequest.status.in_(["pending_review", "pending_verification"]),
+        ).first():
+            raise ValueError("That email address is pending recovery-email approval for another account.")
         if not db.query(Role).filter(Role.name == role).first():
             raise ValueError("That role does not exist.")
-        db.query(RegistrationInvite).filter(
+        same_username_pending = db.query(RegistrationInvite).filter(
             RegistrationInvite.username == username,
             RegistrationInvite.used_at.is_(None),
-        ).update({"used_at": now}, synchronize_session=False)
+        ).all()
+        other_email_invite = db.query(RegistrationInvite).filter(
+            RegistrationInvite.email_normalized == normalized_email,
+            RegistrationInvite.used_at.is_(None),
+            RegistrationInvite.expires_at > now,
+            RegistrationInvite.username != username,
+        ).first()
+        if other_email_invite:
+            raise ValueError("That email address already has a pending invitation.")
+        for old_invite in same_username_pending:
+            old_invite.used_at = now
         db.add(RegistrationInvite(
             username=username,
             role=role,
+            email=display_email,
+            email_normalized=normalized_email,
+            account_type="individual",
             token_hash=_invite_token_hash(raw_token),
             created_by=created_by,
             created_at=now,
@@ -691,8 +753,45 @@ def get_registration_invite(raw_token: str):
         return {
             "username": invite.username,
             "role": invite.role,
+            "email": invite.email,
             "expires_at": invite.expires_at.isoformat(),
         }
+
+
+def get_pending_registration_invites():
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        rows = db.query(RegistrationInvite).filter(
+            RegistrationInvite.used_at.is_(None),
+            RegistrationInvite.expires_at > now,
+        ).order_by(RegistrationInvite.created_at.desc()).all()
+        return [{
+            "id": invite.id,
+            "username": invite.username,
+            "email": invite.email,
+            "role": invite.role,
+            "created_at": invite.created_at.isoformat() if invite.created_at else None,
+            "expires_at": invite.expires_at.isoformat(),
+            "created_by": invite.created_by,
+        } for invite in rows]
+
+
+def revoke_registration_invite(invite_id, actor_user_id=None):
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        invite = db.query(RegistrationInvite).filter(
+            RegistrationInvite.id == invite_id,
+            RegistrationInvite.used_at.is_(None),
+        ).first()
+        if not invite:
+            return False
+        invite.used_at = now
+        _audit_account_event(
+            db, "registration_invite_revoked", actor_user_id=actor_user_id,
+            detail={"invite_id": invite.id, "username": invite.username},
+        )
+        db.commit()
+        return True
 
 
 def complete_registration(raw_token, password, full_name, job_title, contact_info, default_shift, theme="standard"):
@@ -717,6 +816,14 @@ def complete_registration(raw_token, password, full_name, job_title, contact_inf
             username=invite.username,
             password_hash=bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8"),
             role=invite.role,
+            account_type="individual",
+            email=invite.email,
+            email_normalized=invite.email_normalized,
+            email_verified_at=now,
+            is_active=True,
+            created_at=now,
+            last_login_at=now,
+            last_activity_at=now,
             full_name=(full_name or "").strip(),
             job_title=(job_title or "").strip(),
             contact_info=(contact_info or "").strip(),
@@ -731,7 +838,8 @@ def complete_registration(raw_token, password, full_name, job_title, contact_inf
         db.add(UserSession(user_id=user.id, token=new_token))
         db.commit()
         u = to_dotdict(user)
-        perms = get_role_permissions(u.role or "analyst")
+        _attach_recovery_email_state(u, user, db)
+        perms = get_role_permissions(u.role or "analyst", db=db)
         u.allowed_pages = perms["allowed_pages"]
         u.allowed_actions = perms["allowed_actions"]
         u.allowed_site_types = perms["allowed_site_types"]
@@ -741,21 +849,26 @@ def get_user_by_token(token):
     if not token:
         return None
     with SessionLocal() as db:
-        session = db.query(UserSession).filter(UserSession.token == token).first()
-        user = db.query(User).filter(User.session_token == token).first() if not session else None
-        if session:
-            user = db.query(User).filter(User.id == session.user_id).first()
-        u = to_dotdict(user)
-        if u:
-            perms = get_role_permissions(u.role or "analyst")
-            u.allowed_pages = perms["allowed_pages"]
-            u.allowed_actions = perms["allowed_actions"]
-            u.allowed_site_types = perms["allowed_site_types"]
-        return u
+        user = db.query(User).join(UserSession, UserSession.user_id == User.id).filter(
+            UserSession.token == token
+        ).first()
+        if not user:
+            # Compatibility for sessions issued before user_sessions existed.
+            user = db.query(User).filter(User.session_token == token).first()
+        if not user or not user.is_active:
+            return None
 
-def get_user_by_username(username):
-    with SessionLocal() as db:
-        return to_dotdict(db.query(User).filter(User.username == username).first())
+        now = datetime.utcnow()
+        if not user.last_activity_at or user.last_activity_at <= now - timedelta(minutes=5):
+            user.last_activity_at = now
+            db.commit()
+
+        u = to_dotdict(user)
+        perms = get_role_permissions(u.role or "analyst", db=db)
+        u.allowed_pages = perms["allowed_pages"]
+        u.allowed_actions = perms["allowed_actions"]
+        u.allowed_site_types = perms["allowed_site_types"]
+        return u
 
 def update_user_profile(username, full_name, job_title, contact_info, old_pwd, new_pwd, default_shift=""):
     with SessionLocal() as db:
@@ -766,8 +879,9 @@ def update_user_profile(username, full_name, job_title, contact_info, old_pwd, n
         u.contact_info = contact_info
         u.default_shift = default_shift
         if new_pwd:
+            validate_password(new_pwd)
             if bcrypt.checkpw(old_pwd.encode('utf-8'), u.password_hash.encode('utf-8')):
-                u.password_hash = bcrypt.hashpw(new_pwd.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                u.password_hash = hash_password(new_pwd)
             else:
                 return False, "Incorrect current password."
         db.commit()
@@ -802,6 +916,499 @@ def logout_user(username, token=None):
             db.query(UserSession).filter(UserSession.user_id == u.id).delete(synchronize_session=False)
             u.session_token = None
         db.commit()
+
+
+PASSWORD_MIN_LENGTH = 12
+EMAIL_CHANGE_TOKEN_TTL_HOURS = 24
+PASSWORD_RESET_TOKEN_TTL_MINUTES = 60
+
+
+def validate_password(password):
+    if not isinstance(password, str) or len(password) < PASSWORD_MIN_LENGTH:
+        raise ValueError(f"Password must be at least {PASSWORD_MIN_LENGTH} characters.")
+
+
+def hash_password(password):
+    validate_password(password)
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def _audit_account_event(db, event_type, actor_user_id=None, subject_user_id=None, detail=None):
+    db.add(AccountAuditEvent(
+        event_type=event_type,
+        actor_user_id=actor_user_id,
+        subject_user_id=subject_user_id,
+        event_detail=detail or {},
+        created_at=datetime.utcnow(),
+    ))
+
+
+def _recovery_reviewers(db, required_action):
+    reviewers = []
+    for reviewer in db.query(User).filter(
+        User.is_active.is_(True),
+        User.email_normalized.isnot(None),
+        User.email_verified_at.isnot(None),
+    ).all():
+        if str(reviewer.role or "").casefold() in {"admin", "administrator"}:
+            reviewers.append(reviewer)
+            continue
+        permissions = get_role_permissions(reviewer.role, db=db)
+        grants = permissions["allowed_actions"]
+        if (
+            required_action in grants
+            and "Settings & Admin" in permissions["allowed_pages"]
+            and "Tab: Settings -> Users & Roles" in grants
+        ):
+            reviewers.append(reviewer)
+    return reviewers
+
+
+def get_recovery_reviewer_emails(required_action="Action: Review Account Recovery Requests", exclude_user_id=None):
+    with SessionLocal() as db:
+        return list(dict.fromkeys(
+            reviewer.email for reviewer in _recovery_reviewers(db, required_action)
+            if reviewer.email and reviewer.id != exclude_user_id
+        ))
+
+
+def get_user_directory():
+    with SessionLocal() as db:
+        users = db.query(User).order_by(User.username.asc()).all()
+        pending_emails = {
+            request.user_id: request
+            for request in db.query(EmailChangeRequest).filter(
+                EmailChangeRequest.status.in_(["pending_review", "pending_verification"])
+            ).all()
+        }
+        pending_invites = db.query(RegistrationInvite).filter(
+            RegistrationInvite.used_at.is_(None),
+            RegistrationInvite.expires_at > datetime.utcnow(),
+        ).all()
+        invited_usernames = {invite.username.casefold() for invite in pending_invites}
+        result = []
+        for user in users:
+            email_request = pending_emails.get(user.id)
+            result.append({
+                "id": user.id,
+                "username": user.username,
+                "full_name": user.full_name,
+                "job_title": user.job_title,
+                "contact_info": user.contact_info,
+                "email": user.email,
+                "email_verified": bool(user.email_verified_at),
+                "email_status": (
+                    "pending_approval" if email_request and email_request.status == "pending_review"
+                    else "pending_verification" if email_request
+                    else "verified" if user.email_verified_at
+                    else "exempt" if user.account_type == "display" and not user.email
+                    else "missing" if not user.email
+                    else "unverified"
+                ),
+                "pending_email": email_request.requested_email if email_request else None,
+                "account_type": user.account_type or "individual",
+                "role": user.role,
+                "is_active": bool(user.is_active),
+                "created_at": user.created_at.isoformat() if user.created_at else None,
+                "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+                "last_activity_at": user.last_activity_at.isoformat() if user.last_activity_at else None,
+                "invitation_pending": user.username.casefold() in invited_usernames,
+            })
+        return result
+
+
+def create_display_account(username, password, role, full_name="", created_by=None):
+    username = str(username or "").strip()
+    role = str(role or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{2,63}", username):
+        raise ValueError("Username must be 3-64 characters and contain only letters, numbers, '.', '_' or '-'.")
+    password_hash = hash_password(password)
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        if db.query(User).filter(func.lower(User.username) == username.casefold()).first():
+            raise ValueError("That username is already registered.")
+        if not db.query(Role).filter(func.lower(Role.name) == role.casefold()).first():
+            raise ValueError("That role does not exist.")
+        user = User(
+            username=username,
+            password_hash=password_hash,
+            role=role,
+            account_type="display",
+            is_active=True,
+            full_name=str(full_name or "").strip(),
+            created_at=now,
+        )
+        db.add(user)
+        db.flush()
+        _audit_account_event(
+            db, "display_account_created", actor_user_id=created_by,
+            subject_user_id=user.id, detail={"role": role},
+        )
+        db.commit()
+        return user.id
+
+
+def submit_email_change_request(user_id, requested_email):
+    email, normalized = normalize_user_email(requested_email)
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
+        if not user:
+            raise ValueError("User not found or disabled.")
+        if user.email_normalized == normalized and user.email_verified_at:
+            raise ValueError("That is already the approved recovery email.")
+        if db.query(User).filter(
+            User.email_normalized == normalized,
+            User.id != user_id,
+        ).first():
+            raise ValueError("That email address is already associated with another account.")
+        if db.query(RegistrationInvite).filter(
+            RegistrationInvite.email_normalized == normalized,
+            RegistrationInvite.used_at.is_(None),
+            RegistrationInvite.expires_at > now,
+        ).first():
+            raise ValueError("That email address already has a pending invitation.")
+        pending = db.query(EmailChangeRequest).filter(
+            EmailChangeRequest.user_id == user_id,
+            EmailChangeRequest.status.in_(["pending_review", "pending_verification"]),
+        ).first()
+        if pending:
+            raise ValueError("An email change request is already pending.")
+        if db.query(EmailChangeRequest).filter(
+            EmailChangeRequest.requested_email_normalized == normalized,
+            EmailChangeRequest.status == "pending_verification",
+        ).first():
+            raise ValueError("That email address is awaiting verification for another account.")
+        request = EmailChangeRequest(
+            user_id=user_id,
+            requested_email=email,
+            requested_email_normalized=normalized,
+            status="pending_review",
+            requested_at=now,
+        )
+        db.add(request)
+        db.flush()
+        _audit_account_event(
+            db, "recovery_email_requested", subject_user_id=user_id,
+            detail={"request_id": request.id},
+        )
+        db.commit()
+        return request.id
+
+
+def list_email_change_requests():
+    with SessionLocal() as db:
+        rows = db.query(EmailChangeRequest, User).join(
+            User, User.id == EmailChangeRequest.user_id
+        ).filter(
+            EmailChangeRequest.status == "pending_review"
+        ).order_by(EmailChangeRequest.requested_at.asc()).all()
+        return [{
+            "id": request.id,
+            "user_id": user.id,
+            "username": user.username,
+            "full_name": user.full_name,
+            "account_type": user.account_type,
+            "current_email": user.email,
+            "requested_email": request.requested_email,
+            "requested_at": request.requested_at.isoformat() if request.requested_at else None,
+        } for request, user in rows]
+
+
+def review_email_change_request(request_id, reviewer_id, approve, reason=""):
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        request = db.query(EmailChangeRequest).filter(
+            EmailChangeRequest.id == request_id,
+            EmailChangeRequest.status == "pending_review",
+        ).first()
+        if not request:
+            raise ValueError("Pending recovery-email request not found.")
+        user = db.query(User).filter(User.id == request.user_id).first()
+        if not user or not user.is_active:
+            raise ValueError("The account no longer exists or is disabled.")
+        if user.id == reviewer_id:
+            raise ValueError("A user administrator cannot approve their own recovery-email change.")
+        request.reviewed_by_id = reviewer_id
+        request.reviewed_at = now
+        decision_reason = str(reason or "").strip()[:1000]
+        if not approve and not decision_reason:
+            raise ValueError("A reason is required when denying a recovery-email request.")
+        request.decision_reason = decision_reason or "Approved by user administrator."
+        if not approve:
+            request.status = "denied"
+            _audit_account_event(
+                db, "recovery_email_denied", actor_user_id=reviewer_id,
+                subject_user_id=user.id, detail={"request_id": request.id, "reason": request.decision_reason},
+            )
+            db.commit()
+            return {"status": "denied", "email": user.email, "username": user.username}
+
+        if db.query(User).filter(
+            User.email_normalized == request.requested_email_normalized,
+            User.id != user.id,
+        ).first():
+            raise ValueError("That email address is now associated with another account.")
+        raw_token = secrets.token_urlsafe(32)
+        request.status = "pending_verification"
+        request.verification_token_hash = _invite_token_hash(raw_token)
+        request.verification_expires_at = now + timedelta(hours=EMAIL_CHANGE_TOKEN_TTL_HOURS)
+        _audit_account_event(
+            db, "recovery_email_approved_pending_verification", actor_user_id=reviewer_id,
+            subject_user_id=user.id, detail={"request_id": request.id},
+        )
+        db.commit()
+        return {
+            "status": "pending_verification",
+            "email": request.requested_email,
+            "username": user.username,
+            "token": raw_token,
+        }
+
+
+def verify_recovery_email(raw_token):
+    if not raw_token:
+        return False
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        request = db.query(EmailChangeRequest).filter(
+            EmailChangeRequest.verification_token_hash == _invite_token_hash(raw_token),
+            EmailChangeRequest.status == "pending_verification",
+            EmailChangeRequest.verification_expires_at > now,
+        ).first()
+        if not request:
+            return False
+        user = db.query(User).filter(User.id == request.user_id, User.is_active.is_(True)).first()
+        if not user:
+            return False
+        duplicate = db.query(User).filter(
+            User.email_normalized == request.requested_email_normalized,
+            User.id != user.id,
+        ).first()
+        if duplicate:
+            request.status = "conflict"
+            db.commit()
+            return False
+        user.email = request.requested_email
+        user.email_normalized = request.requested_email_normalized
+        user.email_verified_at = now
+        request.status = "completed"
+        request.verified_at = now
+        request.verification_token_hash = None
+        _audit_account_event(
+            db, "recovery_email_verified", subject_user_id=user.id,
+            detail={"request_id": request.id},
+        )
+        db.commit()
+        return True
+
+
+def resend_recovery_email_verification(user_id):
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        request = db.query(EmailChangeRequest).filter(
+            EmailChangeRequest.user_id == user_id,
+            EmailChangeRequest.status == "pending_verification",
+        ).order_by(EmailChangeRequest.requested_at.desc()).first()
+        if not request:
+            raise ValueError("There is no approved recovery-email verification waiting to be sent.")
+        if request.reviewed_at and request.reviewed_at > now - timedelta(minutes=5):
+            raise ValueError("Wait five minutes before requesting another verification email.")
+        user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
+        if not user:
+            raise ValueError("User not found or disabled.")
+        raw_token = secrets.token_urlsafe(32)
+        request.verification_token_hash = _invite_token_hash(raw_token)
+        request.verification_expires_at = now + timedelta(hours=EMAIL_CHANGE_TOKEN_TTL_HOURS)
+        request.reviewed_at = now
+        db.commit()
+        return {"email": request.requested_email, "username": user.username, "token": raw_token}
+
+
+def submit_password_reset_request(identifier, requester_ip=None):
+    submitted = str(identifier or "").strip()
+    identifier_hash = hashlib.sha256(submitted.casefold().encode("utf-8")).hexdigest()
+    safe_ip = None
+    if requester_ip:
+        try:
+            safe_ip = str(ipaddress.ip_address(str(requester_ip)))[:64]
+        except ValueError:
+            safe_ip = None
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        ip_attempts = db.query(PasswordResetRequest).filter(
+            PasswordResetRequest.requester_ip == safe_ip,
+            PasswordResetRequest.requested_at >= now - timedelta(hours=1),
+        ).count() if safe_ip else 0
+        identifier_attempts = db.query(PasswordResetRequest).filter(
+            PasswordResetRequest.identifier_hash == identifier_hash,
+            PasswordResetRequest.requested_at >= now - timedelta(hours=1),
+        ).count()
+        if ip_attempts >= 10 or identifier_attempts >= 5:
+            return {"accepted": True, "notify": []}
+
+        user = None
+        if submitted:
+            user = db.query(User).filter(
+                or_(
+                    func.lower(User.username) == submitted.casefold(),
+                    User.email_normalized == submitted.casefold(),
+                )
+            ).first()
+        if user and user.is_active:
+            pending = db.query(PasswordResetRequest).filter(
+                PasswordResetRequest.user_id == user.id,
+                PasswordResetRequest.status == "pending_review",
+                PasswordResetRequest.requested_at >= now - timedelta(minutes=30),
+            ).first()
+            if pending:
+                request = pending
+            else:
+                request = PasswordResetRequest(
+                    user_id=user.id,
+                    identifier_hash=identifier_hash,
+                    requester_ip=safe_ip,
+                    status="pending_review",
+                    requested_at=now,
+                )
+                db.add(request)
+                db.flush()
+                _audit_account_event(
+                    db, "password_reset_requested", subject_user_id=user.id,
+                    detail={"request_id": request.id, "account_type": user.account_type},
+                )
+            reviewers = [
+                reviewer for reviewer in _recovery_reviewers(db, "Action: Review Account Recovery Requests")
+                if reviewer.id != user.id
+            ]
+            db.commit()
+            return {
+                "accepted": True,
+                "notify": list(dict.fromkeys(reviewer.email for reviewer in reviewers if reviewer.email)),
+                "request_id": request.id,
+            }
+
+        # Persist unmatched attempts for IP throttling without preserving the
+        # submitted username or revealing whether it matched an account.
+        db.add(PasswordResetRequest(
+            user_id=None,
+            identifier_hash=identifier_hash,
+            requester_ip=safe_ip,
+            status="unmatched",
+            requested_at=now,
+        ))
+        db.commit()
+        return {"accepted": True, "notify": []}
+
+
+def list_password_reset_requests():
+    with SessionLocal() as db:
+        rows = db.query(PasswordResetRequest, User).join(
+            User, User.id == PasswordResetRequest.user_id
+        ).filter(
+            PasswordResetRequest.status == "pending_review"
+        ).order_by(PasswordResetRequest.requested_at.asc()).all()
+        return [{
+            "id": request.id,
+            "user_id": user.id,
+            "username": user.username,
+            "full_name": user.full_name,
+            "email": user.email,
+            "email_verified": bool(user.email_verified_at),
+            "account_type": user.account_type,
+            "requested_at": request.requested_at.isoformat() if request.requested_at else None,
+        } for request, user in rows]
+
+
+def review_password_reset_request(request_id, reviewer_id, approve, reason=""):
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        request = db.query(PasswordResetRequest).filter(
+            PasswordResetRequest.id == request_id,
+            PasswordResetRequest.status == "pending_review",
+        ).first()
+        if not request or not request.user_id:
+            raise ValueError("Pending password-reset request not found.")
+        user = db.query(User).filter(User.id == request.user_id, User.is_active.is_(True)).first()
+        if not user:
+            raise ValueError("The account no longer exists or is disabled.")
+        if user.id == reviewer_id:
+            raise ValueError("A user administrator cannot approve their own password-reset request.")
+        request.reviewed_by_id = reviewer_id
+        request.reviewed_at = now
+        decision_reason = str(reason or "").strip()[:1000]
+        if not approve and not decision_reason:
+            raise ValueError("A reason is required when denying a password-reset request.")
+        request.decision_reason = decision_reason or "Approved by user administrator."
+        if not approve:
+            request.status = "denied"
+            _audit_account_event(
+                db, "password_reset_denied", actor_user_id=reviewer_id,
+                subject_user_id=user.id, detail={"request_id": request.id, "reason": request.decision_reason},
+            )
+            db.commit()
+            return {
+                "status": "denied", "username": user.username,
+                "email": user.email if user.email_verified_at else None,
+            }
+        if not user.email or not user.email_verified_at or user.account_type == "display":
+            raise ValueError("This account has no approved recovery email. Use administrator-assisted recovery.")
+
+        raw_token = secrets.token_urlsafe(32)
+        expires_at = now + timedelta(minutes=PASSWORD_RESET_TOKEN_TTL_MINUTES)
+        db.add(PasswordResetToken(
+            request_id=request.id,
+            user_id=user.id,
+            token_hash=_invite_token_hash(raw_token),
+            created_at=now,
+            expires_at=expires_at,
+        ))
+        request.status = "approved"
+        request.reset_email_sent_at = now
+        _audit_account_event(
+            db, "password_reset_approved", actor_user_id=reviewer_id,
+            subject_user_id=user.id, detail={"request_id": request.id},
+        )
+        db.commit()
+        return {
+            "status": "approved",
+            "username": user.username,
+            "email": user.email,
+            "token": raw_token,
+            "expires_at": expires_at.isoformat(),
+        }
+
+
+def complete_password_reset(raw_token, new_password):
+    password_hash = hash_password(new_password)
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        token = db.query(PasswordResetToken).filter(
+            PasswordResetToken.token_hash == _invite_token_hash(raw_token or ""),
+            PasswordResetToken.used_at.is_(None),
+            PasswordResetToken.expires_at > now,
+        ).first()
+        if not token:
+            return False
+        user = db.query(User).filter(User.id == token.user_id, User.is_active.is_(True)).first()
+        if not user:
+            return False
+        user.password_hash = password_hash
+        user.session_token = None
+        db.query(UserSession).filter(UserSession.user_id == user.id).delete(synchronize_session=False)
+        db.query(PasswordResetToken).filter(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.id != token.id,
+        ).update({PasswordResetToken.used_at: now}, synchronize_session=False)
+        token.used_at = now
+        request = db.query(PasswordResetRequest).filter(
+            PasswordResetRequest.id == token.request_id
+        ).first()
+        if request:
+            request.status = "completed"
+        _audit_account_event(db, "password_reset_completed", subject_user_id=user.id)
+        db.commit()
+        return True
 
 
 # ==========================================
@@ -3128,6 +3735,92 @@ def get_aiops_dashboard_data():
             e.message = sanitize_text(e.message)
         return to_dotdict_list(alerts), to_dotdict_list(events), to_dotdict_list(grid)
 
+
+def get_allowed_site_names(allowed_site_types):
+    allowed_types = set(allowed_site_types or [])
+    if not allowed_types:
+        return set()
+    with SessionLocal() as db:
+        rows = db.query(MonitoredLocation.name).filter(
+            MonitoredLocation.loc_type.in_(allowed_types)
+        ).all()
+    return {str(name) for (name,) in rows if name}
+
+
+def get_allowed_site_names_for_user(user):
+    if str(getattr(user, "role", "") or "").casefold() in {"admin", "administrator"}:
+        with SessionLocal() as db:
+            return {str(name) for (name,) in db.query(MonitoredLocation.name).all() if name}
+    return get_allowed_site_names(getattr(user, "allowed_site_types", []))
+
+
+def user_has_all_site_type_access(user):
+    if str(getattr(user, "role", "") or "").casefold() in {"admin", "administrator"}:
+        return True
+    return set(getattr(user, "allowed_site_types", []) or []).issuperset(set(get_all_site_types()))
+
+
+def user_can_access_site(user, site_name):
+    if str(getattr(user, "role", "") or "").casefold() in {"admin", "administrator"}:
+        return True
+    return bool(site_name) and site_name in get_allowed_site_names_for_user(user)
+
+
+def ensure_user_can_access_alerts(user, alert_ids):
+    if str(getattr(user, "role", "") or "").casefold() in {"admin", "administrator"}:
+        return
+    ids = list({int(value) for value in alert_ids if int(value) > 0})
+    if not ids:
+        return
+    with SessionLocal() as db:
+        rows = db.query(SolarWindsAlert.id, SolarWindsAlert.mapped_location).filter(
+            SolarWindsAlert.id.in_(ids)
+        ).all()
+    requested = set(ids)
+    found = {row_id for row_id, _ in rows}
+    allowed_sites = get_allowed_site_names_for_user(user)
+    if found != requested or any(not location or location not in allowed_sites for _, location in rows):
+        raise ValueError("One or more alerts are outside your permitted site types.")
+
+
+def filter_aiops_payload_for_user(payload, user, locations=None):
+    """Filter the pushed AIOps payload before it crosses the WebSocket boundary."""
+    role = str(getattr(user, "role", "") or "").casefold()
+    if role in {"admin", "administrator"}:
+        return payload
+
+    allowed_types = set(getattr(user, "allowed_site_types", []) or [])
+    locations = locations if locations is not None else get_cached_locations()
+    allowed_names = {
+        str(location.get("name"))
+        for location in locations
+        if location.get("name") and location.get("loc_type") in allowed_types
+    }
+    if not allowed_names:
+        return {
+            **payload,
+            "alerts": [],
+            "events": [],
+            "grid": [],
+            "alert_count": 0,
+        }
+
+    alerts = [
+        row for row in payload.get("alerts", [])
+        if row.get("mapped_location") in allowed_names
+    ]
+    # Timeline messages are display text, not an authorization attribute. Only
+    # expose events carrying a structured site name that is in the user's scope.
+    events = [
+        row for row in payload.get("events", [])
+        if row.get("site_name") in allowed_names
+    ]
+    grid = [
+        row for row in payload.get("grid", [])
+        if any(name.casefold() in str(row.get("affected_area", "")).casefold() for name in allowed_names)
+    ]
+    return {**payload, "alerts": alerts, "events": events, "grid": grid, "alert_count": len(alerts)}
+
 def clear_timeline_events():
     with SessionLocal() as db: db.query(TimelineEvent).delete(); db.commit()
 
@@ -3137,9 +3830,14 @@ def nuke_active_alerts():
 def resolve_alert(alert_id, node_name):
     with SessionLocal() as db:
         a = db.query(SolarWindsAlert).filter_by(id=alert_id).first()
+        site_name = a.mapped_location if a else None
         if a:
             a.status = 'Resolved'
-            db.add(TimelineEvent(source="User", event_type="Resolution", message=f"[OK] Operator manually resolved {node_name}"))
+            db.add(TimelineEvent(
+                source="User", event_type="Resolution",
+                message=f"[OK] Operator manually resolved {node_name}",
+                site_name=site_name,
+            ))
             db.commit()
 
 def acknowledge_cluster(alert_ids, username="unknown"):
@@ -3289,16 +3987,38 @@ def get_all_roles():
         return to_dotdict_list(db.query(Role).all())
 
 def create_role(name, allowed_pages, allowed_actions, allowed_site_types=None):
-    if allowed_site_types is None: allowed_site_types = []
+    name = str(name or "").strip()
+    allowed_pages = list(dict.fromkeys(allowed_pages or []))
+    allowed_actions = list(dict.fromkeys(allowed_actions or []))
+    allowed_site_types = list(dict.fromkeys(allowed_site_types or []))
+    valid_permissions = set(PAGE_KEYS) | set(ACTION_KEYS) | set(TAB_KEYS)
+    if not name or len(name) > 64:
+        raise ValueError("Role name must contain 1-64 characters.")
+    if set(allowed_pages) - set(PAGE_KEYS):
+        raise ValueError("Role contains an unknown page permission.")
+    if set(allowed_actions) - valid_permissions:
+        raise ValueError("Role contains an unknown action or tab permission.")
+    if set(allowed_site_types) - set(get_all_site_types()):
+        raise ValueError("Role contains an unknown site type.")
     with SessionLocal() as db:
-        if db.query(Role).filter(Role.name == name).first(): return False
+        if db.query(Role).filter(func.lower(Role.name) == name.casefold()).first():
+            return False
         db.add(Role(name=name, allowed_pages=allowed_pages, allowed_actions=allowed_actions, allowed_site_types=allowed_site_types))
         db.commit()
     get_all_roles.clear()
     return True
 
 def update_role(name, allowed_pages, allowed_actions, allowed_site_types=None):
-    if allowed_site_types is None: allowed_site_types = []
+    allowed_pages = list(dict.fromkeys(allowed_pages or []))
+    allowed_actions = list(dict.fromkeys(allowed_actions or []))
+    allowed_site_types = list(dict.fromkeys(allowed_site_types or []))
+    valid_permissions = set(PAGE_KEYS) | set(ACTION_KEYS) | set(TAB_KEYS)
+    if set(allowed_pages) - set(PAGE_KEYS):
+        raise ValueError("Role contains an unknown page permission.")
+    if set(allowed_actions) - valid_permissions:
+        raise ValueError("Role contains an unknown action or tab permission.")
+    if set(allowed_site_types) - set(get_all_site_types()):
+        raise ValueError("Role contains an unknown site type.")
     with SessionLocal() as db:
         role = db.query(Role).filter(Role.name == name).first()
         if role:
@@ -3309,29 +4029,189 @@ def update_role(name, allowed_pages, allowed_actions, allowed_site_types=None):
         return False
 
 def create_user(username, password, role, full_name=""):
-    with SessionLocal() as db:
-        if db.query(User).filter(User.username == username).first(): return False
-        db.add(User(username=username, password_hash=bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'), role=role, full_name=full_name))
-        db.commit()
-        return True
+    create_display_account(username, password, role, full_name)
+    return True
 
-def force_reset_pwd(username, new_password):
+def force_reset_pwd(username, new_password, actor_user_id=None):
+    password_hash = hash_password(new_password)
     with SessionLocal() as db:
         user = db.query(User).filter(User.username == username).first()
         if user:
-            user.password_hash, user.session_token = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'), None
+            user.password_hash, user.session_token = password_hash, None
             db.query(UserSession).filter(UserSession.user_id == user.id).delete(synchronize_session=False)
+            db.query(PasswordResetToken).filter(
+                PasswordResetToken.user_id == user.id,
+                PasswordResetToken.used_at.is_(None),
+            ).update({PasswordResetToken.used_at: datetime.utcnow()}, synchronize_session=False)
+            _audit_account_event(
+                db, "administrator_password_reset", actor_user_id=actor_user_id,
+                subject_user_id=user.id,
+            )
             db.commit()
             return True
         return False
 
-def update_user_role(username, new_role):
+def update_user_role(username, new_role, actor_user_id=None):
     with SessionLocal() as db:
+        if not db.query(Role).filter(Role.name == new_role).first():
+            raise ValueError("That role does not exist.")
         u = db.query(User).filter_by(username=username).first()
         if u:
+            old_role = u.role
             u.role, u.session_token = new_role, None
             db.query(UserSession).filter(UserSession.user_id == u.id).delete(synchronize_session=False)
+            _audit_account_event(
+                db, "user_role_changed", actor_user_id=actor_user_id,
+                subject_user_id=u.id, detail={"from": old_role, "to": new_role},
+            )
             db.commit()
+            return True
+        return False
+
+
+def set_user_active(username, is_active, actor_user_id=None):
+    with SessionLocal() as db:
+        user = db.query(User).filter_by(username=username).first()
+        if not user:
+            return False
+        user.is_active = bool(is_active)
+        if not user.is_active:
+            user.session_token = None
+            db.query(UserSession).filter(UserSession.user_id == user.id).delete(synchronize_session=False)
+        _audit_account_event(
+            db, "user_activated" if user.is_active else "user_disabled",
+            actor_user_id=actor_user_id, subject_user_id=user.id,
+        )
+        db.commit()
+        return True
+
+
+def set_user_account_type(username, account_type, actor_user_id=None):
+    account_type = str(account_type or "").strip().lower()
+    if account_type not in {"individual", "display"}:
+        raise ValueError("Account type must be 'individual' or 'display'.")
+    with SessionLocal() as db:
+        user = db.query(User).filter_by(username=username).first()
+        if not user:
+            return False
+        old_type = user.account_type or "individual"
+        user.account_type = account_type
+        if old_type != account_type:
+            user.session_token = None
+            db.query(UserSession).filter(UserSession.user_id == user.id).delete(synchronize_session=False)
+        _audit_account_event(
+            db, "account_type_changed", actor_user_id=actor_user_id,
+            subject_user_id=user.id, detail={"from": old_type, "to": account_type},
+        )
+        db.commit()
+        return True
+
+
+def update_user_identity(username, full_name="", job_title="", contact_info="", actor_user_id=None):
+    full_name = str(full_name or "").strip()
+    job_title = str(job_title or "").strip()
+    contact_info = str(contact_info or "").strip()
+    with SessionLocal() as db:
+        user = db.query(User).filter_by(username=username).first()
+        if not user:
+            return False
+        user.full_name = full_name
+        user.job_title = job_title
+        user.contact_info = contact_info
+        _audit_account_event(
+            db, "user_profile_updated", actor_user_id=actor_user_id,
+            subject_user_id=user.id,
+        )
+        db.commit()
+        return True
+
+
+def revoke_user_sessions(username, actor_user_id=None):
+    with SessionLocal() as db:
+        user = db.query(User).filter_by(username=username).first()
+        if not user:
+            return False
+        user.session_token = None
+        db.query(UserSession).filter(UserSession.user_id == user.id).delete(synchronize_session=False)
+        _audit_account_event(db, "user_sessions_revoked", actor_user_id=actor_user_id, subject_user_id=user.id)
+        db.commit()
+        return True
+
+
+def get_scheduler_settings():
+    with SessionLocal() as db:
+        config = db.query(SystemConfig).first()
+        revision = int(config.scheduler_revision or 0) if config else 0
+        applied_revision = int(config.scheduler_applied_revision or 0) if config else 0
+        saved = {row.job_key: row for row in db.query(SchedulerJobConfig).all()}
+        jobs = []
+        for key, metadata in JOB_REGISTRY.items():
+            row = saved.get(key)
+            schedule = default_schedule(key)
+            if row:
+                schedule = {
+                    "schedule_type": row.schedule_type,
+                    "every_value": row.every_value,
+                    "unit": row.unit,
+                    "run_at": row.run_at,
+                    "weekday": row.weekday,
+                    "timezone": row.timezone,
+                    "enabled": bool(row.enabled),
+                }
+            jobs.append({
+                "key": key,
+                "label": metadata["label"],
+                "description": metadata["description"],
+                "schedule": schedule,
+                "min_value": metadata.get("min_value"),
+                "max_value": metadata.get("max_value"),
+                "can_disable": bool(metadata.get("can_disable", True)),
+                "startup_run": bool(metadata.get("startup_run", False)),
+                "updated_by": row.updated_by if row else None,
+                "updated_at": row.updated_at.isoformat() if row and row.updated_at else None,
+            })
+        return {"revision": revision, "applied_revision": applied_revision, "jobs": jobs}
+
+
+def save_scheduler_setting(job_key, schedule, updated_by, actor_user_id=None):
+    normalized = validate_schedule(job_key, schedule)
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        config = db.query(SystemConfig).first()
+        if not config:
+            config = SystemConfig()
+            db.add(config)
+            db.flush()
+        row = db.query(SchedulerJobConfig).filter_by(job_key=job_key).first()
+        if not row:
+            row = SchedulerJobConfig(job_key=job_key)
+            db.add(row)
+        row.schedule_type = normalized["schedule_type"]
+        row.every_value = normalized.get("every_value")
+        row.unit = normalized.get("unit")
+        row.run_at = normalized.get("run_at")
+        row.weekday = normalized.get("weekday")
+        row.timezone = normalized.get("timezone", "America/Chicago")
+        row.enabled = normalized["enabled"]
+        row.updated_by = str(updated_by or "")[:128]
+        row.updated_at = now
+        config.scheduler_revision = int(config.scheduler_revision or 0) + 1
+        _audit_account_event(
+            db, "scheduler_setting_changed", actor_user_id=actor_user_id,
+            detail={"job_key": job_key, "schedule": normalized, "revision": config.scheduler_revision},
+        )
+        db.commit()
+        return {"revision": config.scheduler_revision, "job_key": job_key, "schedule": normalized}
+
+
+def mark_scheduler_revision_applied(revision):
+    with SessionLocal() as db:
+        config = db.query(SystemConfig).first()
+        if not config:
+            config = SystemConfig()
+            db.add(config)
+        config.scheduler_applied_revision = int(revision)
+        db.commit()
 
 def save_global_config(data, allow_system_fields=True):
     # The frontend historically used these labels; normalize them before the

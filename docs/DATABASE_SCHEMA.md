@@ -3,7 +3,7 @@
 > **Source of truth:** `src/models/schema.py` (SQLAlchemy declarative models)
 > **Engine:** SQLite (default) or PostgreSQL via `DATABASE_URL` env var
 > **Driver:** SQLAlchemy 2.x with `NullPool` for SQLite
-> **Last verified:** 2026-07-15
+> **Last verified:** 2026-10-01
 
 ---
 
@@ -21,7 +21,7 @@
 
 ## 1. Entity-Relationship Overview
 
-This schema uses **no formal foreign key constraints**. All cross-table references are logical and enforced at the application layer. The diagram below documents these logical relationships using `~~` notation.
+Core legacy relationships are logical; account recovery and scheduler tables now use explicit foreign keys. The diagram below also shows the primary logical relationships.
 
 ```
 ┌─────────────────────┐       ┌─────────────────────┐
@@ -32,9 +32,16 @@ This schema uses **no formal foreign key constraints**. All cross-table referenc
 │ role          (FK→) │       │ allowed_pages (JSON)│
 │ session_token       │       │ allowed_actions     │
 │ full_name           │       │ allowed_site_types  │
-│ job_title           │       └─────────────────────┘
+│ account_type        │       └─────────────────────┘
+│ email (nullable)    │
+│ email_verified_at   │
+│ is_active           │
+│ created_at          │
+│ last_login_at       │
+│ last_activity_at    │
+│ job_title           │
 │ contact_info        │
-│ default_shift       │       ┌─────────────────────┐
+│ default_shift       │
 └────────┬────────────┘       │     user_weather_    │
          │                    │       prefs           │
          │                    │─────────────────────│
@@ -223,6 +230,14 @@ This schema uses **no formal foreign key constraints**. All cross-table referenc
 | `job_title` | String | YES | NULL | — | Role description |
 | `contact_info` | String | YES | NULL | — | Email/phone |
 | `default_shift` | String | NO | `"No Shift"` | — | Shift assignment |
+| `account_type` | String(20) | NO | `individual` | YES | `individual` or `display` |
+| `email` | String(254) | YES | NULL | — | Optional; required for invitation-created individual accounts |
+| `email_normalized` | String(254) | YES | NULL | Unique | Case-folded address; unique when present |
+| `email_verified_at` | DateTime | YES | NULL | — | Only verified/approved emails are used for password reset |
+| `is_active` | Boolean | NO | `True` | YES | Disabled accounts cannot authenticate |
+| `created_at` | DateTime | NO | `utcnow` | — | Account creation time |
+| `last_login_at` | DateTime | YES | NULL | YES | Last successful sign-in |
+| `last_activity_at` | DateTime | YES | NULL | YES | Last authenticated activity; updated at most every five minutes |
 
 ### 2.2 `roles` — Role Definitions
 
@@ -308,6 +323,9 @@ This schema uses **no formal foreign key constraints**. All cross-table referenc
 | `failed_login_alert_threshold` | Integer | NO | `5` | — |
 | `failed_login_alert_window_minutes` | Integer | NO | `5` | — |
 | `failed_login_alert_last_sent` | DateTime | YES | NULL | — |
+| `permission_catalog_version` | Integer | NO | `0` | — | One-time permission grant migration version |
+| `scheduler_revision` | Integer | NO | `0` | — | Incremented when a scheduler setting changes |
+| `scheduler_applied_revision` | Integer | NO | `0` | — | Latest revision loaded by the scheduler worker |
 
 > **Singleton pattern:** Only one row exists. Inserted by `init_db()` if absent.
 
@@ -540,6 +558,7 @@ This schema uses **no formal foreign key constraints**. All cross-table referenc
 | `source` | String | NO | — | YES | Origin system |
 | `event_type` | String | NO | — | YES | Event classification |
 | `message` | String | NO | — | — | Human-readable message |
+| `site_name` | String(255) | YES | NULL | YES | Structured site scope for AIOps event filtering |
 
 ### 2.23 `monitored_locations` — Facility/Site Registry (19 columns)
 
@@ -613,6 +632,34 @@ This schema uses **no formal foreign key constraints**. All cross-table referenc
 | `source_ip` | String(64) | YES | NULL | — | Client IP when available |
 | `attempted_at` | DateTime | NO | `utcnow` | YES | Failed login time; rows retained for at most 24 hours |
 
+### 2.29 `user_sessions` — Independently Revocable Sessions
+
+Stores one opaque session token and creation timestamp per browser/device. Sessions are deleted on logout, reset, role change, or administrator revocation; durable sign-in/activity timestamps live on `users`.
+
+### 2.30 `registration_invites` — Email-Bound Individual Invitations
+
+Stores a hashed single-use token, required invitation email and normalized email, assigned role, creator, expiry, and use time. Legacy invitations without email are invalidated during migration.
+
+### 2.31 `email_change_requests` — Approved Recovery-Email Changes
+
+Stores the requested address, normalized address, review status/reviewer/reason, and a hashed verification token. The current approved address is unchanged until approval and mailbox verification complete.
+
+### 2.32 `password_reset_requests` — Administrator-Reviewed Recovery Requests
+
+Stores a matched user (when found), a hashed submitted identifier, requester IP, request status, reviewer, and decision reason. Unmatched requests support rate limiting but are excluded from the administrator review queue.
+
+### 2.33 `password_reset_tokens` — Single-Use Password Reset Links
+
+Stores only a hash of the random reset token, its approved request/user, creation time, expiration, and use time. Raw reset tokens are sent only by email after approval.
+
+### 2.34 `account_audit_events` — Account and Security Audit Trail
+
+Stores actor, affected account, event type, structured details, and timestamp for account creation, review decisions, role/status changes, recovery, and session revocation.
+
+### 2.35 `scheduler_job_config` — Persisted Job Schedules
+
+Stores the registered job key, validated interval/daily/weekly schedule fields, enabled state, timezone, updater, and timestamp. `system_config.scheduler_revision` notifies the worker to reload schedules.
+
 ---
 
 ## 3. Schema Evolution Strategy
@@ -681,6 +728,14 @@ conn.execute(text(
 | `users` | `username` | UNIQUE | Login lookup |
 | `users` | `role` | B-tree | Role-based queries |
 | `users` | `session_token` | B-tree | Session validation |
+| `users` | `email_normalized` | UNIQUE | Case-folded email lookup and uniqueness when present |
+| `users` | `account_type`, `is_active` | B-tree | Account directory filtering and active-account checks |
+| `users` | `last_login_at`, `last_activity_at` | B-tree | Recent access reporting |
+| `email_change_requests` | `user_id`, `status` | B-tree | Pending recovery-email review lookup |
+| `email_change_requests` | `verification_token_hash` | UNIQUE | One-time email verification lookup |
+| `password_reset_requests` | `requester_ip`, `requested_at` | B-tree | Recovery-request rate limiting |
+| `password_reset_tokens` | `token_hash` | UNIQUE | One-time reset-token lookup |
+| `scheduler_job_config` | `job_key` | UNIQUE | Runtime schedule configuration lookup |
 | `roles` | `name` | UNIQUE | Role lookup |
 | `articles` | `link` | UNIQUE | Dedup on ingest |
 | `articles` | `published_date` | B-tree | Time-range queries |
@@ -805,9 +860,9 @@ Migrates `monitored_locations.priority` from Integer encoding to String encoding
 
 ### Phase 5 — Seed default roles (lines 215–273)
 
-Creates `admin` and `analyst` roles with full page/action permission arrays. Creates `admin` user if `DEFAULT_ADMIN_PASSWORD` env var is set and no users exist.
+Creates missing starter roles (`admin`, `analyst`, `viewer`, and `user-admin`) from the permission catalog. A one-time catalog migration removes the old broad analyst startup union and maps the legacy AI grant conservatively; subsequent startups do not union grants. Creates `admin` if `DEFAULT_ADMIN_PASSWORD` is set and no users exist.
 
-**Initial admin credentials:** username `admin` and the value of `DEFAULT_ADMIN_PASSWORD`; no user is created when that variable is empty.
+**Initial admin credentials:** username `admin` and the value of `DEFAULT_ADMIN_PASSWORD`; no user is created when that variable is empty. Optional `DEFAULT_ADMIN_EMAIL` is normalized and verified for recovery/reviewer notifications. If supplied later for an existing email-less bootstrap admin, startup applies it as trusted configuration and completes any matching pending initial recovery-email request.
 
 ### Phase 6 — Seed RSS feeds (lines 276–299)
 

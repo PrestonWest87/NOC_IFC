@@ -2,6 +2,8 @@ import time
 import random
 import logging
 import os
+import re
+from datetime import datetime
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
@@ -60,6 +62,74 @@ def init_db():
         logger.exception("Database schema creation failed")
         raise
 
+    # User, recovery, permission, and scheduler migrations are additive. Email
+    # stays nullable because administrator-created display accounts may omit it.
+    additive_columns = {
+        "users": [
+            ("account_type", "VARCHAR(20) NOT NULL DEFAULT 'individual'"),
+            ("email", "VARCHAR(254)"),
+            ("email_normalized", "VARCHAR(254)"),
+            ("email_verified_at", "TIMESTAMP"),
+            ("is_active", "BOOLEAN NOT NULL DEFAULT TRUE"),
+            ("created_at", "TIMESTAMP"),
+            ("last_login_at", "TIMESTAMP"),
+            ("last_activity_at", "TIMESTAMP"),
+        ],
+        "registration_invites": [
+            ("email", "VARCHAR(254) NOT NULL DEFAULT ''"),
+            ("email_normalized", "VARCHAR(254) NOT NULL DEFAULT ''"),
+            ("account_type", "VARCHAR(20) NOT NULL DEFAULT 'individual'"),
+        ],
+        "system_config": [
+            ("permission_catalog_version", "INTEGER NOT NULL DEFAULT 0"),
+            ("scheduler_revision", "INTEGER NOT NULL DEFAULT 0"),
+            ("scheduler_applied_revision", "INTEGER NOT NULL DEFAULT 0"),
+        ],
+        "timeline_events": [
+            ("site_name", "VARCHAR(255)"),
+        ],
+    }
+    for table_name, columns in additive_columns.items():
+        for column_name, column_definition in columns:
+            try:
+                with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                    conn.execute(text(
+                        f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}"
+                    ))
+            except Exception as e:
+                logger.debug("%s.%s migration skipped: %s", table_name, column_name, e)
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            conn.execute(text("UPDATE users SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL"))
+            conn.execute(text(
+                "UPDATE users SET last_login_at = (SELECT MAX(created_at) FROM user_sessions "
+                "WHERE user_sessions.user_id = users.id) WHERE last_login_at IS NULL "
+                "AND EXISTS (SELECT 1 FROM user_sessions WHERE user_sessions.user_id = users.id)"
+            ))
+            conn.execute(text(
+                "UPDATE users SET last_activity_at = last_login_at "
+                "WHERE last_activity_at IS NULL AND last_login_at IS NOT NULL"
+            ))
+            conn.execute(text(
+                "UPDATE registration_invites SET used_at = CURRENT_TIMESTAMP "
+                "WHERE email = '' AND used_at IS NULL"
+            ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_email_normalized "
+                "ON users (email_normalized)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_email_change_requests_user_status "
+                "ON email_change_requests (user_id, status)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_password_reset_requests_ip_time "
+                "ON password_reset_requests (requester_ip, requested_at)"
+            ))
+    except Exception as e:
+        logger.warning("Account/security index or data migration failed: %s", e)
+
     # Run additive migrations for databases created by earlier releases.
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
@@ -78,11 +148,11 @@ def init_db():
         logger.debug("system_config.wildfire_proximity_state migration skipped: %s", e)
 
     article_columns = [
-        ("ingested_at", "DATETIME"),
+        ("ingested_at", "TIMESTAMP"),
         ("enrichment_status", "VARCHAR DEFAULT 'enriched'"),
         ("enrichment_attempts", "INTEGER DEFAULT 0"),
         ("last_enrichment_error", "TEXT"),
-        ("last_enriched_at", "DATETIME"),
+        ("last_enriched_at", "TIMESTAMP"),
     ]
     for column_name, column_definition in article_columns:
         try:
@@ -115,7 +185,7 @@ def init_db():
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE solarwinds_alerts ADD COLUMN is_dispatched BOOLEAN DEFAULT 0"))
+            conn.execute(text("ALTER TABLE solarwinds_alerts ADD COLUMN is_dispatched BOOLEAN DEFAULT FALSE"))
     except Exception as e:
         logger.debug("solarwinds_alerts.is_dispatched migration skipped: %s", e)
 
@@ -141,8 +211,8 @@ def init_db():
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN status_modified_by VARCHAR"))
-            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN status_modified_at DATETIME"))
-            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN last_auto_ticket DATETIME"))
+            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN status_modified_at TIMESTAMP"))
+            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN last_auto_ticket TIMESTAMP"))
     except Exception as e:
         logger.debug("monitored_locations status migration skipped: %s", e)
 
@@ -154,11 +224,11 @@ def init_db():
 
     for _col in [
         "status_modified_by VARCHAR",
-        "status_modified_at DATETIME",
-        "last_auto_ticket DATETIME",
-        "last_escalation_ticket DATETIME",
-        "last_auto_dispatch DATETIME",
-        "last_escalation_dispatch DATETIME",
+        "status_modified_at TIMESTAMP",
+        "last_auto_ticket TIMESTAMP",
+        "last_escalation_ticket TIMESTAMP",
+        "last_auto_dispatch TIMESTAMP",
+        "last_escalation_dispatch TIMESTAMP",
     ]:
         try:
             with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
@@ -182,28 +252,28 @@ def init_db():
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE shift_logs ADD COLUMN is_deleted BOOLEAN DEFAULT 0"))
+            conn.execute(text("ALTER TABLE shift_logs ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE"))
     except Exception as e:
         logger.debug("shift_logs.is_deleted migration skipped: %s", e)
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE system_config ADD COLUMN unified_brief TEXT"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN unified_brief_time DATETIME"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN unified_brief_time TIMESTAMP"))
     except Exception as e:
         logger.debug("system_config unified brief migration skipped: %s", e)
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE system_config ADD COLUMN global_brief TEXT"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN global_brief_time DATETIME"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN global_brief_time TIMESTAMP"))
     except Exception as e:
         logger.debug("system_config global brief migration skipped: %s", e)
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             conn.execute(text("ALTER TABLE system_config ADD COLUMN internal_brief TEXT"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN internal_brief_time DATETIME"))
+            conn.execute(text("ALTER TABLE system_config ADD COLUMN internal_brief_time TIMESTAMP"))
     except Exception as e:
         logger.debug("system_config internal brief migration skipped: %s", e)
 
@@ -218,7 +288,7 @@ def init_db():
         ("failed_login_alert_recipients", "TEXT NOT NULL DEFAULT ''"),
         ("failed_login_alert_threshold", "INTEGER NOT NULL DEFAULT 5"),
         ("failed_login_alert_window_minutes", "INTEGER NOT NULL DEFAULT 5"),
-        ("failed_login_alert_last_sent", "DATETIME"),
+        ("failed_login_alert_last_sent", "TIMESTAMP"),
     ]
     for column_name, column_definition in failed_login_alert_columns:
         try:
@@ -243,14 +313,14 @@ def init_db():
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE crime_incidents ADD COLUMN is_alert_dispatched BOOLEAN DEFAULT 0"))
+            conn.execute(text("ALTER TABLE crime_incidents ADD COLUMN is_alert_dispatched BOOLEAN DEFAULT FALSE"))
     except Exception as e:
         logger.debug("crime_incidents.is_alert_dispatched migration skipped: %s", e)
 
     risk_alert_alterations = [
         "ALTER TABLE system_config ADD COLUMN last_global_risk VARCHAR",
         "ALTER TABLE system_config ADD COLUMN last_internal_risk VARCHAR",
-        "ALTER TABLE system_config ADD COLUMN last_risk_alert_time DATETIME",
+        "ALTER TABLE system_config ADD COLUMN last_risk_alert_time TIMESTAMP",
         "ALTER TABLE system_config ADD COLUMN sys_countermeasures INTEGER DEFAULT 3",
         "ALTER TABLE system_config ADD COLUMN net_countermeasures INTEGER DEFAULT 3"
     ]
@@ -262,11 +332,11 @@ def init_db():
                 logger.debug("risk alert migration skipped (%s): %s", stmt, e)
 
     for _col in [
-        "is_ticketed BOOLEAN DEFAULT 0",
+        "is_ticketed BOOLEAN DEFAULT FALSE",
         "acknowledged_by VARCHAR",
-        "acknowledged_at DATETIME",
+        "acknowledged_at TIMESTAMP",
         "dispatched_by VARCHAR",
-        "dispatched_at DATETIME",
+        "dispatched_at TIMESTAMP",
     ]:
         try:
             with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
@@ -316,64 +386,184 @@ def init_db():
 
     session = SessionLocal()
     try:
-        from src.models.schema import Role, User
-        all_pages = [
-            "Global Dashboards", "Threat Telemetry", "Regional Grid",
-            "Threat Hunting & IOCs", "AIOps RCA", "Shift Logbook",
-            "Reporting & Briefings", "Settings & Admin",
-            "Keyword Analysis"
-        ]
+        from src.models.schema import (
+            AccountAuditEvent, EmailChangeRequest, MonitoredLocation, Role,
+            SystemConfig, User,
+        )
+        from src.core.permissions import ADMIN_ACTIONS, PAGE_KEYS, TAB_CATALOG
 
-        all_actions = [
-            "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score",
-            "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
-            "Action: Submit Shift Log", "Action: Dispatch RCA Tickets", "Action: Acknowledge RCA Alerts", "Action: Manage Site Maintenance",
-            "Tab: Dashboards -> Operational", "Tab: Dashboards -> Global Risk", "Tab: Dashboards -> Internal Risk", "Tab: Dashboards -> Unified Brief",
-            "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV",
-            "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",
-            "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash",
-            "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", "Tab: Regional Grid -> Atmos Weather",
-            "Tab: Threat Hunting -> Global IOC Matrix", "Tab: Threat Hunting -> Deep Hunt Builder", "Tab: Reporting -> Elastic SIEM Report",
-            "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
-            "Tab: Shift Log -> Active Shift", "Tab: Shift Log -> History",
-            "Tab: Reporting -> Daily Fusion", "Tab: Reporting -> Report Builder", "Tab: Reporting -> Shared Library",
-            "Tab: Settings -> Facility Locations", "Tab: Settings -> Internal Assets", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training",
-            "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone"
+        site_types = ["NOC", "SOC", "Data Center", "Field Office", "HQ", "Remote Site", "Cloud"]
+        site_types.extend(
+            value for (value,) in session.query(MonitoredLocation.loc_type).distinct().all()
+            if value
+        )
+        site_types = list(dict.fromkeys(site_types))
+        tabs_by_key = {
+            tab["key"]: group
+            for group, tabs in TAB_CATALOG.items()
+            for tab in tabs
+        }
+        operational_pages = [page for page in PAGE_KEYS if page != "Settings & Admin"]
+        analyst_actions = [
+            "Action: Pin Articles", "Action: Boost Threat Score", "Action: Manually Sync Data",
+            "Action: Submit Shift Log", "Action: Dispatch RCA Tickets",
+            "Action: Acknowledge RCA Alerts", "Action: Manage Site Maintenance",
+            "Action: Generate Risk Snapshot", "Action: Run RCA Analysis",
         ]
+        analyst_actions.extend(
+            key for key, group in tabs_by_key.items() if group != "settings"
+        )
+        settings_user_tab = "Tab: Settings -> Users & Roles"
+
         admin_role = session.query(Role).filter_by(name="admin").first()
         if not admin_role:
-            session.add(Role(name="admin", allowed_pages=all_pages, allowed_actions=all_actions))
+            session.add(Role(
+                name="admin", allowed_pages=list(PAGE_KEYS),
+                allowed_actions=list(ADMIN_ACTIONS), allowed_site_types=site_types,
+            ))
         else:
-            admin_role.allowed_pages = all_pages
-            admin_role.allowed_actions = all_actions
+            admin_role.allowed_pages = list(PAGE_KEYS)
+            admin_role.allowed_actions = list(ADMIN_ACTIONS)
+            admin_role.allowed_site_types = site_types
 
         analyst_role = session.query(Role).filter_by(name="analyst").first()
         if not analyst_role:
-            session.add(Role(name="analyst", allowed_pages=all_pages[:-1], allowed_actions=all_actions))
-        else:
-            # Preserve the GitHub baseline and union new permissions. Never
-            # remove access from an existing role during startup migration.
-            analyst_role.allowed_pages = list(dict.fromkeys((analyst_role.allowed_pages or []) + all_pages[:-1]))
-            analyst_role.allowed_actions = list(dict.fromkeys((analyst_role.allowed_actions or []) + all_actions))
+            session.add(Role(
+                name="analyst", allowed_pages=operational_pages,
+                allowed_actions=analyst_actions, allowed_site_types=site_types,
+            ))
 
-        import os
+        viewer_role = session.query(Role).filter_by(name="viewer").first()
+        if not viewer_role:
+            session.add(Role(
+                name="viewer", allowed_pages=["Global Dashboards", "Regional Grid"],
+                allowed_actions=[
+                    "Tab: Dashboards -> Operational",
+                    "Tab: Regional Grid -> Geospatial Map",
+                ], allowed_site_types=site_types,
+            ))
+
+        user_admin_role = session.query(Role).filter_by(name="user-admin").first()
+        if not user_admin_role:
+            session.add(Role(
+                name="user-admin", allowed_pages=["Settings & Admin"],
+                allowed_actions=[
+                    settings_user_tab,
+                    "Action: Manage Users",
+                    "Action: Review Account Recovery Requests",
+                    "Action: Approve Recovery Email Changes",
+                ], allowed_site_types=[],
+            ))
+
+        config = session.query(SystemConfig).first()
+        if not config:
+            config = SystemConfig()
+            session.add(config)
+            session.flush()
+
+        if int(config.permission_catalog_version or 0) < 1:
+            # The old startup path repeatedly unioned every grant into analyst.
+            # Replace that built-in baseline once; custom roles retain explicit
+            # grants, with the broad AI action mapped only to report generation.
+            analyst_role = session.query(Role).filter_by(name="analyst").first()
+            if analyst_role:
+                analyst_role.allowed_pages = operational_pages
+                analyst_role.allowed_actions = analyst_actions
+                analyst_role.allowed_site_types = site_types
+            for role in session.query(Role).filter(Role.name.notin_(["admin", "analyst"])).all():
+                current_actions = list(role.allowed_actions or [])
+                if "Action: Trigger AI Functions" in current_actions:
+                    current_actions = [
+                        key for key in current_actions if key != "Action: Trigger AI Functions"
+                    ]
+                    current_actions.append("Action: Generate Reports")
+                role.allowed_actions = list(dict.fromkeys(current_actions))
+                # Before server-side site filtering, an empty site-type grant
+                # meant "unrestricted" in the legacy UI. Normalize existing
+                # roles once to retain that behavior, while keeping the new
+                # settings-only user-admin role explicitly site-less.
+                if not role.allowed_site_types and role.name != "user-admin":
+                    role.allowed_site_types = site_types
+            config.permission_catalog_version = 1
+
+        admin_email = settings.default_admin_email.strip()
+        email_valid = bool(re.fullmatch(
+            r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}",
+            admin_email,
+        ))
+        normalized_admin_email = admin_email.casefold() if email_valid else None
+
         admin_pw = os.environ.get("DEFAULT_ADMIN_PASSWORD", "").strip()
         if admin_pw and not session.query(User).first():
             import bcrypt
             hashed = bcrypt.hashpw(admin_pw.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+            now = datetime.utcnow()
             session.add(User(
                 username="admin",
                 password_hash=hashed,
                 role="admin",
+                account_type="individual",
+                is_active=True,
+                email=admin_email if email_valid else None,
+                email_normalized=normalized_admin_email,
+                email_verified_at=now if email_valid else None,
+                created_at=now,
                 full_name="Administrator",
                 job_title="System Admin",
                 contact_info="NOC Desk"
             ))
 
+        # DEFAULT_ADMIN_EMAIL is an operator-controlled bootstrap mechanism for
+        # the first administrator's recovery/reviewer address. Also apply it to
+        # an existing email-less bootstrap admin so a lone admin can recover
+        # from a recovery-email request that has no independent reviewer yet.
+        if email_valid:
+            bootstrap_admin = session.query(User).filter_by(username="admin").first()
+            if bootstrap_admin and not bootstrap_admin.email_verified_at:
+                existing_normalized = str(
+                    bootstrap_admin.email_normalized or bootstrap_admin.email or ""
+                ).strip().casefold()
+                duplicate = session.query(User).filter(
+                    User.email_normalized == normalized_admin_email,
+                    User.id != bootstrap_admin.id,
+                ).first()
+                if duplicate:
+                    logger.warning("DEFAULT_ADMIN_EMAIL bootstrap skipped because the address belongs to another account")
+                elif existing_normalized and existing_normalized != normalized_admin_email:
+                    logger.warning("DEFAULT_ADMIN_EMAIL bootstrap skipped because admin has a different unverified address")
+                else:
+                    now = datetime.utcnow()
+                    bootstrap_admin.email = admin_email
+                    bootstrap_admin.email_normalized = normalized_admin_email
+                    bootstrap_admin.email_verified_at = now
+                    for pending_request in session.query(EmailChangeRequest).filter(
+                        EmailChangeRequest.user_id == bootstrap_admin.id,
+                        EmailChangeRequest.status.in_(["pending_review", "pending_verification"]),
+                    ).all():
+                        if pending_request.requested_email_normalized == normalized_admin_email:
+                            pending_request.status = "completed"
+                            pending_request.reviewed_at = now
+                            pending_request.verified_at = now
+                            pending_request.verification_token_hash = None
+                            pending_request.verification_expires_at = None
+                            pending_request.decision_reason = "Completed by trusted DEFAULT_ADMIN_EMAIL bootstrap configuration."
+                        else:
+                            pending_request.status = "denied"
+                            pending_request.reviewed_at = now
+                            pending_request.verification_token_hash = None
+                            pending_request.verification_expires_at = None
+                            pending_request.decision_reason = "Superseded by trusted DEFAULT_ADMIN_EMAIL bootstrap configuration."
+                    session.add(AccountAuditEvent(
+                        subject_user_id=bootstrap_admin.id,
+                        event_type="bootstrap_recovery_email_configured",
+                        event_detail={"source": "DEFAULT_ADMIN_EMAIL"},
+                        created_at=now,
+                    ))
+
         session.commit()
     except Exception as e:
         session.rollback()
-        logger.error(f"Database initialization error: {e}")
+        logger.error("Database initialization error: %s", e)
     finally:
         session.close()
 

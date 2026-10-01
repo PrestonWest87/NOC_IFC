@@ -121,6 +121,7 @@ cp .env.example .env
 | `DATABASE_URL` | Yes | `sqlite:////app/data/noc_fusion.db` | SQLite (default) or PostgreSQL connection string |
 | `DEMO_SEED_DATA` | No | `false` | Seed synthetic hardware/software assets; use only in disposable environments |
 | `DEFAULT_ADMIN_PASSWORD` | First boot | (empty) | Initial admin password when no users exist |
+| `DEFAULT_ADMIN_EMAIL` | Optional | (empty) | Trusted verified recovery/notification address for the bootstrap administrator; can initialize an existing email-less bootstrap admin at API/worker startup |
 | `LOG_LEVEL` | No | `INFO` | Python log threshold |
 | `RISK_ALERT_RECIPIENTS` | For alerts | (empty) | Comma-separated email addresses for risk alerts |
 | `REMEDYFORCE_TICKET_EMAIL` | For RCA | (empty) | Email target for RCA ticket dispatch |

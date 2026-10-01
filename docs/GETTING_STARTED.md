@@ -45,7 +45,7 @@ This starts 4 services:
 
 Open **http://localhost:8501** in your browser.
 
-Set `DEFAULT_ADMIN_PASSWORD` in `.env` before first startup. The database creates the `admin` user only when no users exist and this value is non-empty. There is no guaranteed hard-coded default password and no automatic analyst-user seed in the current runtime.
+Set `DEFAULT_ADMIN_PASSWORD` in `.env` before first startup. `DEFAULT_ADMIN_EMAIL` is optional; it bootstraps a verified recovery/reviewer address. If the bootstrap admin already exists without a verified email, configuring this value and restarting the API or worker will attach and verify it; a matching pending initial recovery-email request will be completed. The database creates the `admin` user only when no users exist and the password value is non-empty. There is no guaranteed hard-coded default password.
 
 ### 4. Verify It's Running
 
@@ -115,6 +115,7 @@ The checked-in `.env.example` is the complete environment template. The API, wor
 | `ELASTIC_MAX_RESULTS` | `500` | Maximum results per Elastic query page |
 | `DEMO_SEED_DATA` | `true` only for disposable demos | Synthetic asset seed data |
 | `DEFAULT_ADMIN_PASSWORD` | Initial admin password | First boot when no users exist |
+| `DEFAULT_ADMIN_EMAIL` | Optional trusted bootstrap email for the administrator | Recovery and account-review notifications; can initialize an existing email-less bootstrap admin at startup |
 | `LOG_LEVEL` | `INFO` | Python log threshold |
 | `CRIME_ALERT_SMS` | SMS gateway address | Crime notifications |
 | `CRIME_ALERT_EMAIL` | Email address | Crime notifications |

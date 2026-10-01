@@ -4,7 +4,8 @@ import { MapContainer } from "../components/MapContainer";
 import { MarkdownContent } from "../components/MarkdownContent";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
-import { getAllowedTabs } from "../utils/permissions";
+import { getAllowedTabs, hasActionPermission } from "../utils/permissions";
+import { getApiErrorMessage } from "../utils/api";
 import { formatInChicago } from "../utils/timezone";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer, GeoJsonLayer, BitmapLayer } from "@deck.gl/layers";
@@ -229,6 +230,8 @@ export function RegionalGridPage() {
   const { user } = useAuth();
   const allowedRegionTabs = getAllowedTabs(user?.allowed_actions, "regionalGrid");
   const isAdmin = ["admin", "administrator"].includes(String(user?.role || "").toLowerCase());
+  const canGenerateReports = hasActionPermission(user, "Action: Generate Reports");
+  const canSendEmail = hasActionPermission(user, "Action: Send Email");
   const tabs = ALL_TABS.filter(t => isAdmin || allowedRegionTabs.includes(t.key));
   const [activeTab, setActiveTab] = useState(tabs.length > 0 ? tabs[0].key : "geospatial");
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
@@ -308,7 +311,7 @@ export function RegionalGridPage() {
 
   const { data: userPrefs } = useQuery({
     queryKey: ["regional-weather-prefs", user?.username],
-    queryFn: () => api.get("/regional/weather-prefs", { params: { username: (() => { try { return JSON.parse(sessionStorage.getItem("noc_user") || "{}").username || ""; } catch { return ""; } })() } }).then(r => r.data),
+    queryFn: () => api.get("/regional/weather-prefs").then(r => r.data),
     enabled: activeTab === "atmos" && !!user?.username,
     staleTime: 300000,
     refetchOnWindowFocus: false,
@@ -579,7 +582,7 @@ export function RegionalGridPage() {
   };
 
   const handleGenerateBriefing = useCallback(async () => {
-    if (!analytics) return;
+    if (!analytics || !canGenerateReports) return;
     setBriefLoading(true);
     try {
       const res = await api.post("/llm/executive-weather-brief", {
@@ -587,14 +590,14 @@ export function RegionalGridPage() {
         p1_at_risk: (masterAffectedSites || []).filter((s: any) => priorityTier(s.Priority) === 1).length,
       });
       setBriefing(res.data.brief || res.data || "Brief generated.");
-    } catch {
-      setBriefing("⚠ Brief generation failed. Check AI configuration.");
+    } catch (reason: any) {
+      setBriefing(`⚠ ${getApiErrorMessage(reason, "Brief generation failed. Check AI configuration.")}`);
     }
     setBriefLoading(false);
-  }, [analytics, masterAffectedSites]);
+  }, [analytics, masterAffectedSites, canGenerateReports]);
 
   const handleSendSitrep = useCallback(async () => {
-    if (!recipientEmail) return;
+    if (!recipientEmail || !canSendEmail) return;
     try {
       const body = buildSitrepHtml(analytics, masterAffectedSites, briefing, analystNotes);
       const attachments = [
@@ -609,12 +612,12 @@ export function RegionalGridPage() {
       // Show success - we'll use a simple approach
       alert("Report dispatched to " + recipientEmail);
     } catch (e: any) {
-      alert("SMTP Error: " + (e.response?.data?.detail || e.message));
+      alert(getApiErrorMessage(e, "SMTP send failed."));
     }
-  }, [recipientEmail, analytics, masterAffectedSites, briefing, analystNotes]);
+  }, [recipientEmail, analytics, masterAffectedSites, briefing, analystNotes, canSendEmail]);
 
   const handleSendHazardSitrep = useCallback(async () => {
-    if (!hazardRecip) return;
+    if (!hazardRecip || !canSendEmail) return;
     try {
       await api.post("/email/send", {
         to: hazardRecip,
@@ -623,16 +626,13 @@ export function RegionalGridPage() {
       });
       alert("Executive HTML SitRep successfully transmitted!");
     } catch (e: any) {
-      alert("SMTP Error: " + (e.response?.data?.detail || e.message));
+      alert(getApiErrorMessage(e, "SMTP send failed."));
     }
-  }, [hazardRecip, masterAffectedSites]);
+  }, [hazardRecip, masterAffectedSites, canSendEmail]);
 
   const handleSaveWeatherPrefs = useCallback(async (prefs: string[]) => {
     try {
-      await api.post("/regional/weather-prefs", null, {
-        params: { username: (() => { try { return JSON.parse(sessionStorage.getItem("noc_user") || "{}").username || ""; } catch { return ""; } })() || "" },
-        data: prefs,
-      });
+      await api.post("/regional/weather-prefs", prefs);
       alert("Preferences saved!");
     } catch { /* ignore */ }
   }, []);
@@ -710,6 +710,8 @@ export function RegionalGridPage() {
             briefing={briefing}
             briefLoading={briefLoading}
             onGenerateBriefing={handleGenerateBriefing}
+            canGenerateBriefing={canGenerateReports}
+            canSendEmail={canSendEmail}
             recipientEmail={recipientEmail}
             setRecipientEmail={setRecipientEmail}
             analystNotes={analystNotes}
@@ -726,6 +728,7 @@ export function RegionalGridPage() {
             hazardRecip={hazardRecip}
             setHazardRecip={setHazardRecip}
             onSendHazardSitrep={handleSendHazardSitrep}
+            canSendEmail={canSendEmail}
           />
         )}
 
@@ -1058,12 +1061,14 @@ function GeospatialTab({
 function ExecutiveTab({
   analytics, masterAffectedSites, briefing, briefLoading,
   onGenerateBriefing, recipientEmail, setRecipientEmail,
+  canGenerateBriefing, canSendEmail,
   analystNotes, setAnalystNotes, onSendSitrep,
   expandedSections, toggleSection,
 }: {
   analytics: any; masterAffectedSites: any[];
   briefing: string; briefLoading: boolean;
   onGenerateBriefing: () => void;
+  canGenerateBriefing: boolean; canSendEmail: boolean;
   recipientEmail: string; setRecipientEmail: (v: string) => void;
   analystNotes: string; setAnalystNotes: (v: string) => void;
   onSendSitrep: () => void;
@@ -1139,11 +1144,11 @@ function ExecutiveTab({
           <h4 style={{ ...CARD_HEADER, margin: 0, display: "flex", alignItems: "center", gap: "0.4rem" }}>
             <Sparkles size={16} /> AI Executive Weather Briefing
           </h4>
-          <button onClick={onGenerateBriefing} disabled={briefLoading} style={{
+          {canGenerateBriefing && <button onClick={onGenerateBriefing} disabled={briefLoading} style={{
             ...BTN_PRIMARY, opacity: briefLoading ? 0.6 : 1,
           }}>
             {briefLoading ? "Generating..." : "Generate Briefing"}
-          </button>
+          </button>}
         </div>
          <InfoBox type="info"><MarkdownContent content={briefing} /></InfoBox>
       </div>
@@ -1208,7 +1213,7 @@ function ExecutiveTab({
         </div>
       </div>
 
-      <div style={CARD_STYLE}>
+      {canSendEmail && <div style={CARD_STYLE}>
         <h4 style={{ ...CARD_HEADER, display: "flex", alignItems: "center", gap: "0.4rem" }}>
           <Send size={15} /> Broadcast Executive SitRep
         </h4>
@@ -1230,7 +1235,7 @@ function ExecutiveTab({
             </button>
           </div>
         </div>
-      </div>
+      </div>}
 
       <div style={CARD_STYLE}>
         <div
@@ -1293,11 +1298,12 @@ function SimpleTable({ data }: { data: any }) {
 
 // ========== HAZARD ANALYTICS TAB ==========
 function HazardTab({
-  masterAffectedSites, hazardRecip, setHazardRecip, onSendHazardSitrep,
+  masterAffectedSites, hazardRecip, setHazardRecip, onSendHazardSitrep, canSendEmail,
 }: {
   masterAffectedSites: any[];
   hazardRecip: string; setHazardRecip: (v: string) => void;
   onSendHazardSitrep: () => void;
+  canSendEmail: boolean;
 }) {
   const analyticsRows = useMemo(() => {
     const seen = new Set<string>();
@@ -1328,7 +1334,7 @@ function HazardTab({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-      <div style={CARD_STYLE}>
+      {canSendEmail && <div style={CARD_STYLE}>
         <h4 style={CARD_HEADER}>Deep Hazard Analytics & Executive Broadcast</h4>
         <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "1rem" }}>
           Comprehensive breakdown of active weather geometry against physical infrastructure.
@@ -1367,7 +1373,7 @@ function HazardTab({
             </div>
           </>
         )}
-      </div>
+      </div>}
 
       <div style={CARD_STYLE}>
         <h4 style={{ ...CARD_HEADER, display: "flex", alignItems: "center", gap: "0.4rem" }}>

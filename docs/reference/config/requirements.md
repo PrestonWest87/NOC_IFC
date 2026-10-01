@@ -20,6 +20,7 @@ Declares all Python third-party packages required by the backend services (API, 
 | Package | Version | Purpose |
 |---------|---------|---------|
 | `fastapi` | Latest | Modern async Python web framework. Powers both the REST API (`src/api/main.py`) and the webhook gateway (`src/webhook_listener.py`). |
+| `python-multipart>=0.0.20` | `>=0.0.20` | Required by FastAPI's `UploadFile`/multipart form parser for the administrator database-upload endpoint. |
 | `uvicorn[standard]` | Latest | ASGI server for FastAPI. `[standard]` extras include `uvloop` and `httptools` for better performance. Used by `api` (port 8101) and `webhook` (port 8100) services. |
 | `aiohttp` | Latest | Async HTTP client/server library. Used for outbound HTTP requests (RSS fetching, API calls to external services). |
 | `aiofiles` | Latest | Async file I/O. Used for non-blocking file reads/writes. |
@@ -81,17 +82,10 @@ Declares all Python third-party packages required by the backend services (API, 
 |---------|---------|---------|
 | `python-dotenv` | Latest | Loads `.env` files into `os.environ`. Used as a fallback or alongside `pydantic-settings`. |
 
-### Legacy / Monolith Remnants
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `streamlit` | Latest | Streamlit framework. **Legacy dependency** — the monolith was a Streamlit app. The refactored architecture uses FastAPI + React, but Streamlit remains in requirements (possibly for utility scripts or fallback). |
-| `streamlit-autorefresh` | Latest | Streamlit auto-refresh component. **Legacy dependency** — companion to Streamlit, retained for compatibility. |
-
 ## Dependency Graph
 
 ```
-web framework        → fastapi, uvicorn[standard], aiohttp, aiofiles
+web framework        → fastapi, python-multipart, uvicorn[standard], aiohttp, aiofiles
 database             → sqlalchemy, psycopg2-binary, pydantic-settings
 data science         → pandas, scikit-learn, joblib, shapely, rapidfuzz
 scheduling           → schedule
@@ -100,7 +94,6 @@ ai/llm               → openai, google-generativeai
 security             → bcrypt==4.1.2
 search               → elasticsearch>=8.0.0,<9.0.0
 env                  → python-dotenv
-legacy               → streamlit, streamlit-autorefresh
 ```
 
 ## Versioning Strategy

@@ -1,11 +1,14 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { getAllowedTabs } from "../utils/permissions";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api from "../utils/api";
+import api, { getApiErrorMessage } from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
+import { hasActionPermission, isAdministrator } from "../utils/permissions";
+import { UsersRolesTab } from "../components/UsersRolesTab";
+import { ApplicationSettingsTab } from "../components/ApplicationSettingsTab";
 import {
   Trash2, Upload, Download, RefreshCw, AlertTriangle, Save,
-  UserPlus, Key, Shield, Settings as SettingsIcon, Database, FileJson,
+   Key, Shield, Settings as SettingsIcon, Database, FileJson,
   Rss, Cpu, Brain, Mail, Users, HardDrive, Skull, Server, Globe,
   FileSpreadsheet, Plus, Eye, EyeOff, X, User, Loader2, Palette,
   Pin, PinOff, ThumbsUp, ThumbsDown
@@ -16,34 +19,6 @@ import { ScatterplotLayer } from "@deck.gl/layers";
 import { Map } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 
-const ALL_PAGES = [
-  "Global Dashboards", "Threat Telemetry", "Regional Grid",
-  "Threat Hunting & IOCs", "AIOps RCA", "Shift Logbook",
-  "Reporting & Briefings", "Keyword Analysis", "Settings & Admin",
-];
-
-const ALL_ACTIONS = [
-  "Action: Pin Articles", "Action: Train ML Model", "Action: Boost Threat Score",
-  "Action: Trigger AI Functions", "Action: Manually Sync Data", "Action: Dispatch Exec Report",
-  "Action: Submit Shift Log", "Action: Dispatch RCA Tickets", "Action: Acknowledge RCA Alerts", "Action: Manage Site Maintenance",
-  "Tab: Dashboards -> Operational", "Tab: Dashboards -> Global Risk", "Tab: Dashboards -> Internal Risk", "Tab: Dashboards -> Unified Brief",
-  "Tab: Threat Telemetry -> RSS Triage", "Tab: Threat Telemetry -> CISA KEV",
-  "Tab: Threat Telemetry -> Cloud Services", "Tab: Threat Telemetry -> Perimeter Crime",
-  "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash",
-  "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix", "Tab: Regional Grid -> Weather Alerts Log", "Tab: Regional Grid -> Atmos Weather",
-  "Tab: Threat Hunting -> Global IOC Matrix", "Tab: Threat Hunting -> Deep Hunt Builder", "Tab: Reporting -> Elastic SIEM Report",
-  "Tab: AIOps RCA -> Active Board", "Tab: AIOps RCA -> Predictive Analytics", "Tab: AIOps RCA -> Global Correlation",
-  "Tab: Shift Log -> Active Shift", "Tab: Shift Log -> History",
-  "Tab: Reporting -> Daily Fusion", "Tab: Reporting -> Report Builder", "Tab: Reporting -> Shared Library",
-  "Tab: Settings -> Facility Locations", "Tab: Settings -> Internal Assets", "Tab: Settings -> RSS Sources", "Tab: Settings -> ML Training",
-  "Tab: Settings -> AI & SMTP", "Tab: Settings -> Users & Roles", "Tab: Settings -> Backup & Restore", "Tab: Settings -> Danger Zone",
-];
-
-const TAB_ACTIONS = ALL_ACTIONS.filter(action => action.startsWith("Tab:"));
-const OPERATION_ACTIONS = ALL_ACTIONS.filter(action => action.startsWith("Action:"));
-const ROLE_EDITOR_SECTIONS = ["pages", "tabs", "actions", "sites"] as const;
-type RoleEditorSection = typeof ROLE_EDITOR_SECTIONS[number];
-
 const TABS = [
   { id: "profile", label: "Profile", icon: User },
   { id: "theme", label: "Theme", icon: Palette },
@@ -52,6 +27,7 @@ const TABS = [
   { id: "rss", label: "RSS Sources", icon: Rss },
   { id: "ml", label: "ML Training", icon: Brain },
   { id: "ai-smtp", label: "AI & SMTP", icon: SettingsIcon },
+  { id: "application", label: "Application Settings", icon: Shield },
   { id: "users", label: "Users & Roles", icon: Users },
   { id: "backup", label: "Backup & Restore", icon: HardDrive },
   { id: "danger", label: "Danger Zone", icon: Skull },
@@ -137,105 +113,62 @@ function SectionTitle({ text }: { text: string }) {
   return <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>{text}</h4>;
 }
 
-function RoleEditorNav({ active, onChange }: { active: RoleEditorSection; onChange: (section: RoleEditorSection) => void }) {
-  return (
-    <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
-      {ROLE_EDITOR_SECTIONS.map(section => (
-        <button
-          key={section}
-          type="button"
-          onClick={() => onChange(section)}
-          style={{
-            background: active === section ? "var(--accent-blue)" : "var(--bg-tertiary)",
-            color: active === section ? "#fff" : "var(--text-secondary)",
-            border: `1px solid ${active === section ? "var(--accent-blue)" : "var(--border-primary)"}`,
-            borderRadius: "var(--radius-sm)", padding: "0.35rem 0.65rem", cursor: "pointer",
-            fontSize: "0.75rem", fontWeight: active === section ? 700 : 500,
-          }}
-        >
-          {section === "pages" ? "Pages" : section === "tabs" ? "Tabs" : section === "actions" ? "Actions" : "Site Types"}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function RolePermissionSection({ section, value, onChange, allSiteTypes }: {
-  section: RoleEditorSection;
-  value: { allowed_pages: string[]; allowed_actions: string[]; allowed_site_types: string[] };
-  onChange: (key: "allowed_pages" | "allowed_actions" | "allowed_site_types", values: string[]) => void;
-  allSiteTypes: string[];
-}) {
-  if (section === "pages") return <CheckboxGroup label="Allowed Pages" options={ALL_PAGES} selected={value.allowed_pages} onChange={v => onChange("allowed_pages", v)} />;
-  if (section === "tabs") return <CheckboxGroup label="Allowed Tabs" options={TAB_ACTIONS} selected={value.allowed_actions} onChange={v => onChange("allowed_actions", v)} />;
-  if (section === "actions") return <CheckboxGroup label="Operational Actions" options={OPERATION_ACTIONS} selected={value.allowed_actions} onChange={v => onChange("allowed_actions", v)} />;
-  return <CheckboxGroup label="Allowed Site Types" options={allSiteTypes} selected={value.allowed_site_types} onChange={v => onChange("allowed_site_types", v)} />;
-}
-
 export function SettingsPage() {
   const { user: currentUser, refreshUser } = useAuth();
   const allowedSettingsTabs = getAllowedTabs(currentUser?.allowed_actions, "settings");
   const [tab, setTab] = useState("profile");
   const queryClient = useQueryClient();
-  const isAdmin = ["admin", "administrator"].includes(String(currentUser?.role || "").toLowerCase());
+  const isAdmin = isAdministrator(currentUser);
 
   const { data: config, isLoading: configLoading } = useQuery({
     queryKey: ["settings-config"],
     queryFn: () => api.get("/settings/config").then(r => r.data),
     refetchInterval: 60000,
-  });
-
-  const { data: roles, isLoading: rolesLoading, isError: rolesError } = useQuery({
-    queryKey: ["admin-roles"],
-    queryFn: () => api.get("/admin/roles").then(r => r.data),
-    enabled: isAdmin,
-  });
-
-  const { data: users } = useQuery({
-    queryKey: ["admin-users"],
-    queryFn: () => api.get("/settings/users").then(r => r.data),
-    enabled: isAdmin,
+    enabled: tab === "ai-smtp",
   });
 
   const { data: locations, isLoading: locationsLoading, isError: locationsError, refetch: refetchLocations } = useQuery({
     queryKey: ["admin-locations"],
-    queryFn: () => api.get("/admin/location").then(r => r.data),
+    queryFn: () => api.get("/settings/facilities").then(r => r.data),
     retry: 2,
     refetchOnMount: "always",
+    enabled: tab === "facilities",
   });
 
   const { data: lists } = useQuery({
     queryKey: ["admin-lists"],
-    queryFn: () => api.get("/admin/lists").then(r => r.data),
+    queryFn: () => api.get("/settings/rss").then(r => r.data),
+    enabled: tab === "rss",
   });
 
   const { data: mlCounts } = useQuery({
-    queryKey: ["admin-ml-counts"],
-    queryFn: () => api.get("/admin/ml-counts").then(r => r.data),
+    queryKey: ["application-ml-counts"],
+    queryFn: () => api.get("/application-settings/ml-counts").then(r => r.data),
+    enabled: tab === "ml",
   });
-
-  const { data: siteTypes } = useQuery({
-    queryKey: ["site-types"],
-    queryFn: () => api.get("/regional/site-types").then(r => r.data),
-    staleTime: 60000,
-  });
-
-  const ALL_SITE_TYPES: string[] = siteTypes?.length ? siteTypes : ["NOC", "SOC", "Data Center", "Field Office", "HQ", "Remote Site", "Cloud"];
 
   const saveConfigMutation = useMutation({
-    mutationFn: (data: any) => api.post("/admin/config", data),
+    mutationFn: (data: any) => {
+      const payload = { ...data };
+      if (!String(payload.llm_api_key || "").trim()) delete payload.llm_api_key;
+      if (!String(payload.smtp_password || "").trim()) delete payload.smtp_password;
+      return api.post("/admin/config", payload);
+    },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["settings-config"] }); alert("Configuration saved."); },
-    onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
+    onError: (e: any) => alert(getApiErrorMessage(e, "Configuration could not be saved.")),
   });
 
-  useEffect(() => {
-    if (tab === "profile") return;
-    if (allowedSettingsTabs.length > 0 && !allowedSettingsTabs.includes(tab)) {
-      setTab(allowedSettingsTabs[0]);
-    }
-  }, [allowedSettingsTabs.join(",")]);
+  // Tab grants control visibility. Component-level action checks decide which
+  // controls are available, while sensitive APIs continue to enforce access.
+  const filteredTabs = TABS.filter(t =>
+    t.id === "profile" || t.id === "theme" || isAdmin || allowedSettingsTabs.includes(t.id)
+  );
 
-  const filteredTabs = TABS.filter(t => t.id === "profile" || t.id === "theme" || isAdmin || allowedSettingsTabs.includes(t.id));
+  useEffect(() => {
+    if (!filteredTabs.some(item => item.id === tab)) {
+      setTab(filteredTabs[0]?.id || "profile");
+    }
+  }, [filteredTabs.map(item => item.id).join(","), tab]);
 
   return (
     <div style={{ padding: "1.5rem" }}>
@@ -251,16 +184,15 @@ export function SettingsPage() {
 
       {tab === "profile" && <ProfileTab user={currentUser} onProfileUpdated={refreshUser} />}
       {tab === "theme" && <ThemeTab />}
-      {tab === "facilities" && <FacilitiesTab locations={locations} locationsLoading={locationsLoading} locationsError={locationsError} refetchLocations={refetchLocations} queryClient={queryClient} />}
-      {tab === "assets" && <AssetsTab />}
-      {tab === "rss" && <RssTab lists={lists} queryClient={queryClient} />}
-      {tab === "ml" && <MlTab mlCounts={mlCounts} />}
-      {tab === "ai-smtp" && <AiSmtpTab config={config} configLoading={configLoading} saveConfigMutation={saveConfigMutation} />}
-       {tab === "users" && (isAdmin
-         ? <UsersRolesTab roles={roles} users={users} rolesLoading={rolesLoading} rolesError={rolesError} queryClient={queryClient} allSiteTypes={ALL_SITE_TYPES} />
-         : <Card title="Users & Roles" icon={Users}><p style={{ color: "var(--text-muted)" }}>Administrator access is required to manage users and roles.</p></Card>)}
-      {tab === "backup" && <BackupRestoreTab />}
-      {tab === "danger" && <DangerZoneTab />}
+      {tab === "facilities" && <FacilitiesTab locations={locations} locationsLoading={locationsLoading} locationsError={locationsError} refetchLocations={refetchLocations} queryClient={queryClient} canEdit={isAdmin} />}
+      {tab === "assets" && <AssetsTab canManage={isAdmin} />}
+      {tab === "rss" && <RssTab lists={lists} queryClient={queryClient} canManage={isAdmin} />}
+      {tab === "ml" && <MlTab mlCounts={mlCounts} canTrain={isAdmin || hasActionPermission(currentUser, "Action: Train ML Model")} />}
+      {tab === "ai-smtp" && <AiSmtpTab config={config} configLoading={configLoading} saveConfigMutation={saveConfigMutation} readOnly={!isAdmin} />}
+      {tab === "users" && <UsersRolesTab user={currentUser} />}
+      {tab === "application" && <ApplicationSettingsTab user={currentUser} />}
+      {tab === "backup" && <BackupRestoreTab isAdmin={isAdmin} />}
+      {tab === "danger" && <DangerZoneTab isAdmin={isAdmin} />}
     </div>
   );
 }
@@ -275,6 +207,9 @@ function ProfileTab({ user, onProfileUpdated }: { user: any; onProfileUpdated: (
   const [defaultShift, setDefaultShift] = useState(user?.default_shift || "No Shift");
   const [oldPwd, setOldPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
+  const [recoveryEmail, setRecoveryEmail] = useState(user?.email || "");
+  const [recoveryMessage, setRecoveryMessage] = useState("");
+  const [recoveryError, setRecoveryError] = useState("");
   const [showPwd, setShowPwd] = useState(false);
 
   const updateProfile = useMutation({
@@ -284,7 +219,25 @@ function ProfileTab({ user, onProfileUpdated }: { user: any; onProfileUpdated: (
       setOldPwd("");
       setNewPwd("");
     },
-    onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
+    onError: (e: any) => alert(getApiErrorMessage(e, "Profile could not be updated.")),
+  });
+
+  const requestRecoveryEmail = useMutation({
+    mutationFn: () => api.post("/auth/request-recovery-email", { email: recoveryEmail }),
+    onSuccess: (response) => {
+      setRecoveryError("");
+      setRecoveryMessage(response.data.message || "Your email request is awaiting administrator approval.");
+      onProfileUpdated();
+    },
+    onError: (reason: any) => {
+      setRecoveryMessage("");
+      setRecoveryError(getApiErrorMessage(reason, "Recovery-email request could not be submitted."));
+    },
+  });
+  const resendEmailVerification = useMutation({
+    mutationFn: () => api.post("/auth/resend-recovery-email-verification"),
+    onSuccess: response => setRecoveryMessage(response.data.message || "A new verification link was sent."),
+    onError: (reason: any) => setRecoveryError(getApiErrorMessage(reason, "Unable to resend the verification email.")),
   });
 
   const handleSave = () => {
@@ -349,6 +302,30 @@ function ProfileTab({ user, onProfileUpdated }: { user: any; onProfileUpdated: (
         </div>
       </Card>
 
+      {user?.account_type !== "display" && <div style={{ gridColumn: "1 / -1" }}>
+        <Card title="Password Recovery Email" icon={Mail}>
+          <p style={{ margin: "0 0 0.75rem", color: "var(--text-muted)", fontSize: "0.8rem", lineHeight: 1.5 }}>
+            This email is used to send a password-reset link if you forget your password. A user administrator must approve an email change, and the mailbox must be verified before it can be used for recovery.
+          </p>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "end", flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 240 }}>
+              <SectionTitle text="Recovery email" />
+              <input style={inputStyle} type="email" required maxLength={254} value={recoveryEmail} onChange={e => setRecoveryEmail(e.target.value)} placeholder="you@example.com" />
+            </div>
+            <button type="button" onClick={() => requestRecoveryEmail.mutate()} disabled={requestRecoveryEmail.isPending || !recoveryEmail.trim()} style={btn("var(--accent-purple)")}>
+              <Mail size={14} /> {requestRecoveryEmail.isPending ? "Submitting..." : "Request email approval"}
+            </button>
+          </div>
+          {(recoveryMessage || recoveryError) && <p role={recoveryError ? "alert" : "status"} style={{ color: recoveryError ? "var(--accent-red)" : "var(--accent-green)", fontSize: "0.8rem", marginBottom: 0 }}>{recoveryError || recoveryMessage}</p>}
+          {user?.recovery_email_status === "pending_approval" && <p style={{ color: "var(--accent-orange)", fontSize: "0.78rem" }}>Request pending approval for {user.pending_email || "the new email address"}.</p>}
+          {user?.recovery_email_status === "pending_approval" && ["admin", "administrator"].includes(String(user?.role || "").toLowerCase()) && <p role="status" style={{ color: "var(--text-muted)", fontSize: "0.76rem" }}>
+            Another verified user administrator must approve this request. For a single-admin initial setup, configure the same address as `DEFAULT_ADMIN_EMAIL` and restart the API or worker.
+          </p>}
+          {user?.recovery_email_status === "pending_verification" && <p style={{ color: "var(--accent-orange)", fontSize: "0.78rem" }}>Administrator approval received. Check {user.pending_email || "the new email address"} for a verification link.</p>}
+          {user?.recovery_email_status === "pending_verification" && <button type="button" onClick={() => resendEmailVerification.mutate()} disabled={resendEmailVerification.isPending} style={btn("var(--bg-tertiary)")}>{resendEmailVerification.isPending ? "Sending..." : "Resend verification email"}</button>}
+        </Card>
+      </div>}
+
       <div style={{ gridColumn: "1 / -1" }}>
         <button onClick={handleSave} disabled={updateProfile.isPending} style={btn("var(--accent-blue)")}>
           <Save size={14} /> {updateProfile.isPending ? "Saving..." : "Save Profile"}
@@ -361,7 +338,7 @@ function ProfileTab({ user, onProfileUpdated }: { user: any; onProfileUpdated: (
 /* ============================
    1. FACILITIES TAB
    ============================ */
-function FacilitiesTab({ locations, locationsLoading, locationsError, refetchLocations, queryClient }: { locations: any; locationsLoading: boolean; locationsError: boolean; refetchLocations: () => unknown; queryClient: any }) {
+function FacilitiesTab({ locations, locationsLoading, locationsError, refetchLocations, queryClient, canEdit }: { locations: any; locationsLoading: boolean; locationsError: boolean; refetchLocations: () => unknown; queryClient: any; canEdit: boolean }) {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importMode, setImportMode] = useState<"add" | "upsert" | "replace">("add");
   const [editData, setEditData] = useState<any[]>([]);
@@ -511,6 +488,18 @@ function FacilitiesTab({ locations, locationsLoading, locationsError, refetchLoc
           </div>
         )}
       </Card>
+      {!canEdit && <Card title="Facility Directory" icon={FileSpreadsheet} wide>
+        <p style={{ marginTop: 0, color: "var(--text-muted)", fontSize: "0.78rem" }}>This tab is read-only for your role. An administrator manages location imports and edits.</p>
+        {locs.length === 0 ? <p style={{ color: "var(--text-muted)", fontSize: "0.82rem" }}>No locations are available for your assigned site types.</p> : (
+          <div style={{ maxHeight: 320, overflowY: "auto" }}>
+            {locs.map((location: any) => <div key={location.id ?? location.name} style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", padding: "0.4rem 0", borderBottom: "1px solid var(--border-primary)", fontSize: "0.78rem" }}>
+              <strong>{location.name}</strong>
+              <span style={{ color: "var(--text-muted)", textAlign: "right" }}>{location.loc_type || location.type || "Unknown type"} · {location.district || "Unknown district"}</span>
+            </div>)}
+          </div>
+        )}
+      </Card>}
+      {canEdit && <>
       <Card title="Mass Import JSON" icon={Upload}>
         <input
           type="file"
@@ -588,6 +577,7 @@ function FacilitiesTab({ locations, locationsLoading, locationsError, refetchLoc
           </>
         )}
       </Card>
+      </>}
     </div>
   );
 }
@@ -595,10 +585,16 @@ function FacilitiesTab({ locations, locationsLoading, locationsError, refetchLoc
 /* ============================
    2. INTERNAL ASSETS TAB
    ============================ */
-function AssetsTab() {
+function AssetsTab({ canManage }: { canManage: boolean }) {
   const [swFile, setSwFile] = useState<File | null>(null);
   const [hwFile, setHwFile] = useState<File | null>(null);
   const queryClient = useQueryClient();
+
+  if (!canManage) {
+    return <div role="status" style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-md)", padding: "1rem", color: "var(--text-secondary)" }}>
+      You can open Internal Assets settings, but asset imports are administrator-managed.
+    </div>;
+  }
 
   const uploadSw = useMutation({
     mutationFn: (file: File) => {
@@ -672,7 +668,7 @@ function AssetsTab() {
 /* ============================
    3. RSS SOURCES TAB
    ============================ */
-function RssTab({ lists, queryClient }: { lists: any; queryClient: any }) {
+function RssTab({ lists, queryClient, canManage }: { lists: any; queryClient: any; canManage: boolean }) {
   const [kwText, setKwText] = useState("");
   const [feedText, setFeedText] = useState("");
   const [editingKwId, setEditingKwId] = useState<number | null>(null);
@@ -730,11 +726,28 @@ function RssTab({ lists, queryClient }: { lists: any; queryClient: any }) {
     queryKey: ["settings-articles"],
     queryFn: () => api.get("/threat/articles", { params: { category: "live", page: 1, page_size: 20 } }).then(r => r.data),
     refetchInterval: 60000,
+    enabled: canManage,
   });
 
   const keywords = lists?.keywords ?? [];
   const feeds = lists?.feeds ?? [];
   const articles: any[] = recentArticles?.items ?? [];
+
+  if (!canManage) {
+    return <div style={{ display: "grid", gap: "1.25rem" }}>
+      <div role="status" style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-md)", padding: "0.75rem 1rem", color: "var(--text-secondary)", fontSize: "0.8rem" }}>
+        Read-only access. An administrator manages RSS feeds, scoring keywords, and article feedback.
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
+        <Card title="Keywords" icon={Globe}>
+          {keywords.length ? keywords.map((keyword: any) => <div key={keyword.id ?? keyword.word} style={{ padding: "0.35rem 0", borderBottom: "1px solid var(--border-primary)", fontSize: "0.8rem", color: "var(--text-primary)" }}>{keyword.word} <span style={{ color: "var(--text-muted)" }}>w:{keyword.weight}</span></div>) : <p style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>No keywords configured.</p>}
+        </Card>
+        <Card title="RSS Feeds" icon={Rss}>
+          {feeds.length ? feeds.map((feed: any) => <div key={feed.id ?? feed.url} style={{ padding: "0.35rem 0", borderBottom: "1px solid var(--border-primary)", fontSize: "0.8rem" }}><div style={{ color: "var(--text-primary)" }}>{feed.name}</div><div style={{ color: "var(--text-muted)", fontSize: "0.7rem", overflowWrap: "anywhere" }}>{feed.url}</div></div>) : <p style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>No feeds configured.</p>}
+        </Card>
+      </div>
+    </div>;
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
@@ -876,11 +889,11 @@ function RssTab({ lists, queryClient }: { lists: any; queryClient: any }) {
 /* ============================
    4. ML TRAINING TAB
    ============================ */
-function MlTab({ mlCounts }: { mlCounts: any }) {
+function MlTab({ mlCounts, canTrain }: { mlCounts: any; canTrain: boolean }) {
   const queryClient = useQueryClient();
   const retrain = useMutation({
-    mutationFn: () => api.post("/admin/ml-retrain"),
-    onSuccess: () => { alert("Model retrained."); queryClient.invalidateQueries({ queryKey: ["admin-ml-counts"] }); },
+    mutationFn: () => api.post("/application-settings/ml-retrain"),
+    onSuccess: () => { alert("Model retrained."); queryClient.invalidateQueries({ queryKey: ["application-ml-counts"] }); },
     onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
   });
 
@@ -898,10 +911,10 @@ function MlTab({ mlCounts }: { mlCounts: any }) {
         </Card>
       </div>
       <Card title="Model Training">
-        <button onClick={() => retrain.mutate()} disabled={retrain.isPending} style={btn("var(--accent-cyan)")}>
+        {canTrain ? <button onClick={() => retrain.mutate()} disabled={retrain.isPending} style={btn("var(--accent-cyan)")}>
           {retrain.isPending ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
           {retrain.isPending ? "Training..." : "Retrain Model Now"}
-        </button>
+        </button> : <p role="status" style={{ color: "var(--text-muted)", fontSize: "0.8rem", margin: 0 }}>Your role can view training statistics. Retraining requires the Train ML Model action.</p>}
       </Card>
     </div>
   );
@@ -910,7 +923,7 @@ function MlTab({ mlCounts }: { mlCounts: any }) {
 /* ============================
    5. AI & SMTP TAB
    ============================ */
-function AiSmtpTab({ config, configLoading, saveConfigMutation }: { config: any; configLoading: boolean; saveConfigMutation: any }) {
+function AiSmtpTab({ config, configLoading, saveConfigMutation, readOnly }: { config: any; configLoading: boolean; saveConfigMutation: any; readOnly: boolean }) {
   const [form, setForm] = useState<any>(null);
   const [showKey, setShowKey] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -931,7 +944,6 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation }: { config: any;
       llm_api_key: config.llm_api_key || "",
       llm_model_name: config.llm_model_name || "",
       llm_context_window: config.llm_context_window ?? 128000,
-      tech_stack: config.tech_stack || "",
       is_active: config.is_active ?? false,
       smtp_server: config.smtp_server || "",
       smtp_port: config.smtp_port ?? 587,
@@ -940,24 +952,6 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation }: { config: any;
       smtp_sender: config.smtp_sender || "",
       smtp_recipient: config.smtp_recipient || "",
       smtp_enabled: config.smtp_enabled ?? false,
-      failed_login_alert_enabled: config.failed_login_alert_enabled ?? false,
-      failed_login_alert_recipients: config.failed_login_alert_recipients || "",
-      failed_login_alert_threshold: config.failed_login_alert_threshold ?? 5,
-      failed_login_alert_window_minutes: config.failed_login_alert_window_minutes ?? 5,
-      cyber_baseline: config.cyber_baseline ?? 3,
-      physical_baseline: config.physical_baseline ?? 3,
-      sys_countermeasures: config.sys_countermeasures ?? 3,
-      net_countermeasures: config.net_countermeasures ?? 3,
-      scoring_mode: config.scoring_mode || "auto",
-      cyber_criticality_override: config.cyber_criticality_override || 0,
-      cyber_lethality_override: config.cyber_lethality_override || 0,
-      physical_criticality_override: config.physical_criticality_override || 0,
-      physical_lethality_override: config.physical_lethality_override || 0,
-      internal_criticality_override: config.internal_criticality_override || 0,
-      internal_lethality_override: config.internal_lethality_override || 0,
-      global_risk_offset: config.global_risk_offset || 0,
-       internal_risk_offset: config.internal_risk_offset || 0,
-       public_app_url: config.public_app_url || "",
     });
   }
 
@@ -969,42 +963,41 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation }: { config: any;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      {readOnly && <div role="status" style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-md)", padding: "0.75rem 1rem", color: "var(--text-secondary)", fontSize: "0.8rem" }}>
+        Read-only access. Only administrators can edit AI and SMTP configuration.
+      </div>}
       <Card title="LLM Configuration" icon={Cpu}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
           <div>
             <SectionTitle text="Endpoint" />
-            <input style={inputStyle} value={form.llm_endpoint} onChange={e => upd("llm_endpoint", e.target.value)} placeholder="https://api.openai.com/v1" />
+            <input style={inputStyle} disabled={readOnly} value={form.llm_endpoint} onChange={e => upd("llm_endpoint", e.target.value)} placeholder="https://api.openai.com/v1" />
           </div>
           <div>
             <SectionTitle text="API Key" />
             <div style={{ display: "flex", gap: "0.3rem" }}>
-              <input style={inputStyle} type={showKey ? "text" : "password"} value={form.llm_api_key} onChange={e => upd("llm_api_key", e.target.value)} placeholder="sk-..." />
-              <button onClick={() => setShowKey(!showKey)} style={{ background: "none", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", color: "var(--text-secondary)", cursor: "pointer", padding: "0.35rem" }}>
+              <input style={inputStyle} disabled={readOnly} type={showKey ? "text" : "password"} value={form.llm_api_key} onChange={e => upd("llm_api_key", e.target.value)} placeholder="sk-..." />
+              {!readOnly && <button onClick={() => setShowKey(!showKey)} style={{ background: "none", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", color: "var(--text-secondary)", cursor: "pointer", padding: "0.35rem" }}>
                 {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
+              </button>}
             </div>
           </div>
           <div>
             <SectionTitle text="Model Name" />
-            <input style={inputStyle} value={form.llm_model_name} onChange={e => upd("llm_model_name", e.target.value)} placeholder="gpt-4" />
+            <input style={inputStyle} disabled={readOnly} value={form.llm_model_name} onChange={e => upd("llm_model_name", e.target.value)} placeholder="gpt-4" />
           </div>
           <div>
             <SectionTitle text="Context Window" />
-            <input style={inputStyle} type="number" min={4096} step={4096} value={form.llm_context_window} onChange={e => upd("llm_context_window", Number(e.target.value))} placeholder="128000" />
-          </div>
-          <div>
-            <SectionTitle text="Tech Stack" />
-            <input style={inputStyle} value={form.tech_stack} onChange={e => upd("tech_stack", e.target.value)} placeholder="Python, FastAPI, React" />
+            <input style={inputStyle} disabled={readOnly} type="number" min={4096} step={4096} value={form.llm_context_window} onChange={e => upd("llm_context_window", Number(e.target.value))} placeholder="128000" />
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginTop: "0.6rem", flexWrap: "wrap" }}>
           <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem", color: "var(--text-primary)", cursor: "pointer" }}>
-            <input type="checkbox" checked={form.is_active} onChange={e => upd("is_active", e.target.checked)} />
+            <input type="checkbox" disabled={readOnly} checked={form.is_active} onChange={e => upd("is_active", e.target.checked)} />
             Enable AI
           </label>
-          <button onClick={() => { setTestResult(null); testConnectionMutation.mutate(); }} disabled={testConnectionMutation.isPending} style={btn("var(--accent-cyan)")}>
+          {!readOnly && <button onClick={() => { setTestResult(null); testConnectionMutation.mutate(); }} disabled={testConnectionMutation.isPending} style={btn("var(--accent-cyan)")}>
             <RefreshCw size={14} /> {testConnectionMutation.isPending ? "Testing..." : "Test Connection"}
-          </button>
+          </button>}
           {testResult && (
             <span style={{ fontSize: "0.78rem", color: testResult.success ? "var(--accent-green)" : "var(--accent-red)", fontWeight: 500 }}>
               {testResult.success ? "OK" : "FAIL"} &mdash; {testResult.message}
@@ -1013,393 +1006,42 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation }: { config: any;
         </div>
       </Card>
 
-      <Card title="Application Links" icon={Globe}>
-        <SectionTitle text="Public Server Address" />
-        <input
-          style={inputStyle}
-          type="url"
-          maxLength={500}
-          value={form.public_app_url}
-          onChange={e => upd("public_app_url", e.target.value)}
-          placeholder="https://noc.example.com"
-        />
-        <p style={{ margin: "0.45rem 0 0", color: "var(--text-muted)", fontSize: "0.75rem" }}>
-          Used when generating registration invites and links to web-based operational areas. Include the scheme, for example <code>https://noc.example.com</code>, but no trailing path.
-        </p>
-      </Card>
-
       <Card title="SMTP Broadcast" icon={Mail}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
           <div>
             <SectionTitle text="Server" />
-            <input style={inputStyle} value={form.smtp_server} onChange={e => upd("smtp_server", e.target.value)} placeholder="smtp.gmail.com" />
+            <input style={inputStyle} disabled={readOnly} value={form.smtp_server} onChange={e => upd("smtp_server", e.target.value)} placeholder="smtp.gmail.com" />
           </div>
           <div>
             <SectionTitle text="Port" />
-            <input style={inputStyle} type="number" value={form.smtp_port} onChange={e => upd("smtp_port", Number(e.target.value))} />
+            <input style={inputStyle} disabled={readOnly} type="number" value={form.smtp_port} onChange={e => upd("smtp_port", Number(e.target.value))} />
           </div>
           <div>
             <SectionTitle text="Username" />
-            <input style={inputStyle} value={form.smtp_username} onChange={e => upd("smtp_username", e.target.value)} />
+            <input style={inputStyle} disabled={readOnly} value={form.smtp_username} onChange={e => upd("smtp_username", e.target.value)} />
           </div>
           <div>
             <SectionTitle text="Password" />
-            <input style={inputStyle} type="password" value={form.smtp_password} onChange={e => upd("smtp_password", e.target.value)} />
+            <input style={inputStyle} disabled={readOnly} type="password" value={form.smtp_password} onChange={e => upd("smtp_password", e.target.value)} />
           </div>
           <div>
             <SectionTitle text="Sender" />
-            <input style={inputStyle} value={form.smtp_sender} onChange={e => upd("smtp_sender", e.target.value)} placeholder="noc@example.com" />
+            <input style={inputStyle} disabled={readOnly} value={form.smtp_sender} onChange={e => upd("smtp_sender", e.target.value)} placeholder="noc@example.com" />
           </div>
           <div>
             <SectionTitle text="Recipient" />
-            <input style={inputStyle} value={form.smtp_recipient} onChange={e => upd("smtp_recipient", e.target.value)} placeholder="admin@example.com" />
+            <input style={inputStyle} disabled={readOnly} value={form.smtp_recipient} onChange={e => upd("smtp_recipient", e.target.value)} placeholder="admin@example.com" />
           </div>
         </div>
         <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.6rem", fontSize: "0.8rem", color: "var(--text-primary)", cursor: "pointer" }}>
-          <input type="checkbox" checked={form.smtp_enabled} onChange={e => upd("smtp_enabled", e.target.checked)} />
+          <input type="checkbox" disabled={readOnly} checked={form.smtp_enabled} onChange={e => upd("smtp_enabled", e.target.checked)} />
           SMTP Enabled
         </label>
       </Card>
 
-      <Card title="Failed Login Alerts" icon={Shield}>
-        <p style={{ margin: "0 0 0.75rem", color: "var(--text-muted)", fontSize: "0.75rem" }}>
-          Send an email when the configured number of failed sign-in attempts occurs within the selected time window. One alert is sent per window; the alert includes submitted usernames and source IP addresses when available. SMTP must be enabled above.
-        </p>
-        <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.75rem", fontSize: "0.8rem", color: "var(--text-primary)", cursor: "pointer" }}>
-          <input type="checkbox" checked={form.failed_login_alert_enabled} onChange={e => upd("failed_login_alert_enabled", e.target.checked)} />
-          Enable failed login alerts
-        </label>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-          <div style={{ gridColumn: "1 / -1" }}>
-            <SectionTitle text="Alert Recipients (comma, semicolon, or newline separated)" />
-            <textarea
-              style={textareaStyle}
-              value={form.failed_login_alert_recipients}
-              onChange={e => upd("failed_login_alert_recipients", e.target.value)}
-              placeholder="security@example.com, noc@example.com"
-            />
-          </div>
-          <div>
-            <SectionTitle text="Failed Attempts Before Alert" />
-            <input
-              style={inputStyle}
-              type="number"
-              min={2}
-              max={100}
-              step={1}
-              value={form.failed_login_alert_threshold}
-              onChange={e => upd("failed_login_alert_threshold", Number(e.target.value))}
-            />
-          </div>
-          <div>
-            <SectionTitle text="Time Window (Minutes)" />
-            <input
-              style={inputStyle}
-              type="number"
-              min={1}
-              max={60}
-              step={1}
-              value={form.failed_login_alert_window_minutes}
-              onChange={e => upd("failed_login_alert_window_minutes", Number(e.target.value))}
-            />
-          </div>
-        </div>
-      </Card>
-
-      <Card title="Threat Matrix Baseline Overrides" icon={Shield}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", maxWidth: 400 }}>
-          <div>
-            <SectionTitle text="Cyber Baseline" />
-            <input style={inputStyle} type="number" min={1} max={5} value={form.cyber_baseline} onChange={e => upd("cyber_baseline", Number(e.target.value))} />
-          </div>
-          <div>
-            <SectionTitle text="Physical Baseline" />
-            <input style={inputStyle} type="number" min={1} max={5} value={form.physical_baseline} onChange={e => upd("physical_baseline", Number(e.target.value))} />
-          </div>
-        </div>
-      </Card>
-
-      <Card title="CIS Scoring Configuration" icon={Shield}>
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          <div>
-            <SectionTitle text="Default Scoring Mode" />
-            <select value={form.scoring_mode} onChange={e => upd("scoring_mode", e.target.value)}
-              style={{
-                padding: "0.35rem 0.5rem", borderRadius: "var(--radius-sm, 4px)",
-                border: "1px solid var(--border-primary, #e2e8f0)", fontSize: "0.82rem", maxWidth: 300,
-              }}>
-              <option value="auto">Auto (Full Algorithmic)</option>
-              <option value="manual">Manual (Override All)</option>
-              <option value="hybrid">Hybrid (Auto + Offset)</option>
-            </select>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", maxWidth: 600 }}>
-            <div>
-              <SectionTitle text={`System Countermeasures (${form.sys_countermeasures}/5)`} />
-              <input type="range" min={1} max={5} step={1} value={form.sys_countermeasures} onChange={e => upd("sys_countermeasures", Number(e.target.value))} style={{ width: "100%" }} />
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: "var(--text-muted)" }}>
-                <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
-              </div>
-            </div>
-            <div>
-              <SectionTitle text={`Network Countermeasures (${form.net_countermeasures}/5)`} />
-              <input type="range" min={1} max={5} step={1} value={form.net_countermeasures} onChange={e => upd("net_countermeasures", Number(e.target.value))} style={{ width: "100%" }} />
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: "var(--text-muted)" }}>
-                <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
-              </div>
-            </div>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", maxWidth: 400 }}>
-            <div>
-              <SectionTitle text="Default Global Risk Offset" />
-              <input type="number" min={-3} max={3} step={1} value={form.global_risk_offset}
-                onChange={e => upd("global_risk_offset", Number(e.target.value))}
-                style={{ padding: "0.35rem 0.5rem", borderRadius: "var(--radius-sm, 4px)",
-                  border: "1px solid var(--border-primary, #e2e8f0)", fontSize: "0.82rem", width: "100%" }} />
-            </div>
-            <div>
-              <SectionTitle text="Default Internal Risk Offset" />
-              <input type="number" min={-3} max={3} step={1} value={form.internal_risk_offset}
-                onChange={e => upd("internal_risk_offset", Number(e.target.value))}
-                style={{ padding: "0.35rem 0.5rem", borderRadius: "var(--radius-sm, 4px)",
-                  border: "1px solid var(--border-primary, #e2e8f0)", fontSize: "0.82rem", width: "100%" }} />
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      <button onClick={() => saveConfigMutation.mutate(form)} disabled={saveConfigMutation.isPending} style={{ ...btn("var(--accent-green)"), alignSelf: "flex-start" }}>
+      {!readOnly && <button onClick={() => saveConfigMutation.mutate(form)} disabled={saveConfigMutation.isPending} style={{ ...btn("var(--accent-green)"), alignSelf: "flex-start" }}>
         <Save size={14} /> {saveConfigMutation.isPending ? "Saving..." : "Save Configuration"}
-      </button>
-    </div>
-  );
-}
-
-/* ============================
-   6. USERS & ROLES TAB
-   ============================ */
-function CheckboxGroup({ label, options, selected, onChange }: { label: string; options: string[]; selected: string[]; onChange: (v: string[]) => void }) {
-  const toggle = (opt: string) => {
-    onChange(selected.includes(opt) ? selected.filter(x => x !== opt) : [...selected, opt]);
-  };
-  return (
-    <div>
-      <SectionTitle text={label} />
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>
-        {options.map(opt => (
-          <label key={opt} style={{
-            display: "inline-flex", alignItems: "center", gap: "0.25rem",
-            fontSize: "0.78rem", cursor: "pointer",
-            padding: "0.2rem 0.5rem", borderRadius: "var(--radius-sm)",
-            background: selected.includes(opt) ? "var(--accent-blue)" : "var(--bg-tertiary)",
-            color: selected.includes(opt) ? "#fff" : "var(--text-secondary)",
-            border: `1px solid ${selected.includes(opt) ? "var(--accent-blue)" : "var(--border-primary)"}`,
-          }}>
-            <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} style={{ display: "none" }} />
-            {opt}
-          </label>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function UsersRolesTab({ roles, users, rolesLoading, rolesError, queryClient, allSiteTypes }: { roles: any; users: any; rolesLoading: boolean; rolesError: boolean; queryClient: any; allSiteTypes: string[] }) {
-  const [newUser, setNewUser] = useState({ username: "", password: "", full_name: "", role: "viewer" });
-  const [invite, setInvite] = useState({ username: "", role: "analyst", ttl_hours: 72 });
-  const [inviteUrl, setInviteUrl] = useState("");
-  const [roleChange, setRoleChange] = useState({ username: "", new_role: "viewer" });
-  const [newRole, setNewRole] = useState({ name: "", allowed_pages: [] as string[], allowed_actions: [] as string[], allowed_site_types: [] as string[] });
-  const [editRole, setEditRole] = useState<any>(null);
-  const [newRoleSection, setNewRoleSection] = useState<RoleEditorSection>("pages");
-  const [editRoleSection, setEditRoleSection] = useState<RoleEditorSection>("pages");
-  const [resetPw, setResetPw] = useState({ username: "", new_password: "" });
-
-  const createUser = useMutation({
-    mutationFn: (data: any) => api.post("/admin/users", data),
-    onSuccess: () => { alert("User created."); setNewUser({ username: "", password: "", full_name: "", role: "viewer" }); queryClient.invalidateQueries({ queryKey: ["admin-users"] }); },
-    onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
-  });
-
-  const createInvite = useMutation({
-    mutationFn: (data: any) => api.post("/admin/registration-invites", data),
-    onSuccess: (response) => {
-      setInviteUrl(response.data.registration_url);
-      setInvite((previous) => ({ ...previous, username: "" }));
-    },
-    onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
-  });
-
-  const changeRole = useMutation({
-    mutationFn: ({ username, new_role }: any) => api.put(`/admin/users/${username}/role`, { role: new_role }),
-    onSuccess: () => { alert("Role updated."); queryClient.invalidateQueries({ queryKey: ["admin-users"] }); },
-    onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
-  });
-
-  const createRole = useMutation({
-    mutationFn: (data: any) => api.post("/admin/roles", data),
-    onSuccess: () => { alert("Role created."); setNewRole({ name: "", allowed_pages: [], allowed_actions: [], allowed_site_types: [] }); queryClient.invalidateQueries({ queryKey: ["admin-roles"] }); },
-    onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
-  });
-
-  const editRoleMutation = useMutation({
-    mutationFn: (data: any) => api.put(`/admin/roles/${data.name}`, data),
-    onSuccess: () => { alert("Role updated."); setEditRole(null); queryClient.invalidateQueries({ queryKey: ["admin-roles"] }); },
-    onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
-  });
-
-  const resetPwMutation = useMutation({
-    mutationFn: ({ username, new_password }: any) => api.post(`/admin/users/${username}/reset-password`, { new_password }),
-    onSuccess: () => { alert("Password reset."); setResetPw({ username: "", new_password: "" }); },
-    onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
-  });
-
-  const roleOpts = Array.isArray(roles) ? roles.map((r: any) => r.name) : ["admin", "analyst", "viewer"];
-  const userList = Array.isArray(users) ? users : [];
-
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
-      <Card title="Create User" icon={UserPlus}>
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-          <input style={inputStyle} placeholder="Username" value={newUser.username} onChange={e => setNewUser(p => ({ ...p, username: e.target.value }))} />
-          <input style={inputStyle} type="password" placeholder="Password" value={newUser.password} onChange={e => setNewUser(p => ({ ...p, password: e.target.value }))} />
-          <input style={inputStyle} placeholder="Full Name" value={newUser.full_name} onChange={e => setNewUser(p => ({ ...p, full_name: e.target.value }))} />
-          <select style={inputStyle} value={newUser.role} onChange={e => setNewUser(p => ({ ...p, role: e.target.value }))}>
-            {roleOpts.map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
-          <button onClick={() => createUser.mutate(newUser)} disabled={createUser.isPending || !newUser.username} style={btn("var(--accent-blue)")}>
-            <UserPlus size={14} /> {createUser.isPending ? "Creating..." : "Create User"}
-          </button>
-        </div>
-      </Card>
-
-      <Card title="Prepare Registration Invite" icon={Mail}>
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-          <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.78rem" }}>
-            Generate a one-time link. The recipient sets their own password and profile; the link expires automatically.
-          </p>
-          <input style={inputStyle} placeholder="Username" value={invite.username} onChange={e => setInvite(p => ({ ...p, username: e.target.value }))} />
-          <select style={inputStyle} value={invite.role} onChange={e => setInvite(p => ({ ...p, role: e.target.value }))}>
-            {roleOpts.map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
-          <select style={inputStyle} value={invite.ttl_hours} onChange={e => setInvite(p => ({ ...p, ttl_hours: Number(e.target.value) }))}>
-            <option value={24}>Expires in 24 hours</option>
-            <option value={72}>Expires in 72 hours</option>
-            <option value={168}>Expires in 7 days</option>
-          </select>
-          <button onClick={() => createInvite.mutate(invite)} disabled={createInvite.isPending || !invite.username} style={btn("var(--accent-purple)")}>
-            <Mail size={14} /> {createInvite.isPending ? "Generating..." : "Generate Registration Link"}
-          </button>
-          {inviteUrl && (
-            <div style={{ display: "flex", gap: "0.4rem", alignItems: "stretch" }}>
-              <input readOnly aria-label="Registration link" value={inviteUrl} style={{ ...inputStyle, fontSize: "0.72rem" }} />
-              <button onClick={() => navigator.clipboard.writeText(inviteUrl)} style={btn("var(--accent-green)")}>Copy</button>
-            </div>
-          )}
-        </div>
-      </Card>
-
-      <Card title="Change User Role" icon={Shield}>
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-          <select style={inputStyle} value={roleChange.username} onChange={e => setRoleChange(p => ({ ...p, username: e.target.value }))}>
-            <option value="">Select user...</option>
-            {userList.map((u: any) => <option key={u.id || u.username} value={u.username}>{u.username}</option>)}
-          </select>
-          <select style={inputStyle} value={roleChange.new_role} onChange={e => setRoleChange(p => ({ ...p, new_role: e.target.value }))}>
-            {roleOpts.map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
-          <button onClick={() => changeRole.mutate(roleChange)} disabled={changeRole.isPending || !roleChange.username} style={btn("var(--accent-orange)")}>
-            <Shield size={14} /> {changeRole.isPending ? "Updating..." : "Change Role"}
-          </button>
-        </div>
-      </Card>
-
-      <Card title="Create Custom Role" icon={Users}>
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-          <div>
-           <SectionTitle text="Role Name" />
-            <input style={inputStyle} placeholder="e.g. senior-analyst" value={newRole.name} onChange={e => setNewRole(p => ({ ...p, name: e.target.value }))} />
-          </div>
-           <RoleEditorNav active={newRoleSection} onChange={setNewRoleSection} />
-           <RolePermissionSection
-             section={newRoleSection}
-             value={newRole}
-             allSiteTypes={allSiteTypes}
-             onChange={(key, values) => setNewRole(p => ({
-               ...p,
-               [key]: key === "allowed_actions"
-                 ? [...p.allowed_actions.filter(action => newRoleSection === "tabs" ? !TAB_ACTIONS.includes(action) : TAB_ACTIONS.includes(action)), ...values]
-                 : values,
-             }))}
-           />
-          <button onClick={() => createRole.mutate(newRole)} disabled={createRole.isPending || !newRole.name} style={btn("var(--accent-green)")}>
-            <Plus size={14} /> {createRole.isPending ? "Creating..." : "Create Role"}
-          </button>
-        </div>
-      </Card>
-
-      <Card title="Edit Existing Role" icon={SettingsIcon}>
-        {rolesLoading ? (
-          <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Loading roles...</p>
-        ) : rolesError ? (
-          <p style={{ color: "var(--accent-red)", fontSize: "0.85rem" }}>Unable to load roles. Verify administrator access and retry.</p>
-        ) : Array.isArray(roles) && roles.length > 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-            <select style={inputStyle} value={editRole?.id || ""} onChange={e => {
-              const r = (roles as any[]).find((x: any) => x.name === e.target.value);
-               setEditRole(r ? { ...r, allowed_pages: r.allowed_pages || [], allowed_actions: r.allowed_actions || [], allowed_site_types: r.allowed_site_types || [] } : null);
-               setEditRoleSection("pages");
-            }}>
-              <option value="">Select role to edit...</option>
-              {roles.map((r: any) => <option key={r.name} value={r.name}>{r.name}</option>)}
-            </select>
-            {editRole && (
-              <>
-                <div>
-                  <SectionTitle text="Role Name" />
-                  <input style={inputStyle} value={editRole.name} onChange={e => setEditRole((p: any) => ({ ...p, name: e.target.value }))} />
-                </div>
-                 <RoleEditorNav active={editRoleSection} onChange={setEditRoleSection} />
-                 <RolePermissionSection
-                   section={editRoleSection}
-                   value={editRole}
-                   allSiteTypes={allSiteTypes}
-                   onChange={(key, values) => setEditRole((p: any) => ({
-                     ...p,
-                     [key]: key === "allowed_actions"
-                       ? [...(p.allowed_actions || []).filter((action: string) => editRoleSection === "tabs" ? !TAB_ACTIONS.includes(action) : TAB_ACTIONS.includes(action)), ...values]
-                       : values,
-                   }))}
-                 />
-                <button onClick={() => editRoleMutation.mutate(editRole)} disabled={editRoleMutation.isPending} style={btn("var(--accent-yellow)")}>
-                  <Save size={14} /> {editRoleMutation.isPending ? "Saving..." : "Update Role"}
-                </button>
-              </>
-            )}
-          </div>
-        ) : (
-          <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>No roles available.</p>
-        )}
-      </Card>
-
-      <Card title="Reset Password" icon={Key} wide>
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-end", flexWrap: "wrap" }}>
-          <div style={{ flex: 1, minWidth: 180 }}>
-            <SectionTitle text="Username" />
-            <select style={inputStyle} value={resetPw.username} onChange={e => setResetPw(p => ({ ...p, username: e.target.value }))}>
-              <option value="">Select user...</option>
-              {userList.map((u: any) => <option key={u.id || u.username} value={u.username}>{u.username}</option>)}
-            </select>
-          </div>
-          <div style={{ flex: 1, minWidth: 180 }}>
-            <SectionTitle text="New Password" />
-            <input style={inputStyle} type="password" value={resetPw.new_password} onChange={e => setResetPw(p => ({ ...p, new_password: e.target.value }))} />
-          </div>
-          <button onClick={() => resetPwMutation.mutate(resetPw)} disabled={resetPwMutation.isPending || !resetPw.username || !resetPw.new_password} style={btn("var(--accent-red)")}>
-            <Key size={14} /> {resetPwMutation.isPending ? "Resetting..." : "Reset Password"}
-          </button>
-        </div>
-      </Card>
+      </button>}
     </div>
   );
 }
@@ -1407,7 +1049,7 @@ function UsersRolesTab({ roles, users, rolesLoading, rolesError, queryClient, al
 /* ============================
    7. BACKUP & RESTORE TAB
    ============================ */
-function BackupRestoreTab() {
+function BackupRestoreTab({ isAdmin }: { isAdmin: boolean }) {
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [importAllFile, setImportAllFile] = useState<File | null>(null);
   const [dbFile, setDbFile] = useState<File | null>(null);
@@ -1416,6 +1058,7 @@ function BackupRestoreTab() {
   const { data: backup, isLoading: backupLoading } = useQuery({
     queryKey: ["admin-backup"],
     queryFn: () => api.get("/admin/backup").then(r => r.data),
+    enabled: isAdmin,
   });
 
   const downloadBackup = () => {
@@ -1483,6 +1126,12 @@ function BackupRestoreTab() {
     },
     onError: (e: any) => alert("DB upload error: " + (e.response?.data?.detail || e.message)),
   });
+
+  if (!isAdmin) {
+    return <div role="status" style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-md)", padding: "1rem", color: "var(--text-secondary)" }}>
+      Backup and restore operations require administrator access.
+    </div>;
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
@@ -1556,7 +1205,7 @@ function BackupRestoreTab() {
 /* ============================
    8. DANGER ZONE TAB
    ============================ */
-function DangerZoneTab() {
+function DangerZoneTab({ isAdmin }: { isAdmin: boolean }) {
   const queryClient = useQueryClient();
   const [delRecord, setDelRecord] = useState({ model_name: "", record_id: "" });
 
@@ -1572,6 +1221,12 @@ function DangerZoneTab() {
     onSuccess: () => { alert("Record deleted."); setDelRecord({ model_name: "", record_id: "" }); queryClient.invalidateQueries(); },
     onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
   });
+
+  if (!isAdmin) {
+    return <div role="status" style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-md)", padding: "1rem", color: "var(--text-secondary)" }}>
+      Destructive database and alert actions are reserved for administrators.
+    </div>;
+  }
 
   const dangerBtn = (mutation: any, label: string, icon: any, color = "var(--accent-red)") => (
     <button onClick={() => { if (window.confirm(`Are you sure you want to ${label.toLowerCase()}?`)) mutation.mutate(); }} disabled={mutation.isPending} style={{ ...btn(color), fontSize: "0.75rem" }}>

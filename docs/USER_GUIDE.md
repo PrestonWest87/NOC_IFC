@@ -348,13 +348,20 @@ Ten tabs for system administration:
 #### AI & SMTP
 - LLM endpoint, API key, and model configuration
 - SMTP server configuration for email features
-- Tech stack description for AI context
-- Risk baseline overrides
+
+#### Application Settings
+- Risk scoring mode, baselines, overrides, offsets, and countermeasures
+- Per-job scheduler timing within validated bounds
+- Global application defaults and failed-login alert settings
 
 #### Users & Roles
-- Create custom roles with granular page/action/site-type permissions
-- Add, edit, or delete users
-- Assign roles to users
+- Search and filter the account directory by identity, account type, role, status, recovery-email state, and last access
+- Invite individuals by email; the user sets their own password
+- Create email-optional display accounts for TV/wall screens
+- Change roles, classify accounts, disable/reactivate accounts, revoke sessions, and perform assisted display-account resets
+- Review password-reset and recovery-email requests
+- Individual users without an approved recovery email receive a prompt explaining the approval and verification process
+- For first-admin setup, `DEFAULT_ADMIN_EMAIL` is a trusted bootstrap option; setting it for an existing email-less `admin` account and restarting the API or worker verifies the address and completes a matching pending setup request.
 
 #### Backup & Restore
 - Export full system configuration as JSON
@@ -367,11 +374,11 @@ Ten tabs for system administration:
 - Full database reset (nuke)
 
 ### How to Use
-1. Configure AI & SMTP first for full feature enablement
+1. Configure AI & SMTP and Application Settings for the capabilities your organization uses
 2. Add your facilities and internal assets
 3. Customize RSS sources for your intelligence requirements
-4. Create user accounts for each team member
-5. Set up custom roles if standard admin/analyst roles are insufficient
+4. Invite individual users by email; create display accounts separately for wall screens
+5. Set up custom roles and explicitly grant report generation, email, risk-override, scheduler, and recovery-review actions as needed
 6. Regularly export backups
 7. Monitor ML training to improve article scoring accuracy
 

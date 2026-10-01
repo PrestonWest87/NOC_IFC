@@ -4,7 +4,7 @@
 
 ## Overview
 
-Generates and persists the Daily Fusion Report for the NOC. Listens for the 06:00 AM CST trigger window, calls the LLM-based report generator, and saves the resulting markdown report to the `DailyBriefing` table. Designed to run as a long-lived scheduler service.
+Generates and persists the Daily Fusion Report for the NOC. The main scheduler invokes `run_daily_report()` at the registry-configured time (default 06:00 America/Chicago), calls the LLM-based report generator, and saves the resulting markdown report to the `DailyBriefing` table.
 
 ---
 
@@ -12,7 +12,7 @@ Generates and persists the Daily Fusion Report for the NOC. Listens for the 06:0
 
 ### `LOCAL_TZ` (`ZoneInfo`)
 
-`America/Chicago` timezone used for the 06:00 AM trigger detection.
+`America/Chicago` timezone used to compute the prior local calendar day.
 
 ---
 
@@ -25,7 +25,7 @@ Generates and persists the Daily Fusion Report for the NOC. Listens for the 06:0
 - **Returns:** `None`
 - **Raises:** None (exceptions are caught, logged, and the session is rolled back).
 - **Flow:**
-  1. Log `"06:00 AM trigger hit! Initiating Daily Fusion Report synthesis..."`.
+  1. Log that the scheduled report job started.
   2. Open a database session.
   3. Compute `yesterday_local` as midnight-to-midnight in `LOCAL_TZ` on the previous day.
   4. Query `DailyBriefing` for the target date; if a report already exists, log and return.
@@ -44,24 +44,6 @@ Generates and persists the Daily Fusion Report for the NOC. Listens for the 06:0
   - `src.utils.llm.generate_daily_fusion_report` - LLM-based report generation
   - `datetime`, `zoneinfo`
 
-### `start_report_scheduler() -> None`
-
-- **Purpose:** Blocking scheduler loop that checks the current local time every 60 seconds and triggers `run_daily_report()` when the clock is at 06:00-06:09 AM CST.
-- **Parameters:** None
-- **Returns:** `None` (blocks indefinitely).
-- **Raises:** None.
-- **Flow:**
-  1. Log `"Online. Standing by for 06:00 AM CST..."`.
-  2. Infinite loop:
-     a. Get current time in `LOCAL_TZ`.
-     b. If hour == `6` and minute < `10`:
-        i.  Call `run_daily_report()`.
-        ii. Sleep for 3600 s (1 hour) to avoid re-triggering within the window.
-     c. Else: sleep for 60 s.
-- **Dependencies:**
-  - `time.sleep` - loop pacing
-  - `run_daily_report()` - actual report generation
-  - `datetime`, `zoneinfo`
 ## Current Runtime Boundary
 
-The primary production daily brief path is `job_daily_email_unified_brief()` in `src/scheduler.py`. This report worker remains a separately documented scheduler helper and must not be assumed to own the current daily email path without checking its call site.
+The report-generation schedule is stored in `SchedulerJobConfig` and reloaded by `src/scheduler.py`. Daily email dispatch is a separate registered job at its own configured time.

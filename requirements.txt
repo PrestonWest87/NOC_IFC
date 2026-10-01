@@ -15,10 +15,9 @@ aiohttp
 aiofiles
 shapely
 fastapi
+python-multipart>=0.0.20
 uvicorn[standard]
 pydantic-settings
 rapidfuzz
 elasticsearch>=8.0.0,<9.0.0
 trafilatura
-streamlit
-streamlit-autorefresh

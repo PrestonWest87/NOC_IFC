@@ -45,8 +45,10 @@ Enterprise-grade backend services powering the NOC Intelligence Fusion Center. T
 ## src/services.py — Data Access Layer
 
 **Location**: `src/services.py`  
-**Size**: ~3,270+ lines  
+**Size**: ~5,250 lines
 **Role**: The central Data Access Layer. Every major feature routes through this module. Organized into 13 functional sections.
+
+Account and authorization services cover individual invitations, display accounts, role grants, session revocation, user activity, reviewed recovery-email changes, password-reset approval/token consumption, and durable account audit events. Site-scoped AIOps helpers filter alert and timeline payloads by the caller's allowed site types. Scheduler persistence helpers validate registry settings and expose worker-applied revisions.
 
 ### Core Utilities
 
@@ -570,8 +572,8 @@ Called on application startup. Performs schema creation, column migrations, and 
 |---|---|---|
 | 1 | **Create all tables** | `Base.metadata.create_all()` — idempotent |
 | 2 | **Column migrations** | ALTER TABLE ADD COLUMN for each known missing column. Split into per-column try/except blocks to prevent one failure from blocking subsequent migrations. |
-| 3 | **Seed roles** | Inserts default roles: `admin`, `operator`, `viewer` with appropriate permission sets |
-| 4 | **Seed admin user** | Creates `admin` with `DEFAULT_ADMIN_PASSWORD` if no users exist and the variable is non-empty. Password is bcrypt hashed. |
+| 3 | **Seed roles** | Creates missing starter roles and performs a one-time permission migration; it does not union grants at every startup. |
+| 4 | **Bootstrap admin recovery email** | Creates `admin` with `DEFAULT_ADMIN_PASSWORD` if no users exist. A valid `DEFAULT_ADMIN_EMAIL` is verified at creation or safely applied to an existing email-less bootstrap admin, completing a matching pending setup request. |
 | 5 | **Seed RSS feeds** | Inserts default feed URLs for cybersecurity, weather, crime, and infrastructure news |
 | 6 | **Seed keywords** | Inserts 70 default keywords with weights for the hybrid scorer. **Critical**: keywords must be seeded before any scoring. |
 | 7 | **Rescale scores** | After keyword seeding, rescales all existing article scores to account for new keyword weights |

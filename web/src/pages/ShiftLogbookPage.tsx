@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api from "../utils/api";
+import api, { getApiErrorMessage } from "../utils/api";
 import { MarkdownContent } from "../components/MarkdownContent";
 import { useAuth } from "../utils/AuthContext";
 import { formatInChicago, formatTimeInChicago, chicagoDateString } from "../utils/timezone";
+import { hasActionPermission, hasPagePermission, isAdministrator } from "../utils/permissions";
 import {
   BookOpen, Clock, User, Edit3, Trash2, RotateCcw, Plus,
   Search, X, Loader2, Zap, Activity, FileText,
@@ -91,7 +92,7 @@ function entriesForChicagoDay(entries: any[], dayStr: string): any[] {
 }
 
 export function ShiftLogbookPage() {
-  const { user, token } = useAuth();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
 
   const [shiftPeriod, setShiftPeriod] = useState(user?.default_shift || "No Shift");
@@ -100,7 +101,14 @@ export function ShiftLogbookPage() {
   const [content, setContent] = useState("");
 
   const [selectedEntry, setSelectedEntry] = useState<any>(null);
-  const isAdmin = user?.role === "admin";
+  const isAdmin = isAdministrator(user);
+  const canViewActive = isAdmin || hasActionPermission(user, "Tab: Shift Log -> Active Shift");
+  const canSubmitLog = canViewActive && hasActionPermission(user, "Action: Submit Shift Log");
+  const canManageOtherLogs = hasActionPermission(user, "Action: Manage Shift Logs");
+  const canGenerateReports = hasActionPermission(user, "Action: Generate Reports");
+  const canRunRca = hasPagePermission(user, "AIOps RCA") && hasActionPermission(user, "Action: Run RCA Analysis");
+  const canViewHistory = isAdmin || hasActionPermission(user, "Tab: Shift Log -> History");
+  const selectedEntryIsOwn = Boolean(selectedEntry && [user?.username, user?.full_name].includes(selectedEntry.analyst));
   const userRole = user?.role ?? "analyst";
   const roleFilter = isAdmin ? "All" : userRole;
 
@@ -138,13 +146,13 @@ export function ShiftLogbookPage() {
       }
     },
     onError: (e: any) => {
-      setSummaryResult("Error: " + (e.response?.data?.detail || e.message));
+      setSummaryResult(getApiErrorMessage(e, "Summary generation failed."));
     },
   });
 
   const { data: roles } = useQuery({
     queryKey: ["logbook-roles"],
-    queryFn: () => api.get("/admin/roles").then((r) => r.data),
+    queryFn: () => api.get("/logbook/roles").then((r) => r.data),
     staleTime: 300000,
   });
   const roleOpts = Array.isArray(roles) ? roles.map((r: any) => r.name) : ["admin", "analyst"];
@@ -157,7 +165,6 @@ export function ShiftLogbookPage() {
           role_filter: roleFilter,
           start_date: explorerDateFrom || undefined,
           end_date: explorerDateTo || undefined,
-          session_token: token || undefined,
         },
       }).then((r) => r.data),
     refetchInterval: 30000,
@@ -245,7 +252,6 @@ export function ShiftLogbookPage() {
       role: role || "analyst",
       shift_period: shiftPeriod,
       content: content.trim(),
-      session_token: token || undefined,
     };
     if (shiftPeriod === "No Shift" && customDate) {
       params.custom_date = customDate;
@@ -331,14 +337,14 @@ export function ShiftLogbookPage() {
         shift summary upon handoff.
       </p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", marginBottom: "1.5rem" }}>
+      {canViewActive && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", marginBottom: "1.5rem" }}>
         {/* LEFT COLUMN — Entry Form */}
         <div style={card}>
           <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
             <Edit3 size={16} /> Log Active Incident / Update
           </h3>
 
-          <div style={{ marginBottom: "0.75rem", padding: "0.75rem", background: "var(--bg-tertiary)", borderRadius: "var(--radius-sm)" }}>
+          {canRunRca && <div style={{ marginBottom: "0.75rem", padding: "0.75rem", background: "var(--bg-tertiary)", borderRadius: "var(--radius-sm)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "0.25rem" }}>
               <Activity size={14} color="var(--accent-cyan)" />
               <span style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--text-primary)" }}>
@@ -363,9 +369,9 @@ export function ShiftLogbookPage() {
               {autoDraftMutation.isPending ? <Loader2 size={14} /> : <Zap size={14} />}
               {autoDraftMutation.isPending ? "Analyzing..." : "Auto-Draft Active Outages"}
             </button>
-          </div>
+          </div>}
 
-          <form onSubmit={handleSubmit}>
+          {canSubmitLog ? <form onSubmit={handleSubmit}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
                {isAdmin && <div>
                  <div style={label}>Role</div>
@@ -428,7 +434,7 @@ export function ShiftLogbookPage() {
               {saveMutation.isPending ? <Loader2 size={14} /> : <Plus size={14} />}
               {saveMutation.isPending ? "Saving..." : "Append to Running Log"}
             </button>
-          </form>
+          </form> : <p role="note" style={{ ...label, color: "var(--text-muted)" }}>Your role can view the logbook but cannot submit or edit entries.</p>}
         </div>
 
         {/* RIGHT COLUMN — Recent Entries + End of Shift */}
@@ -442,12 +448,12 @@ export function ShiftLogbookPage() {
             </h3>
 
             <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.75rem" }}>
-              <button
+              {canViewHistory && <button
                 onClick={goPrevDay}
                 style={{ ...btnBase, background: "var(--bg-tertiary)", color: "var(--text-primary)" }}
               >
                 <ChevronLeft size={14} /> Prev Day
-              </button>
+              </button>}
               <button
                 onClick={goToday}
                 style={{
@@ -460,7 +466,7 @@ export function ShiftLogbookPage() {
               >
                 Today
               </button>
-              <button
+              {canViewHistory && <button
                 onClick={goNextDay}
                 disabled={!canGoNext}
                 style={{
@@ -471,7 +477,7 @@ export function ShiftLogbookPage() {
                 }}
               >
                 Next Day <ChevronRight size={14} />
-              </button>
+              </button>}
             </div>
 
             <div style={{ maxHeight: "calc(100vh - 28rem)", overflow: "auto", minHeight: "120px" }}>
@@ -587,7 +593,7 @@ export function ShiftLogbookPage() {
                 <option value="All">All Roles</option>
                 {roleOpts.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
-              <button
+              {canGenerateReports && <button
                 onClick={() => generateSummaryMut.mutate()}
                 disabled={generateSummaryMut.isPending}
                 style={{
@@ -600,7 +606,7 @@ export function ShiftLogbookPage() {
               >
                 {generateSummaryMut.isPending ? <Loader2 size={14} /> : <Zap size={14} />}
                 {generateSummaryMut.isPending ? "Generating..." : "Generate & Append Report"}
-              </button>
+              </button>}
             </div>
             {summaryResult && (
                <div style={{ background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", padding: "0.75rem", fontSize: "0.78rem", color: "var(--text-primary)", maxHeight: "300px", overflow: "auto", lineHeight: 1.5, marginTop: "0.5rem" }}>
@@ -609,10 +615,10 @@ export function ShiftLogbookPage() {
             )}
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* Shift Log Explorer — full width, independent of recent day */}
-      <div style={card}>
+      {canViewHistory && <div style={card}>
         <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.35rem" }}>
           <Search size={16} /> Shift Log Explorer
         </h3>
@@ -841,7 +847,7 @@ export function ShiftLogbookPage() {
           <span>{explorerFiltered.length} log(s) match current filters</span>
           <span>{allEntries.length} total entries</span>
         </div>
-      </div>
+      </div>}
 
       {/* Admin CSV Export */}
       {isAdmin && (
@@ -936,7 +942,7 @@ export function ShiftLogbookPage() {
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: "0.75rem" }}>
+            {(isAdmin || selectedEntryIsOwn || canManageOtherLogs) && <div style={{ display: "flex", gap: "0.75rem" }}>
               {!selectedEntry.is_deleted ? (
                 <button
                   onClick={() => deleteMutation.mutate(selectedEntry.id)}
@@ -946,7 +952,7 @@ export function ShiftLogbookPage() {
                   {deleteMutation.isPending ? <Loader2 size={14} /> : <Trash2 size={14} />}
                   {deleteMutation.isPending ? "Deleting..." : "Soft Delete Log"}
                 </button>
-              ) : isAdmin ? (
+              ) : (
                 <button
                   onClick={() => restoreMutation.mutate(selectedEntry.id)}
                   disabled={restoreMutation.isPending}
@@ -955,8 +961,9 @@ export function ShiftLogbookPage() {
                   {restoreMutation.isPending ? <Loader2 size={14} /> : <RotateCcw size={14} />}
                   {restoreMutation.isPending ? "Restoring..." : "Restore Log"}
                 </button>
-              ) : null}
+              )}
             </div>
+            }
           </div>
         </div>
       )}

@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import api from "../utils/api";
 import { MarkdownContent } from "../components/MarkdownContent";
 import { useAuth } from "../utils/AuthContext";
-import { getAllowedTabs } from "../utils/permissions";
+import { getAllowedTabs, hasActionPermission } from "../utils/permissions";
 import { formatDateInChicago, chicagoDateString } from "../utils/timezone";
 import {
   Shield, Search, AlertTriangle, FileDown, SlidersHorizontal,
@@ -167,6 +167,8 @@ export function ThreatHuntingPage() {
   const { user } = useAuth();
   const allowedHuntTabs = getAllowedTabs(user?.allowed_actions, "threatHunting");
   const isAdmin = ["admin", "administrator"].includes(String(user?.role || "").toLowerCase());
+  const canSync = hasActionPermission(user, "Action: Manually Sync Data");
+  const canTriggerAi = hasActionPermission(user, "Action: Trigger AI Functions");
   const tabs = ALL_HUNT_TABS.filter(t => isAdmin || allowedHuntTabs.includes(t.key));
   const [activeTab, setActiveTab] = useState(tabs.length > 0 ? tabs[0].key : "ioc");
 
@@ -211,7 +213,7 @@ export function ThreatHuntingPage() {
       <div style={{ flex: 1, overflow: "auto" }}>
         {activeTab === "ioc" && <IocMatrixTab />}
         {activeTab === "hunt" && <DeepHuntTab />}
-        {activeTab === "siem" && <ElasticSiemTab />}
+        {activeTab === "siem" && <ElasticSiemTab canSync={canSync} canTriggerAi={canTriggerAi} />}
       </div>
     </div>
   );
@@ -695,7 +697,7 @@ function buildDetectionPackage(target: string, articles: any[]): string {
   return sections.join("\n");
 }
 
-function ElasticSiemTab() {
+function ElasticSiemTab({ canSync, canTriggerAi }: { canSync: boolean; canTriggerAi: boolean }) {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
 
@@ -775,12 +777,12 @@ function ElasticSiemTab() {
               Live telemetry triage with AI-assisted event analysis
             </div>
           </div>
-          <button onClick={handleSync} disabled={syncing} style={{
+          {canSync && <button onClick={handleSync} disabled={syncing} style={{
             ...BTN_SECONDARY, opacity: syncing ? 0.6 : 1,
           }}>
             <RefreshCw size={14} style={{ animation: syncing ? "spin 1s linear infinite" : "none" }} />
             {syncing ? "Syncing..." : "Sync Local Cache"}
-          </button>
+          </button>}
         </div>
 
         {syncError && <InfoBox type="error">{syncError}</InfoBox>}
@@ -857,7 +859,7 @@ function ElasticSiemTab() {
               </table>
             </div>
 
-            <button onClick={handleTriage} disabled={triageLoading} style={{
+            {canTriggerAi && <button onClick={handleTriage} disabled={triageLoading} style={{
               ...BTN_PRIMARY, opacity: triageLoading ? 0.6 : 1,
             }}>
               {triageLoading ? (
@@ -865,7 +867,7 @@ function ElasticSiemTab() {
               ) : (
                 <><Brain size={14} /> AI Triage & Summarize Results</>
               )}
-            </button>
+            </button>}
           </>
         )}
       </div>

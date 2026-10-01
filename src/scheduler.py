@@ -30,14 +30,15 @@ def _patched_pool_init(self, *a, **kw):
     self.connection_pool_kw.setdefault("maxsize", 3)
 urllib3.PoolManager.__init__ = _patched_pool_init
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import text
+from sqlalchemy import text, or_
 from datetime import datetime, timedelta
 
 from src.database import (
     SessionLocal, Article, FeedSource, RegionalHazard, CloudOutage,
     ExtractedIOC, engine, init_db, SolarWindsAlert, BgpAnomaly,
     CveItem, RegionalOutage, CrimeIncident, MonitoredLocation,
-    InternalRiskSnapshot, TimelineEvent, ElasticEvent, FailedLoginAttempt
+    InternalRiskSnapshot, TimelineEvent, ElasticEvent, FailedLoginAttempt,
+    PasswordResetRequest, PasswordResetToken, EmailChangeRequest,
 )
 
 from src.workers.cve_worker import fetch_cisa_kev
@@ -46,9 +47,9 @@ from src.workers.cloud_worker import fetch_cloud_outages
 from src.workers.telemetry_worker import run_telemetry_sync
 from src.workers.crime_worker import fetch_live_crimes
 from src.core.config import setup_logging
+from src.core.scheduler_registry import JOB_REGISTRY, SCHEDULER_POLL_SECONDS
 
 setup_logging()
-init_db()
 
 logger = logging.getLogger(__name__)
 
@@ -295,7 +296,7 @@ def fetch_feeds(source="Scheduled"):
             log(f"[CLEANUP] De-duplicated {deduped} articles after feed fetch.", "WORKER", logging.DEBUG)
 
 def job_unified_brief():
-    """Auto-generates the Unified Risk Brief every 30 minutes."""
+    """Generate the Unified Risk Brief when dispatched by the scheduler registry."""
     log("[AI] Generating Executive Unified Risk Brief...", "SYSTEM")
     try:
         from src.utils.llm import generate_unified_risk_brief
@@ -325,7 +326,7 @@ def job_unified_brief():
         log(f"[ERROR] Unified Brief Error: {e}", "SYSTEM")
 
 def job_global_brief():
-    """Auto-generates the Global Threat Brief every 1 hour."""
+    """Generate the Global Threat Brief when dispatched by the scheduler registry."""
     log("[AI] Generating Global Threat Brief (US Critical Infrastructure Focus)...", "SYSTEM")
     try:
         from src.services import trigger_global_brief
@@ -348,7 +349,7 @@ def job_rolling_summary():
         log(f"[ERROR] Shift handoff brief Error: {e}", "SYSTEM")
 
 def job_internal_brief():
-    """Auto-generates the Internal Asset Risk Brief every 2 hours."""
+    """Generate the Internal Asset Risk Brief when dispatched by the scheduler registry."""
     log("[AI] Generating Internal Asset Risk Brief...", "SYSTEM")
     try:
         from src.services import trigger_internal_brief
@@ -478,6 +479,29 @@ def run_database_maintenance():
             session.query(FailedLoginAttempt).filter(
                 FailedLoginAttempt.attempted_at < hours_24_ago
             ).delete()
+            session.query(PasswordResetToken).filter(
+                or_(
+                    PasswordResetToken.expires_at < now,
+                    PasswordResetToken.used_at.isnot(None),
+                ),
+                PasswordResetToken.created_at < days_30_ago,
+            ).delete(synchronize_session=False)
+            session.query(PasswordResetRequest).filter(
+                PasswordResetRequest.status == "pending_review",
+                PasswordResetRequest.requested_at < days_30_ago,
+            ).update({PasswordResetRequest.status: "expired"}, synchronize_session=False)
+            session.query(PasswordResetRequest).filter(
+                PasswordResetRequest.status.in_(["unmatched", "denied", "completed", "expired"]),
+                PasswordResetRequest.requested_at < days_90_ago,
+            ).delete(synchronize_session=False)
+            session.query(EmailChangeRequest).filter(
+                EmailChangeRequest.status == "pending_verification",
+                EmailChangeRequest.verification_expires_at < now,
+            ).update({EmailChangeRequest.status: "expired"}, synchronize_session=False)
+            session.query(EmailChangeRequest).filter(
+                EmailChangeRequest.status.in_(["denied", "completed", "expired", "conflict"]),
+                EmailChangeRequest.requested_at < days_90_ago,
+            ).delete(synchronize_session=False)
             
             # Cleanup orphaned IOCs
             session.execute(text("DELETE FROM extracted_iocs WHERE article_id NOT IN (SELECT id FROM articles);"))
@@ -859,69 +883,102 @@ def run_threaded(job_func, *args, **kwargs):
     _job_executor.submit(_run)
     return True
 
-if __name__ == "__main__":
-    from src.core.config import setup_logging
-    setup_logging()
 
-    from src.workers.report_worker import start_report_scheduler
-    
-    # 1. Start the Automated Email Reporter
-    threading.Thread(target=start_report_scheduler, daemon=True).start()
-    
-    # 2. Map the Schedules to Threaded Wrappers — STAGGERED to prevent CPU spikes
-    
-    # Tier 1: Must be responsive (1 min)
-    schedule.every(1).minutes.do(run_threaded, job_tiered_alert_escalation)
-    schedule.every(5).minutes.do(log_memory_usage, "periodic")
-    
-    # Tier 2: High-frequency data collection — staggered to avoid pile-ups
-    schedule.every(5).minutes.do(run_threaded, fetch_feeds)
-    schedule.every(3).minutes.do(run_threaded, enrich_pending_articles)
-    schedule.every(5).minutes.do(run_threaded, job_clear_expired_maintenance)
-    schedule.every(6).minutes.do(run_threaded, run_telemetry_sync)
-    schedule.every(6).minutes.do(run_threaded, job_sync_elastic)
-    schedule.every(7).minutes.do(run_threaded, fetch_regional_hazards)
-    schedule.every(8).minutes.do(run_threaded, fetch_cloud_outages)
-    schedule.every(10).minutes.do(run_threaded, fetch_live_crimes)
-    
-    # Tier 3: Hourly — offset from each other
-    schedule.every(60).minutes.do(run_threaded, run_database_maintenance)
-    schedule.every(2).hours.do(run_threaded, job_internal_risk)
-    
-    # Tier 4: LLM briefs — staggered across the day
-    schedule.every(30).minutes.do(run_threaded, job_rolling_summary)
-    schedule.every(3).hours.do(run_threaded, job_internal_brief)
-    schedule.every(6).hours.do(run_threaded, job_unified_brief)
-    schedule.every(7).hours.do(run_threaded, fetch_cisa_kev)
-    
-    # Tier 5: Daily
-    schedule.every().day.at("02:00").do(run_threaded, job_global_brief)
-    
-    # Tier 6: Weekly
-    schedule.every().sunday.at("02:00").do(run_threaded, job_retrain_ml)
-    
-    # Daily Email Unified Brief at 07:00 CST
-    try:
-        schedule.every().day.at("07:00", "America/Chicago").do(run_threaded, job_daily_email_unified_brief)
-    except Exception:
-        schedule.every().day.at("07:00").do(run_threaded, job_daily_email_unified_brief)
-    
-    log("[START] Master Orchestrator Online. Firing Boot Sequence...", "SYSTEM")
+def _scheduler_functions():
+    from src.workers.report_worker import run_daily_report
 
-    # 3. Staggered Boot Sequence — small groups with 30s delays to avoid CPU storms
-    boot_groups = [
-        [job_tiered_alert_escalation, job_clear_expired_maintenance, fetch_feeds],
-        [fetch_cisa_kev, fetch_regional_hazards, fetch_cloud_outages],
-        [run_telemetry_sync, job_sync_elastic, fetch_live_crimes, job_internal_risk],
-        [job_unified_brief, job_global_brief, job_internal_brief],
+    return {
+        "job_tiered_alert_escalation": job_tiered_alert_escalation,
+        "fetch_feeds": fetch_feeds,
+        "enrich_pending_articles": enrich_pending_articles,
+        "job_clear_expired_maintenance": job_clear_expired_maintenance,
+        "run_telemetry_sync": run_telemetry_sync,
+        "job_sync_elastic": job_sync_elastic,
+        "fetch_regional_hazards": fetch_regional_hazards,
+        "fetch_cloud_outages": fetch_cloud_outages,
+        "fetch_live_crimes": fetch_live_crimes,
+        "run_database_maintenance": run_database_maintenance,
+        "job_internal_risk": job_internal_risk,
+        "job_rolling_summary": job_rolling_summary,
+        "job_internal_brief": job_internal_brief,
+        "job_unified_brief": job_unified_brief,
+        "fetch_cisa_kev": fetch_cisa_kev,
+        "job_global_brief": job_global_brief,
+        "job_retrain_ml": job_retrain_ml,
+        "job_daily_email_unified_brief": job_daily_email_unified_brief,
+        "run_daily_report": run_daily_report,
+    }
+
+
+def _register_configured_jobs(settings_rows):
+    """Replace only registry-managed jobs; running jobs continue unaffected."""
+    schedule.clear("noc-managed")
+    functions = _scheduler_functions()
+    for job_key, metadata in JOB_REGISTRY.items():
+        row = settings_rows.get(job_key, {})
+        if not row.get("enabled", metadata.get("enabled", True)):
+            continue
+        job_func = functions[metadata["function"]]
+        schedule_type = metadata["schedule_type"]
+        if schedule_type == "interval":
+            schedule_job = getattr(schedule.every(row["every_value"]), row["unit"])
+        elif schedule_type == "daily":
+            schedule_job = schedule.every().day.at(row["run_at"], row.get("timezone", "America/Chicago"))
+        elif schedule_type == "weekly":
+            schedule_job = getattr(schedule.every(), row["weekday"]).at(
+                row["run_at"], row.get("timezone", "America/Chicago")
+            )
+        else:
+            raise ValueError(f"Unsupported scheduler type for {job_key}: {schedule_type}")
+        schedule_job.do(run_threaded, job_func).tag("noc-managed", job_key)
+
+
+def _get_scheduler_snapshot():
+    from src.services import get_scheduler_settings
+
+    snapshot = get_scheduler_settings()
+    return (
+        snapshot["revision"], snapshot["applied_revision"],
+        {job["key"]: job["schedule"] for job in snapshot["jobs"]}, snapshot["jobs"],
+    )
+
+
+def _start_configured_startup_jobs(settings_rows):
+    functions = _scheduler_functions()
+    startup_groups = [
+        ["tiered_alert_escalation", "maintenance_expiry", "rss_fetch"],
+        ["cisa_kev", "regional_hazards", "cloud_outages"],
+        ["telemetry_sync", "elastic_sync", "crime_fetch", "internal_risk"],
+        ["unified_brief", "global_brief", "internal_brief"],
     ]
-    for i, group in enumerate(boot_groups):
-        for job in group:
-            run_threaded(job)
-        if i < len(boot_groups) - 1:
+    for group_index, group in enumerate(startup_groups):
+        for job_key in group:
+            metadata = JOB_REGISTRY[job_key]
+            row = settings_rows.get(job_key, {})
+            if metadata.get("startup_run") and row.get("enabled", metadata.get("enabled", True)):
+                run_threaded(functions[metadata["function"]])
+        if group_index < len(startup_groups) - 1:
             time.sleep(30)
-    
-    # 4. Master Event Loop
+            _reload_scheduler_if_changed()
+
+
+def run_scheduler():
+    """Run the single scheduler, reloading persisted job settings without restart."""
+    global _loaded_scheduler_revision
+    init_db()
+    last_revision, applied_revision, settings_rows, _ = _get_scheduler_snapshot()
+    _loaded_scheduler_revision = last_revision
+    _register_configured_jobs(settings_rows)
+    if applied_revision < last_revision:
+        from src.services import mark_scheduler_revision_applied
+        mark_scheduler_revision_applied(last_revision)
+    _start_configured_startup_jobs(settings_rows)
+    schedule.every(SCHEDULER_POLL_SECONDS).seconds.do(
+        _reload_scheduler_if_changed
+    ).tag("scheduler-control")
+    schedule.every(5).minutes.do(log_memory_usage, "periodic").tag("scheduler-internal")
+    log("[START] Dynamic scheduler online.", "SYSTEM")
+
     try:
         while True:
             try:
@@ -934,3 +991,27 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         log("[STOP] Orchestrator shutting down gracefully...", "SYSTEM")
         sys.exit(0)
+
+
+_loaded_scheduler_revision = None
+
+
+def _reload_scheduler_if_changed():
+    global _loaded_scheduler_revision
+    try:
+        revision, applied_revision, settings_rows, _ = _get_scheduler_snapshot()
+        if revision != _loaded_scheduler_revision:
+            _register_configured_jobs(settings_rows)
+            _loaded_scheduler_revision = revision
+            log(f"[SCHEDULE] Applied scheduler revision {revision}.", "SYSTEM")
+        if applied_revision < revision:
+            from src.services import mark_scheduler_revision_applied
+            mark_scheduler_revision_applied(revision)
+    except Exception as exc:
+        logger.exception("Unable to reload scheduler settings; current schedules remain active: %s", exc)
+
+if __name__ == "__main__":
+    from src.core.config import setup_logging
+    setup_logging()
+    _loaded_scheduler_revision = None
+    run_scheduler()

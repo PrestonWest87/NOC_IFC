@@ -1,6 +1,6 @@
 # Operations and Configuration Quick Reference
 
-This is the fast lookup for operators and maintainers. Environment defaults are defined in `src/core/config.py` and `.env.example`; scheduler timing is defined in `src/scheduler.py`; application settings are stored in `SystemConfig` and exposed through the Settings UI.
+This is the fast lookup for operators and maintainers. Environment defaults are defined in `src/core/config.py` and `.env.example`; supported scheduler jobs/defaults/bounds are defined in `src/core/scheduler_registry.py`, persisted settings are reloaded by `src/scheduler.py`, and application settings are exposed through the Settings UI.
 
 ## Service Commands
 
@@ -34,6 +34,7 @@ curl -fsS http://localhost:8101/ready
 | `DATABASE_URL` | SQLite in `/app/data` | Selecting PostgreSQL or another persistent database |
 | `DEMO_SEED_DATA` | `false` | Only for disposable demonstrations |
 | `DEFAULT_ADMIN_PASSWORD` | empty | Setting the first admin password before first boot |
+| `DEFAULT_ADMIN_EMAIL` | empty | Providing a trusted bootstrap recovery/reviewer mailbox; can initialize an existing email-less bootstrap admin on API/worker startup |
 | `LOG_LEVEL` | `INFO` | Increasing diagnostic detail (`DEBUG`) or reducing noise |
 | `RISK_ALERT_RECIPIENTS` | empty | Enabling risk and daily brief recipients |
 | `REMEDYFORCE_TICKET_EMAIL` | empty | Escalation ticket destination |

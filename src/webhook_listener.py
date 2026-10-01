@@ -147,7 +147,11 @@ def process_payload_background(raw_payload: dict):
                 for a in active:
                     a.status, a.resolved_at = 'Resolved', datetime.utcnow()
                 
-                db.add(TimelineEvent(source="Webhook", event_type="Resolution", message=f" {parsed['node_name']} recovered at {mapped_site}"))
+                db.add(TimelineEvent(
+                    source="Webhook", event_type="Resolution",
+                    message=f" {parsed['node_name']} recovered at {mapped_site}",
+                    site_name=mapped_site,
+                ))
                 db.commit()
                 log(f"[OK] Resolved Active Alert for {parsed['node_name']}")
                 return
@@ -160,7 +164,11 @@ def process_payload_background(raw_payload: dict):
                 device_type=parsed["device_type"], is_correlated=False
             )
             db.add(new_alert)
-            db.add(TimelineEvent(source="Webhook", event_type="Alert", message=f"[CRITICAL] Alert: {parsed['node_name']} ({parsed['device_type']}) at {mapped_site}"))
+            db.add(TimelineEvent(
+                source="Webhook", event_type="Alert",
+                message=f"[CRITICAL] Alert: {parsed['node_name']} ({parsed['device_type']}) at {mapped_site}",
+                site_name=mapped_site,
+            ))
             
             db.commit()
             log(f"[ALERT] Processed New Alert: {parsed['node_name']} at {mapped_site}")
