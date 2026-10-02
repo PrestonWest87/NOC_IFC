@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import {
   Activity, AlertTriangle, Cloud, Globe, Shield, Cpu, HardDrive,
-  RefreshCw, FileText, TrendingUp, Award, BarChart3,
+  RefreshCw, FileText, TrendingUp, Award,
   ExternalLink, ChevronDown, ChevronRight, Info, RotateCw, Send,
   X, Check, Clock, MapPin, Server, Mail, Zap, Loader2,
   Pin, PinOff, ThumbsUp, ThumbsDown,
@@ -13,7 +13,7 @@ import {
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { formatInChicago, chicagoDateString } from "../utils/timezone";
-import { getAllowedTabs } from "../utils/permissions";
+import { getAllowedTabs, hasActionPermission, hasPagePermission } from "../utils/permissions";
 import { MarkdownContent } from "../components/MarkdownContent";
 
 const RISK_COLORS: Record<string, string> = {
@@ -124,11 +124,14 @@ const btnArticle: React.CSSProperties = {
   lineHeight: 1,
 };
 
-function ArticleItem({ article, onPin, onBoost, onFeedback }: {
+function ArticleItem({ article, onPin, onBoost, onFeedback, canPin, canBoost, canFeedback }: {
   article: any;
   onPin: (id: number) => void;
   onBoost: (id: number) => void;
   onFeedback: (id: number, fb: number) => void;
+  canPin: boolean;
+  canBoost: boolean;
+  canFeedback: boolean;
 }) {
   return (
     <div style={articleStyle}>
@@ -153,18 +156,18 @@ function ArticleItem({ article, onPin, onBoost, onFeedback }: {
         </div>
       )}
       <div style={{ display: "flex", gap: "0.3rem", marginTop: "0.3rem", flexWrap: "wrap" }}>
-        <button onClick={() => onPin(article.id)} style={{ ...btnArticle, color: article.is_pinned ? "var(--accent-red, #ef4444)" : "var(--text-primary, #e2e8f0)" }} title={article.is_pinned ? "Unpin" : "Pin"}>
+        {canPin && <button onClick={() => onPin(article.id)} style={{ ...btnArticle, color: article.is_pinned ? "var(--accent-red, #ef4444)" : "var(--text-primary, #e2e8f0)" }} title={article.is_pinned ? "Unpin" : "Pin"}>
           {article.is_pinned ? <PinOff size={11} /> : <Pin size={11} />} {article.is_pinned ? "Unpin" : "Pin"}
-        </button>
-        <button onClick={() => onBoost(article.id)} style={btnArticle} title="+15 Score">
+        </button>}
+        {canBoost && <button onClick={() => onBoost(article.id)} style={btnArticle} title="+15 Score">
           +15 Score
-        </button>
-        <button onClick={() => onFeedback(article.id, 2)} style={btnArticle} title="Keep">
+        </button>}
+        {canFeedback && <button onClick={() => onFeedback(article.id, 2)} style={btnArticle} title="Keep">
           <ThumbsUp size={11} /> Keep
-        </button>
-        <button onClick={() => onFeedback(article.id, 1)} style={{ ...btnArticle, color: "#f87171" }} title="Dismiss">
+        </button>}
+        {canFeedback && <button onClick={() => onFeedback(article.id, 1)} style={{ ...btnArticle, color: "#f87171" }} title="Dismiss">
           <ThumbsDown size={11} /> Dismiss
-        </button>
+        </button>}
       </div>
     </div>
   );
@@ -176,14 +179,22 @@ export function DashboardPage() {
   const { user } = useAuth();
   const allowedDashboardTabs = getAllowedTabs(user?.allowed_actions, "dashboard");
   const isAdmin = ["admin", "administrator"].includes(String(user?.role || "").toLowerCase());
+  const canOperational = isAdmin || allowedDashboardTabs.includes("0");
+  const canGlobalRisk = isAdmin || allowedDashboardTabs.includes("1");
+  const canInternalRisk = isAdmin || allowedDashboardTabs.includes("2");
+  const canGenerateReports = hasActionPermission(user, "Action: Generate Reports");
+  const canGenerateRiskSnapshot = hasActionPermission(user, "Action: Generate Risk Snapshot");
+  const canDispatchReports = hasActionPermission(user, "Action: Dispatch Exec Report");
+  const canRunAiFunctions = hasActionPermission(user, "Action: Trigger AI Functions");
+  const canRunRcaAnalysis = hasActionPermission(user, "Action: Run RCA Analysis");
+  const canViewThreatTelemetry = hasPagePermission(user, "Threat Telemetry");
+  const canViewCisa = canViewThreatTelemetry && hasActionPermission(user, "Tab: Threat Telemetry -> CISA KEV");
+  const canViewCloud = canViewThreatTelemetry && hasActionPermission(user, "Tab: Threat Telemetry -> Cloud Services");
   const DASHBOARD_TABS = ["Operational Dashboard", "Global Risk", "Internal Risk", "Unified Brief"];
   const [tab, setTab] = useState(0);
   const [subPanel, setSubPanel] = useState(0);
   const [autoRotate, setAutoRotate] = useState(true);
   const [cisLegendOpen, setCisLegendOpen] = useState(false);
-  const [scoringOverview, setScoringOverview] = useState<string | null>(null);
-  const [scoringOverviewRisk, setScoringOverviewRisk] = useState<string | null>(null);
-  const [dispatchEmail, setDispatchEmail] = useState("");
   const [ubEmail, setUbEmail] = useState("");
   const [globalBriefEmail, setGlobalBriefEmail] = useState("");
   const [internalBriefEmail, setInternalBriefEmail] = useState("");
@@ -200,8 +211,6 @@ export function DashboardPage() {
   const [internalBriefProgress, setInternalBriefProgress] = useState<any>(null);
   const internalBriefPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [globalOverrideForm, setGlobalOverrideForm] = useState<any>(null);
-  const [internalOverrideForm, setInternalOverrideForm] = useState<any>(null);
   const rotateRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const queryClient = useQueryClient();
 
@@ -317,24 +326,9 @@ export function DashboardPage() {
     },
   });
   const securityAuditMut = useMutation({ mutationFn: () => api.post("/rca/sitrep", { action: "security_audit" }) });
-  const generateScoringMut = useMutation({
-    mutationFn: (intel: any) => api.post("/dashboard/generate-scoring-rationale", { intel }),
-    onSuccess: (res) => {
-      const d = res.data;
-      if (d.status === "ok") { setScoringOverview(d.report); setScoringOverviewRisk(executiveIntel?.unified_risk); }
-    },
-  });
   const generateInternalMut = useMutation({
     mutationFn: () => api.post("/dashboard/generate-internal-risk"),
     onSuccess: () => { refetchInternal(); },
-  });
-
-  const saveOverrideConfigMut = useMutation({
-    mutationFn: (data: any) => api.post("/admin/config", data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sys-config"] });
-      queryClient.invalidateQueries({ queryKey: ["executive-intel"] });
-    },
   });
 
   const togglePinMut = useMutation({
@@ -371,67 +365,48 @@ export function DashboardPage() {
   }, [allowedDashboardTabs.join(",")]);
 
   const { data: metrics } = useQuery({
-    queryKey: ["dashboard-metrics"], queryFn: () => api.get("/dashboard/metrics").then((r) => r.data), refetchInterval: 30000, enabled: tab === 0,
+    queryKey: ["dashboard-metrics"], queryFn: () => api.get("/dashboard/metrics").then((r) => r.data), refetchInterval: 30000, enabled: tab === 0 && canOperational,
   });
   const { data: pinnedArticles } = useQuery({
-    queryKey: ["pinned-articles"], queryFn: () => api.get("/dashboard/pinned-articles").then((r) => r.data), refetchInterval: 30000, enabled: tab === 0,
+    queryKey: ["pinned-articles"], queryFn: () => api.get("/dashboard/pinned-articles").then((r) => r.data), refetchInterval: 30000, enabled: tab === 0 && canOperational,
   });
   const { data: liveArticles } = useQuery({
-    queryKey: ["live-articles"], queryFn: () => api.get("/dashboard/live-articles").then((r) => r.data), refetchInterval: 15000, enabled: tab === 0,
+    queryKey: ["live-articles"], queryFn: () => api.get("/dashboard/live-articles").then((r) => r.data), refetchInterval: 15000, enabled: tab === 0 && canOperational,
   });
   const { data: cves } = useQuery({
-    queryKey: ["cves-dash"], queryFn: () => api.get("/threat/cves", { params: { limit: 15 } }).then((r) => r.data), refetchInterval: 300000, enabled: tab === 0,
+    queryKey: ["cves-dash"], queryFn: () => api.get("/threat/cves", { params: { limit: 15 } }).then((r) => r.data), refetchInterval: 300000, enabled: tab === 0 && canOperational && canViewCisa,
   });
   const { data: outages } = useQuery({
-    queryKey: ["outages-dash"], queryFn: () => api.get("/threat/cloud-outages", { params: { active_only: true } }).then((r) => r.data), refetchInterval: 120000, enabled: tab === 0,
+    queryKey: ["outages-dash"], queryFn: () => api.get("/threat/cloud-outages", { params: { active_only: true } }).then((r) => r.data), refetchInterval: 120000, enabled: tab === 0 && canOperational && canViewCloud,
   });
   const { data: hazards } = useQuery({
-    queryKey: ["hazards-dash"], queryFn: () => api.get("/dashboard/hazards", { params: { limit: 15 } }).then((r) => r.data), refetchInterval: 120000, enabled: tab === 0,
+    queryKey: ["hazards-dash"], queryFn: () => api.get("/dashboard/hazards", { params: { limit: 15 } }).then((r) => r.data), refetchInterval: 120000, enabled: tab === 0 && canOperational,
   });
   const { data: executiveIntel } = useQuery({
-    queryKey: ["executive-intel"], queryFn: () => api.get("/dashboard/executive-intel").then((r) => r.data), refetchInterval: 60000, enabled: tab === 0 || tab === 1,
+    queryKey: ["executive-intel"], queryFn: () => api.get("/dashboard/executive-intel").then((r) => r.data), refetchInterval: 60000, enabled: tab === 1 && canGlobalRisk,
   });
   const { data: threatTrends } = useQuery({
-    queryKey: ["threat-trends"], queryFn: () => api.get("/dashboard/threat-trends", { params: { days: 14 } }).then((r) => r.data), refetchInterval: 120000, enabled: tab === 1,
+    queryKey: ["threat-trends"], queryFn: () => api.get("/dashboard/threat-trends", { params: { days: 14 } }).then((r) => r.data), refetchInterval: 120000, enabled: tab === 1 && canGlobalRisk,
   });
   const { data: internalRisk, refetch: refetchInternal } = useQuery({
-    queryKey: ["internal-risk"], queryFn: () => api.get("/dashboard/internal-risk").then((r) => r.data), refetchInterval: 300000, enabled: tab === 2,
+    queryKey: ["internal-risk"], queryFn: () => api.get("/dashboard/internal-risk").then((r) => r.data), refetchInterval: 300000, enabled: tab === 2 && canInternalRisk,
   });
   const { data: internalRiskHistory } = useQuery({
-    queryKey: ["internal-risk-history"], queryFn: () => api.get("/dashboard/internal-risk/history", { params: { days: 28 } }).then((r) => r.data), refetchInterval: 300000, enabled: tab === 2,
+    queryKey: ["internal-risk-history"], queryFn: () => api.get("/dashboard/internal-risk/history", { params: { days: 28 } }).then((r) => r.data), refetchInterval: 300000, enabled: tab === 2 && canInternalRisk,
   });
   const { data: sysConfig } = useQuery({
-    queryKey: ["sys-config"], queryFn: () => api.get("/settings/config").then((r) => r.data), refetchInterval: 120000,
+    queryKey: ["dashboard-briefs"], queryFn: () => api.get("/dashboard/briefs").then((r) => r.data), refetchInterval: 120000,
   });
-
-  useEffect(() => {
-    if (sysConfig) {
-      setGlobalOverrideForm({
-        scoring_mode: sysConfig.scoring_mode || "auto",
-        cyber_criticality_override: sysConfig.cyber_criticality_override || 0,
-        cyber_lethality_override: sysConfig.cyber_lethality_override || 0,
-        physical_criticality_override: sysConfig.physical_criticality_override || 0,
-        physical_lethality_override: sysConfig.physical_lethality_override || 0,
-        global_risk_offset: sysConfig.global_risk_offset || 0,
-      });
-      setInternalOverrideForm({
-        scoring_mode: sysConfig.scoring_mode || "auto",
-        internal_criticality_override: sysConfig.internal_criticality_override || 0,
-        internal_lethality_override: sysConfig.internal_lethality_override || 0,
-        internal_risk_offset: sysConfig.internal_risk_offset || 0,
-      });
-    }
-  }, [sysConfig]);
 
   const hasAutoGeneratedInternal = useRef(false);
   useEffect(() => {
     if (!hasAutoGeneratedInternal.current && internalRisk !== undefined) {
       hasAutoGeneratedInternal.current = true;
-      if (internalRisk?.status === "empty") {
+      if (internalRisk?.status === "empty" && canGenerateRiskSnapshot) {
         generateInternalMut.mutate();
       }
     }
-  }, [internalRisk]);
+  }, [internalRisk, canGenerateRiskSnapshot]);
 
   const handleForceRefreshBriefing = () => {
     refreshBriefingMut.mutate();
@@ -439,60 +414,6 @@ export function DashboardPage() {
 
   const handleSecurityAudit = () => {
     securityAuditMut.mutate();
-  };
-
-  const handleGenerateScoring = () => {
-    if (!executiveIntel) return;
-    generateScoringMut.mutate(executiveIntel);
-  };
-
-  const mdToHtml = (md: string) => {
-    let html = md
-      .replace(/### (.*?)$/gm, '<h3 style="color:#e2e8f0; margin:15px 0 5px;">$1</h3>')
-      .replace(/## (.*?)$/gm, '<h2 style="color:#e2e8f0; border-bottom:1px solid #334155; padding-bottom:5px; margin:20px 0 10px;">$1</h2>')
-      .replace(/# (.*?)$/gm, '<h1 style="color:#e2e8f0; margin:20px 0 10px;">$1</h1>')
-      .replace(/\*\*(.*?)\*\*/g, '<strong style="color:#f1f5f9;">$1</strong>')
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color:#38bdf8;">$1</a>')
-      .replace(/^- (.*?)$/gm, '<li style="margin:4px 0; color:#cbd5e1;">$1</li>')
-      .replace(/^\* (.*?)$/gm, '<li style="margin:4px 0; color:#cbd5e1;">$1</li>')
-      .replace(/\n/g, '<br>');
-    if (html.includes('<li')) html = '<ul style="padding-left:20px; margin:8px 0;">' + html.replace(/(<li.*?<\/li>)/g, '$1') + '</ul>';
-    return html;
-  };
-
-  const handleDispatchReport = async () => {
-    if (!dispatchEmail || !executiveIntel) return;
-    try {
-      const body = scoringOverview
-        ? mdToHtml(scoringOverview)
-        : `<p style="color:#94a3b8;">No AI scoring report available.</p>`;
-      const colorMap: Record<string, string> = { GREEN: "#22c55e", BLUE: "#3b82f6", YELLOW: "#eab308", ORANGE: "#f97316", RED: "#ef4444" };
-      const uc = colorMap[executiveIntel.unified_risk?.toUpperCase()] || "#64748b";
-      const cc = colorMap[executiveIntel.cyber_score?.toUpperCase()] || "#64748b";
-      const pc = colorMap[executiveIntel.physical_score?.toUpperCase()] || "#64748b";
-      const htmlBody = `
-        <div style="font-family:Arial,sans-serif; max-width:800px; margin:0 auto; background:#0f172a; color:#e2e8f0; padding:20px;">
-          <table width="100%" cellpadding="15" style="margin-bottom:20px; text-align:center; background:#1e293b; border:1px solid #334155; border-radius:8px;">
-            <tr><th colspan="2" style="background:${uc}; color:#fff; border-radius:8px 8px 0 0; padding:15px; font-size:20px;">
-              UNIFIED THREAT POSTURE: ${executiveIntel.unified_risk || "UNKNOWN"}
-            </th></tr>
-            <tr>
-              <td style="border-right:1px solid #334155;"><span style="font-size:11px; text-transform:uppercase; color:#94a3b8;">Cyber & SCADA</span><br><strong style="font-size:20px; color:${cc};">${executiveIntel.cyber_score || "N/A"}</strong></td>
-              <td><span style="font-size:11px; text-transform:uppercase; color:#94a3b8;">Physical & Perimeter</span><br><strong style="font-size:20px; color:${pc};">${executiveIntel.physical_score || "N/A"}</strong></td>
-            </tr>
-          </table>
-          <div style="background:#1e293b; padding:20px; border-radius:8px; border-left:4px solid ${uc};">
-            ${body}
-          </div>
-          <p style="text-align:center; color:#64748b; font-size:12px; margin-top:20px;">Generated by NOC Intelligence Fusion Center</p>
-        </div>`;
-      await api.post("/email/send", {
-        to: dispatchEmail,
-        subject: `Executive Threat Posture: ${executiveIntel.unified_risk || "UNKNOWN"}`,
-        html_body: htmlBody,
-      });
-      alert("Report dispatched to " + dispatchEmail);
-    } catch { alert("Failed to dispatch report. Check SMTP settings."); }
   };
 
   const handleGenerateInternal = () => {
@@ -626,7 +547,7 @@ export function DashboardPage() {
                   {(!pinnedArticles || pinnedArticles.length === 0) ? (
                     <div style={{ color: "var(--text-muted, #94a3b8)", fontSize: "0.85rem", padding: "1rem 0" }}>No pinned articles.</div>
                   ) : (
-                    pinnedArticles.map((a: any) => <ArticleItem key={a.id} article={a} onPin={(id) => togglePinMut.mutate(id)} onBoost={(id) => boostScoreMut.mutate(id)} onFeedback={(id, fb) => feedbackMut.mutate({ articleId: id, feedback: fb })} />)
+                    pinnedArticles.map((a: any) => <ArticleItem key={a.id} article={a} onPin={(id) => togglePinMut.mutate(id)} onBoost={(id) => boostScoreMut.mutate(id)} onFeedback={(id, fb) => feedbackMut.mutate({ articleId: id, feedback: fb })} canPin={hasActionPermission(user, "Action: Pin Articles")} canBoost={hasActionPermission(user, "Action: Boost Threat Score")} canFeedback={canRunAiFunctions} />)
                   )}
                 </div>
               </div>
@@ -638,7 +559,7 @@ export function DashboardPage() {
                   {(!liveArticles || liveArticles.length === 0) ? (
                     <div style={{ color: "var(--text-muted, #94a3b8)", fontSize: "0.85rem", padding: "1rem 0" }}>No live articles.</div>
                   ) : (
-                    liveArticles.map((a: any) => <ArticleItem key={a.id} article={a} onPin={(id) => togglePinMut.mutate(id)} onBoost={(id) => boostScoreMut.mutate(id)} onFeedback={(id, fb) => feedbackMut.mutate({ articleId: id, feedback: fb })} />)
+                    liveArticles.map((a: any) => <ArticleItem key={a.id} article={a} onPin={(id) => togglePinMut.mutate(id)} onBoost={(id) => boostScoreMut.mutate(id)} onFeedback={(id, fb) => feedbackMut.mutate({ articleId: id, feedback: fb })} canPin={hasActionPermission(user, "Action: Pin Articles")} canBoost={hasActionPermission(user, "Action: Boost Threat Score")} canFeedback={canRunAiFunctions} />)
                   )}
                 </div>
               </div>
@@ -733,7 +654,7 @@ export function DashboardPage() {
                     <Clock size={12} style={{ verticalAlign: "middle", marginRight: "0.25rem" }} />
                      Last Sync: {sysConfig?.rolling_summary_time ? formatInChicago(sysConfig.rolling_summary_time) : "N/A"}
                   </span>
-                  <button
+                  {canGenerateReports && <button
                     onClick={handleForceRefreshBriefing}
                     disabled={refreshBriefingMut.isPending}
                     style={{
@@ -743,7 +664,7 @@ export function DashboardPage() {
                     }}
                   >
                     {refreshBriefingMut.isPending ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} Force Refresh Briefing
-                  </button>
+                  </button>}
                 </div>
                 <div
                   style={{
@@ -762,7 +683,7 @@ export function DashboardPage() {
                 <p style={{ fontSize: "0.82rem", color: "var(--text-secondary, #64748b)", margin: "0 0 1rem" }}>
                   Cross-reference internal stack against 30-day KEV inventory.
                 </p>
-                <button
+                {canRunRcaAnalysis && <button
                   onClick={handleSecurityAudit}
                   disabled={securityAuditMut.isPending}
                   style={{
@@ -774,7 +695,7 @@ export function DashboardPage() {
                   }}
                 >
                   {securityAuditMut.isPending ? <Loader2 size={16} className="spin" /> : <Zap size={16} />} Scan Stack Against 30-Day KEVs
-                </button>
+                </button>}
               </div>
             </div>
           )}
@@ -973,193 +894,6 @@ export function DashboardPage() {
             </div>
           )}
 
-          {/* Dynamic Scoring Overview */}
-          <div style={{
-            background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
-            border: "1px solid var(--border-primary, #e2e8f0)", marginBottom: "1.5rem",
-          }}>
-            <h3 style={{ margin: "0 0 0.5rem", fontSize: "1rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
-              <BarChart3 size={16} /> Dynamic Scoring Overview
-            </h3>
-            <p style={{ fontSize: "0.82rem", color: "var(--text-muted, #94a3b8)", margin: "0 0 0.75rem" }}>
-              AI-generated synthesis of all live telemetry detailing the exact reasoning behind the current threat score.
-            </p>
-            <button
-              onClick={handleGenerateScoring}
-              disabled={!executiveIntel || generateScoringMut.isPending}
-              style={{
-                padding: "0.5rem 1rem", border: "none", borderRadius: "var(--radius-sm, 4px)",
-                background: "var(--accent-blue, #3b82f6)", color: "#fff", cursor: executiveIntel && !generateScoringMut.isPending ? "pointer" : "not-allowed",
-                fontWeight: 600, fontSize: "0.85rem", opacity: executiveIntel && !generateScoringMut.isPending ? 1 : 0.5,
-                display: "flex", alignItems: "center", gap: "0.4rem",
-              }}
-            >
-              {generateScoringMut.isPending ? <Loader2 size={16} className="spin" /> : <RotateCw size={16} />} Generate Scoring Rationale
-            </button>
-            {scoringOverview && (
-              <div style={{ marginTop: "1rem" }}>
-                {scoringOverviewRisk && executiveIntel && scoringOverviewRisk !== executiveIntel.unified_risk && (
-                  <div style={{
-                    background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: "var(--radius-sm, 4px)",
-                    padding: "0.5rem 0.75rem", fontSize: "0.8rem", color: "#92400e", marginBottom: "0.75rem",
-                  }}>
-                    The Executive Threat Matrix posture has shifted to <strong>{executiveIntel.unified_risk}</strong> since this rationale was generated. Please regenerate.
-                  </div>
-                )}
-                <div style={{
-                  background: "var(--bg-secondary, #f8fafc)", borderRadius: "var(--radius-sm, 4px)",
-                  padding: "1rem", fontSize: "0.85rem", lineHeight: 1.6, whiteSpace: "pre-wrap",
-                  border: "1px solid var(--border-primary, #e2e8f0)",
-                }}>
-                  {scoringOverview}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Dispatch Intelligence Report */}
-          <div style={{
-            background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
-            border: "1px solid var(--border-primary, #e2e8f0)", marginBottom: "1.5rem",
-          }}>
-            <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
-              <Send size={16} /> Dispatch Intelligence Report
-            </h3>
-            <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
-              <input
-                type="email" placeholder="Recipient Email Address"
-                value={dispatchEmail}
-                onChange={(e) => setDispatchEmail(e.target.value)}
-                style={{
-                  flex: 1, minWidth: 200, padding: "0.5rem 0.75rem", borderRadius: "var(--radius-sm, 4px)",
-                  border: "1px solid var(--border-primary, #e2e8f0)", background: "var(--bg-input, #fff)",
-                  color: "var(--text-primary, #1e293b)", fontSize: "0.85rem",
-                }}
-              />
-              <button
-                onClick={handleDispatchReport}
-                disabled={!executiveIntel || !dispatchEmail}
-                style={{
-                  padding: "0.5rem 1rem", border: "none", borderRadius: "var(--radius-sm, 4px)",
-                  background: "#2563eb", color: "#fff", cursor: "pointer", fontWeight: 600, fontSize: "0.85rem",
-                  opacity: executiveIntel && dispatchEmail ? 1 : 0.5,
-                  display: "flex", alignItems: "center", gap: "0.4rem",
-                }}
-              >
-                <Mail size={16} /> Send AI Scoring Report
-              </button>
-            </div>
-          </div>
-
-          {/* Global Risk Scoring Overrides */}
-          <div style={{
-            background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
-            border: "1px solid var(--border-primary, #e2e8f0)",
-          }}>
-            <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
-              <BarChart3 size={16} /> Global Risk Scoring Overrides
-            </h3>
-            <p style={{ fontSize: "0.82rem", color: "var(--text-muted, #94a3b8)", margin: "0 0 0.75rem" }}>
-              Override the automatic CIS scoring. Changes take effect immediately on save.
-            </p>
-            {globalOverrideForm && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                  <label style={{ fontSize: "0.82rem", fontWeight: 600, minWidth: 120 }}>Scoring Mode:</label>
-                  <select
-                    value={globalOverrideForm.scoring_mode}
-                    onChange={(e) => setGlobalOverrideForm((f: any) => ({ ...f, scoring_mode: e.target.value }))}
-                    style={{
-                      padding: "0.35rem 0.5rem", borderRadius: "var(--radius-sm, 4px)",
-                      border: "1px solid var(--border-primary, #e2e8f0)", fontSize: "0.82rem",
-                    }}
-                  >
-                    <option value="auto">Auto (Full Algorithmic)</option>
-                    <option value="manual">Manual (Override All)</option>
-                    <option value="hybrid">Hybrid (Auto + Offset)</option>
-                  </select>
-                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted, #94a3b8)" }}>
-                    Current: {executiveIntel?.scoring_mode || "auto"}
-                  </span>
-                </div>
-
-                {globalOverrideForm.scoring_mode === "manual" && (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", maxWidth: 500 }}>
-                    <div>
-                      <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>Cyber Criticality (1-5):</label>
-                      <input type="range" min={1} max={5} step={1}
-                        value={globalOverrideForm.cyber_criticality_override}
-                        onChange={(e) => setGlobalOverrideForm((f: any) => ({ ...f, cyber_criticality_override: Number(e.target.value) }))}
-                        style={{ width: "100%" }} />
-                      <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textAlign: "center" }}>
-                        {globalOverrideForm.cyber_criticality_override}/5
-                      </div>
-                    </div>
-                    <div>
-                      <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>Cyber Lethality (1-5):</label>
-                      <input type="range" min={1} max={5} step={1}
-                        value={globalOverrideForm.cyber_lethality_override}
-                        onChange={(e) => setGlobalOverrideForm((f: any) => ({ ...f, cyber_lethality_override: Number(e.target.value) }))}
-                        style={{ width: "100%" }} />
-                      <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textAlign: "center" }}>
-                        {globalOverrideForm.cyber_lethality_override}/5
-                      </div>
-                    </div>
-                    <div>
-                      <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>Physical Criticality (1-5):</label>
-                      <input type="range" min={1} max={5} step={1}
-                        value={globalOverrideForm.physical_criticality_override}
-                        onChange={(e) => setGlobalOverrideForm((f: any) => ({ ...f, physical_criticality_override: Number(e.target.value) }))}
-                        style={{ width: "100%" }} />
-                      <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textAlign: "center" }}>
-                        {globalOverrideForm.physical_criticality_override}/5
-                      </div>
-                    </div>
-                    <div>
-                      <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>Physical Lethality (1-5):</label>
-                      <input type="range" min={1} max={5} step={1}
-                        value={globalOverrideForm.physical_lethality_override}
-                        onChange={(e) => setGlobalOverrideForm((f: any) => ({ ...f, physical_lethality_override: Number(e.target.value) }))}
-                        style={{ width: "100%" }} />
-                      <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textAlign: "center" }}>
-                        {globalOverrideForm.physical_lethality_override}/5
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {globalOverrideForm.scoring_mode === "hybrid" && (
-                  <div style={{ maxWidth: 300 }}>
-                    <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>
-                      Global Offset ({globalOverrideForm.global_risk_offset >= 0 ? "+" : ""}{globalOverrideForm.global_risk_offset}):
-                    </label>
-                    <input type="range" min={-3} max={3} step={1}
-                      value={globalOverrideForm.global_risk_offset}
-                      onChange={(e) => setGlobalOverrideForm((f: any) => ({ ...f, global_risk_offset: Number(e.target.value) }))}
-                      style={{ width: "100%" }} />
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: "var(--text-muted)" }}>
-                      <span>-3</span><span>0</span><span>+3</span>
-                    </div>
-                  </div>
-                )}
-
-                <button
-                  onClick={() => saveOverrideConfigMut.mutate(globalOverrideForm)}
-                  disabled={saveOverrideConfigMut.isPending}
-                  style={{
-                    padding: "0.4rem 0.75rem", border: "none", borderRadius: "var(--radius-sm, 4px)",
-                    background: "var(--accent-blue, #3b82f6)", color: "#fff", cursor: "pointer",
-                    fontWeight: 600, fontSize: "0.82rem", alignSelf: "flex-start",
-                    display: "flex", alignItems: "center", gap: "0.3rem",
-                    opacity: saveOverrideConfigMut.isPending ? 0.6 : 1,
-                  }}
-                >
-                  {saveOverrideConfigMut.isPending ? <Loader2 size={14} className="spin" /> : null} Save Global Overrides
-                </button>
-              </div>
-            )}
-          </div>
-
           {/* Global Threat Brief Section */}
           <div style={{ marginTop: "1.5rem" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
@@ -1169,7 +903,7 @@ export function DashboardPage() {
                        AI-generated threat brief covering US critical infrastructure and global threats, including APT activity, ransomware, CVEs, weather, and perimeter crimes. Automatically generated daily at 2:00 AM Central; use Force Refresh for an on-demand update.
                     </p>
               </div>
-              <button
+              {canGenerateReports && <button
                 onClick={handleGenerateGlobalBrief}
                 disabled={!!globalBriefGenId}
                 style={{
@@ -1181,7 +915,7 @@ export function DashboardPage() {
                 }}
               >
                 {globalBriefGenId ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} Force Refresh Global Brief
-              </button>
+              </button>}
             </div>
 
             {globalBriefGenId && globalBriefProgress && globalBriefProgress.stage !== "complete" && globalBriefProgress.stage !== "error" && (
@@ -1236,7 +970,7 @@ export function DashboardPage() {
               </div>
             ) : (
               <>
-              <div style={{
+              {canDispatchReports && <div style={{
                 background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
                 border: "1px solid var(--border-primary, #e2e8f0)",
               }}>
@@ -1247,7 +981,7 @@ export function DashboardPage() {
                 <div style={{ fontSize: "0.85rem", color: "var(--text-primary, #1e293b)" }}>
                   <MarkdownContent content={sysConfig.global_brief} />
                 </div>
-              </div>
+              </div>}
 
               <div style={{
                 background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
@@ -1296,7 +1030,7 @@ export function DashboardPage() {
                  Active correlation of internal assets against OSINT telemetry. Automatically recalculated every 2 hours; use Force Generate for an on-demand update.
               </p>
             </div>
-            <button
+            {canGenerateRiskSnapshot && <button
               onClick={handleGenerateInternal}
               disabled={generateInternalMut.isPending}
               style={{
@@ -1308,7 +1042,7 @@ export function DashboardPage() {
               }}
             >
               {generateInternalMut.isPending ? <Loader2 size={14} className="spin" /> : <RotateCw size={14} />} Force Generate
-            </button>
+            </button>}
           </div>
 
           {!internalRisk || internalRisk.status === "empty" ? (
@@ -1319,7 +1053,7 @@ export function DashboardPage() {
               <p style={{ color: "var(--text-muted, #94a3b8)", fontSize: "0.9rem" }}>
                 Internal Risk matrices are currently calculating. Please check back in a few minutes.
               </p>
-              <button
+              {canGenerateRiskSnapshot && <button
                 onClick={handleGenerateInternal}
                 disabled={generateInternalMut.isPending}
                 style={{
@@ -1329,7 +1063,7 @@ export function DashboardPage() {
                 }}
               >
                 {generateInternalMut.isPending ? <Loader2 size={14} className="spin" /> : null} Trigger Manual Calculation
-              </button>
+              </button>}
             </div>
           ) : (
             <>
@@ -1444,92 +1178,6 @@ export function DashboardPage() {
                 />
               </div>
 
-              {/* Internal Risk Scoring Overrides */}
-              <div style={{
-                background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
-                border: "1px solid var(--border-primary, #e2e8f0)",
-              }}>
-                <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                  <BarChart3 size={16} /> Internal Risk Scoring Overrides
-                </h3>
-                <p style={{ fontSize: "0.82rem", color: "var(--text-muted, #94a3b8)", margin: "0 0 0.75rem" }}>
-                  Override the internal asset risk scoring. Changes take effect on next calculation.
-                </p>
-                {internalOverrideForm && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                      <label style={{ fontSize: "0.82rem", fontWeight: 600, minWidth: 120 }}>Scoring Mode:</label>
-                      <select
-                        value={internalOverrideForm.scoring_mode}
-                        onChange={(e) => setInternalOverrideForm((f: any) => ({ ...f, scoring_mode: e.target.value }))}
-                        style={{
-                          padding: "0.35rem 0.5rem", borderRadius: "var(--radius-sm, 4px)",
-                          border: "1px solid var(--border-primary, #e2e8f0)", fontSize: "0.82rem",
-                        }}
-                      >
-                        <option value="auto">Auto (Full Algorithmic)</option>
-                        <option value="manual">Manual (Override All)</option>
-                        <option value="hybrid">Hybrid (Auto + Offset)</option>
-                      </select>
-                    </div>
-
-                    {internalOverrideForm.scoring_mode === "manual" && (
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", maxWidth: 400 }}>
-                        <div>
-                          <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>Criticality Override (1-5):</label>
-                          <input type="range" min={1} max={5} step={1}
-                            value={internalOverrideForm.internal_criticality_override}
-                            onChange={(e) => setInternalOverrideForm((f: any) => ({ ...f, internal_criticality_override: Number(e.target.value) }))}
-                            style={{ width: "100%" }} />
-                          <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textAlign: "center" }}>
-                            {internalOverrideForm.internal_criticality_override}/5
-                          </div>
-                        </div>
-                        <div>
-                          <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>Lethality Override (1-5):</label>
-                          <input type="range" min={1} max={5} step={1}
-                            value={internalOverrideForm.internal_lethality_override}
-                            onChange={(e) => setInternalOverrideForm((f: any) => ({ ...f, internal_lethality_override: Number(e.target.value) }))}
-                            style={{ width: "100%" }} />
-                          <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textAlign: "center" }}>
-                            {internalOverrideForm.internal_lethality_override}/5
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {internalOverrideForm.scoring_mode === "hybrid" && (
-                      <div style={{ maxWidth: 300 }}>
-                        <label style={{ fontSize: "0.78rem", fontWeight: 600 }}>
-                          Internal Offset ({internalOverrideForm.internal_risk_offset >= 0 ? "+" : ""}{internalOverrideForm.internal_risk_offset}):
-                        </label>
-                        <input type="range" min={-3} max={3} step={1}
-                          value={internalOverrideForm.internal_risk_offset}
-                          onChange={(e) => setInternalOverrideForm((f: any) => ({ ...f, internal_risk_offset: Number(e.target.value) }))}
-                          style={{ width: "100%" }} />
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7rem", color: "var(--text-muted)" }}>
-                          <span>-3</span><span>0</span><span>+3</span>
-                        </div>
-                      </div>
-                    )}
-
-                    <button
-                      onClick={() => saveOverrideConfigMut.mutate(internalOverrideForm)}
-                      disabled={saveOverrideConfigMut.isPending}
-                      style={{
-                        padding: "0.4rem 0.75rem", border: "none", borderRadius: "var(--radius-sm, 4px)",
-                        background: "var(--accent-blue, #3b82f6)", color: "#fff", cursor: "pointer",
-                        fontWeight: 600, fontSize: "0.82rem", alignSelf: "flex-start",
-                        display: "flex", alignItems: "center", gap: "0.3rem",
-                        opacity: saveOverrideConfigMut.isPending ? 0.6 : 1,
-                      }}
-                    >
-                      {saveOverrideConfigMut.isPending ? <Loader2 size={14} className="spin" /> : null} Save Internal Overrides
-                    </button>
-                  </div>
-                )}
-              </div>
-
               {/* Internal Asset Risk Brief Section */}
               <div style={{ marginTop: "1.5rem" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem", flexWrap: "wrap", gap: "0.5rem" }}>
@@ -1539,7 +1187,7 @@ export function DashboardPage() {
                        AI-generated correlation of internal hardware and software assets against OSINT feeds and CISA KEVs. Automatically generated every 3 hours; use Force Generate for an on-demand update.
                     </p>
                   </div>
-                  <button
+                  {canGenerateReports && <button
                     onClick={handleGenerateInternalBrief}
                     disabled={!!internalBriefGenId}
                     style={{
@@ -1551,7 +1199,7 @@ export function DashboardPage() {
                     }}
                   >
                     {internalBriefGenId ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} Force Refresh Internal Brief
-                  </button>
+                  </button>}
                 </div>
 
                 {internalBriefGenId && internalBriefProgress && internalBriefProgress.stage !== "complete" && internalBriefProgress.stage !== "error" && (
@@ -1606,7 +1254,7 @@ export function DashboardPage() {
                   </div>
                 ) : (
                   <>
-                  <div style={{
+                  {canDispatchReports && <div style={{
                     background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
                     border: "1px solid var(--border-primary, #e2e8f0)",
                   }}>
@@ -1620,7 +1268,7 @@ export function DashboardPage() {
                     }}>
                       {sysConfig.internal_brief}
                     </div>
-                  </div>
+                  </div>}
 
                   <div style={{
                     background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
@@ -1671,7 +1319,7 @@ export function DashboardPage() {
                  AI-generated synthesis of global OSINT threats and internal asset vulnerabilities. Automatically generated every 6 hours; use Force Refresh for an on-demand update.
               </p>
             </div>
-            <button
+            {canGenerateReports && <button
               onClick={handleGenerateUnifiedBrief}
               disabled={!!briefGenId}
               style={{
@@ -1683,7 +1331,7 @@ export function DashboardPage() {
               }}
             >
               {briefGenId ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} Force Refresh Brief
-            </button>
+            </button>}
           </div>
 
           {/* Progress indicator during generation */}
@@ -1740,7 +1388,7 @@ export function DashboardPage() {
             </div>
           ) : (
             <>
-              <div style={{
+              {canDispatchReports && <div style={{
                 background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",
                 border: "1px solid var(--border-primary, #e2e8f0)", marginBottom: "1.5rem",
               }}>
@@ -1754,7 +1402,7 @@ export function DashboardPage() {
                 }}>
                   {sysConfig.unified_brief}
                 </div>
-              </div>
+              </div>}
 
               <div style={{
                 background: "var(--bg-card, #fff)", borderRadius: "var(--radius-md, 8px)", padding: "1.25rem",

@@ -27,17 +27,21 @@ NPM package manifest for the React/TypeScript frontend. Declares project metadat
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@deck.gl/react` | `^9.0.0` | Deck.gl React bindings — `<DeckGL>` component for map-based visualizations. |
+| `@deck.gl/core` | `^9.3.0` | Deck.gl core types and runtime primitives imported directly by map components. |
+| `@deck.gl/layers` | `^9.3.0` | Only the map layers used by this UI (scatterplot, GeoJSON, bitmap, and polygon). |
+| `@deck.gl/react` | `^9.3.0` | Deck.gl React bindings — `<DeckGL>` component for map visualizations. |
+| `@deck.gl/widgets` | `^9.3.0` | Required peer package for deck.gl React bindings. |
+| `@loaders.gl/core` | `^4.4.1` | Required deck.gl layer peer. |
+| `@luma.gl/core` | `^9.3.3` | Required deck.gl rendering peer. |
+| `@luma.gl/engine` | `^9.3.3` | Required deck.gl rendering peer. |
 | `@tanstack/react-query` | `^5.100.11` | Server state management — caching, background refetching, and pagination for REST API calls. |
-| `axios` | `^1.7.0` | HTTP client for REST API requests. Used by `web/src/utils/api.ts`. |
-| `deck.gl` | `^9.0.0` | WebGL-powered geospatial visualization framework. Core library for map layers. |
+| `axios` | `^1.20.0` | Patched HTTP client for REST API requests. Used by `web/src/utils/api.ts`. |
 | `lucide-react` | `^1.16.0` | Open-source icon library as React components. Used throughout the UI for navigation and status indicators. |
-| `mapbox-gl` | `^3.0.0` | Mapbox GL JS — map rendering engine (optional fallback). |
-| `maplibre-gl` | `^4.7.1` | MapLibre GL JS — open-source map rendering engine (primary choice for self-hosted tiles). |
+| `maplibre-gl` | `^6.11.2` | Patched MapLibre GL JS — open-source map rendering engine. |
 | `react` | `^18.3.1` | Core React library — component model, hooks, fiber reconciler. |
 | `react-dom` | `^18.3.1` | React DOM renderer — `createRoot`, hydration, event handling. |
-| `react-map-gl` | `^7.1.0` | React wrapper for Mapbox GL / MapLibre GL. Provides declarative `<Map>` component. |
-| `react-router-dom` | `^7.15.1` | Client-side routing — `<BrowserRouter>`, `<Routes>`, `<Route>`, `<Link>`. |
+| `@vis.gl/react-maplibre` | `^8.1.3` | MapLibre-only React map wrapper; replaces the dual Mapbox/MapLibre wrapper. |
+| `react-router-dom` | `^7.18.4` | Patched client-side routing — `<BrowserRouter>`, `<Routes>`, `<Route>`, `<Link>`. |
 | `recharts` | `^3.8.1` | Declarative charting library for React. Used for analytics charts and dashboards. |
 | `zustand` | `^4.5.0` | Lightweight state management — stores for UI state, WebSocket data, and dashboard state. |
 
@@ -47,15 +51,15 @@ NPM package manifest for the React/TypeScript frontend. Declares project metadat
 |---------|---------|---------|
 | `@types/react` | `^18.3.0` | TypeScript type declarations for React. |
 | `@types/react-dom` | `^18.3.0` | TypeScript type declarations for ReactDOM. |
-| `@vitejs/plugin-react` | `^4.3.0` | Vite plugin — enables React Fast Refresh, JSX transform, and Babel integration. |
+| `@vitejs/plugin-react` | `^5.0.4` | Vite plugin — enables React Fast Refresh, JSX transform, and Babel integration. |
 | `typescript` | `^5.5.0` | TypeScript compiler (`tsc`) for type-checking. |
-| `vite` | `^5.4.0` | Bundler and dev server with native ES module support. |
+| `vite` | `^7.3.6` | Patched bundler and dev server with native ES module support. |
 
 ## Dependency Notes
 
 - **Caret ranges** (`^X.Y.Z`): Allow updates to minor and patch versions. The lockfile (`package-lock.json`) captures exact resolved versions.
 - **`npm ci`** (used in Docker build): Installs from `package-lock.json` only — fails if lockfile is missing or out of sync. Guarantees reproducible builds.
-- **Dual map libraries**: Both `mapbox-gl` and `maplibre-gl` are included. The application primarily uses MapLibre GL (open-source); Mapbox GL is retained as a fallback or for Mapbox tile service integration.
+- **Map dependencies**: The `deck.gl` umbrella and Mapbox React wrapper are intentionally omitted. The manifest declares only deck.gl modules used by source and the MapLibre-only wrapper.
 
 ## Dependencies
 
@@ -80,4 +84,4 @@ cd web && npm run build
 cd web && npx tsc --noEmit
 ```
 
-In Docker, the `web` container runs `npm ci` (clean install), then `npm run build`. The `web-dev` container also runs `npm ci` then `npm run dev -- --host 0.0.0.0`.
+In Docker, the `web` builder runs `npm ci` (clean install) with a BuildKit npm cache mount, then `npm run build`. `web-dev` keeps `node_modules` in a named volume and checks a package-lock hash, reinstalling only after dependency changes.

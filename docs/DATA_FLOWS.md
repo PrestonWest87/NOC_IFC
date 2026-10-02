@@ -22,7 +22,7 @@
 ## 1. RSS Feed Ingestion Pipeline
 
 **Trigger:** Scheduler, every 5 minutes
-**Source files:** `src/scheduler.py:56-216`, `src/services/logic.py`, `src/services/categorizer.py`, `src/services/ioc_extractor.py`
+**Source files:** `src/scheduler.py`, `src/services/logic.py`, `src/services/categorizer.py`, `src/services/ioc_extractor.py`
 
 ### Overview
 
@@ -41,7 +41,7 @@ and deduplicates stale entries.
                                         ▼
                          ┌──────────────────────────────────────┐
                          │  fetch_feeds(source="Scheduled")     │
-                         │  src/scheduler.py:176                │
+                           │  fetch_feeds()                          │
                          └──────────────┬───────────────────────┘
                                         │
             ┌───────────────────────────┼───────────────────────────┐
@@ -112,7 +112,7 @@ and deduplicates stale entries.
                              ▼
            ┌─────────────────────────────────────────────┐
            │  bulk_save_to_db(db_session, arts_data)     │
-           │  src/scheduler.py:121                       │
+            │  bulk_save_to_db()                            │
            │                                             │
            │  batch_size = 100                           │
            │  → db_session.add_all(batch)                │
@@ -134,7 +134,7 @@ and deduplicates stale entries.
 
 ### Scoring Details
 
-The `HybridScorer` (`src/services/logic.py:9-62`) combines two signal sources:
+The `HybridScorer` in `src/services/logic.py` combines two signal sources:
 
 | Signal | Weight | Description |
 |--------|--------|-------------|
@@ -153,7 +153,7 @@ The `HybridScorer` (`src/services/logic.py:9-62`) combines two signal sources:
 
 ### IOC Extraction Engine
 
-The `EnterpriseIOCExtractor` (`src/services/ioc_extractor.py:9-150`) runs compiled regex
+The `EnterpriseIOCExtractor` in `src/services/ioc_extractor.py` runs compiled regex
 rule sets across 5 categories with a 45-character context window:
 
 | Category | Indicator Types |
@@ -178,7 +178,7 @@ Whitelists exclude known-good domains (google.com, github.com, etc.) and IPs (8.
 ## 2. CIS Scoring Pipeline (Executive Grid Intel)
 
 **Trigger:** Called by `job_unified_brief()` every 30 minutes and on-demand via API
-**Source files:** `src/services.py:613-884`, `src/scheduler.py:218-248`
+**Source files:** `src/services.py`, `src/scheduler.py`
 
 ### Overview
 
@@ -327,7 +327,7 @@ appended to the Unified Brief.
 ## 3. Internal Risk Assessment Pipeline
 
 **Trigger:** Scheduler, every 60 minutes
-**Source files:** `src/services.py:886-1243`
+**Source files:** `src/services.py`
 
 ### Overview
 
@@ -469,7 +469,7 @@ The double-gatekeeper mechanism prevents false positives from common English wor
 ## 4. Unified Brief Generation Pipeline
 
 **Trigger:** Scheduler, every 30 minutes; on-demand via API
-**Source files:** `src/utils/llm.py:257-434`, `src/scheduler.py:218-248`
+**Source files:** `src/utils/llm.py`, `src/scheduler.py`
 
 ### Overview
 
@@ -615,7 +615,7 @@ BriefProgressStore (thread-safe dict):
 ## 5. SolarWinds Alert Ingestion Pipeline
 
 **Trigger:** HTTP POST webhook (event-driven)
-**Source files:** `src/webhook_listener.py:1-135`, `src/services/aiops_engine.py:13-66`
+**Source files:** `src/webhook_listener.py`, `src/services/aiops_engine.py`
 
 ### Overview
 
@@ -640,7 +640,7 @@ off to the scheduler's tiered escalation engine.
 │                             ▼                                          │
 │  ┌──────────────────────────────────────────────────────────────────┐  │
 │  │  smart_extract(payload)                                          │  │
-│  │  src/webhook_listener.py:37                                      │  │
+│  │  smart_extract()                                                 │  │
 │  │                                                                  │  │
 │  │  Normalize from 3 payload sections:                              │  │
 │  │  ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐ │  │
@@ -718,7 +718,7 @@ are auto-closed with `resolved_at = datetime.utcnow()`.
 ## 6. AIOps Correlation Pipeline
 
 **Trigger:** Scheduler, every 1 minute (`job_tiered_alert_escalation`)
-**Source files:** `src/services/aiops_engine.py:1-402`, `src/scheduler.py:382-647`
+**Source files:** `src/services/aiops_engine.py`, `src/scheduler.py`
 
 ### Overview
 
@@ -748,7 +748,7 @@ correlation chain, and dispatches RCA tickets with dual-SLA escalation logic.
 │                             ▼                                          │
 │  ┌────────────────────────────────────────────────────────────────────┐  │
 │  │  Phase 2: Clustering (analyze_and_cluster)                        │  │
-│  │  src/services/aiops_engine.py:346                                 │  │
+│  │  analyze_and_cluster()                                            │  │
 │  │                                                                    │  │
 │  │  For each alert:                                                  │  │
 │  │    site = Custom_Properties.Site OR mapped_location OR "Unknown"  │  │
@@ -765,7 +765,7 @@ correlation chain, and dispatches RCA tickets with dual-SLA escalation logic.
 │                             ▼                                          │
 │  ┌────────────────────────────────────────────────────────────────────┐  │
 │  │  Phase 3: Patient Zero Determination                              │  │
-│  │  src/services/aiops_engine.py:68                                  │  │
+│  │  _determine_patient_zero()                                        │  │
 │  │                                                                    │  │
 │  │  For each alert in cluster:                                       │  │
 │  │    domain = _get_domain(node_type, node_name, primary_comms)     │  │
@@ -786,7 +786,7 @@ correlation chain, and dispatches RCA tickets with dual-SLA escalation logic.
 │                             ▼                                          │
 │  ┌────────────────────────────────────────────────────────────────────┐  │
 │  │  Phase 4: Fleet Outage Detection                                 │  │
-│  │  src/services/aiops_engine.py:119                                │  │
+│  │  identify_fleet_outages()                                         │  │
 │  │                                                                    │  │
 │  │  Group sites by primary_coms provider                             │  │
 │  │  IF provider has >= 5 affected sites AND provider != "Unknown":  │  │
@@ -796,10 +796,10 @@ correlation chain, and dispatches RCA tickets with dual-SLA escalation logic.
 │                             ▼                                          │
 │  ┌────────────────────────────────────────────────────────────────────┐  │
 │  │  Phase 5: Chronic Insights (60-day history)                       │  │
-│  │  src/services/aiops_engine.py:139                                │  │
+│  │  generate_chronic_insights()                                      │  │
 │  │                                                                    │  │
 │  │  Query: SolarWindsAlert last 60 days                              │  │
-│  │  → DataFrame: node_name, device_type, site                       │  │
+│  │  → Record list: node_name, device_type, site                     │  │
 │  │  → Top 15 flapping nodes by incident count                       │  │
 │  │  → Top 10 sites by incident count                                │  │
 │  │  → CRITICAL FLAP if top node > 5 incidents                       │  │
@@ -809,7 +809,7 @@ correlation chain, and dispatches RCA tickets with dual-SLA escalation logic.
 │                             ▼                                          │
 │  ┌────────────────────────────────────────────────────────────────────┐  │
 │  │  Phase 6: 7-Stage RCA Correlation Chain                          │  │
-│  │  src/services/aiops_engine.py:204                                │  │
+│  │  calculate_root_cause()                                           │  │
 │  │                                                                    │  │
 │  │  ┌──────┬────────────────────────────────────┬──────────────────┐ │  │
 │  │  │ Rank │ Correlation Source                  │ Score Bonus      │ │  │
@@ -837,7 +837,7 @@ correlation chain, and dispatches RCA tickets with dual-SLA escalation logic.
 │                             ▼                                          │
 │  ┌────────────────────────────────────────────────────────────────────┐  │
 │  │  Phase 7: Tiered Escalation & Dispatch                           │  │
-│  │  src/scheduler.py:382-647                                        │  │
+│  │  Escalation jobs in src/scheduler.py                              │  │
 │  │                                                                    │  │
 │  │  ┌──────────────────────────────────────────────────────────────┐ │  │
 │  │  │  DUAL SLA DICTIONARIES                                       │ │  │
@@ -919,7 +919,7 @@ on-page step is suppressed.
 ## 7. Risk Alert Pipeline
 
 **Trigger:** Called after `job_unified_brief()` and `job_internal_risk()` complete
-**Source files:** `src/utils/risk_alert.py:1-242`, `src/scheduler.py:247-263`
+**Source files:** `src/utils/risk_alert.py`, `src/scheduler.py`
 
 ### Overview
 
@@ -942,7 +942,7 @@ has elapsed, it constructs a plain-text email and dispatches it to configured re
 │                             ▼                                        │
 │  ┌────────────────────────────────────────────────────────────────┐  │
 │  │  check_and_alert(global_risk, internal_risk)                  │  │
-│  │  src/utils/risk_alert.py:156                                  │  │
+│  │  check_and_alert() in src/utils/risk_alert.py                 │  │
 │  │                                                                │  │
 │  │  1. Read previous tracked risks from SystemConfig:            │  │
 │  │     previous_global   = config.last_global_risk               │  │
@@ -1011,7 +1011,7 @@ An increase is strictly: `tier_index(current) > tier_index(previous)`.
 ## 8. Weather/Telemetry Ingestion Pipeline
 
 **Trigger:** Scheduler, every 7 minutes (hazards), 8 minutes (cloud), 6 minutes (telemetry)
-**Source files:** `src/workers/infra_worker.py:1-235`, `src/workers/cloud_worker.py:1-206`, `src/workers/telemetry_worker.py:1-144`, `src/workers/crime_worker.py:1-154`
+**Source files:** `src/workers/infra_worker.py`, `src/workers/cloud_worker.py`, `src/workers/telemetry_worker.py`, `src/workers/crime_worker.py`
 
 ### Overview
 
@@ -1161,7 +1161,7 @@ local crime dispatch data. Each sub-pipeline runs independently on its own sched
 
 ### Site Intersection Calculation
 
-The `calculate_site_intersections()` function (`src/services.py:1867-1913`) determines
+The `calculate_site_intersections()` function in `src/services.py` determines
 which monitored sites are affected by active weather hazards:
 
 ```
@@ -1190,7 +1190,7 @@ For each monitored site (Lat, Lon):
 
 ### 9.1 Database Maintenance (every 60 minutes)
 
-**Source:** `src/scheduler.py:329-376`
+**Source:** `src/scheduler.py` (`run_database_maintenance`)
 
 ```
 run_database_maintenance()
@@ -1212,7 +1212,7 @@ run_database_maintenance()
 
 ### 9.2 ML Model Retraining (weekly, Sunday 02:00)
 
-**Source:** `src/scheduler.py:654-666`
+**Source:** `src/scheduler.py` (`job_retrain_ml`)
 
 ```
 job_retrain_ml()
@@ -1224,7 +1224,7 @@ job_retrain_ml()
 
 ### 9.3 Daily Email Brief (07:00 Central)
 
-**Source:** `src/scheduler.py:266-322`
+**Source:** `src/scheduler.py` (`job_daily_email_unified_brief`)
 
 ```
 job_daily_email_unified_brief()

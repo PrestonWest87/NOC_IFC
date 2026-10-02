@@ -11,6 +11,15 @@ interface User {
   default_shift?: string;
   theme?: string;
   role?: string;
+  account_type?: "individual" | "display" | string;
+  email?: string | null;
+  email_verified_at?: string | null;
+  recovery_email_status?: "missing" | "unverified" | "pending_approval" | "pending_verification" | "verified" | "exempt" | string;
+  pending_email?: string | null;
+  is_active?: boolean;
+  created_at?: string | null;
+  last_login_at?: string | null;
+  last_activity_at?: string | null;
   allowed_pages?: string[];
   allowed_actions?: string[];
   allowed_site_types?: string[];

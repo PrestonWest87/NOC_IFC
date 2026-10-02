@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../utils/AuthContext";
+import { hasPagePermission } from "../utils/permissions";
 import {
   Activity, Globe, Crosshair, Shield, Radio, BookOpen,
   FileText, Settings, LogOut, Menu, User, ChevronLeft, Search
@@ -20,7 +21,6 @@ const navItems = [
 export function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
 
   return (
     <div style={{ display: "flex", height: "100vh", background: "var(--bg-primary)", color: "var(--text-primary)", fontFamily: "var(--font-sans)" }}>
@@ -50,8 +50,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         <div style={{ flex: 1, overflowY: "auto", padding: "0.25rem 0" }}>
           {navItems.filter(item => {
-            if (!user?.allowed_pages) return true;
-            return user.allowed_pages.includes(item.label);
+            return hasPagePermission(user, item.label);
           }).map((item) => (
             <a key={item.href} href={`#${item.href}`} aria-label={collapsed ? item.label : undefined}
               style={{
@@ -75,8 +74,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         }}>
           {!collapsed && user && (
             <>
-              <div style={{ marginBottom: "0.5rem", cursor: "pointer" }}
-                onClick={() => setShowProfile(!showProfile)}>
+              <div style={{ marginBottom: "0.5rem" }}>
                 <div style={{ fontWeight: 600, fontSize: "0.8rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 4 }}>
                   <User size={14} /> {user.full_name || user.username}
                 </div>
@@ -98,6 +96,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </nav>
       <main style={{ flex: 1, overflow: "auto", background: "var(--bg-primary)" }}>
+        {user?.account_type !== "display" && ["missing", "unverified", "pending_approval", "pending_verification"].includes(String(user?.recovery_email_status || (!user?.email ? "missing" : "unverified"))) && (
+          <div role="status" style={{ margin: "1rem 1.5rem 0", padding: "0.8rem 1rem", border: "1px solid var(--accent-yellow)", borderRadius: "var(--radius-sm)", background: "var(--shade-yellow)", color: "var(--text-primary)", fontSize: "0.82rem" }}>
+            <strong>Account recovery email:</strong>{" "}
+            {user?.recovery_email_status === "pending_approval"
+              ? `Your request for ${user.pending_email || "a recovery email"} is awaiting user-administrator approval.`
+              : user?.recovery_email_status === "pending_verification"
+                ? `Your request was approved. Verify ${user.pending_email || "the new email address"} to make it your recovery email.`
+                : "Add a recovery email so an approved address is available if you forget your password. Email changes require user-administrator approval and mailbox verification."}
+            {user?.recovery_email_status !== "pending_approval" && user?.recovery_email_status !== "pending_verification" && (
+              <> <a href="#/settings" style={{ color: "var(--accent-blue)" }}>Review your profile</a>.</>
+            )}
+          </div>
+        )}
         {children}
       </main>
     </div>

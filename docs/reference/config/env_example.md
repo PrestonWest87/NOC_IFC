@@ -9,6 +9,7 @@ This file is the complete template for environment variables used by the current
 | `DATABASE_URL` | SQLite container path `/app/data/noc_fusion.db` | `src.core.config` | SQLAlchemy database URL; Docker maps `/app/data` to repository `./data` |
 | `DEMO_SEED_DATA` | `false` | `src.core.config` | Enable synthetic asset seed data |
 | `DEFAULT_ADMIN_PASSWORD` | change-me placeholder | `src.core.db` | Initial admin password when the database has no users |
+| `DEFAULT_ADMIN_EMAIL` | empty | `src.core.db` | Trusted verified bootstrap mailbox; can initialize an existing email-less bootstrap administrator on API/worker startup |
 | `LOG_LEVEL` | `INFO` | `src.core.config` | Python logging threshold |
 | `RISK_ALERT_RECIPIENTS` | empty | scheduler/config | Risk and daily brief recipients |
 | `REMEDYFORCE_TICKET_EMAIL` | empty | scheduler | Required ticket destination for escalation |

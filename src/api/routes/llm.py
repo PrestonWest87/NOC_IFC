@@ -7,10 +7,10 @@ from typing import Any
 
 from src import services as svc
 from src.core.config import settings
-from src.api.auth_guard import require_page
+from src.api.auth_guard import require_action, require_page
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/llm", tags=["llm"], dependencies=[Depends(require_page("Settings & Admin"))])
+router = APIRouter(prefix="/api/v1/llm", tags=["llm"])
 
 
 def _safe_llm_endpoint(endpoint: str) -> bool:
@@ -27,7 +27,10 @@ def _safe_llm_endpoint(endpoint: str) -> bool:
         return False
 
 
-@router.post("/test-connection")
+@router.post("/test-connection", dependencies=[
+    Depends(require_page("Settings & Admin")),
+    Depends(require_action("Tab: Settings -> AI & SMTP")),
+])
 def test_llm_connection(data: dict[str, Any] = Body({})):
     from src.utils.llm import call_llm
 
@@ -73,7 +76,11 @@ def test_llm_connection(data: dict[str, Any] = Body({})):
         return {"success": False, "message": "Connection failed. Check the endpoint and server logs."}
 
 
-@router.post("/executive-weather-brief")
+@router.post("/executive-weather-brief", dependencies=[
+    Depends(require_page("Regional Grid")),
+    Depends(require_action("Tab: Regional Grid -> Executive Dash")),
+    Depends(require_action("Action: Generate Reports")),
+])
 def executive_weather_brief(data: dict[str, Any] = Body({})):
     from src.utils.llm import generate_executive_weather_brief
     config = svc.get_cached_config()

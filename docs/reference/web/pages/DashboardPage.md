@@ -170,9 +170,6 @@ A full-page layout with:
 | `subPanel` | `number` | `0` | Active subtab index |
 | `autoRotate` | `boolean` | `true` | Toggles auto-rotation of subtabs |
 | `cisLegendOpen` | `boolean` | `false` | Controls CIS Threat Legend modal |
-| `scoringOverview` | `string \| null` | `null` | Generated scoring rationale text |
-| `scoringOverviewRisk` | `string \| null` | `null` | Risk level when scoring was generated |
-| `dispatchEmail` | `string` | `""` | Email address for report dispatch |
 | `ubEmail` | `string` | `""` | Email address for unified brief broadcast |
 | `forceRefreshKey` | `number` | `0` | Key for forcing sitrep query refetch |
 
@@ -206,7 +203,6 @@ A full-page layout with:
 |----------|----------|------------|
 | `refreshBriefingMut` | `POST /rca/sitrep { action: "refresh_briefing" }` | Increments `forceRefreshKey`, invalidates `sys-config` |
 | `securityAuditMut` | `POST /rca/sitrep { action: "security_audit" }` | (none) |
-| `generateScoringMut` | `POST /dashboard/generate-scoring-rationale` | Sets `scoringOverview` and `scoringOverviewRisk` |
 | `generateUnifiedBriefMut` | `POST /dashboard/generate-unified-brief` | Increments `forceRefreshKey`, invalidates `sys-config` |
 | `generateInternalMut` | `POST /dashboard/generate-internal-risk` | Calls `refetchInternal()` |
 
@@ -224,8 +220,7 @@ A full-page layout with:
 - Executive Grid Threat Matrix with unified risk banner
 - 14-day CIS trend line chart (Recharts)
 - Physical & perimeter / Cyber & SCADA side-by-side columns
-- Dynamic scoring overview generation
-- Dispatch intelligence report via email
+- Global Threat Brief with generation progress and email broadcast controls
 
 **Tab 2 — Internal Risk:**
 - Internal Asset Risk Dashboard banner with CIS posture

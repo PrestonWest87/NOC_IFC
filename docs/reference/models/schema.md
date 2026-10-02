@@ -1,6 +1,6 @@
 # Module: `src.models.schema`
 
-SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declarative schema contains 30 mapped tables/classes; migrations may add compatibility columns to existing deployments.
+SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declarative schema contains 35 mapped tables/classes; migrations may add compatibility columns to existing deployments.
 
 ---
 
@@ -12,32 +12,37 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declar
 | 2 | `user_sessions` | `UserSession` | Independently revocable browser/device sessions |
 | 3 | `failed_login_attempts` | `FailedLoginAttempt` | Short-lived failed-login alert evidence |
 | 4 | `registration_invites` | `RegistrationInvite` | Hashed user-registration invitations and expiry |
-| 5 | `roles` | `Role` | RBAC role definitions |
-| 6 | `saved_reports` | `SavedReport` | Custom report library |
-| 7 | `feed_sources` | `FeedSource` | RSS/Atom feed configuration |
-| 8 | `keywords` | `Keyword` | Scoring keyword registry |
-| 9 | `system_config` | `SystemConfig` | AI/SMTP/risk/brief configuration |
-| 10 | `shift_logs` | `ShiftLogEntry` | Operator shift log entries |
-| 11 | `software_assets` | `SoftwareAsset` | Internal software inventory |
-| 12 | `hardware_assets` | `HardwareAsset` | Internal hardware inventory with vulnerability data |
-| 13 | `internal_risk_snapshots` | `InternalRiskSnapshot` | Asset risk posture history |
-| 14 | `articles` | `Article` | RSS/OSINT intelligence articles |
-| 15 | `extracted_iocs` | `ExtractedIOC` | Autonomously extracted indicators |
-| 16 | `cve_items` | `CveItem` | CISA KEV vulnerability catalog |
-| 17 | `elastic_events` | `ElasticEvent` | Elasticsearch synced security events |
-| 18 | `daily_briefings` | `DailyBriefing` | Daily fusion report archive |
-| 19 | `daily_threat_scores` | `DailyThreatScore` | Historical threat score records |
-| 20 | `regional_hazards` | `RegionalHazard` | Weather/geospatial hazards |
-| 21 | `regional_outages` | `RegionalOutage` | Regional infrastructure outages |
-| 22 | `cloud_outages` | `CloudOutage` | Cloud service status records |
-| 23 | `bgp_anomalies` | `BgpAnomaly` | BGP routing anomalies |
-| 24 | `solarwinds_alerts` | `SolarWindsAlert` | Ingested infrastructure alerts |
-| 25 | `timeline_events` | `TimelineEvent` | Activity feed for RCA board |
-| 26 | `monitored_locations` | `MonitoredLocation` | Facility/site registry |
-| 27 | `crime_incidents` | `CrimeIncident` | Law enforcement CAD data |
-| 28 | `geojson_cache` | `GeoJsonCache` | Cached geospatial GeoJSON |
-| 29 | `node_aliases` | `NodeAlias` | SolarWinds node-to-site mapping |
-| 30 | `user_weather_prefs` | `UserWeatherPreference` | User weather alert preferences |
+| 5 | `email_change_requests` | `EmailChangeRequest` | Reviewed recovery-email changes and mailbox verification |
+| 6 | `password_reset_requests` | `PasswordResetRequest` | Reviewed password-reset requests and rate-limit evidence |
+| 7 | `password_reset_tokens` | `PasswordResetToken` | Hashed, expiring, single-use reset tokens |
+| 8 | `account_audit_events` | `AccountAuditEvent` | Durable user-administration audit trail |
+| 9 | `scheduler_job_config` | `SchedulerJobConfig` | Persisted per-job scheduler settings |
+| 10 | `roles` | `Role` | RBAC role definitions |
+| 11 | `saved_reports` | `SavedReport` | Custom report library |
+| 12 | `feed_sources` | `FeedSource` | RSS/Atom feed configuration |
+| 13 | `keywords` | `Keyword` | Scoring keyword registry |
+| 14 | `system_config` | `SystemConfig` | AI/SMTP/risk/brief configuration |
+| 15 | `shift_logs` | `ShiftLogEntry` | Operator shift log entries |
+| 16 | `software_assets` | `SoftwareAsset` | Internal software inventory |
+| 17 | `hardware_assets` | `HardwareAsset` | Internal hardware inventory with vulnerability data |
+| 18 | `internal_risk_snapshots` | `InternalRiskSnapshot` | Asset risk posture history |
+| 19 | `articles` | `Article` | RSS/OSINT intelligence articles |
+| 20 | `extracted_iocs` | `ExtractedIOC` | Autonomously extracted indicators |
+| 21 | `cve_items` | `CveItem` | CISA KEV vulnerability catalog |
+| 22 | `elastic_events` | `ElasticEvent` | Elasticsearch synced security events |
+| 23 | `daily_briefings` | `DailyBriefing` | Daily fusion report archive |
+| 24 | `daily_threat_scores` | `DailyThreatScore` | Historical threat score records |
+| 25 | `regional_hazards` | `RegionalHazard` | Weather/geospatial hazards |
+| 26 | `regional_outages` | `RegionalOutage` | Regional infrastructure outages |
+| 27 | `cloud_outages` | `CloudOutage` | Cloud service status records |
+| 28 | `bgp_anomalies` | `BgpAnomaly` | BGP routing anomalies |
+| 29 | `solarwinds_alerts` | `SolarWindsAlert` | Ingested infrastructure alerts |
+| 30 | `timeline_events` | `TimelineEvent` | Site-scoped activity feed for the RCA board |
+| 31 | `monitored_locations` | `MonitoredLocation` | Facility/site registry |
+| 32 | `crime_incidents` | `CrimeIncident` | Law enforcement CAD data |
+| 33 | `geojson_cache` | `GeoJsonCache` | Cached geospatial GeoJSON |
+| 34 | `node_aliases` | `NodeAlias` | SolarWinds node-to-site mapping |
+| 35 | `user_weather_prefs` | `UserWeatherPreference` | User weather alert preferences |
 
 ---
 
@@ -58,6 +63,14 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declar
 | `contact_info` | `String` | `nullable` | — | Email or contact number |
 | `default_shift` | `String` | `"No Shift"` | — | Default Morning/Afternoon/Night/No Shift |
 | `theme` | `String` | `"standard"` | — | User-selected UI theme |
+| `account_type` | `String(20)` | `"individual"` | Y | `individual` or administrator-created `display` account |
+| `email` | `String(254)` | `nullable` | — | Optional for display accounts; verified for recovery use |
+| `email_normalized` | `String(254)` | `nullable` | Y (unique) | Normalized account/recovery email |
+| `email_verified_at` | `DateTime` | `nullable` | — | Mailbox verification time |
+| `is_active` | `Boolean` | `True` | Y | Disabled accounts cannot authenticate |
+| `created_at` | `DateTime` | UTC now | — | Account creation time |
+| `last_login_at` | `DateTime` | `nullable` | Y | Last successful sign-in |
+| `last_activity_at` | `DateTime` | `nullable` | Y | Durable activity, updated at most every five minutes |
 
 ### UserSession
 **Table**: `user_sessions`
@@ -82,6 +95,55 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declar
 | `created_at` | `DateTime` | UTC now | Creation timestamp |
 | `expires_at` | `DateTime` | required | Invitation expiration |
 | `used_at` | `DateTime` | nullable | Completion timestamp |
+| `email` | `String(254)` | required | Invited individual email |
+| `email_normalized` | `String(254)` | required/indexed | Normalized invitation email |
+| `account_type` | `String(20)` | `individual` | Invite account type |
+
+### EmailChangeRequest
+**Table**: `email_change_requests`
+
+Stores user-requested recovery-email changes, reviewer decisions, and mailbox verification. An address becomes the approved recovery email only after administrator approval and successful mailbox verification.
+
+| Column | Type | Description |
+|---|---|---|
+| `user_id`, `reviewed_by_id` | Integer | Request owner and reviewer |
+| `requested_email`, `requested_email_normalized` | String(254) | Submitted and normalized email |
+| `status`, `requested_at`, `reviewed_at` | String, DateTime | Review/verification state and timestamps |
+| `decision_reason` | Text | Approval/denial reason |
+| `verification_token_hash`, `verification_expires_at`, `verified_at` | String, DateTime | Single-use mailbox verification state |
+
+### PasswordResetRequest and PasswordResetToken
+**Tables**: `password_reset_requests`, `password_reset_tokens`
+
+Reset requests retain a hash of the submitted identifier and requester IP for generic responses and rate limiting. User administrators review requests; approval creates an expiring, single-use token whose raw value is sent to the verified recovery address.
+
+| Model | Key fields |
+|---|---|
+| `PasswordResetRequest` | user reference, identifier hash, requester IP, status, request/review timestamps, reviewer, decision reason |
+| `PasswordResetToken` | request/user references, unique token hash, creation/expiry/used timestamps |
+
+### AccountAuditEvent
+**Table**: `account_audit_events`
+
+| Column | Type | Description |
+|---|---|---|
+| `actor_user_id`, `subject_user_id` | Integer, nullable | User who performed the action and affected account |
+| `event_type` | String(64) | Action identifier |
+| `event_detail` | JSON | Structured event details |
+| `created_at` | DateTime | Audit event time |
+
+### SchedulerJobConfig
+**Table**: `scheduler_job_config`
+
+Stores validated per-job schedule type, interval/time/day, timezone, enabled state, and updater metadata. `system_config.scheduler_revision` and `scheduler_applied_revision` coordinate worker reloads.
+
+| Column | Type | Description |
+|---|---|---|
+| `job_key` | String(80), unique | Scheduler registry key |
+| `schedule_type`, `every_value`, `unit` | String, Integer | Interval schedule fields |
+| `run_at`, `weekday`, `timezone` | String | Calendar schedule fields; timezone is America/Chicago |
+| `enabled` | Boolean | Whether the job is scheduled |
+| `updated_by`, `updated_at` | String, DateTime | Last editor and update time |
 
 ---
 
@@ -151,6 +213,9 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declar
 | `failed_login_alert_threshold` | `Integer` | `5` | Failed attempts required to alert (2-100) |
 | `failed_login_alert_window_minutes` | `Integer` | `5` | Rolling threshold window (1-60 minutes) |
 | `failed_login_alert_last_sent` | `DateTime` | `nullable` | Cross-worker alert cooldown timestamp |
+| `permission_catalog_version` | `Integer` | `0` | One-time role permission migration marker |
+| `scheduler_revision` | `Integer` | `0` | Latest persisted scheduler settings revision |
+| `scheduler_applied_revision` | `Integer` | `0` | Latest worker-applied scheduler revision |
 
 ### FailedLoginAttempt
 **Table**: `failed_login_attempts`
@@ -368,7 +433,7 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declar
 | `daily_threat_scores` | `id`, `record_date` (unique), `cyber_points`, `physical_points` | 14-day baseline |
 | `regional_outages` | `id`, `outage_type`, `provider`, `lat`, `lon`, `radius_km`, `is_resolved` | Regional power/ISP outages |
 | `bgp_anomalies` | `id`, `asn`, `event_type`, `description`, `is_resolved` | RIPE RIS routing anomalies |
-| `timeline_events` | `id`, `timestamp`, `source`, `event_type`, `message` | RCA activity feed |
+| `timeline_events` | `id`, `timestamp`, `source`, `event_type`, `message`, `site_name` | RCA activity feed with site-scope metadata |
 | `geojson_cache` | `feed_name` (PK), `data` (JSON), `updated_at` | SPC/NWS/USGS cached |
 | `node_aliases` | `id`, `node_pattern`, `mapped_location_name`, `confidence_score`, `is_verified` | SolarWinds mapping |
 | `user_weather_prefs` | `id`, `username`, `alert_type` | Weather preferences |
@@ -384,10 +449,10 @@ from sqlalchemy.orm import declarative_base
 Base = declarative_base()
 ```
 
-The `init_db()` function in `src/core/db.py` calls `Base.metadata.create_all(bind=engine)` and seeds default data:
-- Admin and analyst users
-- Admin and analyst roles with all permissions
+The application runs Alembic revisions at startup before seeding data. `Base.metadata.create_all()` is used only by the one-time legacy adoption revision and isolated tests. Conditional bootstrap data includes:
+- The built-in administrator role and an operational analyst role without new sensitive grants
+- A bootstrap administrator only when `DEFAULT_ADMIN_PASSWORD` is configured and no users exist
 - 70 default keywords with weights
-- 12 default RSS feed sources
+- 7 default RSS feed sources
 - Default system configuration
-- Rescales all existing articles with current keyword weights
+- Rescales articles only when `RESCORE_ON_STARTUP=true` is explicitly configured

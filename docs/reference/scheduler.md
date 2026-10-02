@@ -4,7 +4,7 @@ The worker entrypoint and scheduled-job implementation. It is started by Docker 
 
 ## Startup
 
-Import time configures logging and calls `init_db()`. The `__main__` block starts the report scheduler thread, registers jobs with the `schedule` library, fires a staggered boot sequence, then runs `schedule.run_pending()` once per second.
+The `__main__` entrypoint configures logging and calls `run_scheduler()`. `run_scheduler()` calls `init_db()` first, so pending Alembic revisions complete before schedule registration, startup jobs, or the one-second `schedule.run_pending()` loop.
 
 Jobs execute through a module-level `ThreadPoolExecutor(max_workers=2)`. `_running_jobs` and `_running_jobs_lock` prevent overlapping executions of the same function name.
 

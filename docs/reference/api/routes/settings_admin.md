@@ -362,12 +362,11 @@ Updates existing location records from a list of dictionaries.
 None.
 
 ### Flow
-1. Converts the JSON body list to a `pandas.DataFrame`.
-2. Delegates to `svc.update_locations()`.
+1. Delegates the JSON body records to `svc.update_locations()`.
+2. The service loads matching locations in one query, applies updates, and commits.
 3. Clears the cached locations.
 
 ### Dependencies
-- `pandas`
 - `src.services.update_locations()`
 - `src.services.get_cached_locations.clear()`
 
@@ -376,7 +375,7 @@ None.
 ## Endpoint: `GET /backup`
 
 ### Purpose
-Exports all system data as a JSON-serializable backup object.
+Returns the legacy logical backup containing keywords, feeds, monitored locations, and node aliases.
 
 ### Parameters
 None.
@@ -398,7 +397,7 @@ Direct delegation to service layer.
 ## Endpoint: `POST /restore`
 
 ### Purpose
-Restores system data from a previously exported backup.
+Adds missing keyword, feed, location, and alias records from a legacy backup object. This is not a complete database restore.
 
 ### Parameters
 | Parameter | Type               | Description                      |
@@ -582,7 +581,8 @@ The admin router is protected router-wide by `Depends(require_admin)`. Current a
 - `PATCH /keywords/{keyword_id}` with integer weight validation from 1 through 100.
 - `POST /assets/software` and `POST /assets/hardware` for asset imports.
 - `POST /registration-invites` for expiring registration links.
-- `POST /upload-db`, `GET /export-all`, and `POST /import-all` for database operations.
+- `GET /export-all` and `POST /import-all` operate on the 27 model classes in `ALL_MODELS`; they do not include session, invitation, recovery-request/token, failed-login, account-audit, or scheduler-job configuration tables.
+- `POST /upload-db` imports rows from an uploaded SQLite file into the current database; it does not swap the SQLite database file.
 - `POST /nuke/crime` and `POST /nuke/weather` for scoped cleanup actions.
 - `POST /ml-retrain` to trigger model training.
 - `POST /location/import` with `mode=add|upsert|replace`; response includes the selected mode and import count.

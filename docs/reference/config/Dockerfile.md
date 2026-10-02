@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Single-stage Python production image used by the `api`, `worker`, and `webhook` services in `docker-compose.yml`. Installs system-level PostgreSQL client libraries, pip dependencies, and bundles the entire application source.
+Single-stage Python production image used by the `api`, `worker`, and `webhook` services in `docker-compose.yml`. Installs SQLite-compatible Python dependencies and bundles the application source.
 
 ## Directives
 
@@ -12,17 +12,18 @@ Single-stage Python production image used by the `api`, `worker`, and `webhook` 
 |-----------|-------|-------------|
 | `FROM` | `python:3.11-slim` | Base image — Debian slim variant with Python 3.11. Minimal footprint for production. |
 | `WORKDIR` | `/app` | Working directory inside the container. All subsequent commands and `COPY` destinations resolve relative to this path. |
-| `RUN` | `apt-get update && apt-get install -y libpq-dev gcc && rm -rf /var/lib/apt/lists/*` | Installs `libpq-dev` (PostgreSQL client headers, required by `psycopg2`) and `gcc` (C compiler for building native extensions). Removes apt cache to reduce layer size. |
-| `COPY` | `requirements.txt .` | Copies only `requirements.txt` first to leverage Docker layer caching — rebuilds only when dependencies change. |
-| `RUN` | `pip install --no-cache-dir -r requirements.txt` | Installs all Python packages. `--no-cache-dir` disables pip cache to reduce image size. |
-| `COPY` | `. .` | Copies the entire project source (excluding items in `.dockerignore`, if present). |
+| `RUN` | `apt-get update && apt-get install -y gosu && rm -rf /var/lib/apt/lists/*` | Installs `gosu` to drop container privileges. Runtime packages use prebuilt wheels, so a compiler and PostgreSQL client libraries are not installed. |
+| `COPY` | `requirements.txt requirements.lock ./` | Copies direct requirements and the resolved Python lock before source to leverage Docker layer caching. |
+| `RUN` | `pip install --disable-pip-version-check --require-hashes -r requirements.lock` with a BuildKit pip-cache mount | Installs pinned runtime packages with artifact hashes while reusing downloaded wheels across rebuilds. The cache mount is not stored in the image. |
+| `COPY` | `. .` | Copies the project source while `.dockerignore` excludes local data, documentation, dependencies, and generated `src/ml_model.pkl` weights. |
 | `ENV` | `PYTHONPATH=/app` | Ensures Python can resolve imports from `/app` as the root package directory. Required for `from src.api.main import app` to work at runtime. |
 
 ## Dependencies
 
-- **`requirements.txt`** — Pinned and unpinned Python packages installed during build.
+- **`requirements.txt`** — Direct Python runtime requirements.
+- **`requirements.lock`** — Transitive, version-pinned, hash-checked runtime resolution used by the image build.
 - **`src/`** — Application source code mounted as a volume at runtime for live-reload in development; baked into the image at build time for production.
-- **OS packages:** `libpq-dev`, `gcc` — required at build time for compiling `psycopg2` against `libpq`. Only `libpq` is needed at runtime.
+- **OS packages:** `gosu`; no compiler or PostgreSQL client libraries are installed.
 
 ## Usage
 

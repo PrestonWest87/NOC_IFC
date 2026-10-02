@@ -1,6 +1,6 @@
 # Scheduler and Background Jobs
 
-The worker starts with `python -u src/scheduler.py`. Import-time initialization calls `init_db()`, then the `__main__` block registers jobs with the `schedule` library and runs a one-second polling loop.
+The worker starts with `python -u src/scheduler.py`. It initializes the database, loads the registered schedules, and runs a one-second polling loop. The registry in `src/core/scheduler_registry.py` supplies defaults, bounds, schedule types, startup-run behavior, and the settings UI metadata.
 
 ## Current Schedule
 
@@ -26,18 +26,21 @@ Intervals below are the values in the scheduler source, not historical product t
 | Global brief | Daily at 02:00 | `job_global_brief` | Broad OSINT and physical context; saves global threat brief |
 | ML retraining | Sunday at 02:00 | `job_retrain_ml` | Analyst feedback corpus; writes model and reloads scorer |
 | Daily email | 07:00 `America/Chicago` | `job_daily_email_unified_brief` | Saved unified brief and risk context; sends to `RISK_ALERT_RECIPIENTS` |
+| Daily Fusion report | 06:00 `America/Chicago` | `run_daily_report` | Generates and stores the prior-day Daily Fusion report |
 
 ## Execution Model
 
 `run_threaded` submits work to a two-thread executor. A set protected by a lock prevents the same function name from running twice concurrently. Exceptions are logged, memory is sampled before and after each job, and the running marker is removed in `finally`.
 
-The boot sequence runs four groups with 30-second pauses: (1) escalation, maintenance expiry, RSS; (2) KEV, regional hazards, cloud; (3) telemetry, Elasticsearch, crime, internal risk; (4) unified, global, and internal briefs.
+The explicit startup-run policy runs only registry entries marked `startup_run`, in four groups with 30-second pauses: (1) escalation, maintenance expiry, RSS; (2) KEV, regional hazards, cloud; (3) telemetry, Elasticsearch, crime, internal risk; (4) unified, global, and internal briefs. Daily emails, the Daily Fusion report, and ML retraining wait for their scheduled times.
 
 Boot execution can create immediate outbound traffic and LLM work. Confirm environment recipients and API credentials before starting a production worker.
 
 ## Change Frequency
 
-Edit the `schedule.every(...)` declarations in `src/scheduler.py`. Do not edit documentation values as a substitute. Preserve the non-overlap behavior and consider external API rate limits, database locks, LLM cost, and email volume before shortening an interval.
+Authorized users change schedules in Settings > Application Settings. The API validates each job against registry-specific minimum/maximum intervals and supported interval/daily/weekly formats. The worker polls the saved revision every 30 seconds and rebuilds only registry-managed jobs; an in-flight job is not interrupted and the per-job non-overlap guard remains active. Tiered escalation cannot be disabled and remains bounded to 1-5 minutes. Daily and weekly schedules use `America/Chicago`.
+
+The older standalone `start_report_scheduler()` polling loop has been removed. Daily Fusion report generation is registered in the main job registry so it shares the same settings and reload path.
 
 ## Escalation Rules
 

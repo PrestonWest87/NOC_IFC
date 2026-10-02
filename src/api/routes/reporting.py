@@ -72,26 +72,26 @@ class GenerateCustomRequest(BaseModel):
         return list(dict.fromkeys(value)) if value is not None else value
 
 
-@router.get("/executive-intel")
+@router.get("/executive-intel", dependencies=[Depends(require_action("Tab: Reporting -> Daily Fusion"))])
 def get_executive_intel():
     logger.debug("GET /reporting/executive-intel")
     intel = svc.get_executive_grid_intel(0, [])
     return intel
 
 
-@router.get("/saved-reports")
+@router.get("/saved-reports", dependencies=[Depends(require_action("Tab: Reporting -> Shared Library"))])
 def list_saved_reports():
     logger.debug("GET /reporting/saved-reports")
     return svc.get_saved_reports()
 
 
-@router.get("/daily-briefings")
+@router.get("/daily-briefings", dependencies=[Depends(require_action("Tab: Reporting -> Daily Fusion"))])
 def list_daily_briefings():
     logger.debug("GET /reporting/daily-briefings")
     return svc.get_all_daily_briefings()
 
 
-@router.post("/generate-daily", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
+@router.post("/generate-daily", dependencies=[Depends(require_action("Tab: Reporting -> Daily Fusion")), Depends(require_action("Action: Generate Reports"))])
 def generate_daily_report():
     logger.info("POST /reporting/generate-daily")
     from datetime import datetime
@@ -109,7 +109,7 @@ def generate_daily_report():
     return {"status": "error", "message": "Report generation failed or AI is disabled."}
 
 
-@router.post("/broadcast", dependencies=[Depends(require_action("Action: Dispatch Exec Report"))])
+@router.post("/broadcast", dependencies=[Depends(require_action("Tab: Reporting -> Daily Fusion")), Depends(require_action("Action: Dispatch Exec Report"))])
 def broadcast_report(data: BroadcastRequest):
     logger.info("POST /reporting/broadcast recipients=%s", data.recipients)
     if not data.recipients:
@@ -127,7 +127,7 @@ def broadcast_report(data: BroadcastRequest):
     return {"status": "ok" if success else "error", "message": msg}
 
 
-@router.post("/broadcast-custom", dependencies=[Depends(require_action("Action: Dispatch Exec Report"))])
+@router.post("/broadcast-custom", dependencies=[Depends(require_action("Tab: Reporting -> Report Builder")), Depends(require_action("Action: Dispatch Exec Report"))])
 def broadcast_custom_report(data: BroadcastCustomRequest):
     logger.info("POST /reporting/broadcast-custom title=%s recipients=%s", data.title, data.recipients)
     if not data.recipients.strip():
@@ -151,14 +151,14 @@ def broadcast_custom_report(data: BroadcastCustomRequest):
     return {"status": "ok" if success else "error", "message": msg}
 
 
-@router.post("/save-report", dependencies=[Depends(require_action("Action: Dispatch Exec Report"))])
+@router.post("/save-report", dependencies=[Depends(require_action("Tab: Reporting -> Report Builder")), Depends(require_action("Action: Dispatch Exec Report"))])
 def save_custom_report(data: SaveReportRequest):
     logger.info("POST /reporting/save-report title=%s author=%s", data.title, data.author)
     svc.save_custom_report(data.title, data.author, data.content)
     return {"status": "ok"}
 
 
-@router.delete("/saved-reports/{report_id}", dependencies=[Depends(require_action("Action: Dispatch Exec Report"))])
+@router.delete("/saved-reports/{report_id}", dependencies=[Depends(require_action("Tab: Reporting -> Shared Library")), Depends(require_action("Action: Dispatch Exec Report"))])
 def delete_saved_report(report_id: int):
     logger.info("DELETE /reporting/saved-reports/%d", report_id)
     svc.delete_record("SavedReport", report_id)
@@ -170,7 +170,7 @@ class SearchArticlesRequest(BaseModel):
     days_back: int = Field(7, ge=1, le=30)
 
 
-@router.post("/search-articles")
+@router.post("/search-articles", dependencies=[Depends(require_action("Tab: Reporting -> Report Builder"))])
 def search_articles_for_report(data: SearchArticlesRequest):
     logger.info("POST /reporting/search-articles target=%s days_back=%d", data.target, data.days_back)
     if not data.target or not data.target.strip():
@@ -272,7 +272,7 @@ def _run_custom_report_generation(generation_id, target, days_back, article_ids,
             }
 
 
-@router.post("/generate-custom", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
+@router.post("/generate-custom", dependencies=[Depends(require_action("Tab: Reporting -> Report Builder")), Depends(require_action("Action: Generate Reports"))])
 def generate_custom_report(data: GenerateCustomRequest):
     logger.info("POST /reporting/generate-custom target=%s days_back=%d article_ids=%s", data.target, data.days_back, data.article_ids)
 
@@ -305,7 +305,7 @@ def generate_custom_report(data: GenerateCustomRequest):
     return {"status": "started", "generation_id": generation_id}
 
 
-@router.get("/generate-custom-status")
+@router.get("/generate-custom-status", dependencies=[Depends(require_action("Tab: Reporting -> Report Builder"))])
 def get_custom_report_status(generation_id: str):
     try:
         uuid.UUID(generation_id)

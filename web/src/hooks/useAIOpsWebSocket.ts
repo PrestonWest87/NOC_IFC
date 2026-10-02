@@ -3,10 +3,11 @@ import { triggerCriticalNotification } from "../utils/notifications";
 import { useAppStore, type DashboardPayload } from "../store/useAppStore";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../utils/AuthContext";
+import { hasPagePermission } from "../utils/permissions";
 
 export function useAIOpsWebSocket() {
   const queryClient = useQueryClient();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [data, setData] = useState<DashboardPayload | null>(null);
   const [connected, setConnected] = useState(false);
   
@@ -29,10 +30,11 @@ export function useAIOpsWebSocket() {
     setSendMessage(sendMessage);
 
     let stopped = false;
+    let authorizationRejected = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     function connect() {
-      if (stopped || !token) return;
+      if (stopped || !token || !hasPagePermission(user, "AIOps RCA")) return;
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const host = window.location.host;
       const ws = new WebSocket(`${protocol}//${host}/ws?token=${encodeURIComponent(token)}`);
@@ -99,10 +101,15 @@ export function useAIOpsWebSocket() {
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         setConnected(false);
         setStoreConnected(false);
         wsRef.current = null;
+        if (event.code === 1008) {
+          authorizationRejected = true;
+          return;
+        }
+        if (authorizationRejected) return;
         const delay = Math.min(1000 * Math.pow(2, retryRef.current), 30000);
         retryRef.current++;
         if (!stopped) retryTimer = setTimeout(connect, delay);
@@ -122,7 +129,7 @@ export function useAIOpsWebSocket() {
         wsRef.current.close();
       }
     };
-  }, [token, setStoreDashboard, setStoreConnected, setSendMessage, setInvestigatingSite, queryClient]);
+  }, [token, user?.role, user?.allowed_pages?.join(","), setStoreDashboard, setStoreConnected, setSendMessage, setInvestigatingSite, queryClient]);
 
   return { data, connected };
 }

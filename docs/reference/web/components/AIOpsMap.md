@@ -82,7 +82,7 @@ Interactive geospatial visualization component for AIOps RCA. Renders NOC facili
 |-----------|---------|
 | `@deck.gl/react` | DeckGL React component wrapper |
 | `@deck.gl/layers` | `ScatterplotLayer` for marker rendering |
-| `react-map-gl/maplibre` | MapLibre GL JS React bindings |
+| `@vis.gl/react-maplibre` | MapLibre-only React bindings |
 | `@deck.gl/core` | `MapViewState` type |
 | `maplibre-gl/dist/maplibre-gl.css` | MapLibre base styles |
 | `React` (useMemo, useCallback, useRef, useState, useEffect) | React lifecycle and memoization |

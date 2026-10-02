@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useAuth } from "../utils/AuthContext";
 import { PAGE_ROUTE_MAP } from "../utils/routeConfig";
+import { getApiErrorMessage } from "../utils/api";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -19,8 +21,8 @@ export function LoginPage() {
       const user = await login(username, password);
       const firstAllowed = user.allowed_pages?.[0];
       navigate(firstAllowed ? PAGE_ROUTE_MAP[firstAllowed] || "/" : "/", { replace: true });
-    } catch {
-      setError("Invalid credentials");
+    } catch (reason: any) {
+      setError(reason?.response?.status === 401 ? "Invalid credentials" : getApiErrorMessage(reason, "Unable to sign in."));
     } finally {
       setLoading(false);
     }
@@ -53,6 +55,9 @@ export function LoginPage() {
         <div style={{ marginBottom: "1.5rem" }}>
           <label style={{ display: "block", color: "#94a3b8", fontSize: "0.8rem", marginBottom: "0.3rem" }}>Password</label>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={{ width: "100%", padding: "0.6rem", borderRadius: 4, border: "1px solid #334155", background: "#0f172a", color: "#fff", boxSizing: "border-box" }} />
+        </div>
+        <div style={{ margin: "-0.75rem 0 1rem", textAlign: "right", fontSize: "0.78rem" }}>
+          <Link to="/forgot-password" style={{ color: "#93c5fd" }}>Forgot password?</Link>
         </div>
         <button type="submit" disabled={loading} style={{ width: "100%", padding: "0.7rem", borderRadius: 4, border: "none", background: "#2563eb", color: "#fff", fontWeight: 600, cursor: "pointer", opacity: loading ? 0.7 : 1 }}>
           {loading ? "Signing in..." : "Sign In"}

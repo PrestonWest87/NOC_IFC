@@ -2,7 +2,7 @@ import logging
 import os
 import tempfile
 import json
-from fastapi import APIRouter, Query, Body, HTTPException, UploadFile, File, Depends
+from fastapi import APIRouter, Query, Body, HTTPException, UploadFile, File, Depends, BackgroundTasks
 from typing import Any
 
 from src import services as svc
@@ -13,11 +13,29 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
 
+def _send_invitation_email(recipient: str, username: str, role: str, link: str, expires_at: str):
+    from src.utils.mailer import send_alert_email
+
+    success, message = send_alert_email(
+        "NOC Fusion Center account invitation",
+        f"You have been invited to the NOC Fusion Center.\nUsername: {username}\nRole: {role}\n"
+        f"Registration link: {link}\nExpires: {expires_at} UTC",
+        recipient_override=recipient,
+        is_html=False,
+    )
+    if not success:
+        logger.error("Registration invitation email failed recipient_count=1 reason=%s", message)
+
+
 @router.get("/lists")
 def admin_lists():
     logger.debug("GET /admin/lists")
     kws, feeds, users_data = svc.get_admin_lists()
-    return {"keywords": kws, "feeds": feeds, "users": users_data}
+    safe_users = [
+        {"id": item.get("id"), "username": item.get("username"), "role": item.get("role"), "full_name": item.get("full_name")}
+        for item in users_data
+    ]
+    return {"keywords": kws, "feeds": feeds, "users": safe_users}
 
 
 @router.post("/keywords/bulk")
@@ -103,12 +121,17 @@ def roles():
 @router.post("/roles")
 def create_role(data: dict[str, Any] = Body({})):
     logger.info("POST /admin/roles name=%s", data.get("name"))
-    svc.create_role(
-        name=data.get("name", ""),
-        allowed_pages=data.get("allowed_pages", []),
-        allowed_actions=data.get("allowed_actions", []),
-        allowed_site_types=data.get("allowed_site_types"),
-    )
+    try:
+        created = svc.create_role(
+            name=data.get("name", ""),
+            allowed_pages=data.get("allowed_pages", []),
+            allowed_actions=data.get("allowed_actions", []),
+            allowed_site_types=data.get("allowed_site_types"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not created:
+        raise HTTPException(status_code=409, detail="Role already exists.")
     return {"status": "ok"}
 
 
@@ -118,32 +141,44 @@ def update_role(
     data: dict[str, Any] = Body({}),
 ):
     logger.info("PUT /admin/roles/%s", name)
-    svc.update_role(
-        name,
-        data.get("allowed_pages", []),
-        data.get("allowed_actions", []),
-        data.get("allowed_site_types"),
-    )
+    if name.casefold() in {"admin", "administrator"}:
+        raise HTTPException(status_code=400, detail="The built-in administrator role cannot be edited.")
+    try:
+        updated = svc.update_role(
+            name,
+            data.get("allowed_pages", []),
+            data.get("allowed_actions", []),
+            data.get("allowed_site_types"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not updated:
+        raise HTTPException(status_code=404, detail="Role not found.")
     return {"status": "ok"}
 
 
 @router.post("/users")
-def create_user(data: dict[str, Any] = Body({})):
+def create_user(data: dict[str, Any] = Body({}), user=Depends(require_admin)):
     logger.info("POST /admin/users username=%s role=%s", data.get("username"), data.get("role"))
-    svc.create_user(
-        username=data.get("username", ""),
-        password=data.get("password", ""),
-        role=data.get("role", "analyst"),
-        full_name=data.get("full_name", ""),
-    )
-    return {"status": "ok"}
+    try:
+        user_id = svc.create_display_account(
+            username=data.get("username", ""),
+            password=data.get("password", ""),
+            role=data.get("role", "viewer"),
+            full_name=data.get("full_name", ""),
+            created_by=user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", "user_id": user_id, "account_type": "display"}
 
 
 @router.post("/registration-invites")
-def create_registration_invite(data: dict[str, Any] = Body({}), user=Depends(require_admin)):
+def create_registration_invite(background_tasks: BackgroundTasks, data: dict[str, Any] = Body({}), user=Depends(require_admin)):
     try:
         raw_token, expires_at = svc.create_registration_invite(
             username=str(data.get("username", "")),
+            email=str(data.get("email", "")),
             role=str(data.get("role", "analyst")),
             created_by=user.username,
             ttl_hours=int(data.get("ttl_hours", settings.registration_invite_ttl_hours)),
@@ -153,25 +188,45 @@ def create_registration_invite(data: dict[str, Any] = Body({}), user=Depends(req
     with svc.SessionLocal() as db:
         config = db.query(svc.SystemConfig).first()
         public_app_url = (config.public_app_url if config else None) or settings.public_app_url
+    registration_url = f"{public_app_url.rstrip('/')}/#/register?token={raw_token}"
+    background_tasks.add_task(
+        _send_invitation_email,
+        str(data.get("email", "")).strip(),
+        str(data.get("username", "")).strip(),
+        str(data.get("role", "analyst")).strip(),
+        registration_url,
+        expires_at.isoformat(),
+    )
     return {
         "username": str(data.get("username", "")).strip(),
+        "email": str(data.get("email", "")).strip(),
         "role": str(data.get("role", "analyst")).strip(),
         "expires_at": expires_at.isoformat(),
-        "registration_url": f"{public_app_url.rstrip('/')}/#/register?token={raw_token}",
+        "registration_url": registration_url,
     }
 
 
 @router.put("/users/{username}/role")
-def update_user_role(username: str, data: dict[str, Any] = Body({})):
+def update_user_role(username: str, data: dict[str, Any] = Body({}), user=Depends(require_admin)):
     logger.info("PUT /admin/users/%s/role new_role=%s", username, data.get("role"))
-    svc.update_user_role(username, data.get("role", ""))
+    try:
+        updated = svc.update_user_role(username, data.get("role", ""), actor_user_id=user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found.")
     return {"status": "ok"}
 
 
 @router.post("/users/{username}/reset-password")
-def reset_password(username: str, data: dict[str, Any] = Body({})):
+def reset_password(username: str, data: dict[str, Any] = Body({}), user=Depends(require_admin)):
     logger.info("POST /admin/users/%s/reset-password", username)
-    svc.force_reset_pwd(username, data.get("new_password", ""))
+    try:
+        updated = svc.force_reset_pwd(username, data.get("new_password", ""), actor_user_id=user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found.")
     return {"status": "ok"}
 
 
@@ -194,8 +249,7 @@ def import_locations(data: list[dict] = Body([]), mode: str = Query("add")):
 @router.put("/location")
 def update_locations(data: list[dict] = Body([])):
     logger.info("PUT /admin/location count=%d", len(data))
-    import pandas as pd
-    svc.update_locations(pd.DataFrame(data))
+    svc.update_locations(data)
     svc.get_cached_locations.clear()
     return {"status": "ok"}
 

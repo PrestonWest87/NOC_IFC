@@ -1,6 +1,6 @@
 # Operations and Configuration Quick Reference
 
-This is the fast lookup for operators and maintainers. Environment defaults are defined in `src/core/config.py` and `.env.example`; scheduler timing is defined in `src/scheduler.py`; application settings are stored in `SystemConfig` and exposed through the Settings UI.
+This is the fast lookup for operators and maintainers. Environment defaults are defined in `src/core/config.py` and `.env.example`; supported scheduler jobs/defaults/bounds are defined in `src/core/scheduler_registry.py`, persisted settings are reloaded by `src/scheduler.py`, and application settings are exposed through the Settings UI.
 
 ## Service Commands
 
@@ -31,9 +31,10 @@ curl -fsS http://localhost:8101/ready
 
 | Variable | Default | Change when |
 |---|---|---|
-| `DATABASE_URL` | SQLite in `/app/data` | Selecting PostgreSQL or another persistent database |
+| `DATABASE_URL` | SQLite in `/app/data` | Selecting the shared SQLite database file |
 | `DEMO_SEED_DATA` | `false` | Only for disposable demonstrations |
 | `DEFAULT_ADMIN_PASSWORD` | empty | Setting the first admin password before first boot |
+| `DEFAULT_ADMIN_EMAIL` | empty | Providing a trusted bootstrap recovery/reviewer mailbox; can initialize an existing email-less bootstrap admin on API/worker startup |
 | `LOG_LEVEL` | `INFO` | Increasing diagnostic detail (`DEBUG`) or reducing noise |
 | `RISK_ALERT_RECIPIENTS` | empty | Enabling risk and daily brief recipients |
 | `REMEDYFORCE_TICKET_EMAIL` | empty | Escalation ticket destination |
@@ -84,9 +85,4 @@ Change these through the Settings UI or the corresponding `SystemConfig` fields,
 
 ## Safe Database Actions
 
-```bash
-docker compose exec api python -c "from src.core.db import init_db; init_db()"
-docker compose exec api python -c "from src.services import export_backup; export_backup('/app/data/backup.json')"
-```
-
-Do not delete the database or run destructive admin actions without a verified backup. `init_db()` is additive but startup seed logic can update roles and add defaults.
+Use the SQLite online backup procedure in [Maintenance](MAINTENANCE.md#database-backups) before destructive work. The Settings JSON exports cover only supported application-model subsets; they are not full database backups. Do not delete the database or run destructive admin actions without a verified file-level backup. Schema migrations run automatically at backend startup; conditional bootstrap data preserves existing keyword weights and custom role grants.

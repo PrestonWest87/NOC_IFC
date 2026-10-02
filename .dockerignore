@@ -7,8 +7,9 @@ web/tsconfig.tsbuildinfo
 __pycache__
 *.pyc
 .env
+src/ml_model.pkl
 *.md
 .DS_Store
-data/*.db
+data/
 Documentation
 docs

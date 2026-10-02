@@ -8,7 +8,7 @@ import { MapContainer } from "../components/MapContainer";
 import { MarkdownContent } from "../components/MarkdownContent";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer } from "@deck.gl/layers";
-import { Map } from "react-map-gl/maplibre";
+import { Map } from "@vis.gl/react-maplibre";
 import type { MapViewState } from "@deck.gl/core";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
@@ -19,6 +19,20 @@ import {
 } from "lucide-react";
 
 const INITIAL_VIEW: MapViewState = { latitude: 34.8, longitude: -92.2, zoom: 6, pitch: 0 };
+type SiteMapStatus = "up" | "actionRequired" | "maintenance" | "investigating" | "dispatched";
+type SiteMapColor = [number, number, number, number];
+
+const SITE_MAP_STATUS: Record<SiteMapStatus, { label: string; color: SiteMapColor; swatch: string }> = {
+  up: { label: "Up / Clear", color: [34, 197, 94, 220], swatch: "#22c55e" },
+  actionRequired: { label: "Down / Action Required", color: [239, 68, 68, 220], swatch: "#ef4444" },
+  maintenance: { label: "Under Maintenance", color: [59, 130, 246, 220], swatch: "#3b82f6" },
+  investigating: { label: "Investigating", color: [245, 158, 11, 230], swatch: "#f59e0b" },
+  dispatched: { label: "Ticket Dispatched", color: [168, 85, 247, 230], swatch: "#a855f7" },
+};
+
+const SITE_MAP_STATUS_ORDER: SiteMapStatus[] = [
+  "up", "actionRequired", "maintenance", "investigating", "dispatched",
+];
 
 const tabBtn = (active: boolean): React.CSSProperties => ({
   padding: "0.6rem 1.2rem",
@@ -487,41 +501,36 @@ export function AiopsRcaPage() {
 
     for (const s of sites) {
       const isDown = s.alert_count > 0;
-      const isNoDispatch = s.under_maintenance;
+      const isUnderMaintenance = s.under_maintenance;
       const isDispatched = s.is_dispatched;
       const isInvestigating = investigatingSites.has(s.name);
 
-      let color: [number, number, number, number];
-      let statusText: string;
+      let statusKey: SiteMapStatus;
       let showPulse: boolean;
       let radius: number;
 
-      if (!isDown) {
-        color = [40, 167, 69, 200];
-        statusText = "Operational / Clear";
-        showPulse = false;
-        radius = 2000;
-      } else if (isInvestigating) {
-        color = [255, 165, 0, 200];
-        statusText = "Down (Investigating)";
+      if (isDown && isInvestigating) {
+        statusKey = "investigating";
         showPulse = false;
         radius = 3500;
-      } else if (isDispatched) {
-        color = [255, 193, 7, 200];
-        statusText = "Down (Ticket Dispatched)";
+      } else if (isDown && isDispatched) {
+        statusKey = "dispatched";
         showPulse = false;
         radius = 3000;
-      } else if (isNoDispatch) {
-        color = [0, 123, 255, 200];
-        statusText = "Down (Maintenance)";
+      } else if (isUnderMaintenance) {
+        statusKey = "maintenance";
         showPulse = false;
         radius = 2500;
-      } else {
-        color = [220, 53, 69, 200];
-        statusText = "Down (Action Required)";
+      } else if (isDown) {
+        statusKey = "actionRequired";
         showPulse = true;
         radius = 4000;
+      } else {
+        statusKey = "up";
+        showPulse = false;
+        radius = 2000;
       }
+      const { color, label: statusText } = SITE_MAP_STATUS[statusKey];
 
       const coordKey = `${s.lat}_${s.lon}`;
       if (seenCoords[coordKey] !== undefined) {
@@ -530,6 +539,7 @@ export function AiopsRcaPage() {
         pts.push({
           name: s.name, position: [s.lon + 0.012 * offset, s.lat + 0.012 * offset] as [number, number],
           color, alert_count: s.alert_count, under_maintenance: s.under_maintenance,
+          status_key: statusKey,
           is_dispatched: s.is_dispatched, maintenance_etr: s.maintenance_etr,
           maintenance_reason: s.maintenance_reason,
           status_modified_by: s.status_modified_by, status_modified_at: s.status_modified_at,
@@ -540,6 +550,7 @@ export function AiopsRcaPage() {
         pts.push({
           name: s.name, position: [s.lon, s.lat] as [number, number],
           color, alert_count: s.alert_count, under_maintenance: s.under_maintenance,
+          status_key: statusKey,
           is_dispatched: s.is_dispatched, maintenance_etr: s.maintenance_etr,
           maintenance_reason: s.maintenance_reason,
           status_modified_by: s.status_modified_by, status_modified_at: s.status_modified_at,
@@ -552,8 +563,8 @@ export function AiopsRcaPage() {
       }
     }
 
-    const okPts = pts.filter((d) => d.color[0] === 40 && d.color[1] === 167 && d.color[2] === 69);
-    const alertPts = pts.filter((d) => !(d.color[0] === 40 && d.color[1] === 167 && d.color[2] === 69));
+    const okPts = pts.filter((d) => d.status_key === "up");
+    const alertPts = pts.filter((d) => d.status_key !== "up");
 
     const baseLayers: any[] = [
       new ScatterplotLayer({
@@ -590,7 +601,7 @@ export function AiopsRcaPage() {
           id: "alert-pulses",
           data: pulseData,
           getPosition: (d: any) => d.position,
-          getFillColor: [220, 53, 69, 40],
+          getFillColor: [239, 68, 68, 40],
           getRadius: (d: any) => d.radius,
           radiusMaxPixels: 45,
           pickable: false,
@@ -721,6 +732,30 @@ export function AiopsRcaPage() {
               >
                 <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
               </DeckGL>
+              <div
+                role="group"
+                aria-label="AIOps site status map legend"
+                style={{
+                  position: "absolute", bottom: 10, left: 10, zIndex: 10,
+                  display: "flex", flexWrap: "wrap", gap: "0.4rem 0.75rem",
+                  maxWidth: "calc(100% - 20px)", padding: "0.5rem 0.65rem",
+                  background: "rgba(15,23,42,0.94)",
+                  border: "1px solid rgba(148,163,184,0.4)",
+                  borderRadius: "var(--radius-sm)",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
+                  color: "var(--text-primary)", fontSize: "0.72rem",
+                }}
+              >
+                {SITE_MAP_STATUS_ORDER.map((status) => {
+                  const entry = SITE_MAP_STATUS[status];
+                  return (
+                    <span key={status} style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", whiteSpace: "nowrap" }}>
+                      <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: "50%", background: entry.swatch, border: "1px solid rgba(255,255,255,0.8)" }} />
+                      {entry.label}
+                    </span>
+                  );
+                })}
+              </div>
               {siteDialog && (
                 <div role="presentation" style={{
                   position: "fixed", inset: 0, zIndex: 1000,

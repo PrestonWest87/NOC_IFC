@@ -27,19 +27,19 @@ class SIEMTriageRequest(BaseModel):
     events: list[SIEMEventInput] = Field(min_length=1, max_length=50)
 
 
-@router.get("/iocs")
+@router.get("/iocs", dependencies=[Depends(require_action("Tab: Threat Hunting -> Global IOC Matrix"))])
 def iocs(days_back: int = Query(3, ge=1, le=30), limit: int = Query(1000, ge=1, le=1000)):
     logger.debug("GET /iocs days_back=%d", days_back)
     return svc.get_iocs(days_back=days_back, limit=limit)
 
 
-@router.get("/osint-pivot")
+@router.get("/osint-pivot", dependencies=[Depends(require_action("Tab: Threat Hunting -> Global IOC Matrix"))])
 def osint_pivot(ioc_type: str = "", ioc_value: str = ""):
     logger.debug("GET /osint-pivot type=%s value=%s", ioc_type, ioc_value)
     return {"link": svc.get_osint_pivot_link(ioc_type, ioc_value)}
 
 
-@router.get("/search-articles")
+@router.get("/search-articles", dependencies=[Depends(require_action("Tab: Threat Hunting -> Deep Hunt Builder"))])
 def search_articles(target: str = "", days_back: int = Query(3, ge=1, le=30)):
     logger.info("GET /search-articles target=%s days_back=%d", target, days_back)
     return svc.search_articles_for_hunting(target, days_back=days_back)
@@ -55,7 +55,7 @@ def elastic_events(
     return svc.get_elastic_events(hours_back=hours_back, page=page, page_size=page_size)
 
 
-@router.post("/sync-elastic-cache", dependencies=[Depends(require_action("Action: Manually Sync Data"))])
+@router.post("/sync-elastic-cache", dependencies=[Depends(require_action("Tab: Reporting -> Elastic SIEM Report")), Depends(require_action("Action: Manually Sync Data"))])
 def sync_elastic_cache(hours_back: int = Query(24, ge=1, le=168)):
     logger.info("POST /hunting/sync-elastic-cache hours_back=%d", hours_back)
     from src.workers.elastic_worker import run_elastic_sync
@@ -66,7 +66,7 @@ def sync_elastic_cache(hours_back: int = Query(24, ge=1, le=168)):
     return {"status": "ok", "message": "Elastic cache synced.", "result": result}
 
 
-@router.post("/generate-siem-triage", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
+@router.post("/generate-siem-triage", dependencies=[Depends(require_action("Tab: Reporting -> Elastic SIEM Report")), Depends(require_action("Action: Trigger AI Functions"))])
 def generate_siem_triage(data: SIEMTriageRequest = Body(...)):
     events = [event.model_dump(exclude_none=True) for event in data.events]
     if len(json.dumps(events, separators=(",", ":"))) > 100_000:

@@ -6,32 +6,47 @@ from typing import Any
 from src import services as svc
 from src.core.db import SessionLocal
 from src.models.schema import ShiftLogEntry
-from src.api.auth_guard import require_page, require_action, get_current_user, is_admin
+from src.api.auth_guard import (
+    get_current_user, has_action_permission, is_admin, permission_denied,
+    require_action, require_any_action, require_page,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/logbook", tags=["logbook"], dependencies=[Depends(require_page("Shift Logbook"))])
 
 
-@router.get("/entries")
-def entries(role_filter: str = Query("All"), start_date: str = None, end_date: str = None, session_token: str = Query(None)):
+@router.get("/entries", dependencies=[Depends(require_any_action([
+    "Tab: Shift Log -> Active Shift", "Tab: Shift Log -> History",
+]))])
+def entries(role_filter: str = Query("All"), start_date: str = None, end_date: str = None, user=Depends(get_current_user)):
     logger.debug("GET /logbook/entries role=%s start=%s end=%s", role_filter, start_date, end_date)
     sd = datetime.fromisoformat(start_date) if start_date else None
     ed = datetime.fromisoformat(end_date) if end_date else None
-    if session_token:
-        user = svc.get_user_by_token(session_token)
-        if user and user.role != "admin":
-            role_filter = user.role
+    if not is_admin(user):
+        role_filter = user.role or "analyst"
+        if not has_action_permission(user, "Tab: Shift Log -> History"):
+            from zoneinfo import ZoneInfo
+            today_local = datetime.now(ZoneInfo("America/Chicago")).replace(hour=0, minute=0, second=0, microsecond=0)
+            sd = today_local
+            ed = today_local
     return svc.get_shift_logs(role_filter, sd, ed)
 
 
-@router.post("/entries", dependencies=[Depends(require_action("Action: Submit Shift Log"))])
+@router.get("/roles")
+def logbook_roles():
+    return [{"name": role.name} for role in svc.get_all_roles()]
+
+
+@router.post("/entries", dependencies=[
+    Depends(require_action("Tab: Shift Log -> Active Shift")),
+    Depends(require_action("Action: Submit Shift Log")),
+])
 def create_entry(
     role: str = "analyst",
     shift_period: str = "Morning",
     content: str = "",
     custom_date: str = None,
-    session_token: str = Query(None),
     user=Depends(get_current_user),
 ):
     analyst = user.full_name or user.username
@@ -48,21 +63,30 @@ def create_entry(
     return {"status": "ok"}
 
 
-@router.patch("/entries/{entry_id}", dependencies=[Depends(require_action("Action: Submit Shift Log"))])
-def update_entry(entry_id: int, data: dict[str, Any] = Body({})):
+@router.patch("/entries/{entry_id}", dependencies=[
+    Depends(require_any_action(["Tab: Shift Log -> Active Shift", "Tab: Shift Log -> History"])),
+    Depends(require_action("Action: Submit Shift Log")),
+])
+def update_entry(entry_id: int, data: dict[str, Any] = Body({}), user=Depends(get_current_user)):
     is_deleted = data.get("is_deleted")
     logger.info("PATCH /logbook/entries/%d is_deleted=%s", entry_id, is_deleted)
     with SessionLocal() as session:
         entry = session.query(ShiftLogEntry).get(entry_id)
         if not entry:
             return {"status": "error", "message": "Entry not found"}
+        own_names = {user.username, user.full_name}
+        if not is_admin(user) and entry.analyst not in own_names and not has_action_permission(user, "Action: Manage Shift Logs"):
+            raise permission_denied("Action: Manage Shift Logs")
         if is_deleted is not None:
             entry.is_deleted = is_deleted
         session.commit()
         return {"status": "ok", "id": entry_id, "is_deleted": entry.is_deleted}
 
 
-@router.post("/generate-summary", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
+@router.post("/generate-summary", dependencies=[
+    Depends(require_action("Tab: Shift Log -> Active Shift")),
+    Depends(require_action("Action: Generate Reports")),
+])
 def generate_shift_summary(data: dict[str, Any] = Body({}), user=Depends(get_current_user)):
     role_filter = str(data.get("role_filter", "All") or "All")
     shift_period = data.get("shift_period", "Morning")

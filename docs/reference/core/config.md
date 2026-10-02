@@ -26,6 +26,7 @@ Loads typed environment configuration with Pydantic Settings, imports `.env` val
 | `cors_origins` | `str` | `http://localhost:8501,http://localhost:5173` | Comma-separated CORS origin list. |
 | `allow_unsigned_webhooks` | `bool` | `False` | Explicit migration exception for unsigned webhook requests. |
 | `public_app_url` | `str` | `http://localhost:8501` | Base URL used for registration links. |
+| `default_admin_email` | `str` | Empty | Optional verified email for the bootstrap admin/recovery reviewer. |
 | `registration_invite_ttl_hours` | `int` | `72` | Default registration invite lifetime. |
 
 ### Pydantic configuration

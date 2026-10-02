@@ -243,7 +243,7 @@ None (uses `useAuth` for user context).
 - `useQuery`, `useMutation`, `useQueryClient` from `@tanstack/react-query`
 - `MapContainer` from `../components/MapContainer`
 - `DeckGL` from `@deck.gl/react`
-- `Map` from `react-map-gl/maplibre`
+- `Map` from `@vis.gl/react-maplibre`
 - `ScatterplotLayer`, `PolygonLayer` from `@deck.gl/layers`
 - `MapViewState` type from `@deck.gl/core`
 - `maplibre-gl/dist/maplibre-gl.css`

@@ -26,25 +26,25 @@ class SIEMTriageRequest(BaseModel):
     events: list[SIEMEventInput] = Field(min_length=1, max_length=50)
 
 
-@router.get("/cves")
+@router.get("/cves", dependencies=[Depends(require_action("Tab: Threat Telemetry -> CISA KEV"))])
 def list_cves(limit: int = Query(50, ge=1, le=200), days_back: int = Query(30, ge=1, le=365)):
     logger.debug("GET /threat/cves limit=%d days_back=%d", limit, days_back)
     return svc.get_cves(limit=limit, days_back=days_back)
 
 
-@router.get("/cloud-outages")
+@router.get("/cloud-outages", dependencies=[Depends(require_action("Tab: Threat Telemetry -> Cloud Services"))])
 def list_cloud_outages(active_only: bool = True, days_back: int = Query(7, ge=1, le=90)):
     logger.debug("GET /threat/cloud-outages active_only=%s days_back=%d", active_only, days_back)
     return svc.get_cloud_outages(active_only=active_only, days_back=days_back)
 
 
-@router.get("/crime-incidents")
+@router.get("/crime-incidents", dependencies=[Depends(require_action("Tab: Threat Telemetry -> Perimeter Crime"))])
 def list_crime_incidents(hours_back: int = Query(24, ge=1, le=168), max_distance: float = Query(1.0, ge=0.1)):
     logger.debug("GET /threat/crime-incidents hours_back=%d max_distance=%.1f", hours_back, max_distance)
     return svc.get_recent_crimes(max_distance=max_distance, hours_back=hours_back)
 
 
-@router.get("/articles")
+@router.get("/articles", dependencies=[Depends(require_action("Tab: Threat Telemetry -> RSS Triage"))])
 def list_articles(
     category: str = Query("live", pattern="^(live|pinned|low|search)$"),
     cat_filter: str = Query("All"),
@@ -60,7 +60,7 @@ def list_articles(
     return {"items": items, "total": total, "total_pages": total_pages, "page": current}
 
 
-@router.get("/articles/{article_id}")
+@router.get("/articles/{article_id}", dependencies=[Depends(require_action("Tab: Threat Telemetry -> RSS Triage"))])
 def get_article(article_id: int):
     logger.debug("GET /threat/articles/%d", article_id)
     article = svc.get_article_detail(article_id)
@@ -69,7 +69,7 @@ def get_article(article_id: int):
     return article
 
 
-@router.post("/fetch-feeds", dependencies=[Depends(require_action("Action: Manually Sync Data"))])
+@router.post("/fetch-feeds", dependencies=[Depends(require_action("Tab: Threat Telemetry -> RSS Triage")), Depends(require_action("Action: Manually Sync Data"))])
 def fetch_feeds():
     logger.info("POST /threat/fetch-feeds: manual trigger")
     from src.scheduler import fetch_feeds as _do_fetch
@@ -81,7 +81,7 @@ def fetch_feeds():
         return {"status": "error", "message": str(e)}
 
 
-@router.post("/sync-cisa-kev", dependencies=[Depends(require_action("Action: Manually Sync Data"))])
+@router.post("/sync-cisa-kev", dependencies=[Depends(require_action("Tab: Threat Telemetry -> CISA KEV")), Depends(require_action("Action: Manually Sync Data"))])
 def sync_cisa_kev():
     logger.info("POST /threat/sync-cisa-kev: manual trigger")
     from src.workers.cve_worker import fetch_cisa_kev
@@ -93,7 +93,7 @@ def sync_cisa_kev():
         return {"status": "error", "message": str(e)}
 
 
-@router.post("/sync-cloud-status", dependencies=[Depends(require_action("Action: Manually Sync Data"))])
+@router.post("/sync-cloud-status", dependencies=[Depends(require_action("Tab: Threat Telemetry -> Cloud Services")), Depends(require_action("Action: Manually Sync Data"))])
 def sync_cloud_status():
     logger.info("POST /threat/sync-cloud-status: manual trigger")
     from src.workers.cloud_worker import fetch_cloud_outages
@@ -105,7 +105,7 @@ def sync_cloud_status():
         return {"status": "error", "message": str(e)}
 
 
-@router.post("/fetch-crime-data", dependencies=[Depends(require_action("Action: Manually Sync Data"))])
+@router.post("/fetch-crime-data", dependencies=[Depends(require_action("Tab: Threat Telemetry -> Perimeter Crime")), Depends(require_action("Action: Manually Sync Data"))])
 def fetch_crime_data():
     logger.info("POST /threat/fetch-crime-data: manual trigger")
     if svc.force_fetch_crime_data():
@@ -113,7 +113,11 @@ def fetch_crime_data():
     return {"status": "error", "message": "Crime fetch failed."}
 
 
-@router.post("/sync-elastic-cache", dependencies=[Depends(require_action("Action: Manually Sync Data"))])
+@router.post("/sync-elastic-cache", dependencies=[
+    Depends(require_page("Threat Hunting & IOCs")),
+    Depends(require_action("Tab: Reporting -> Elastic SIEM Report")),
+    Depends(require_action("Action: Manually Sync Data")),
+])
 def sync_elastic_cache(hours_back: int = Query(24, ge=1, le=168)):
     logger.info("POST /threat/sync-elastic-cache hours_back=%d", hours_back)
     from src.workers.elastic_worker import run_elastic_sync
@@ -130,7 +134,11 @@ def sync_elastic_cache(hours_back: int = Query(24, ge=1, le=168)):
         raise HTTPException(status_code=502, detail="Elastic cache sync failed.") from e
 
 
-@router.post("/generate-siem-triage", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
+@router.post("/generate-siem-triage", dependencies=[
+    Depends(require_page("Threat Hunting & IOCs")),
+    Depends(require_action("Tab: Reporting -> Elastic SIEM Report")),
+    Depends(require_action("Action: Trigger AI Functions")),
+])
 def generate_siem_triage(data: SIEMTriageRequest = Body(...)):
     events = [event.model_dump(exclude_none=True) for event in data.events]
     if len(json.dumps(events, separators=(",", ":"))) > 100_000:

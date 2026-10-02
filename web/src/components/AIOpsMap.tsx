@@ -1,7 +1,7 @@
 import { useMemo, useCallback, useRef, useState, useEffect } from "react";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer } from "@deck.gl/layers";
-import { Map } from "react-map-gl/maplibre";
+import { Map } from "@vis.gl/react-maplibre";
 import type { MapViewState } from "@deck.gl/core";
 import "maplibre-gl/dist/maplibre-gl.css";
 

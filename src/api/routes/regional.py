@@ -1,22 +1,33 @@
 import logging
-import pandas as pd
 from fastapi import APIRouter, Query, Body, Depends, HTTPException
 from typing import Any
 
 from src import services as svc
-from src.api.auth_guard import require_page, require_action
+from src.api.auth_guard import get_current_user, require_any_action, require_page, require_action
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/regional", tags=["regional"], dependencies=[Depends(require_page("Regional Grid"))])
 
 
-@router.get("/locations")
-def locations():
+@router.get("/locations", dependencies=[Depends(require_any_action([
+    "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash",
+    "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix",
+    "Tab: Regional Grid -> Weather Alerts Log", "Tab: Regional Grid -> Atmos Weather",
+]))])
+def locations(user=Depends(get_current_user)):
     logger.debug("GET /locations")
-    return svc.get_cached_locations()
+    locations_data = svc.get_cached_locations()
+    if str(user.role or "").casefold() in {"admin", "administrator"}:
+        return locations_data
+    allowed_types = set(user.allowed_site_types or [])
+    return [location for location in locations_data if location.get("loc_type") in allowed_types]
 
 
-@router.get("/geojson")
+@router.get("/geojson", dependencies=[Depends(require_any_action([
+    "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash",
+    "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Weather Alerts Log",
+    "Tab: Regional Grid -> Atmos Weather",
+]))])
 def geojson():
     logger.debug("GET /geojson")
     spc_d1, spc_d2, spc_d3, ar, oos, usgs_ar, usgs_oos = svc.get_cached_geojson()
@@ -28,15 +39,19 @@ def geojson():
     }
 
 
-@router.get("/wildfires")
+@router.get("/wildfires", dependencies=[Depends(require_action("Tab: Regional Grid -> Geospatial Map"))])
 def wildfires():
     """Return active NIFC incidents independently of the heavier weather feeds."""
     logger.debug("GET /wildfires")
     return svc.get_active_wildfires()
 
 
-@router.post("/compile-map")
-def compile_map(data: dict[str, Any] = Body({})):
+@router.post("/compile-map", dependencies=[Depends(require_any_action([
+    "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash",
+    "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Location Matrix",
+    "Tab: Regional Grid -> Weather Alerts Log", "Tab: Regional Grid -> Atmos Weather",
+]))])
+def compile_map(data: dict[str, Any] = Body({}), user=Depends(get_current_user)):
     logger.info("POST /compile-map toggles=%s", data.get("toggles", {}))
     toggles = data.get("toggles", {})
     spc = data.get("spc_data")
@@ -45,7 +60,7 @@ def compile_map(data: dict[str, Any] = Body({})):
     usgs_ar = data.get("usgs_ar_data")
     usgs_oos = data.get("usgs_oos_data")
     selected = tuple(data.get("selected_events", []))
-    raw_map_df = data.get("map_df", [])
+    raw_map_rows = data.get("map_df", [])
 
     # The browser no longer needs to echo the full GeoJSON snapshot back to the
     # API. Keep accepting the old fields for compatibility, but use the server's
@@ -53,12 +68,17 @@ def compile_map(data: dict[str, Any] = Body({})):
     if not any((spc, ar, oos, usgs_ar, usgs_oos)):
         spc, _, _, ar, oos, usgs_ar, usgs_oos = svc.get_cached_geojson()
 
-    if raw_map_df:
-        map_df = pd.DataFrame(raw_map_df)
-    else:
-        map_df = pd.DataFrame()
+    map_rows = [dict(row) for row in raw_map_rows if isinstance(row, dict)] if isinstance(raw_map_rows, list) else []
+    if str(user.role or "").casefold() not in {"admin", "administrator"} and map_rows:
+        allowed_names = svc.get_allowed_site_names_for_user(user)
+        available_columns = {key for row in map_rows for key in row}
+        site_column = next((name for name in ("Monitored Site", "name", "Name") if name in available_columns), None)
+        if site_column:
+            map_rows = [row for row in map_rows if str(row.get(site_column, "")) in allowed_names]
+        else:
+            map_rows = []
 
-    cache = svc._precompute_geo_matrix(spc, ar, oos, usgs_ar, usgs_oos, selected, map_df)
+    cache = svc._precompute_geo_matrix(spc, ar, oos, usgs_ar, usgs_oos, selected, map_rows)
 
     toggled_affected_sites_dict = {}
     for site in cache["master_affected_sites"]:
@@ -89,18 +109,18 @@ def compile_map(data: dict[str, Any] = Body({})):
 
     master_affected_sites = cache["master_affected_sites"]
 
-    analytics = svc.get_infrastructure_analytics(map_df, master_affected_sites)
+    analytics = svc.get_infrastructure_analytics(map_rows, master_affected_sites)
     analytics_serialized = {
         "total_sites": int(analytics["total_sites"]),
         "at_risk_sites": int(analytics["at_risk_sites"]),
         "highest_risk": str(analytics["highest_risk"]),
-        "spc_distribution": analytics["spc_distribution"].to_dict(orient="records") if not analytics["spc_distribution"].empty else [],
-        "nws_distribution": analytics["nws_distribution"].to_dict(orient="records") if not analytics["nws_distribution"].empty else [],
-        "type_distribution": analytics["type_distribution"].reset_index().to_dict(orient="records") if not analytics["type_distribution"].empty else [],
-        "district_distribution": analytics["district_distribution"].reset_index().to_dict(orient="records") if not analytics["district_distribution"].empty else [],
-        "priority_risk_matrix": analytics["priority_risk_matrix"].reset_index().to_dict(orient="records") if not analytics["priority_risk_matrix"].empty else [],
-        "type_risk_matrix": analytics["type_risk_matrix"].reset_index().to_dict(orient="records") if not analytics["type_risk_matrix"].empty else [],
-        "district_risk_matrix": analytics["district_risk_matrix"].reset_index().to_dict(orient="records") if not analytics["district_risk_matrix"].empty else [],
+        "spc_distribution": analytics["spc_distribution"],
+        "nws_distribution": analytics["nws_distribution"],
+        "type_distribution": analytics["type_distribution"],
+        "district_distribution": analytics["district_distribution"],
+        "priority_risk_matrix": analytics["priority_risk_matrix"],
+        "type_risk_matrix": analytics["type_risk_matrix"],
+        "district_risk_matrix": analytics["district_risk_matrix"],
     }
 
     def _strip_feature(f):
@@ -135,26 +155,26 @@ def compile_map(data: dict[str, Any] = Body({})):
     return [processed_geo, {}, cache["map_diagnostics"], toggled_affected_sites, master_affected_sites, analytics_serialized]
 
 
-@router.get("/weather-prefs")
-def weather_prefs(username: str = ""):
-    logger.debug("GET /weather-prefs username=%s", username)
-    return svc.get_user_weather_prefs(username)
+@router.get("/weather-prefs", dependencies=[Depends(require_action("Tab: Regional Grid -> Atmos Weather"))])
+def weather_prefs(user=Depends(get_current_user)):
+    logger.debug("GET /weather-prefs username=%s", user.username)
+    return svc.get_user_weather_prefs(user.username)
 
 
-@router.post("/weather-prefs")
-def set_weather_prefs(username: str = "", alerts: list[str] = Body([])):
-    logger.info("POST /weather-prefs username=%s alerts=%s", username, alerts)
-    svc.set_user_weather_prefs(username, alerts)
+@router.post("/weather-prefs", dependencies=[Depends(require_action("Tab: Regional Grid -> Atmos Weather"))])
+def set_weather_prefs(alerts: list[str] = Body([]), user=Depends(get_current_user)):
+    logger.info("POST /weather-prefs username=%s alerts=%s", user.username, alerts)
+    svc.set_user_weather_prefs(user.username, alerts)
     return {"status": "ok"}
 
 
-@router.get("/forecast")
+@router.get("/forecast", dependencies=[Depends(require_action("Tab: Regional Grid -> Atmos Weather"))])
 def forecast(lat: float = Query(34.8), lon: float = Query(-92.2)):
     logger.debug("GET /forecast lat=%.4f lon=%.4f", lat, lon)
     return svc.get_nws_forecast(lat, lon)
 
 
-@router.get("/weather-alerts-log")
+@router.get("/weather-alerts-log", dependencies=[Depends(require_action("Tab: Regional Grid -> Weather Alerts Log"))])
 def weather_alerts_log():
     logger.debug("GET /weather-alerts-log")
     _, _, _, ar, oos, usgs_ar, usgs_oos = svc.get_cached_geojson()
@@ -167,7 +187,13 @@ def site_types():
     return svc.get_all_site_types()
 
 
-@router.post("/sync-hazards", dependencies=[Depends(require_action("Action: Manually Sync Data"))])
+@router.post("/sync-hazards", dependencies=[
+    Depends(require_any_action([
+        "Tab: Regional Grid -> Geospatial Map", "Tab: Regional Grid -> Executive Dash",
+        "Tab: Regional Grid -> Hazard Analytics",
+    ])),
+    Depends(require_action("Action: Manually Sync Data")),
+])
 def sync_hazards():
     logger.info("POST /sync-hazards: triggering manual hazard sync")
     from src.workers.infra_worker import fetch_regional_hazards

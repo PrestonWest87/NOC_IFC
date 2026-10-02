@@ -1,15 +1,19 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from src.core.db import get_db
-from src.api.auth_guard import get_current_user, is_admin
+from src.api.auth_guard import get_current_user, is_admin, require_action, require_page
+from src import services as svc
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
 
-@router.get("/config")
+@router.get("/config", dependencies=[
+    Depends(require_page("Settings & Admin")),
+    Depends(require_action("Tab: Settings -> AI & SMTP")),
+])
 def get_config(db: Session = Depends(get_db), user=Depends(get_current_user)):
     logger.debug("GET /settings/config")
     from src.models.schema import SystemConfig
@@ -24,53 +28,42 @@ def get_config(db: Session = Depends(get_db), user=Depends(get_current_user)):
         "smtp_enabled": config.smtp_enabled,
         "smtp_server": config.smtp_server,
         "smtp_port": config.smtp_port,
+        "smtp_username": config.smtp_username,
         "smtp_sender": config.smtp_sender,
         "smtp_recipient": config.smtp_recipient,
-        "tech_stack": config.tech_stack,
-        "monitored_asns": config.monitored_asns,
-        "scoring_mode": config.scoring_mode,
-        "cyber_criticality_override": config.cyber_criticality_override,
-        "cyber_lethality_override": config.cyber_lethality_override,
-        "physical_criticality_override": config.physical_criticality_override,
-        "physical_lethality_override": config.physical_lethality_override,
-        "internal_criticality_override": config.internal_criticality_override,
-        "internal_lethality_override": config.internal_lethality_override,
-        "global_risk_offset": config.global_risk_offset,
-        "internal_risk_offset": config.internal_risk_offset,
-        "sys_countermeasures": config.sys_countermeasures,
-        "net_countermeasures": config.net_countermeasures,
-        "failed_login_alert_enabled": config.failed_login_alert_enabled,
-        "failed_login_alert_recipients": (
-            config.failed_login_alert_recipients or "" if is_admin(user) else ""
-        ),
-        "failed_login_alert_threshold": config.failed_login_alert_threshold,
-        "failed_login_alert_window_minutes": config.failed_login_alert_window_minutes,
         "llm_context_window": config.llm_context_window,
-        "public_app_url": config.public_app_url or "",
-        "unified_brief": config.unified_brief,
-        "unified_brief_time": config.unified_brief_time.isoformat() if config.unified_brief_time else None,
-        "global_brief": config.global_brief,
-        "global_brief_time": config.global_brief_time.isoformat() if config.global_brief_time else None,
-        "internal_brief": config.internal_brief,
-        "internal_brief_time": config.internal_brief_time.isoformat() if config.internal_brief_time else None,
-        "rolling_summary": config.rolling_summary,
-        "rolling_summary_time": config.rolling_summary_time.isoformat() if config.rolling_summary_time else None,
     }
 
 
-@router.get("/users")
-def get_users(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    if str(user.role or "").lower() not in {"admin", "administrator"}:
-        raise HTTPException(status_code=403, detail="Administrator permission required")
+@router.get("/users", dependencies=[
+    Depends(require_action("Tab: Settings -> Users & Roles")),
+    Depends(require_action("Action: Manage Users")),
+])
+def get_users(user=Depends(get_current_user)):
     logger.debug("GET /settings/users")
-    from src.models.schema import User
-    users = db.query(User).all()
+    users = svc.get_user_directory()
     logger.debug("GET /settings/users: found %d users", len(users))
-    return [
-        {
-            "id": u.id, "username": u.username, "role": u.role,
-            "full_name": u.full_name, "job_title": u.job_title,
-            "contact_info": u.contact_info,
-        }
-        for u in users
-    ]
+    return users
+
+
+@router.get("/facilities", dependencies=[
+    Depends(require_page("Settings & Admin")),
+    Depends(require_action("Tab: Settings -> Facility Locations")),
+])
+def get_facility_locations(user=Depends(get_current_user)):
+    """Read-only facility directory scoped by the user's site-type grants."""
+    locations = svc.get_cached_locations()
+    if is_admin(user):
+        return locations
+    allowed_types = set(user.allowed_site_types or [])
+    return [location for location in locations if location.get("loc_type") in allowed_types]
+
+
+@router.get("/rss", dependencies=[
+    Depends(require_page("Settings & Admin")),
+    Depends(require_action("Tab: Settings -> RSS Sources")),
+])
+def get_rss_settings():
+    """Return RSS/keyword directory data without exposing the legacy user list."""
+    keywords, feeds, _users = svc.get_admin_lists()
+    return {"keywords": keywords, "feeds": feeds}

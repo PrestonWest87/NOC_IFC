@@ -89,7 +89,7 @@ Receives SolarWinds alerts at `POST http://localhost:8100/webhook/solarwinds`.
 
 | Property | Value |
 |----------|-------|
-| Dockerfile | `web/Dockerfile` (multi-stage: `node:20-alpine` build + `nginx:alpine` serve) |
+| Dockerfile | `web/Dockerfile` (multi-stage: `node:22-alpine` build + `nginx:alpine` serve) |
 | Port | `8501` → internal `5173` |
 | Env | `VITE_API_URL=http://localhost:8101` |
 | Depends on | `api` |
@@ -99,11 +99,11 @@ Receives SolarWinds alerts at `POST http://localhost:8100/webhook/solarwinds`.
 
 | Property | Value |
 |----------|-------|
-| Image | `node:20-alpine` |
-| Command | `sh -c "npm ci && npm run dev -- --host 0.0.0.0"` |
+| Image | `node:22-alpine` |
+| Command | `sh ./dev-entrypoint.sh` |
 | Port | `5173` |
 | Env | `VITE_API_URL=http://api:8101` |
-| Volumes | `./web:/app` (hot reload via Vite HMR) |
+| Volumes | `./web:/app` and a persistent `node_modules` volume (hot reload via Vite HMR) |
 | Profile | `dev` — activated via `docker compose --profile dev up` |
 
 ---
@@ -118,9 +118,10 @@ cp .env.example .env
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `DATABASE_URL` | Yes | `sqlite:////app/data/noc_fusion.db` | SQLite (default) or PostgreSQL connection string |
+| `DATABASE_URL` | Yes | `sqlite:////app/data/noc_fusion.db` | Shared SQLite database file; non-SQLite URLs are rejected |
 | `DEMO_SEED_DATA` | No | `false` | Seed synthetic hardware/software assets; use only in disposable environments |
 | `DEFAULT_ADMIN_PASSWORD` | First boot | (empty) | Initial admin password when no users exist |
+| `DEFAULT_ADMIN_EMAIL` | Optional | (empty) | Trusted verified recovery/notification address for the bootstrap administrator; can initialize an existing email-less bootstrap admin at API/worker startup |
 | `LOG_LEVEL` | No | `INFO` | Python log threshold |
 | `RISK_ALERT_RECIPIENTS` | For alerts | (empty) | Comma-separated email addresses for risk alerts |
 | `REMEDYFORCE_TICKET_EMAIL` | For RCA | (empty) | Email target for RCA ticket dispatch |
@@ -151,7 +152,7 @@ cp .env.example .env
 **Example production `.env`:**
 
 ```bash
-DATABASE_URL=postgresql://noc_user:secure_password@postgres:5432/noc_fusion
+DATABASE_URL=sqlite:////app/data/noc_fusion.db
 RISK_ALERT_RECIPIENTS=noc-manager@example.com,soc@example.com
 REMEDYFORCE_TICKET_EMAIL=tickets@example.com
 NOC_NOTIFY_EMAIL=noc-team@example.com
@@ -159,12 +160,6 @@ NOC_ONPAGE_EMAIL=noc-oncall@example.com
 ITNETWORK_ONPAGE_EMAIL=network-oncall@example.com
 CRIME_ALERT_SMS=gateway@sms-provider.com
 DEFAULT_ADMIN_PASSWORD=Ch@ng3M3!nPr0d
-```
-
-**PostgreSQL URL format:**
-
-```
-postgresql://username:password@hostname:5432/database_name
 ```
 
 ---
@@ -230,8 +225,8 @@ docker compose stats            # Live resource usage
 # Shell into API container
 docker compose exec api bash
 
-# Reinitialize database (caution: destructive)
-docker compose exec api python -c "from src.core.db import init_db; init_db()"
+# Migrations are checked automatically before backend services start.
+docker compose restart api worker webhook
 ```
 
 ---
@@ -240,9 +235,8 @@ docker compose exec api python -c "from src.core.db import init_db; init_db()"
 
 ### Database
 
-- **Use PostgreSQL** instead of SQLite for multi-instance or high-concurrency deployments
-- SQLite uses `NullPool` to avoid `QueuePool` contention — acceptable for single-instance only
-- Configure automated backups (see Section 7)
+- SQLite is the supported application database. API, worker, and webhook containers must share the configured database file.
+- Startup checks the Alembic revision and applies pending migrations before the service accepts work. Back up the database before upgrades (see Section 7).
 
 ### Reverse Proxy and TLS
 
@@ -359,24 +353,19 @@ All containers communicate on the same Docker bridge network. Internal service-t
 
 ## 8. Security Notes
 
-| Area | Status | Notes |
-|------|--------|-------|
-| Authentication | Token-based per endpoint | No global auth middleware |
-| Admin endpoints | Unprotected | Assumed internal network access only |
-| RCA dispatch | Permission-gated | Requires `Action: Dispatch RCA Tickets` |
-| CORS | Permissive | Allows all origins by default; restrict in `main.py` for production |
-| SMTP credentials | Database-stored | `SystemConfig` table, not in env vars |
-| API keys | Env vars + DB | LLM keys in `.env` and `SystemConfig` |
-| Initial password | `DEFAULT_ADMIN_PASSWORD` | Set before first boot; never rely on a hard-coded password |
-| WebSocket | No auth | Connects without authentication |
+| Area | Current behavior | Production consideration |
+|------|------------------|--------------------------|
+| REST authentication | `authentication_middleware` protects `/api/v1/*` except the explicit login, registration/recovery, health, and readiness routes. Bearer tokens are preferred; query tokens remain for compatibility. | Configure the reverse proxy and access logs so session tokens are not recorded from legacy query-string clients. |
+| Authorization | Route dependencies enforce page, tab, action, administrator, and site-type grants. The canonical permission catalog is `src/core/permissions.py`. | Keep role grants least-privilege and verify any custom roles after upgrades. |
+| Administrative routes | Legacy `/admin/*` routes require the administrator role; newer user and application settings routes use their specific permissions. | Do not expose backend ports directly to untrusted networks. |
+| CORS | `CORS_ORIGINS` is an explicit origin list; the default allows the local production and development frontends. | Set only the deployed frontend origin(s). |
+| WebSocket | Requires a session token and AIOps page/Active Board access; sessions and permissions are revalidated, and site data is filtered. | Prefer TLS (`wss://`) through a reverse proxy and restrict direct access to port 8101. |
+| SolarWinds webhook | HMAC and timestamp/replay checks are supported. Unsigned requests are rejected unless `ALLOW_UNSIGNED_WEBHOOKS=true`. | Configure a strong `WEBHOOK_HMAC_SECRET`; keep the unsigned exception disabled. |
+| SMTP/LLM credentials | SMTP passwords and LLM keys may be stored in `SystemConfig`; other integration secrets are environment-configured. | Protect the SQLite volume and backups. Define secret rotation and external secret-management requirements for the customer environment. |
+| Request limits | The webhook and WebSocket have configured size limits. There is no general API rate limiter; the database-upload endpoint currently reads its upload into memory. | Add route-level rate limits and bounded upload handling before exposing the service to broad or untrusted networks. |
+| Transport | Compose publishes the API, webhook, and web ports; TLS termination is not built into the stack. | Terminate HTTPS at a trusted reverse proxy and apply firewall rules to limit source networks. |
 
-**Recommended hardening:**
-
-1. Restrict CORS `allow_origins` in `src/api/main.py` to your domain
-2. Add HMAC signature verification to the webhook endpoint
-3. Implement API rate limiting via middleware
-4. Use firewall rules to limit port access by source IP
-5. Enable HTTPS via reverse proxy — never expose services on plain HTTP
+Set `DEFAULT_ADMIN_PASSWORD` before first boot; there is no guaranteed hard-coded production password. Review `CORS_ORIGINS`, TLS, network exposure, credential handling, and backup protection as part of each deployment.
 
 ---
 
@@ -384,17 +373,17 @@ All containers communicate on the same Docker bridge network. Internal service-t
 
 | Symptom | Likely Cause | Resolution |
 |---------|-------------|-----------|
-| DB pool exhaustion | SQLite `QueuePool` contention | Already mitigated with `NullPool`; switch to PostgreSQL for high concurrency |
+| Database migration failure | Unsupported schema state or invalid legacy data | Back up the database, review migration logs, resolve the reported issue, and restart |
 | LLM timeout / errors | Wrong endpoint or model | Verify LLM endpoint URL and API key in Settings > AI & SMTP |
 | WebSocket not connecting | API container issue or port conflict | Check `docker compose logs api` for startup errors |
 | Emails not sending | SMTP misconfiguration | Verify SMTP settings in Settings > AI & SMTP |
 | No articles / feeds | Scheduler not running or no sources | Check `docker compose logs worker`; add RSS sources in Settings |
-| Scores all zero | Keywords not seeded | Run `init_db()` or rebuild API container (keywords seed on startup) |
+| Scores all zero | Keywords not seeded | Check API/worker startup logs; conditional keyword seeding runs after migrations |
 | Frontend blank screen | Build cache issue | `docker compose up --build -d --force-recreate web` |
 | Webhook returns 500 | Invalid SolarWinds payload | Check payload format matches expected schema |
 | Worker memory spike | Large feed batch | Increase memory limit or reduce `chunk_size` |
 | Port conflict on 8101 | Another process using port | `lsof -i :8101` to identify and stop conflicting process |
-| `init_db()` missing tables | Schema migration needed | Run `docker compose exec api python -c "from src.core.db import init_db; init_db()"` |
+| Required table/column missing | Migration failed or legacy schema is inconsistent | Back up the database, inspect startup migration logs, resolve the reported issue, and restart the backend |
 
 **Log locations:**
 
@@ -414,11 +403,13 @@ docker compose logs -f api worker
 ## Appendix: Upgrade Procedure
 
 ```bash
-# 1. Backup database
-docker compose exec api python -c "
-from src.services import export_backup
-export_backup('/app/data/pre-upgrade-backup.json')
-"
+# 1. Make a consistent SQLite snapshot (default DATABASE_URL)
+stamp=$(date +%Y%m%d-%H%M%S)
+backup_dir="${BACKUP_DIR:-$HOME/noc-ifc-backups}"
+docker compose exec -T api python -c "import sqlite3; source=sqlite3.connect('/app/data/noc_fusion.db'); target=sqlite3.connect('/app/data/noc-fusion-$stamp.db'); source.backup(target); target.close(); source.close()"
+mkdir -p "$backup_dir"
+docker compose cp "api:/app/data/noc-fusion-$stamp.db" "$backup_dir/noc-fusion-$stamp.db"
+docker compose exec -T api rm -f "/app/data/noc-fusion-$stamp.db"
 
 # 2. Pull latest code
 git pull origin <branch>
@@ -431,6 +422,8 @@ docker compose ps
 curl http://localhost:8101/health
 docker compose logs --tail=30 worker
 ```
+
+Adjust the database path when `DATABASE_URL` is customized. Settings JSON exports are partial and are not a substitute for this file-level backup.
 
 **Post-upgrade checklist:**
 

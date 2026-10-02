@@ -35,7 +35,7 @@ Branch: `architecture/monolith-to-decoupled`
 | Zustand | 4.5.x | Lightweight client-state store |
 | Axios | 1.7.x | HTTP client |
 | MapLibre GL | 4.7.x | Vector map rendering |
-| react-map-gl | 7.1.x | React bindings for MapLibre |
+| @vis.gl/react-maplibre | 8.1.x | MapLibre-only React bindings |
 | deck.gl | 9.0.x | Geospatial data overlays |
 | Recharts | 3.8.x | Charting library |
 | Lucide React | 1.16.x | Icon set |
@@ -56,8 +56,11 @@ web/
     ├── main.tsx                # ReactDOM entry, CSS imports, initTheme()
     ├── App.tsx                 # QueryClientProvider, HashRouter, AuthProvider, routes
      ├── pages/                  # Page components (route targets)
-    │   ├── LoginPage.tsx
-    │   ├── DashboardPage.tsx
+     │   ├── LoginPage.tsx
+     │   ├── ForgotPasswordPage.tsx
+     │   ├── ResetPasswordPage.tsx
+     │   ├── VerifyRecoveryEmailPage.tsx
+     │   ├── DashboardPage.tsx
     │   ├── ThreatTelemetryPage.tsx
     │   ├── RegionalGridPage.tsx
     │   ├── ThreatHuntingPage.tsx
@@ -70,8 +73,9 @@ web/
     │   ├── Layout.tsx          # Sidebar nav, user info, logout
     │   ├── AIOpsMap.tsx        # Map visualization
     │   ├── MapContainer.tsx    # Fullscreen-capable map wrapper
-    │   ├── ThemeSelector.tsx   # Theme picker with 6 presets
-    │   └── BidirectionalCommands.tsx  # WebSocket command UI
+     │   ├── ThemeSelector.tsx   # Theme picker with 6 presets
+     │   ├── UsersRolesTab.tsx   # Searchable account directory and reviewer queues
+     │   ├── ApplicationSettingsTab.tsx # Risk controls and dynamic schedules
     ├── hooks/
     │   └── useAIOpsWebSocket.ts  # WebSocket real-time hook
     ├── utils/
@@ -124,11 +128,14 @@ The Vite dev server (`vite.config.ts:16-26`) proxies:
 
 ### Route Definitions
 
-Defined in `src/utils/routeConfig.ts:1-14` and wired in `src/App.tsx:31-45`:
+Defined in `src/utils/routeConfig.ts` and wired in `src/App.tsx`:
 
 | Route | Page Component | Permission Key |
 |-------|---------------|----------------|
 | `/login` | `LoginPage` | None (public) |
+| `/forgot-password` | `ForgotPasswordPage` | None (public; generic reviewed request) |
+| `/reset-password` | `ResetPasswordPage` | None (public; single-use token required) |
+| `/verify-email` | `VerifyRecoveryEmailPage` | None (public; approved verification token required) |
 | `/` | `DashboardPage` | `Global Dashboards` |
 | `/threat-telemetry` | `ThreatTelemetryPage` | `Threat Telemetry` |
 | `/regional-grid` | `RegionalGridPage` | `Regional Grid` |
@@ -148,9 +155,11 @@ Defined in `src/utils/routeConfig.ts:1-14` and wired in `src/App.tsx:31-45`:
 `App.tsx:18-29` — `ProtectedRoute` wraps all authenticated pages:
 
 1. If no `user` in `AuthContext`, redirects to `/login`.
-2. If the route has a required permission (via `PAGE_PERMISSION_MAP`), checks `user.allowed_pages`.
-3. If the user lacks the permission, redirects to their first allowed page (via `PAGE_ROUTE_MAP`), falling back to `/`.
-4. Renders children inside `<Layout>` (sidebar navigation).
+2. If the route has a required permission (via `PAGE_PERMISSION_MAP`), checks the user's page grants.
+3. If the user lacks access, renders an access-denied explanation and retains the session.
+4. Renders children inside `<Layout>` (sidebar navigation), filtering links by page grants.
+
+API endpoints independently enforce page, tab, action, and site-type permissions. The role editor loads the permission catalog from `/permissions/catalog`; sensitive operations such as sending email, generating reports, changing risk overrides, scheduler editing, user administration, and recovery review have separate action grants. API 403s show an access notice without clearing the session; 401s clear the session and return to login.
 
 ### HashRouter
 
@@ -164,6 +173,7 @@ The app uses `HashRouter` (`App.tsx:49`), so all routes are hash-based (`/#/thre
 
 - Username/password form with `POST /auth/login`.
 - Displays a restricted-system notice stating that access is for authorized users and may be monitored, recorded, and audited.
+- Provides a generic forgot-password request. Reset links are sent only after a permitted user administrator approves the request.
 - On success, stores token and user object in `sessionStorage` via `AuthContext.login()`.
 - Redirects to the first page in `user.allowed_pages`, or `/` for admin users.
 
@@ -276,27 +286,30 @@ The page also supports score-distribution buckets, category details, recent arti
 
 Administrative interface with sections:
 
+Tab visibility follows the caller's `Tab: Settings -> ...` grants rather than an administrator-role check. Individual action permissions gate user administration, recovery review, ML training, risk changes, scheduler edits, and other mutations; legacy backup/destructive controls remain administrator-only and display a read-only notice to other tab-authorized users.
+
 | Section | Description |
 |---------|-------------|
 | **Facilities** | Manage monitored locations and site metadata |
 | **Internal Assets** | CSV import for hardware/software asset inventories |
 | **RSS Feeds** | Add/remove RSS sources with inline weight editing for keywords |
 | **AI/LLM** | Configure LLM connection, model selection, temperature |
-| **Users & Roles** | User management, role assignment, permission configuration |
-| **Backup & Restore** | Database backup download, restore from file, DB file upload |
-| **Database** | Direct SQLite file upload for database replacement |
+| **Users & Roles** | Searchable account directory, email invitations, display accounts, recovery requests, role assignment |
+| **Application Settings** | Risk-scoring overrides, bounded scheduler schedules, and global application defaults |
+| **Backup & Restore** | Legacy configuration backup, 27-model JSON export/import, and SQLite file data import (not a full database-file swap) |
 
 ---
 
 ## 6. Shared Components
 
-### Layout (`src/components/Layout.tsx:1-103`)
+### Layout (`src/components/Layout.tsx`)
 
 Full-height sidebar navigation:
 
 - **Collapsed/expanded toggle**: Sidebar width transitions between 56px and 230px.
 - **Permission-filtered nav**: Only renders nav items where `item.label` is in `user.allowed_pages`.
 - **User info panel**: Displays `full_name` and `job_title` (or `role` fallback) at sidebar bottom.
+- **Recovery-email prompt**: Individual accounts without an approved recovery email receive a persistent prompt explaining administrator approval and mailbox verification; display accounts are exempt.
 - **Logout button**: Calls `AuthContext.logout()`.
 - **Lucide icons**: Each nav item has an associated icon (`Activity`, `Globe`, `Crosshair`, `Shield`, `Radio`, `BookOpen`, `FileText`, `Settings`).
 
@@ -304,7 +317,7 @@ Full-height sidebar navigation:
 
 Map visualization component used by `RegionalGridPage` and `AiopsRcaPage`. Renders MapLibre GL map with overlay layers, site markers, and hazard polygons.
 
-### MapContainer (`src/components/MapContainer.tsx:1-73`)
+### MapContainer (`src/components/MapContainer.tsx`)
 
 Fullscreen-capable wrapper for map components:
 
@@ -312,9 +325,9 @@ Fullscreen-capable wrapper for map components:
 - **Window-fill fullscreen**: Toggles between relative positioning and fixed `100vw × 100vh` overlay with `z-index: 1000`.
 - Backdrop click exits fullscreen.
 
-### ThemeSelector (`src/components/ThemeSelector.tsx:1-64`)
+### ThemeSelector (`src/components/ThemeSelector.tsx`)
 
-Theme picker rendering 6 preset buttons:
+Theme picker rendering 21 preset buttons:
 
 | Theme ID | Label |
 |----------|-------|
@@ -324,23 +337,34 @@ Theme picker rendering 6 preset buttons:
 | `cyberpunk` | Cyberpunk (pink/cyan on purple) |
 | `solarized-dark` | Solarized Dark |
 | `midnight-ocean` | Midnight Ocean (blue on navy) |
+| `arctic-command` | Arctic Command |
+| `ember-watch` | Ember Watch |
+| `forest-ops` | Forest Ops |
+| `amethyst-grid` | Amethyst Grid |
+| `slate-steel` | Slate Steel |
+| `paper-light` | Paper Light |
+| `nordic-frost` | Nordic Frost |
+| `dracula-console` | Dracula Console |
+| `synthwave` | Synthwave |
+| `desert-signal` | Desert Signal |
+| `olive-command` | Olive Command |
+| `mono-ops` | Monochrome Ops |
+| `rose-pine` | Rose Pine |
+| `oceanic-teal` | Oceanic Teal |
+| `copper-wire` | Copper Wire |
 
-Applies theme via `data-theme` attribute on `<body>`. Persists selection to `localStorage` under key `noc_theme`. `initTheme()` is called at app startup (`main.tsx:9`) to restore saved theme before first render.
-
-### BidirectionalCommands (`src/components/BidirectionalCommands.tsx:1-33`)
-
-WebSocket command interface for acknowledging sites via `PATCH /aiops/sites/{id}/acknowledge`. Accepts a site ID input and sends acknowledgment commands.
+The selector currently exposes 21 themes. It applies the theme via the `data-theme` attribute on `<body>` and saves it to `localStorage` under `noc_theme`. When a user is signed in, selecting a theme also persists it through `POST /api/v1/auth/update-theme`; `ThemeSync` applies the account preference after login.
 
 ---
 
 ## 7. Custom Hooks
 
-### useAIOpsWebSocket (`src/hooks/useAIOpsWebSocket.ts:1-104`)
+### useAIOpsWebSocket (`src/hooks/useAIOpsWebSocket.ts`)
 
-Manages the persistent WebSocket connection to the backend:
+Manages the persistent WebSocket connection to the backend for users with AIOps RCA page access:
 
 **Connection**:
-- Connects to `ws(s)://{host}/ws` based on current protocol.
+- Connects to `ws(s)://{host}/ws?token=...` based on current protocol. The backend periodically revalidates the session and filters site data by the user's permitted site types.
 - Auto-reconnect with exponential backoff: `min(1000 × 2^attempt, 30000)` ms.
 
 **Message handling**:
@@ -357,7 +381,7 @@ Manages the persistent WebSocket connection to the backend:
 
 ## 8. State Management
 
-### AuthContext (`src/utils/AuthContext.tsx:1-75`)
+### AuthContext (`src/utils/AuthContext.tsx`)
 
 React Context providing authentication state:
 
@@ -373,7 +397,8 @@ interface AuthContextType {
 
 - **Persistence**: `user` and `token` stored in `sessionStorage` (keys: `noc_user`, `noc_token`).
 - **Auto-refresh**: `refreshUser()` calls `GET /auth/me` on mount to validate/refresh the session.
-- **401 handling**: Axios interceptor (`api.ts:15-25`) clears session and redirects to `#/login` on 401 responses.
+- **401 handling**: Axios interceptor clears the session and redirects to `#/login` on 401 responses.
+- **403 handling**: Keeps the session active and displays an accessible permission-specific notice.
 
 **User interface** (`AuthContext.tsx:4-15`):
 
@@ -384,6 +409,14 @@ interface User {
   full_name?: string;
   job_title?: string;
   contact_info?: string;
+  account_type?: "individual" | "display";
+  email?: string | null;
+  email_verified_at?: string | null;
+  recovery_email_status?: string;
+  is_active?: boolean;
+  created_at?: string | null;
+  last_login_at?: string | null;
+  last_activity_at?: string | null;
   default_shift?: string;
   role?: string;
   allowed_pages?: string[];      // Page-level permissions
@@ -400,7 +433,7 @@ Server-state management for all API data fetching:
 - **Polling**: Brief generation status polled with `refetchInterval`.
 - **Invalidation**: WebSocket `RCA_UPDATE` messages trigger `queryClient.invalidateQueries()` for affected keys.
 
-### Zustand Store (`src/store/useAppStore.ts:1-48`)
+### Zustand Store (`src/store/useAppStore.ts`)
 
 Lightweight global store for UI-level state:
 
@@ -421,7 +454,7 @@ interface AppState {
 
 ## 9. API Client
 
-### Axios Instance (`src/utils/api.ts:1-27`)
+### Axios Instance (`src/utils/api.ts`)
 
 ```typescript
 const api = axios.create({
@@ -430,10 +463,11 @@ const api = axios.create({
 ```
 
 **Request interceptor** (`api.ts:7-13`):
-- Attaches `token` query parameter from `sessionStorage` to every request.
+- Attaches `Authorization: Bearer <token>` from `sessionStorage` to every request.
 
 **Response interceptor** (`api.ts:15-25`):
 - On 401: clears `noc_token` and `noc_user` from `sessionStorage`, redirects to `#/login`.
+- On 403: retains the session and emits an accessible permission notice with the missing grant.
 - All other errors propagate normally.
 
 **Usage pattern**:
@@ -454,8 +488,8 @@ const { data } = await api.post("/auth/login", { username, password });
 
 Three-layer CSS custom property system:
 
-1. **Base** (`src/styles/theme.css:1-125`): `:root` defaults — the standard dark theme.
-2. **Overrides** (`src/themes/themes.css:1-183`): `[data-theme="..."]` selectors that redefine the same variables.
+1. **Base** (`src/styles/theme.css`): `:root` defaults — the standard dark theme.
+2. **Overrides** (`src/themes/themes.css`): `[data-theme="..."]` selectors that redefine the same variables.
 3. **Components** (`src/styles/components.css`): Component-level styles consuming the variables.
 
 ### Variable Reference
@@ -524,7 +558,7 @@ Each risk level also has a `--shade-{color}` variant at 15% opacity for backgrou
 
 ### Theme Overrides
 
-Six themes defined in `src/themes/themes.css` via `[data-theme="..."]` attribute selectors. Each overrides the full set of CSS custom properties. Themes are applied by setting `document.body.setAttribute("data-theme", id)`.
+Twenty-one themes are exposed by `ThemeSelector`; the non-standard palettes are defined in `src/themes/themes.css` via `[data-theme="..."]` selectors. The base `standard` palette is defined in `src/styles/theme.css`. The active theme is applied by setting `document.body.setAttribute("data-theme", id)`.
 
 | Theme | Character |
 |-------|-----------|
@@ -534,12 +568,27 @@ Six themes defined in `src/themes/themes.css` via `[data-theme="..."]` attribute
 | `cyberpunk` | Pink/cyan accents on deep purple |
 | `solarized-dark` | Solarized palette — muted earth tones |
 | `midnight-ocean` | Blue/cyan accents on deep navy |
+| `arctic-command` | Arctic Command |
+| `ember-watch` | Ember Watch |
+| `forest-ops` | Forest Ops |
+| `amethyst-grid` | Amethyst Grid |
+| `slate-steel` | Slate Steel |
+| `paper-light` | Paper Light |
+| `nordic-frost` | Nordic Frost |
+| `dracula-console` | Dracula Console |
+| `synthwave` | Synthwave |
+| `desert-signal` | Desert Signal |
+| `olive-command` | Olive Command |
+| `mono-ops` | Monochrome Ops |
+| `rose-pine` | Rose Pine |
+| `oceanic-teal` | Oceanic Teal |
+| `copper-wire` | Copper Wire |
 
 ---
 
 ## 11. Timezone Handling
 
-### Centralized Utilities (`src/utils/timezone.ts:1-104`)
+### Centralized Utilities (`src/utils/timezone.ts`)
 
 All timestamps are displayed in **America/Chicago** timezone. The module provides:
 
@@ -590,7 +639,7 @@ docker compose --profile dev up --build -d
 
 The `web` container mounts the `web/` source directory, so changes to frontend files are reflected instantly via Vite HMR in dev mode. Production builds require `docker compose up --build -d --force-recreate web`.
 
-### Vite Configuration (`web/vite.config.ts:1-27`)
+### Vite Configuration (`web/vite.config.ts`)
 
 | Setting | Value | Purpose |
 |---------|-------|---------|

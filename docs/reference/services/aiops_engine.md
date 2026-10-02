@@ -104,13 +104,13 @@ Normalizes whitespace and hyphens to underscores, maps `PRIMARY_INTERNET` to the
 
 **Returns:** `tuple[list | None, list | None, list | None]` -- `(top_nodes_json, top_sites_json, recommendation_texts)` or `(None, None, None)` if no data.
 
-**Dependencies:** `pandas`, `SolarWindsAlert`, `SessionLocal`
+**Dependencies:** `collections.Counter`, `SolarWindsAlert`, `SessionLocal`
 
 **Flow:**
 1. Queries all alerts in the last 60 days
 2. Excludes resolved alerts
-3. Builds DataFrame of node_name, device_type, site
-4. Counts incidents per node, merges metadata
+3. Projects only node, device, site, payload, and status columns
+4. Counts incidents per node and site with `Counter`, retaining the first metadata row per node
 5. Counts incidents per site (excluding Unknown)
 6. Generates recommendations: critical flapping flag if top node has >5 incidents; regional degradation flag if top site has >15 incidents
 7. Returns JSON-serialized top 15 nodes, top 10 sites, and recommendation texts

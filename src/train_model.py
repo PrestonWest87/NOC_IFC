@@ -1,5 +1,4 @@
 import logging
-import pandas as pd
 import joblib
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
@@ -13,24 +12,19 @@ def train():
     with SessionLocal() as session:
         # 1. Fetch Training Data
         # human_feedback: 1 = Dismiss (Noise), 2 = Confirm (Keep)
-        query = session.query(Article.summary, Article.title, Article.human_feedback)\
-            .filter(Article.human_feedback.in_([1, 2]))
-        
-        df = pd.read_sql(query.statement, session.bind)
+        rows = session.query(Article.summary, Article.title, Article.human_feedback)\
+            .filter(Article.human_feedback.in_([1, 2])).all()
 
-    if len(df) < 10:
-        logger.warning("Not enough training data! You have %s labels. Please review at least 10 articles in the UI.", len(df))
+    if len(rows) < 10:
+        logger.warning("Not enough training data! You have %s labels. Please review at least 10 articles in the UI.", len(rows))
         return
 
-    logger.info("Training Advanced ML Model on %s curated articles...", len(df))
+    logger.info("Training Advanced ML Model on %s curated articles...", len(rows))
 
-    # 2. Preprocessing
-    # Combine Title + Summary for deep context, force lowercase
-    df['text'] = (df['title'] + " " + df['summary']).str.lower()
-    
     # Map labels: 1 (Dismiss) -> 0 (Noise), 2 (Confirm) -> 1 (Important)
-    y = df['human_feedback'].map({1: 0, 2: 1})
-    X = df['text']
+    # Keep the exact same training data contract without building a DataFrame.
+    X = [f"{title or ''} {summary or ''}".lower() for summary, title, _ in rows]
+    y = [0 if feedback == 1 else 1 for _summary, _title, feedback in rows]
 
     # 3. Build Advanced Pipeline
     # - ngram_range=(1, 2): Allows the model to learn phrases like "data breach" or "buffer overflow"

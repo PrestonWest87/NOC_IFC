@@ -29,6 +29,10 @@ export const TAB_PERMISSION_MAP: Record<string, Record<string, string>> = {
     "Tab: AIOps RCA -> Predictive Analytics": "1",
     "Tab: AIOps RCA -> Global Correlation": "2",
   },
+  shiftLogbook: {
+    "Tab: Shift Log -> Active Shift": "active",
+    "Tab: Shift Log -> History": "history",
+  },
   reporting: {
     "Tab: Reporting -> Daily Fusion": "0",
     "Tab: Reporting -> Report Builder": "1",
@@ -40,12 +44,31 @@ export const TAB_PERMISSION_MAP: Record<string, Record<string, string>> = {
     "Tab: Settings -> RSS Sources": "rss",
     "Tab: Settings -> ML Training": "ml",
     "Tab: Settings -> AI & SMTP": "ai-smtp",
+    "Tab: Settings -> Application Settings": "application",
     "Tab: Settings -> Users & Roles": "users",
     "Tab: Settings -> Backup & Restore": "backup",
     "Tab: Settings -> Danger Zone": "danger",
   },
   keywordAnalysis: {},
 };
+
+export interface PermissionUser {
+  role?: string;
+  allowed_pages?: string[];
+  allowed_actions?: string[];
+}
+
+export function isAdministrator(user: PermissionUser | null | undefined): boolean {
+  return ["admin", "administrator"].includes(String(user?.role || "").toLowerCase());
+}
+
+export function hasPagePermission(user: PermissionUser | null | undefined, page: string): boolean {
+  return isAdministrator(user) || Boolean(user?.allowed_pages?.includes(page));
+}
+
+export function hasActionPermission(user: PermissionUser | null | undefined, action: string): boolean {
+  return isAdministrator(user) || Boolean(user?.allowed_actions?.includes(action));
+}
 
 export function getAllowedTabs(
   allowedActions: string[] | undefined,

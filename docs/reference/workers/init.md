@@ -19,7 +19,6 @@ Package initialiser for the `workers` module. Re-exports all top-level worker en
 | `execute_live_query` | `workers.elastic_worker` |
 | `purge_stale_elastic_data` | `workers.elastic_worker` |
 | `fetch_regional_hazards` | `workers.infra_worker` |
-| `start_report_scheduler` | `workers.report_worker` |
 | `run_daily_report` | `workers.report_worker` |
 | `run_telemetry_sync` | `workers.telemetry_worker` |
 

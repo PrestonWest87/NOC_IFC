@@ -13,10 +13,13 @@ This module is loaded through `src/services/__init__.py` and is the active data-
 - Import/export helpers: `import_software_assets_csv`, `import_hardware_assets_csv`, `export_all_tables`, `import_all_tables`, `restore_from_db_upload`.
 - Regional helpers: `get_trigger_token`, `get_eq_color`, `process_usgs_quakes`, `rank_hazard`, and `get_primary_label`.
 - Scoring/AI helpers: `update_keyword_weight`, `_build_fallback_summary`, and `run_llm`.
+- Account administration: user-directory/profile/role/status helpers, individual invitations, email-change review and verification, password-reset review and single-use tokens, session revocation, and account audit events.
+- Site authorization: `get_allowed_site_names_for_user`, `user_can_access_site`, `ensure_user_can_access_alerts`, and `filter_aiops_payload_for_user` enforce site-type scopes on AIOps data.
+- Scheduler configuration: `get_scheduler_settings`, `save_scheduler_setting`, and `mark_scheduler_revision_applied` persist and track dynamic worker schedule changes.
 
 When a signature or default differs from an older section below, the current function definition in `src/services.py` is authoritative and that section must be corrected rather than copied forward.
 
-The `services.py` module is the central Data Access Layer (DAL) for the NOC Intelligence Fusion Center. It contains 104+ functions that bridge the API routes to the database, providing authentication, dashboards, threat telemetry, regional grid analytics, AIOps RCA, reporting, and administrative operations.
+The `services.py` module is the central Data Access Layer (DAL) for the NOC Intelligence Fusion Center. Its functions bridge API routes to the database for authentication, dashboards, threat telemetry, regional grid analytics, AIOps RCA, reporting, user administration, recovery workflows, and scheduler configuration.
 
 ---
 
@@ -316,31 +319,18 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 **Dependencies:** `User`, `SessionLocal`, `bcrypt`
 
-**Flow:** Looks up user, verifies password with bcrypt, generates new UUID session token, fetches role permissions, returns user DotDict with permissions attached.
+**Flow:** Looks up an active user, verifies password with bcrypt, records durable last sign-in/activity timestamps, generates a UUID session token, and returns the user DotDict with current role permissions and recovery-email state.
 
 ---
 
 ### `get_user_by_token(token: str) -> DotDict | None`
 
-**Purpose:** Retrieves a user by session token.
+**Purpose:** Retrieves an active user by session token, resolves role grants in the current database session, and throttles last-activity updates to once per five minutes.
 
 **Parameters:**
 - `token` (str) -- Session token
 
 **Returns:** `DotDict | None` -- User DotDict with permissions, or None.
-
-**Dependencies:** `User`, `SessionLocal`
-
----
-
-### `get_user_by_username(username: str) -> DotDict | None`
-
-**Purpose:** Retrieves a user by username.
-
-**Parameters:**
-- `username` (str) -- Username
-
-**Returns:** `DotDict | None` -- User DotDict, or None.
 
 **Dependencies:** `User`, `SessionLocal`
 
@@ -367,12 +357,13 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ---
 
-### `logout_user(username: str)`
+### `logout_user(username: str, token: str | None = None)`
 
-**Purpose:** Invalidates a user's session token.
+**Purpose:** Revokes the current session when a token is supplied, or all of the user's sessions for legacy callers without a token.
 
 **Parameters:**
 - `username` (str) -- Username
+- `token` (str | None) -- Optional session token to revoke only that session.
 
 **Dependencies:** `User`, `SessionLocal`
 
@@ -816,46 +807,35 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ---
 
-### `calculate_site_intersections(map_df, master_polygons) -> tuple`
+### `calculate_site_intersections(map_rows, master_polygons) -> tuple`
 
 **Purpose:** Efficiently calculates which monitored sites intersect with hazard polygons.
 
 **Parameters:**
-- `map_df` (pd.DataFrame) -- Site dataframe with Lat, Lon, Name, Type, District, Priority
+- `map_rows` (list[dict]) -- Site records with latitude, longitude, name, type, district, and priority values
 - `master_polygons` (list) -- List of hazard polygons with shape, event, severity
 
 **Returns:** `tuple[list, list]` -- `(toggled_affected_sites, master_affected_sites)`
 
-**Dependencies:** `pandas`, `shapely.Point`, `shapely.shape`
+**Dependencies:** `shapely.Point`
 
 **Flow:** Pre-calculates bounding boxes for all polygons. For each site, performs bounding box pre-check (fast float math) before expensive Shapely `within()` call. Builds toggled (visible) and master (all) affected site lists.
 
 ---
 
-### `get_infrastructure_analytics(map_df, master_affected_sites) -> dict`
+### `get_infrastructure_analytics(map_rows, master_affected_sites) -> dict`
 
 **Purpose:** Generates real-time infrastructure analytics from live geospatial intersection data.
 
 **Parameters:**
-- `map_df` (pd.DataFrame) -- Site dataframe
+- `map_rows` (list[dict]) -- Site records used to build regional totals
 - `master_affected_sites` (list) -- Affected sites from intersection calculation
 
 **Returns:** `dict` -- total_sites, at_risk_sites, highest_risk, spc_distribution, nws_distribution, type_distribution, district_distribution, priority/type/district risk matrices.
 
-**Dependencies:** `pandas`
+**Dependencies:** `collections.Counter`, `collections.defaultdict`
 
-**Flow:** Processes affected sites into SPC risk levels and NWS alert types. Builds distribution DataFrames and cross-tab risk matrices by Priority, Type, and District. Maps risk levels back to all sites for complete distributions.
-
----
-
-### `generate_hazard_sitrep_html(analytics_df) -> str`
-
-**Purpose:** Generates HTML severe weather situation report for email broadcast.
-
-**Parameters:**
-- `analytics_df` (pd.DataFrame) -- Analytics dataframe with Monitored Site, Facility Type, Priority, Hazard
-
-**Returns:** `str` -- Complete HTML email string.
+**Flow:** Processes affected sites into SPC risk levels and NWS alert types. Builds JSON-ready distributions and risk matrices with `Counter`, then maps risk levels back to all sites.
 
 ---
 
@@ -872,12 +852,14 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ---
 
-### `update_locations(edited_df)`
+### `update_locations(edited_rows)`
 
-**Purpose:** Updates monitored locations from an edited dataframe.
+**Purpose:** Updates monitored locations from edited records.
 
 **Parameters:**
-- `edited_df` (pd.DataFrame) -- Dataframe with id, Name, Type, District, Priority, Lat, Lon
+- `edited_rows` (list[dict]) -- Records with id, Name, Type, District, Priority, Lat, and Lon. DataFrame-like callers are accepted through `to_dict(orient="records")`.
+
+**Flow:** Loads matching locations in one `IN` query, applies non-empty field updates, commits, and invalidates the cached location list.
 
 **Dependencies:** `MonitoredLocation`, `SessionLocal`
 
@@ -1110,7 +1092,7 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ### `create_user(username, password, role, full_name="") -> bool`
 
-**Purpose:** Creates a new user with hashed password.
+**Purpose:** Backward-compatible administrator creation of an email-optional display account with a hashed 12+ character password.
 
 **Parameters:**
 - `username` (str) -- Username
@@ -1118,7 +1100,7 @@ A utility class extending `dict` to allow dot-notation attribute access.
 - `role` (str) -- Role name
 - `full_name` (str) -- Full name (default: "")
 
-**Returns:** `bool` -- True if created, False if already exists.
+**Returns:** `bool` -- True if created; duplicate usernames raise a validation error.
 
 **Dependencies:** `User`, `SessionLocal`, `bcrypt`
 
@@ -1126,7 +1108,7 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ### `force_reset_pwd(username, new_password) -> bool`
 
-**Purpose:** Force-resets a user's password (admin operation).
+**Purpose:** Force-resets a user's password (administrator-assisted operation), applies the shared password policy, and revokes all sessions and outstanding reset tokens.
 
 **Parameters:**
 - `username` (str) -- Username
@@ -1289,9 +1271,9 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ### `get_backup_data() -> dict`
 
-**Purpose:** Exports all configuration data for backup.
+**Purpose:** Exports the legacy configuration subset for compatibility backup.
 
-**Returns:** `dict` -- keywords, feeds, locations, aliases arrays.
+**Returns:** `dict` -- keywords, feeds, locations, and aliases arrays (four collections).
 
 **Dependencies:** `Keyword`, `FeedSource`, `MonitoredLocation`, `NodeAlias`, `SessionLocal`
 
@@ -1299,7 +1281,7 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ### `restore_backup_data(data: dict) -> dict`
 
-**Purpose:** Imports configuration data from a backup.
+**Purpose:** Adds missing records from the legacy four-collection configuration backup.
 
 **Parameters:**
 - `data` (dict) -- Backup data with keywords, feeds, locations, aliases
@@ -1307,6 +1289,28 @@ A utility class extending `dict` to allow dot-notation attribute access.
 **Returns:** `dict` -- Counts of new records added per type.
 
 **Dependencies:** `Keyword`, `FeedSource`, `MonitoredLocation`, `NodeAlias`, `SessionLocal`
+
+---
+
+### `export_all_tables() -> dict`
+
+**Purpose:** Exports rows for the 27 model classes listed in `ALL_MODELS` as JSON-compatible data.
+
+**Coverage:** This export omits `user_sessions`, `failed_login_attempts`, `registration_invites`, `email_change_requests`, `password_reset_requests`, `password_reset_tokens`, `account_audit_events`, and `scheduler_job_config`. It is not a complete database-file backup and may contain password hashes and stored integration credentials.
+
+---
+
+### `import_all_tables(data: dict, merge: bool = False) -> dict`
+
+**Purpose:** Imports rows for supported `ALL_MODELS` tables. Replacement mode clears non-empty supported tables before insertion; merge mode skips duplicate IDs.
+
+---
+
+### `restore_from_db_upload(db_file_path: str) -> dict`
+
+**Purpose:** Reads table rows from an uploaded SQLite database and imports them into the current database. It does not replace or atomically swap the active SQLite database file.
+
+**Operational note:** Make a complete SQLite file-level backup and stop other writers before using this import path.
 
 ---
 
@@ -1362,36 +1366,9 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ---
 
-## 10. UI Map Generation Engine (PyDeck)
+## 10. Regional Geospatial Precomputation
 
-### `build_crime_map_layers(df_crimes) -> tuple`
-
-**Purpose:** Builds PyDeck layers and view state for the crime intelligence map.
-
-**Parameters:**
-- `df_crimes` (pd.DataFrame) -- Crime data with lon, lat columns
-
-**Returns:** `tuple[list[pdk.Layer], pdk.ViewState]` -- Layers (campus boundary polygon + crime scatterplot) and view state.
-
-**Dependencies:** `pydeck`, `pandas`
-
----
-
-### `build_aiops_map_layers(alerts, locs) -> tuple`
-
-**Purpose:** Builds PyDeck layers and view state for the AIOps RCA board.
-
-**Parameters:**
-- `alerts` (list) -- Active alerts with mapped_location
-- `locs` (list) -- Monitored locations with name, lat, lon
-
-**Returns:** `tuple[list[pdk.Layer], pdk.ViewState]` -- Layers (site scatterplot + alert pulses) and view state.
-
-**Dependencies:** `pydeck`, `pandas`, `collections.Counter`
-
----
-
-### `_precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, selected_events_tuple, map_df) -> dict`
+### `_precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, selected_events_tuple, map_rows) -> dict`
 
 **Purpose:** Heavy math engine: parses JSON, builds Shapely objects, calculates all intersections once.
 
@@ -1402,11 +1379,11 @@ A utility class extending `dict` to allow dot-notation attribute access.
 - `usgs_ar_data` (dict | None) -- Arkansas USGS earthquake data
 - `usgs_oos_data` (dict | None) -- Out-of-state USGS earthquake data
 - `selected_events_tuple` (tuple) -- Selected event types
-- `map_df` (pd.DataFrame) -- Site dataframe
+- `map_rows` (list[dict]) -- Site records
 
 **Returns:** `dict` -- spc_micro, ar_warn, ar_watch, oos_warn, oos_watch, ar_fire_geo, nifc_data, eq_data, master_affected_sites, map_diagnostics.
 
-**Dependencies:** `shapely`, `pandas`, `process_nws_alerts`, `get_regional_counties_mapping`, `get_active_wildfires`, `calculate_site_intersections`, `TTLCache(ttl=120)`
+**Dependencies:** `shapely`, `process_nws_alerts`, `get_regional_counties_mapping`, `get_active_wildfires`, `calculate_site_intersections`, `TTLCache(ttl=120)`
 
 **Flow:**
 1. Processes SPC data with color mapping
@@ -1415,28 +1392,6 @@ A utility class extending `dict` to allow dot-notation attribute access.
 4. Processes active wildfires from WFIGS
 5. Processes USGS earthquakes
 6. Executes `calculate_site_intersections` once for all master polygons
-
----
-
-### `compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, selected_events, toggles) -> tuple`
-
-**Purpose:** Lightweight UI compiler that reads from RAM cache and filters by toggle states.
-
-**Parameters:**
-- `map_df` (pd.DataFrame) -- Site dataframe
-- `spc_data` (dict) -- SPC GeoJSON
-- `ar_data` (dict) -- AR NWS GeoJSON
-- `oos_data` (dict) -- OOS NWS GeoJSON
-- `usgs_ar_data` (dict | None) -- AR USGS data
-- `usgs_oos_data` (dict | None) -- OOS USGS data
-- `selected_events` (list) -- Selected event types
-- `toggles` (dict) -- Layer toggle states (radar, spc, warn, watch, oos, fire_risk, active_wildfires, earthquakes)
-
-**Returns:** `tuple[list[pdk.Layer], pdk.ViewState, list, list, list]` -- `(layers, view_state, diagnostics, toggled_affected_sites, master_affected_sites)`
-
-**Dependencies:** `pydeck`, `pandas`, `_precompute_geo_matrix`
-
-**Flow:** Calls `_precompute_geo_matrix` (reads from RAM cache). Builds PyDeck GeoJsonLayer/ScatterplotLayer/BitmapLayer for each visible toggle. Filters affected sites by toggled hazard visibility.
 
 ---
 
@@ -1449,7 +1404,7 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 **Returns:** `int` -- Number of duplicates removed.
 
-**Dependencies:** `Article`, `difflib.SequenceMatcher`
+**Dependencies:** `Article`, `rapidfuzz.fuzz.ratio`
 
 **Flow:**
 1. Removes exact link duplicates

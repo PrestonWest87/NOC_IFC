@@ -2,87 +2,49 @@
 
 **File:** `src/core/db.py`
 
-Provides the SQLAlchemy engine, session factory, SQLite startup tuning, additive schema migration, default-data seeding, and the FastAPI database dependency.
+Provides the SQLite engine/session factory, startup migration integration, post-migration connection tuning, bootstrap data setup, and the FastAPI database dependency.
 
-## Module Objects
+## Database URL and engine
 
-### `engine`
+`DATABASE_URL` must use a SQLite URL. Non-SQLite backends fail during configuration with a clear error. The engine uses `NullPool`, `check_same_thread=False`, and a 30-second SQLite connection timeout.
 
-Created with `create_engine(DATABASE_URL, poolclass=NullPool, connect_args=...)`.
+## Startup sequence
 
-- SQLite uses `check_same_thread=False` and a 30-second timeout.
-- PostgreSQL/other URLs use empty `connect_args`.
-- `NullPool` is used for the current configuration to avoid long-lived SQLite connection contention.
+`init_db()` performs these steps before a process serves work:
 
-### `SessionLocal`
+1. Calls `src.core.migration_runner.run_migrations(engine)`.
+2. Enables persistent WAL mode and registers connection-local SQLite pragmas.
+3. Calls `ensure_bootstrap_data(SessionLocal)` for conditional application defaults.
 
-`sessionmaker(autocommit=False, autoflush=False, bind=engine)`. Callers must close sessions; most service code uses `with SessionLocal() as session`.
+The API calls `init_db()` before starting its WebSocket broadcaster. The scheduler calls it before schedule registration or startup jobs. The webhook calls it before constructing its FastAPI app, and the standalone crime worker calls it before fetching data.
 
-## `_set_sqlite_pragmas()`
+### Migration runner
 
-Called once at import when `engine.dialect.name == "sqlite"`. It opens a connection and applies:
+`src/core/migration_runner.py` uses Alembic's `alembic_version` table and `migrations/versions/`. It acquires a cross-process lock file next to a file-backed SQLite database, then invokes `alembic upgrade head`. Startup at head performs a version check without schema DDL. Migration failures propagate and prevent that process from becoming ready.
 
-| PRAGMA | Value | Purpose |
-|---|---|---|
-| `journal_mode` | `WAL` | Better read concurrency during writes. |
-| `synchronous` | `NORMAL` | Balanced durability/performance under WAL. |
-| `cache_size` | `-16000` | 16,000 KiB page cache. |
-| `temp_store` | `MEMORY` | In-memory temporary tables. |
-| `mmap_size` | `67108864` | 64 MiB memory mapping. |
+Revision `20261002_0001` adopts databases created before Alembic using the frozen `migrations/schema_v1.py` snapshot: it creates missing baseline tables, adds only absent historical columns, creates missing indexes, and performs one-time user/invitation/priority backfills. It fails with an actionable error if legacy duplicate normalized emails prevent the required unique index.
 
-It retries up to three times with waits of 0.5, 1.0, and 1.5 seconds. A final failure is logged as a warning because another process may already have enabled WAL.
+Future schema or deterministic data changes must be added as new forward-only revisions. Do not put recurring `ALTER TABLE` logic or production `create_all()` in startup code. SQLite DDL can leave partial work if a process is interrupted, so future revision operations should inspect existing objects and be safe to retry.
 
-## `get_db()`
+### SQLite connection tuning
 
-Generator dependency:
+After migrations, `_set_sqlite_pragmas()` enables persistent WAL mode. The SQLAlchemy `connect` event sets `synchronous=NORMAL`, `cache_size=-16000`, `temp_store=MEMORY`, and `mmap_size=67108864` on every new NullPool connection.
 
-1. Creates a `SessionLocal` instance.
-2. Yields it to FastAPI.
-3. Closes it in `finally`, including when the route raises.
+## Bootstrap data
 
-## `init_db()`
+`src/core/bootstrap.py` keeps application data initialization separate from schema migration:
 
-Runs during API and worker startup. It is additive and intended to be idempotent.
+- Starter roles and `SystemConfig` are created if missing.
+- The `permission_catalog_version` field gates the one-time role-grant conversion; later startup does not broaden edited roles.
+- `DEFAULT_ADMIN_PASSWORD` creates the first admin only when no user exists.
+- A trusted `DEFAULT_ADMIN_EMAIL` may verify an existing email-less bootstrap admin and resolve a matching pending recovery-email request.
+- Default RSS feeds and keywords are queried in batches and inserted only when absent; existing feed state and keyword weights are preserved.
+- `DEMO_SEED_DATA` seeds sample assets only when the corresponding table is empty.
+- Full article rescoring remains opt-in through `RESCORE_ON_STARTUP=true`.
 
-### Schema creation
+## Operational notes
 
-Calls `Base.metadata.create_all(bind=engine)`. Existing tables and columns are not dropped. A failure at this stage is logged and raised because the application cannot safely continue without a base schema.
-
-### Additive migrations and indexes
-
-The function executes guarded `ALTER TABLE` operations for fields introduced over time, including:
-
-- `system_config`: alert tracking, wildfire state, enrichment/brief fields, risk tracking, scoring overrides, offsets, LLM context, and public app URL.
-- `articles`: ingestion/enrichment state, attempts, error timestamps, and full content.
-- `roles`: `allowed_site_types`.
-- `solarwinds_alerts`: dispatch/ticket/acknowledgment fields.
-- `monitored_locations`: district, maintenance, status tracking, and automatic/escalation timestamps.
-- `shift_logs`: author role and soft-delete state.
-- `crime_incidents`: alert-dispatched state.
-- `users`: theme and default shift.
-- `user_weather_prefs`: table and username index.
-
-It creates indexes for article score/published/pinned queries, risk snapshots, SolarWinds status/node queries, cloud status, crime filtering, shift-log deletion, and weather preferences. Each migration is attempted with autocommit and an error is logged or debug-logged so an already-existing column does not prevent later migrations from running.
-
-### Role and user seeds
-
-The function creates or updates `admin` and `analyst` roles with the current page/action permission arrays and site-type support. It creates the first `admin` user only when no user exists and `DEFAULT_ADMIN_PASSWORD` is non-empty. The password is bcrypt-hashed; there is no guaranteed hard-coded password.
-
-### Feed and keyword seeds
-
-It inserts missing default RSS feed URLs and missing scoring keywords without replacing existing operator changes. The keyword list is maintained in the source seed array; the application uses the persisted `Keyword.weight` values at scoring time.
-
-### System configuration and demo assets
-
-If no `SystemConfig` exists, it creates an inactive default row. When `DEMO_SEED_DATA` is true, it adds synthetic hardware/software assets only when the relevant tables are empty.
-
-### Optional article rescoring
-
-The final stage checks `RESCORE_ON_STARTUP` directly from the process environment. Values `1`, `true`, and `yes` trigger `src.services.rescore_all_articles()`. The default is false, so normal startup does not rescore the complete corpus.
-
-## Operational Notes
-
-- Run `init_db()` manually only after creating a backup.
-- Schema migration failures should be investigated rather than hidden by repeated restarts.
-- The hourly scheduler maintenance job, not `init_db()`, handles normal retention deletion and orphan IOC cleanup.
-- SQLite is suitable for a single-node deployment; use PostgreSQL for multiple writers or replicas.
+- Back up the SQLite database before a release that adds migrations.
+- Do not manually edit `alembic_version` or drop columns to recover from a migration failure.
+- The hourly scheduler maintenance job, not startup, handles retention deletion and orphan IOC cleanup.
+- Tests may use in-memory SQLite engines; file-backed production startup uses the migration lock.

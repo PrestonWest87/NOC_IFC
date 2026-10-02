@@ -1,16 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import api from "../utils/api";
-import { useAuth } from "../utils/AuthContext";
 import { PAGE_ROUTE_MAP } from "../utils/routeConfig";
 import { THEMES } from "../components/ThemeSelector";
 
 export function RegistrationPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  useAuth();
   const inviteToken = params.get("token") || "";
-  const [invite, setInvite] = useState<{ username: string; role: string } | null>(null);
+  const [invite, setInvite] = useState<{ username: string; role: string; email: string } | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [form, setForm] = useState({ password: "", confirm: "", full_name: "", job_title: "", contact_info: "", default_shift: "No Shift", theme: "standard" });
@@ -60,7 +58,9 @@ export function RegistrationPage() {
         {invite && (
           <>
             <div style={{ padding: "0.7rem", background: "var(--bg-tertiary)", borderRadius: "var(--radius-sm)", marginBottom: "1rem", fontSize: "0.82rem" }}>
-              Username: <strong>{invite.username}</strong><br />Assigned role: <strong>{invite.role}</strong>
+              Username: <strong>{invite.username}</strong><br />
+              Email: <strong>{invite.email}</strong><br />
+              Assigned role: <strong>{invite.role}</strong>
             </div>
             <div style={{ display: "grid", gap: "0.65rem" }}>
               <input aria-label="Password" required type="password" minLength={12} placeholder="Password (12+ characters)" value={form.password} onChange={(e) => update("password", e.target.value)} />

@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:8501,http://localhost:5173"
     allow_unsigned_webhooks: bool = False
     public_app_url: str = "http://localhost:8501"
+    default_admin_email: str = ""
     registration_invite_ttl_hours: int = 72
 
     class Config:

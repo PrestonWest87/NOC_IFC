@@ -1,10 +1,10 @@
 import logging
 from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel, Field
-from src.api.auth_guard import require_page
+from src.api.auth_guard import require_action, require_any_page
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/email", tags=["email"], dependencies=[Depends(require_page("Reporting & Briefings"))])
+router = APIRouter(prefix="/api/v1/email", tags=["email"])
 
 
 class EmailAttachment(BaseModel):
@@ -24,7 +24,7 @@ class BroadcastBriefRequest(BaseModel):
     email: str = ""
 
 
-@router.post("/send")
+@router.post("/send", dependencies=[Depends(require_action("Action: Send Email"))])
 def send_email(req: SendEmailRequest):
     logger.info("POST /email/send subject=%s to=%s body_length=%d",
                  req.subject, req.to, len(req.html_body) if req.html_body else 0)
@@ -40,7 +40,7 @@ def send_email(req: SendEmailRequest):
     return {"status": "ok" if success else "error", "message": msg}
 
 
-@router.post("/broadcast-brief")
+@router.post("/broadcast-brief", dependencies=[Depends(require_any_page(["Global Dashboards", "Reporting & Briefings"])), Depends(require_action("Action: Dispatch Exec Report"))])
 def broadcast_brief(req: BroadcastBriefRequest):
     logger.info("POST /email/broadcast-brief email=%s", req.email)
     if not req.email:
@@ -78,7 +78,7 @@ def broadcast_brief(req: BroadcastBriefRequest):
     return {"status": "ok" if success else "error", "message": msg}
 
 
-@router.post("/broadcast-global-brief")
+@router.post("/broadcast-global-brief", dependencies=[Depends(require_any_page(["Global Dashboards", "Reporting & Briefings"])), Depends(require_action("Action: Dispatch Exec Report"))])
 def broadcast_global_brief(req: BroadcastBriefRequest):
     logger.info("POST /email/broadcast-global-brief email=%s", req.email)
     if not req.email:
@@ -116,7 +116,7 @@ def broadcast_global_brief(req: BroadcastBriefRequest):
     return {"status": "ok" if success else "error", "message": msg}
 
 
-@router.post("/broadcast-internal-brief")
+@router.post("/broadcast-internal-brief", dependencies=[Depends(require_any_page(["Global Dashboards", "Reporting & Briefings"])), Depends(require_action("Action: Dispatch Exec Report"))])
 def broadcast_internal_brief(req: BroadcastBriefRequest):
     logger.info("POST /email/broadcast-internal-brief email=%s", req.email)
     if not req.email:

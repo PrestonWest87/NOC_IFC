@@ -1,0 +1,2 @@
+# Install after the hash-locked runtime dependencies in requirements.lock.
+httpx2==2.13.1

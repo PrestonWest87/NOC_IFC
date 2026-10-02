@@ -135,7 +135,7 @@ SolarWinds Orion ---> Webhook gateway :8100 ---> Shared database
 | `web` | Production React workspace served by nginx | 8501 |
 | `web-dev` | Optional Vite development workspace with hot reload | 5173 |
 
-The default database is SQLite stored in `./data`. PostgreSQL is supported for deployments that need multiple instances or higher concurrency.
+The application uses SQLite stored in `./data`. The API, worker, and webhook share the same database file.
 
 ## Quick Start
 
@@ -186,7 +186,7 @@ The complete environment template is [`.env.example`](./.env.example). The most 
 
 | Setting | Why it matters |
 |---|---|
-| `DATABASE_URL` | Selects the SQLite or PostgreSQL database. |
+| `DATABASE_URL` | Selects the SQLite database file. |
 | `DEFAULT_ADMIN_PASSWORD` | Creates the first administrator when the database has no users. |
 | `CORS_ORIGINS` | Controls which browser origins may call the API. |
 | `RISK_ALERT_RECIPIENTS` | Enables risk and daily brief recipients. |
@@ -302,7 +302,7 @@ Before database maintenance or a reset, create a verified backup. Do not remove 
 - Restrict port `8100` to approved webhook senders.
 - Keep ports `8100` and `8101` off the public internet unless protected by a firewall and reverse proxy.
 - Use HTTPS through a reverse proxy for production access.
-- Use PostgreSQL for multi-instance or high-concurrency deployments.
+- Keep the API, worker, and webhook on the same host with access to the shared SQLite data directory.
 - Back up the database before migrations, restores, or destructive administrative actions.
 - Treat LLM, SMTP, Elastic, and webhook credentials as operational secrets.
 
