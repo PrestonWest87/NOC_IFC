@@ -3,11 +3,12 @@ import uuid
 import threading
 import re
 from typing import Optional
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from src import services as svc
 from src.api.auth_guard import require_page, require_action
+from src.core import restore_control
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/reporting", tags=["reporting"], dependencies=[Depends(require_page("Reporting & Briefings"))])
@@ -295,12 +296,31 @@ def generate_custom_report(data: GenerateCustomRequest):
         }
         _report_result_store.pop(generation_id, None)
 
+    if not restore_control.begin_api_background_writer():
+        raise HTTPException(status_code=503, detail="A database restore is in progress.")
+
+    def _tracked_run():
+        try:
+            _run_custom_report_generation(
+                generation_id,
+                data.target.strip() if has_target else "",
+                data.days_back,
+                data.article_ids if has_ids else None,
+                data.objective,
+                data.analyst,
+            )
+        finally:
+            restore_control.end_api_background_writer()
+
     thread = threading.Thread(
-        target=_run_custom_report_generation,
-        args=(generation_id, data.target.strip() if has_target else "", data.days_back, data.article_ids if has_ids else None, data.objective, data.analyst),
+        target=_tracked_run,
         daemon=True
     )
-    thread.start()
+    try:
+        thread.start()
+    except Exception:
+        restore_control.end_api_background_writer()
+        raise
 
     return {"status": "started", "generation_id": generation_id}
 

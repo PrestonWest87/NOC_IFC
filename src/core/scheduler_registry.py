@@ -104,6 +104,12 @@ JOB_REGISTRY = {
         "function": "run_daily_report", "schedule_type": "daily", "run_at": "06:00",
         "timezone": "America/Chicago", "enabled": True, "can_disable": True, "startup_run": False,
     },
+    "database_backup": {
+        "label": "Encrypted database backup",
+        "description": "Create a full encrypted SQLite backup and retain the latest three scheduled copies.",
+        "function": "job_database_backup", "schedule_type": "weekly", "weekday": "sunday", "run_at": "00:00",
+        "timezone": "America/Chicago", "enabled": True, "can_disable": False, "startup_run": False,
+    },
 }
 
 SCHEDULER_POLL_SECONDS = 30

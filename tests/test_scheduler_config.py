@@ -65,6 +65,14 @@ class SchedulerConfigurationTests(unittest.TestCase):
             validated = validate_schedule(key, default_schedule(key))
             self.assertEqual(validated["schedule_type"], job["schedule_type"])
 
+        backup = default_schedule("database_backup")
+        self.assertEqual(backup["schedule_type"], "weekly")
+        self.assertEqual(backup["weekday"], "sunday")
+        self.assertEqual(backup["run_at"], "00:00")
+        self.assertEqual(backup["timezone"], "America/Chicago")
+        with self.assertRaisesRegex(ValueError, "cannot be disabled"):
+            validate_schedule("database_backup", {**backup, "enabled": False})
+
 
 if __name__ == "__main__":
     unittest.main()

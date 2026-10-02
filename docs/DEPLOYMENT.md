@@ -147,7 +147,12 @@ cp .env.example .env
 | `ALLOW_UNSIGNED_WEBHOOKS` | No | `false` | Controlled webhook migration exception |
 | `PUBLIC_APP_URL` | No | `http://localhost:8501` | Registration link base URL |
 | `REGISTRATION_INVITE_TTL_HOURS` | No | `72` | Registration invite lifetime |
+| `BACKUP_ENCRYPTION_ACTIVE_KEY_ID` | For backups | `primary` | Key ID used for newly created encrypted full backups |
+| `BACKUP_ENCRYPTION_KEYS` | For backups | (empty) | JSON map of key IDs to 32-byte hex keys; required to create, validate, or restore packages |
+| `BACKUP_MAX_BYTES` | No | `10737418240` | Maximum encrypted backup/upload size in bytes (10 GiB default, 100 GiB maximum) |
 | `RESCORE_ON_STARTUP` | No | `false` | Full article rescore during startup |
+
+Create a random backup key with `python -c 'import secrets; print(secrets.token_hex(32))'`, then set `BACKUP_ENCRYPTION_KEYS` to a JSON object such as `{"primary":"<64-hex-character-key>"}`. Keep this secret outside the backup directory and deployment host; losing it makes the encrypted backups unreadable. Retain old key IDs in the JSON map through the lifetime of backups encrypted with them. Full encrypted packages are stored at `./data/backups`, on the shared persistent volume; copy/download them to off-host storage for disaster recovery. `.env` and environment-only credentials are never packaged.
 
 **Example production `.env`:**
 
@@ -403,13 +408,8 @@ docker compose logs -f api worker
 ## Appendix: Upgrade Procedure
 
 ```bash
-# 1. Make a consistent SQLite snapshot (default DATABASE_URL)
-stamp=$(date +%Y%m%d-%H%M%S)
-backup_dir="${BACKUP_DIR:-$HOME/noc-ifc-backups}"
-docker compose exec -T api python -c "import sqlite3; source=sqlite3.connect('/app/data/noc_fusion.db'); target=sqlite3.connect('/app/data/noc-fusion-$stamp.db'); source.backup(target); target.close(); source.close()"
-mkdir -p "$backup_dir"
-docker compose cp "api:/app/data/noc-fusion-$stamp.db" "$backup_dir/noc-fusion-$stamp.db"
-docker compose exec -T api rm -f "/app/data/noc-fusion-$stamp.db"
+# 1. Create a manual encrypted full backup in Settings > Backup & Restore.
+#    Download/copy it to protected off-host storage and verify the file exists.
 
 # 2. Pull latest code
 git pull origin <branch>
@@ -423,7 +423,7 @@ curl http://localhost:8101/health
 docker compose logs --tail=30 worker
 ```
 
-Adjust the database path when `DATABASE_URL` is customized. Settings JSON exports are partial and are not a substitute for this file-level backup.
+The weekly encrypted full backup is scheduled for Sunday 00:00 `America/Chicago` and the latest three scheduled copies are retained. Manual snapshots are not automatically pruned. Restore is a maintenance-window operation; follow the staged offline procedure in [Maintenance](MAINTENANCE.md#restore-and-disaster-recovery). Settings JSON exports are partial migration tools, not a substitute for an encrypted full backup.
 
 **Post-upgrade checklist:**
 

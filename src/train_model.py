@@ -1,12 +1,15 @@
 import logging
+import os
+import tempfile
 import joblib
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from src.database import SessionLocal, Article
+from src.core.paths import ml_model_path
 
 logger = logging.getLogger(__name__)
-MODEL_PATH = "src/ml_model.pkl"
+MODEL_PATH = str(ml_model_path())
 
 def train():
     with SessionLocal() as session:
@@ -39,7 +42,20 @@ def train():
     model.fit(X, y)
 
     # 5. Save the "Brain"
-    joblib.dump(model, MODEL_PATH)
+    from pathlib import Path
+
+    model_path = Path(MODEL_PATH)
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_path = tempfile.mkstemp(
+        prefix=f".{model_path.name}.", suffix=".tmp", dir=model_path.parent
+    )
+    os.close(descriptor)
+    try:
+        joblib.dump(model, temporary_path)
+        os.replace(temporary_path, model_path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
     logger.info("Advanced NOC ML Model successfully saved to %s", MODEL_PATH)
 
 if __name__ == "__main__":

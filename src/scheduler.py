@@ -48,6 +48,7 @@ from src.workers.telemetry_worker import run_telemetry_sync
 from src.workers.crime_worker import fetch_live_crimes
 from src.core.config import setup_logging
 from src.core.scheduler_registry import JOB_REGISTRY, SCHEDULER_POLL_SECONDS
+from src.core import restore_control
 
 setup_logging()
 
@@ -832,6 +833,21 @@ def job_retrain_ml():
         log(f"[ERROR] ML Training Pipeline failed: {e}", "SYSTEM")
 
 
+def job_database_backup():
+    """Create the weekly encrypted full-database backup."""
+    from src.core.backup_manager import create_backup
+
+    try:
+        result = create_backup(kind="scheduled")
+        log(
+            f"[BACKUP] Created encrypted full backup {result['filename']} "
+            f"({result['size_bytes']} bytes; {result['table_count']} tables).",
+            "SYSTEM",
+        )
+    except Exception as exc:
+        logger.exception("Scheduled encrypted database backup failed: %s", exc)
+
+
 def job_sync_elastic():
     """Periodically cache high-severity Elasticsearch events locally."""
     from src.workers.elastic_worker import sync_elastic_telemetry
@@ -863,6 +879,8 @@ def run_threaded(job_func, *args, **kwargs):
     """
     job_name = getattr(job_func, "__name__", str(job_func))
     with _running_jobs_lock:
+        if restore_control.maintenance_requested():
+            return False
         if job_name in _running_jobs:
             log(f"[SKIP] {job_name} is already running.", "WORKER", logging.DEBUG)
             return False
@@ -905,6 +923,7 @@ def _scheduler_functions():
         "fetch_cisa_kev": fetch_cisa_kev,
         "job_global_brief": job_global_brief,
         "job_retrain_ml": job_retrain_ml,
+        "job_database_backup": job_database_backup,
         "job_daily_email_unified_brief": job_daily_email_unified_brief,
         "run_daily_report": run_daily_report,
     }
@@ -965,6 +984,10 @@ def _start_configured_startup_jobs(settings_rows):
 def run_scheduler():
     """Run the single scheduler, reloading persisted job settings without restart."""
     global _loaded_scheduler_revision
+    restore_control.publish_process_status("worker", "starting")
+    while restore_control.maintenance_requested():
+        restore_control.publish_process_status("worker", "paused")
+        time.sleep(1)
     init_db()
     last_revision, applied_revision, settings_rows, _ = _get_scheduler_snapshot()
     _loaded_scheduler_revision = last_revision
@@ -979,8 +1002,27 @@ def run_scheduler():
     schedule.every(5).minutes.do(log_memory_usage, "periodic").tag("scheduler-internal")
     log("[START] Dynamic scheduler online.", "SYSTEM")
 
+    was_restore_paused = False
     try:
         while True:
+            if restore_control.maintenance_requested():
+                with _running_jobs_lock:
+                    active_jobs = sorted(_running_jobs)
+                restore_control.publish_process_status(
+                    "worker",
+                    "draining" if active_jobs else "paused",
+                    active=len(active_jobs),
+                    jobs=active_jobs,
+                )
+                was_restore_paused = True
+                time.sleep(0.5)
+                continue
+            if was_restore_paused:
+                _reload_worker_runtime_after_restore()
+                was_restore_paused = False
+            with _running_jobs_lock:
+                active_jobs = sorted(_running_jobs)
+            restore_control.publish_process_status("worker", "running", active=len(active_jobs), jobs=active_jobs)
             try:
                 schedule.run_pending()
             except Exception as e:
@@ -991,6 +1033,28 @@ def run_scheduler():
     except KeyboardInterrupt:
         log("[STOP] Orchestrator shutting down gracefully...", "SYSTEM")
         sys.exit(0)
+
+
+def _reload_worker_runtime_after_restore():
+    """Discard ORM/service/model state cached before an in-place full restore."""
+    global _loaded_scheduler_revision
+    from src import services as svc
+
+    for value in vars(svc).values():
+        clear = getattr(value, "clear", None)
+        if callable(value) and callable(clear):
+            try:
+                clear()
+            except Exception:
+                logger.debug("Unable to clear a restored-data worker cache", exc_info=True)
+    try:
+        from src.services.logic import force_reload_scorer
+
+        force_reload_scorer()
+    except Exception:
+        logger.exception("Could not reload the optional scorer after database restore")
+    _loaded_scheduler_revision = None
+    _reload_scheduler_if_changed()
 
 
 _loaded_scheduler_revision = None

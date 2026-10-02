@@ -41,7 +41,7 @@ and deduplicates stale entries.
                                         ▼
                          ┌──────────────────────────────────────┐
                          │  fetch_feeds(source="Scheduled")     │
-                           │  fetch_feeds()                          │
+                          │  fetch_feeds()                          │
                          └──────────────┬───────────────────────┘
                                         │
             ┌───────────────────────────┼───────────────────────────┐
@@ -1217,7 +1217,7 @@ run_database_maintenance()
 ```
 job_retrain_ml()
   ├── train() → src/train_model.py
-  │     → Trains new model → saves to src/ml_model.pkl
+  │     → Trains new model → atomically saves to /app/data/models/ml_model.pkl
   └── Hot-reload: _global_scorer = get_scorer()
         → Loads new model weights into memory
 ```

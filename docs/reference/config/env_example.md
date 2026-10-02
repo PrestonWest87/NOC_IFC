@@ -35,8 +35,11 @@ This file is the complete template for environment variables used by the current
 | `ALLOW_UNSIGNED_WEBHOOKS` | `false` | webhook | Controlled unsigned-webhook migration exception |
 | `PUBLIC_APP_URL` | `http://localhost:8501` | admin routes | Registration link base URL |
 | `REGISTRATION_INVITE_TTL_HOURS` | `72` | admin routes | Default invite lifetime |
+| `BACKUP_ENCRYPTION_ACTIVE_KEY_ID` | `primary` | `src.core.backup_manager` | Active key ID for new encrypted full backups |
+| `BACKUP_ENCRYPTION_KEYS` | empty | `src.core.backup_manager` | JSON map of 32-byte hex backup keys; never commit or include in backup packages |
+| `BACKUP_MAX_BYTES` | `10737418240` | `src.core.backup_manager` | Maximum encrypted backup/upload size; default 10 GiB, maximum 100 GiB |
 | `RESCORE_ON_STARTUP` | `false` | `src.core.db` | Explicitly rescore all existing articles at startup; direct environment control, not a `Settings` field |
 
 ## Security
 
-Never commit `.env`. Replace all development defaults before production deployment. SMTP and LLM provider credentials are application settings stored in `SystemConfig`, not additional environment variables in the current runtime.
+Never commit `.env`. Replace all development defaults before production deployment. SMTP and LLM provider credentials are application settings stored in `SystemConfig`, not additional environment variables in the current runtime. Keep backup encryption keys separate from the database volume and retain old key IDs until backups using them are retired.

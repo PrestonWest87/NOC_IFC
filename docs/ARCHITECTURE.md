@@ -101,6 +101,8 @@ Risk overrides and editable scheduler schedules are under Settings > Application
 
 After migrations, SQLite startup enables WAL. Each NullPool connection receives `synchronous=NORMAL`, memory temp storage, a 16 MB cache, a 64 MB mmap, and a 30-second connection timeout.
 
+`src/core/backup_manager.py` uses SQLite's online backup API for complete snapshots, then encrypts a versioned database/model package with chunked authenticated AES-256-GCM. Backups reside on the shared data volume and have scheduled-only retention. The administrator UI coordinates a cross-container maintenance pause and restore; `scripts/restore_backup.py` remains the offline fallback.
+
 ## Failure Isolation
 
 - External fetch errors are logged and do not stop the scheduler loop.

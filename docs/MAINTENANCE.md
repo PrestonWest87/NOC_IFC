@@ -106,20 +106,17 @@ The job also runs SQLite optimization and a passive WAL checkpoint. Pinned artic
 
 ## Database Backups
 
-Use SQLite's online backup API for a complete, consistent file-level snapshot while services are running. The example assumes the default `DATABASE_URL`; adjust the source path if the deployment uses another location.
+The full-backup service uses SQLite's online backup API, so a snapshot is consistent while the API and worker are writing (including committed WAL content). It captures the complete SQLite database rather than an ORM allowlist, and includes the persistent ML model artifact when present. Stored database credentials are inside the encrypted database snapshot; `.env` and environment secrets are intentionally outside the package.
 
-```bash
-$ stamp=$(date +%Y%m%d-%H%M%S)
-$ backup_dir="${BACKUP_DIR:-$HOME/noc-ifc-backups}"
-$ docker compose exec -T api python -c "import sqlite3; source=sqlite3.connect('/app/data/noc_fusion.db'); target=sqlite3.connect('/app/data/noc-fusion-$stamp.db'); source.backup(target); target.close(); source.close()"
-$ mkdir -p "$backup_dir"
-$ docker compose cp "api:/app/data/noc-fusion-$stamp.db" "$backup_dir/noc-fusion-$stamp.db"
-$ docker compose exec -T api rm -f "/app/data/noc-fusion-$stamp.db"
-```
+Configure `BACKUP_ENCRYPTION_ACTIVE_KEY_ID` and `BACKUP_ENCRYPTION_KEYS` in the deployment environment before using backup operations. Each key is 32 random bytes encoded as 64 hex characters; `BACKUP_ENCRYPTION_KEYS` is a JSON map from key IDs to keys. Generate a key with `python -c 'import secrets; print(secrets.token_hex(32))'`. Protect it separately from the application host and retain previous key IDs while backups still use them. Losing a key makes its backups unrecoverable. `.env` is not stored in backup packages.
 
-Set `BACKUP_DIR` to a protected destination (preferably off-host). Verify the backup exists and has a sensible size. Do not store backups in the repository or expose them through the web container.
+After adding or rotating keys in `.env`, recreate the API and worker containers so the admin endpoints and scheduled job load the updated key map.
 
-The Settings JSON tools are partial logical imports/exports: the legacy backup covers four configuration collections, while `export-all` covers 27 supported application models and excludes `user_sessions`, `failed_login_attempts`, `registration_invites`, `email_change_requests`, `password_reset_requests`, `password_reset_tokens`, `account_audit_events`, and `scheduler_job_config`. The full export can contain password hashes and stored integration credentials; protect and encrypt it. `/admin/upload-db` imports table records into the current database; it does not atomically replace the SQLite file. Do not use either JSON export or `.db` upload as a complete disaster-recovery backup.
+Administrators can create/download manual snapshots under Settings > Backup & Restore. The worker also creates a scheduled snapshot every Sunday at 00:00 `America/Chicago`; that registry-managed job cannot be disabled. The latest three scheduled packages are retained; manual and pre-restore safety packages are retained until explicitly deleted. Files are stored under `./data/backups` on the shared persistent volume. Download or copy verified packages to protected off-host storage for host-loss recovery.
+
+Packages use versioned manifests, per-file SHA-256 checksums, and chunked authenticated AES-256-GCM encryption. The admin staging endpoint verifies the key/tag, checksums, archive layout, and SQLite integrity before saving an uploaded encrypted package in `./data/backups/staged`. `BACKUP_MAX_BYTES` bounds backup and upload size (default 10 GiB; maximum 100 GiB). Do not put plaintext database exports or encryption keys in the repository or expose the backup directory through the web container.
+
+The older Settings JSON tools remain partial data migration utilities: the legacy JSON backup covers four configuration collections, while `export-all` covers supported ORM models and omits session, recovery, failed-login, audit, and scheduler state. `/admin/upload-db` imports table records into the current database; it does not replace the SQLite file. Use encrypted full snapshots for disaster recovery.
 
 ## Database Initialization and Migrations
 
@@ -131,17 +128,23 @@ Migrations are not a separate one-shot service or administrative API. To retry a
 
 ## Restore and Disaster Recovery
 
-For full disaster recovery, stop backend writers and restore a verified SQLite snapshot into the configured database path. The administrative JSON and `.db` upload workflows are partial table imports, not full-file restoration. Before restoring:
+For full disaster recovery, stage a `.nocbackup` file from Settings > Backup & Restore and choose **Restore now**. The UI starts a coordinated maintenance window: API writes are gated, the worker stops launching jobs and drains in-flight jobs, the webhook stops intake and drains accepted payloads, and active WebSocket clients are disconnected. The UI displays restore progress and returns when services resume. Restored login sessions are revoked, so the operator signs in again.
 
-1. Stop or isolate API, worker, and webhook writers.
-2. Preserve a backup of the current database.
-3. Confirm the restore file source, timestamp, and integrity.
-4. Restore into the intended database location.
-5. Start API; its startup migration check applies pending revisions before `/ready` succeeds.
-6. Verify `/ready`.
-7. Start worker and webhook.
-8. Verify authentication, dashboards, feeds, RCA data, email configuration, and WebSocket updates.
-9. Record the restore result and any data-loss window.
+If the UI or API is unavailable, use the offline fallback from the deployment directory with the same `.env` encryption keys used by the package:
+
+```bash
+docker compose stop api worker webhook
+docker compose run --rm --no-deps api python scripts/restore_backup.py \
+  /app/data/backups/staged/<stage-id>.nocbackup --maintenance-confirmed
+```
+
+The UI restore and offline command decrypt and validate the package, upgrade the staged database to the packaged application's migration head, create an encrypted pre-restore safety backup, invalidate restored login sessions and outstanding registration/reset/recovery-email links, and atomically install the database and model artifact. On success, all staged restore packages are removed; the permanent manual/scheduled backups and pre-restore safety package remain. Request and account-audit history are preserved. If validation or installation fails, the live files are left intact or rolled back and staged packages remain available for retry. For the offline command, keep all writers stopped until it exits. If it exits with an error, review the output and bring the services back up before troubleshooting.
+
+The backup directory labels pre-restore safety snapshots separately from user-created manual backups. Packages created before this label was added may still appear as manual backups until their manifest is checked and they are relabeled.
+
+Allow sufficient free space for the uploaded package, a temporary database snapshot/archive, the current database, and the encrypted pre-restore safety backup. Large databases can require several times their file size during restore.
+
+After a successful restore, verify `docker compose ps`, `curl http://localhost:8101/ready`, administrator sign-in with a newly issued session, dashboards, feeds, RCA data, email configuration, and WebSocket updates. Record the package timestamp and restore result. Ensure the key map contains the key ID used by the package and preserve the `.env`/environment configuration separately.
 
 For a failed release, use the rollback tag or a previously verified image/commit. Do not move a published release tag; create a corrective release instead.
 
@@ -158,10 +161,11 @@ Current high-impact jobs include:
 - Internal brief every 3 hours.
 - Unified brief every 6 hours.
 - Global brief daily at 02:00.
+- Encrypted full-database backup Sunday at 00:00 Central; latest three scheduled packages retained.
 - Daily email brief at 07:00 Central time.
 - ML retraining Sunday at 02:00.
 
-Change intervals only in `src/scheduler.py`, rebuild/restart the worker, and verify the new schedule in logs. Updating a Markdown table does not change runtime behavior.
+Schedules are registry-managed and configurable from Settings > Application Settings; escalation and encrypted database backup cannot be disabled. The worker reloads persisted schedule changes without a restart. Updating a Markdown table does not change runtime behavior.
 
 ## Feed and Integration Maintenance
 

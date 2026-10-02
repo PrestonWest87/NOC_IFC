@@ -4,7 +4,10 @@ import logging
 import hashlib
 import hmac
 import time
+import asyncio
+from contextlib import asynccontextmanager
 from collections import OrderedDict
+import threading
 import uvicorn
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from datetime import datetime
@@ -12,12 +15,43 @@ from datetime import datetime
 from src.core.db import SessionLocal, init_db
 from src.models.schema import SolarWindsAlert, TimelineEvent
 from src.core.config import settings
+from src.core import restore_control
 from src.services.aiops_engine import EnterpriseAIOpsEngine
 
 logger = logging.getLogger(__name__)
 
-init_db()
-app = FastAPI(title="NOC Fusion Enterprise Gateway")
+_pending_webhook_tasks = 0
+_pending_webhook_tasks_lock = threading.Lock()
+
+
+async def _restore_status_loop():
+    while True:
+        requested = restore_control.maintenance_requested()
+        with _pending_webhook_tasks_lock:
+            pending = _pending_webhook_tasks
+        state = "running"
+        if requested:
+            state = "draining" if pending else "paused"
+        restore_control.publish_process_status("webhook", state, active=pending)
+        await asyncio.sleep(0.5)
+
+
+@asynccontextmanager
+async def lifespan(app):
+    if not restore_control.maintenance_requested():
+        init_db()
+    else:
+        logger.warning("Starting webhook in restore maintenance mode; skipping database initialization.")
+    status_task = asyncio.create_task(_restore_status_loop())
+    yield
+    status_task.cancel()
+    try:
+        await status_task
+    except asyncio.CancelledError:
+        pass
+
+
+app = FastAPI(title="NOC Fusion Enterprise Gateway", lifespan=lifespan)
 
 
 @app.get("/health")
@@ -177,9 +211,20 @@ def process_payload_background(raw_payload: dict):
             log(f"[ERROR] Background Processing Error: {e}")
             logger.exception("webhook background processing error")
 
+
+def _process_payload_with_restore_tracking(raw_payload: dict):
+    try:
+        process_payload_background(raw_payload)
+    finally:
+        global _pending_webhook_tasks
+        with _pending_webhook_tasks_lock:
+            _pending_webhook_tasks = max(0, _pending_webhook_tasks - 1)
+
 @app.post("/webhook/solarwinds")
 async def receive_alert(request: Request, background_tasks: BackgroundTasks):
     try:
+        if restore_control.maintenance_requested():
+            raise HTTPException(status_code=503, detail="Database restore in progress")
         content_length = request.headers.get("content-length")
         if content_length and int(content_length) > settings.webhook_max_body_bytes:
             raise HTTPException(status_code=413, detail="Webhook payload too large")
@@ -193,7 +238,12 @@ async def receive_alert(request: Request, background_tasks: BackgroundTasks):
         if len(raw_payload) > 100:
             raise HTTPException(status_code=422, detail="Webhook payload has too many fields")
         log(f"[RECEIVED] Webhook payload received keys={list(raw_payload.keys())}")
-        background_tasks.add_task(process_payload_background, raw_payload)
+        global _pending_webhook_tasks
+        with _pending_webhook_tasks_lock:
+            if restore_control.maintenance_requested():
+                raise HTTPException(status_code=503, detail="Database restore in progress")
+            _pending_webhook_tasks += 1
+        background_tasks.add_task(_process_payload_with_restore_tracking, raw_payload)
         return {"status": "accepted", "message": "Payload queued for AI processing."}
     except json.JSONDecodeError:
         log("[ERROR] Invalid JSON payload")

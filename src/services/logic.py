@@ -2,12 +2,15 @@ import os
 import logging
 import joblib
 from src.core.db import SessionLocal
+from src.core.paths import ml_model_path
 from src.models.schema import Keyword
 
 logger = logging.getLogger(__name__)
 
 class HybridScorer:
-    def __init__(self, model_path="src/ml_model.pkl"):
+    def __init__(self, model_path=None):
+        if model_path is None:
+            model_path = str(ml_model_path())
         self.model_path = model_path
         self.model = None
 

@@ -91,6 +91,19 @@ The application rewrite is on `architecture/monolith-to-decoupled` — a decoupl
 
 ---
 
+## Completed Implementation Plan — Encrypted Full Backup and Restore
+
+**Implementation branch:** `main` (user-directed). Full snapshots are stored under the shared `./data/backups` volume; `.env` remains external. Verified changes are synchronized to `/tmp/opencode/noc-arch` after main-branch checks.
+
+- [x] Add AES-256-GCM authenticated full SQLite/model packages, key rotation support, checksum/manifest validation, byte bounds, manual retention, and three scheduled backups.
+- [x] Add administrator APIs/UI for backup management, large streaming downloads, validated restore staging, and progress-monitored UI restore; retain and label legacy partial tools.
+- [x] Add UI-managed maintenance restore with cross-container writer quiescence, pre-restore backup, migration compatibility, atomic DB/model installation, rollback, and restored-session/link invalidation; retain the offline CLI fallback.
+- [x] Add the auditable registration-invite revocation column/migration and persistent, atomically written ML model path.
+- [x] Run the Python 3.11 container suite (97 tests), `compileall`, API and frontend image builds, Nginx config test, Compose validation, and `git diff --check`.
+- [x] Mirror verified changes into the architecture worktree and verify source parity.
+
+---
+
 ## Documentation Index
 
 Comprehensive enterprise documentation is in `docs/`:
@@ -103,7 +116,7 @@ Comprehensive enterprise documentation is in `docs/`:
 | [DATA_FLOWS.md](docs/DATA_FLOWS.md) | 8 complete pipelines with ASCII diagrams: RSS ingestion, CIS scoring, internal risk, brief generation, webhook, AIOps correlation, risk alerting, weather telemetry |
 | [TRIGGER_ACTION_FLOWS.md](docs/TRIGGER_ACTION_FLOWS.md) | Every trigger (webhook, scheduler, user action, WebSocket) mapped to its complete action flow |
 | [SERVICES.md](docs/SERVICES.md) | All 11 service modules with function signatures, class hierarchies, call chains, dependencies |
-| [SCHEDULER.md](docs/SCHEDULER.md) | All 19 registry-managed background jobs with schedules, execution order, thread safety, retention policies |
+| [SCHEDULER.md](docs/SCHEDULER.md) | All 20 registry-managed background jobs with schedules, execution order, thread safety, retention policies |
 | [ESCALATION.md](docs/ESCALATION.md) | Tiered alert escalation: SLA dictionaries, business hours, dispatch channels, cascade detection, flapping logic |
 | [WEBHOOK.md](docs/WEBHOOK.md) | SolarWinds webhook gateway: payload normalization, device classification, resolution detection |
 | [FRONTEND.md](docs/FRONTEND.md) | React SPA: component tree, routing, hooks, state management, theme system, WebSocket client |
@@ -229,6 +242,10 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `migrations/versions/` | Versioned baseline adoption and future schema/data revisions |
 | `src/core/bootstrap.py` | Conditional role/admin/feed/keyword/system-config seed data |
 | `src/core/config.py` | Pydantic settings + logging |
+| `src/core/paths.py` | Shared persistent SQLite/data/model paths |
+| `src/core/backup_manager.py` | Authenticated encrypted full backups, retention, upload validation, and offline restore |
+| `src/core/restore_control.py` | Cross-process maintenance marker, API drain counters, and restore progress state |
+| `src/core/ui_restore.py` | UI restore orchestration, writer quiescence, and runtime refresh |
 | `src/models/schema.py` | 35 SQLAlchemy models |
 | `src/core/permissions.py` | Canonical page, tab, and action permission catalog |
 | `src/core/scheduler_registry.py` | Scheduler defaults, bounds, timezone, and startup policy |
@@ -262,6 +279,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | Tiered Escalation | 1 min | P1-P5 SLA, cascade, flapping, oncall paging |
 | DB Maintenance | 60 min | Dedup + data purge per retention policy |
 | ML Retrain | Sunday 02:00 | scikit-learn model training + hot reload |
+| Encrypted Database Backup | Sunday 00:00 America/Chicago | Full SQLite + model snapshot; retain latest three scheduled backups |
 | Daily Fusion Report | 06:00 CST | Generate and store the previous day's report |
 | Daily Email Brief | 07:00 CST | Email unified brief to recipients |
 
@@ -274,6 +292,15 @@ The complete environment template and source mapping are maintained in [`.env.ex
 - **Current implementation branch:** `main`, as requested. Keep `architecture/monolith-to-decoupled` synchronized after verification; do not force-push.
 
 ## What's Been Done (Changelog)
+
+### Encrypted Full Backup and Restore
+- Full SQLite online snapshots include every database table and the persisted ML model artifact when present; `.env` secrets remain separate.
+- Packages use authenticated AES-256-GCM encryption, checksums, a versioned manifest, and bounded upload/restore validation.
+- Manual and pre-restore safety backups are retained independently and labeled separately; scheduled backups run Sundays at midnight Central and retain the latest three.
+- Restore can run from the UI through coordinated API/worker/webhook maintenance, with an offline CLI fallback, pre-restore safety backup, migration checks, atomic DB/model replacement, and rollback handling.
+- Restored sessions and outstanding registration/reset/recovery-email links are invalidated while request/audit history remains.
+- Administrator APIs/UI manage manual backups, downloads, validated staging, and coordinated UI restore; successful restore clears staged packages, while `scripts/restore_backup.py` remains the offline fallback.
+- ML artifacts now persist under `/app/data/models/ml_model.pkl` and are atomically written by training.
 
 ### Brief Generation Progress
 - Async background thread with 5-stage progress (gathering, cyber_map, phys_map, synthesizing, complete)

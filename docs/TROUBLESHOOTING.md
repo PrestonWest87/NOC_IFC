@@ -49,7 +49,7 @@ Use `POST /api/v1/hunting/sync-elastic-cache?hours_back=24` from the Threat Hunt
 
 Check keyword rows and weights in Keyword Analysis/Settings. Keyword changes are persisted in `Keyword.weight`; the scorer can be reloaded through the application. To explicitly rescore existing articles, set `RESCORE_ON_STARTUP=true` for a controlled restart or use the administrative rescore operation if available. Do not leave startup rescoring enabled on every restart for a large database.
 
-Inspect scorer and model logs. `HybridScorer` expects `src/ml_model.pkl` when the ML component is used; this file is a runtime model artifact and may be created by training rather than committed source.
+Inspect scorer and model logs. `HybridScorer` loads the runtime model from `/app/data/models/ml_model.pkl` alongside the shared SQLite volume. The model is created by training and included in encrypted full backups when present; it is not committed source.
 
 ## Worker Repeatedly Restarts or Jobs Do Not Run
 

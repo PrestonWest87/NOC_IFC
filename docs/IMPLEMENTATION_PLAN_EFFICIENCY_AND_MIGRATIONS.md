@@ -133,7 +133,7 @@ The unused PyDeck rendering helpers had no in-repository callers and PyDeck was 
 - An npm BuildKit cache mount speeds repeated clean installs.
 - A hash-pinned Python 3.11 runtime lock is generated with `uv pip compile` and installed with hash checking.
 - A BuildKit pip cache mount speeds installs while preserving the requirements-first Docker layer ordering.
-- `.dockerignore` excludes the runtime `data/` directory and generated `src/ml_model.pkl` weights so local databases, backups, or training artifacts cannot change image size or content.
+- `.dockerignore` excludes the runtime `data/` directory (including the persistent `/app/data/models/ml_model.pkl` artifact) and any legacy generated `src/ml_model.pkl` so local databases, backups, or training artifacts cannot change image size or content.
 - Record current image/build measurements and compare them to a baseline when one was captured. Preserve route-level lazy loading; inspect bundle output before adding manual chunk rules.
 
 ## 7. Expected files
