@@ -9,7 +9,7 @@ import { getApiErrorMessage } from "../utils/api";
 import { formatInChicago } from "../utils/timezone";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer, GeoJsonLayer, BitmapLayer } from "@deck.gl/layers";
-import { Map as MapLibreMap } from "react-map-gl/maplibre";
+import { Map as MapLibreMap } from "@vis.gl/react-maplibre";
 import type { MapViewState } from "@deck.gl/core";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {

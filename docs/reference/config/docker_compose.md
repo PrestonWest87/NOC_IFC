@@ -56,13 +56,13 @@ Defines five services (`api`, `worker`, `webhook`, `web`, `web-dev`) that consti
 | Key | Value | Description |
 |-----|-------|-------------|
 | `profiles` | `["dev"]` | **Profile-gated.** Only starts when explicitly activated with `--profile dev`. |
-| `image` | `node:20-alpine` | Uses the public Node image directly (no build step). |
+| `image` | `node:22-alpine` | Uses the public Node image directly (no build step). |
 | `working_dir` | `/app` | Container working directory. |
-| `command` | `sh -c "npm ci && npm run dev -- --host 0.0.0.0"` | Installs dependencies and starts Vite dev server on all interfaces. |
+| `command` | `sh ./dev-entrypoint.sh` | Reuses the named dependency volume; reruns `npm ci` only when the lockfile hash changes, then starts Vite. |
 | `ports` | `"5173:5173"` | Maps host port 5173 to container port 5173. |
 | `environment.VITE_API_URL` | `http://api:8101` | Injected at build time. Points to the Docker-internal `api` service hostname. |
 | `depends_on` | `api` | Ensures API starts first. |
-| `volumes` | `./web:/app` | Mounts the entire web directory — source changes trigger instant Vite hot-module replacement. |
+| `volumes` | `./web:/app`, `web_dev_node_modules:/app/node_modules` | Source changes trigger HMR while the separate named volume preserves container-installed dependencies. |
 
 ## Environment Configuration
 
@@ -72,7 +72,7 @@ Key environment variable consumed:
 
 | Variable | Used By | Purpose |
 |----------|---------|---------|
-| `DATABASE_URL` | api, worker, webhook | SQLAlchemy database connection string. |
+| `DATABASE_URL` | api, worker, webhook | SQLite database file shared by all backend services. Startup migrations run before application work. |
 | `RISK_ALERT_RECIPIENTS` | api, worker, webhook | Comma-separated email recipients for risk alerts. |
 | `WEBHOOK_*` | webhook | HMAC, replay, and body-size controls. |
 | `CORS_ORIGINS` | api | Allowed browser origins. |

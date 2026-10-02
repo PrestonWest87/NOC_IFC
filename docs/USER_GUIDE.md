@@ -317,14 +317,14 @@ Three tabs for intelligence reporting:
 
 ### 9. Settings (`/settings`)
 
-Ten tabs for system administration:
+Eleven tabs for profile, appearance, operations, and system administration:
 
 #### Profile
 - Update personal information (name, job title, contact info, default shift)
 
 #### Theme
-- Six visual themes: Standard, NOC Terminal, High Contrast, Cyberpunk, Solarized Dark, Midnight Ocean
-- Persisted in browser localStorage
+- 21 visual themes, including Standard, High Contrast, Paper Light, and the NOC Terminal and incident-response palettes
+- Persisted in browser `localStorage` and to the signed-in user's account preference
 
 #### Facilities
 - Add, edit, or delete monitored locations
@@ -364,8 +364,10 @@ Ten tabs for system administration:
 - For first-admin setup, `DEFAULT_ADMIN_EMAIL` is a trusted bootstrap option; setting it for an existing email-less `admin` account and restarting the API or worker verifies the address and completes a matching pending setup request.
 
 #### Backup & Restore
-- Export full system configuration as JSON
-- Import from previously exported JSON backup
+- Download the legacy JSON backup for keywords, feeds, locations, and aliases.
+- Export/import the 27 application models supported by the JSON table tools; this excludes user sessions, failed logins, invitations, recovery queues/tokens, account-audit events, and scheduler configuration.
+- Import records from a `.db` file into the current database; it does not replace the SQLite file.
+- Use the SQLite online-backup procedure in [Maintenance](MAINTENANCE.md#database-backups) for complete disaster recovery.
 
 #### Danger Zone
 - Database garbage collection
@@ -379,7 +381,7 @@ Ten tabs for system administration:
 3. Customize RSS sources for your intelligence requirements
 4. Invite individual users by email; create display accounts separately for wall screens
 5. Set up custom roles and explicitly grant report generation, email, risk-override, scheduler, and recovery-review actions as needed
-6. Regularly export backups
+6. Schedule and verify complete SQLite file-level backups; Settings JSON exports are partial data tools, not disaster-recovery backups.
 7. Monitor ML training to improve article scoring accuracy
 
 ---

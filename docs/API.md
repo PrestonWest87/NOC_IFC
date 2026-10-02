@@ -7,7 +7,7 @@ WebSocket: `ws://localhost:8101/ws`
 
 The API installs `authentication_middleware` for `/api/v1/*`. Login, invitation validation/registration, password-reset request/completion, and recovery-email verification are public. Protected routes accept `Authorization: Bearer <session-token>` and retain `token`/`session_token` query parameters for compatibility. Route dependencies enforce page, tab, action, role, and site-type permissions.
 
-401 responses mean the session is missing, expired, or invalid. 403 responses preserve the session and return a structured permission error, for example `detail.code = "permission_denied"` with the missing `permission`. Site-scope denials use `detail.code = "site_scope_denied"`.
+401 responses mean the session is missing, invalid, revoked, or belongs to an inactive account; 403 responses preserve the session and return a structured permission error, for example `detail.code = "permission_denied"` with the missing `permission`. Site-scope denials use `detail.code = "site_scope_denied"`.
 
 The API mounts the REST, account-administration, application-settings, and permission-catalog routers. See `docs/CODE_REFERENCE.md` for module-level function documentation and verify endpoint details against the route source before integrating.
 
@@ -24,17 +24,17 @@ Response (200):
 
 When failed-login alerts are enabled in Settings > Application Settings, failed credentials are counted across users. Reaching the configured threshold queues a background email to the configured alert recipient list. Login failures return generic `401` responses.
 
-### GET /auth/me?token=
+### GET /auth/me
 
-Returns the authenticated user object with permissions attached.
+Returns the authenticated user object with permissions attached. Send `Authorization: Bearer <session-token>`; the legacy `token` or `session_token` query parameter remains accepted for compatibility.
 
-### POST /auth/logout?username=
+### POST /auth/logout
 
-Clears the user's session token.
+Revokes the authenticated session used for the request.
 
-### POST /auth/update-profile?username=
+### POST /auth/update-profile
 
-Body: `{full_name, job_title, contact_info, default_shift, old_password, new_password}`
+Body: `{full_name, job_title, contact_info, default_shift, old_password, new_password}`. The user identity comes from the authenticated session.
 
 Returns `{"status": "ok", "message": "..."}`
 
@@ -412,22 +412,22 @@ Body: `{new_password}`
 Body: array of location dicts.
 
 ### PUT /admin/location
-Body: array of edited location dicts from DataFrame.
+Body: array of edited location records (`list[dict]`).
 
 ### GET /admin/backup
-Returns full backup: keywords, feeds, locations, aliases.
+Returns the legacy configuration backup containing keywords, feeds, monitored locations, and node aliases. This is a four-collection logical backup, not a full database snapshot.
 
 ### POST /admin/restore
-Body: backup data dict.
+Body: legacy backup data dict. Adds records that are not already present for those four collections.
 
 ### GET /admin/export-all
-Exports all 22+ tables.
+Exports the 27 application models listed in `src/services.py` `ALL_MODELS`. It excludes session, failed-login, invitation, recovery-request/token, account-audit, and scheduler-job configuration tables, so it is not a complete database backup. The export is administrator-only and may contain password hashes and stored integration credentials; protect it as sensitive data.
 
-### POST /admin/import-all?merge=false
-Body: full export data. Truncate+insert or merge.
+### POST /admin/import-all
+Body: JSON export data for supported models; set `"_merge": true` in the body to skip duplicate IDs. With the default `"_merge": false`, non-empty supported tables are cleared before inserting their supplied rows.
 
 ### POST /admin/upload-db
-File upload (.db). Restores from uploaded SQLite database.
+Accepts a `.db` upload and imports table rows into the current database. It does not replace the SQLite database file; make a file-level backup and stop other writers before using this administrative import.
 
 ### DELETE /admin/record?model_name=&record_id=
 Generic record deletion.

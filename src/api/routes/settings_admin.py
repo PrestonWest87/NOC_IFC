@@ -249,8 +249,7 @@ def import_locations(data: list[dict] = Body([]), mode: str = Query("add")):
 @router.put("/location")
 def update_locations(data: list[dict] = Body([])):
     logger.info("PUT /admin/location count=%d", len(data))
-    import pandas as pd
-    svc.update_locations(pd.DataFrame(data))
+    svc.update_locations(data)
     svc.get_cached_locations.clear()
     return {"status": "ok"}
 

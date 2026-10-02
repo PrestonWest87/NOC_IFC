@@ -140,7 +140,7 @@ None (uses `useAuth` for user context).
 - `MapContainer` from `../components/MapContainer`
 - `DeckGL` from `@deck.gl/react`
 - `ScatterplotLayer` from `@deck.gl/layers`
-- `Map` from `react-map-gl/maplibre`
+- `Map` from `@vis.gl/react-maplibre`
 - `MapViewState` type from `@deck.gl/core`
 - `maplibre-gl/dist/maplibre-gl.css`
 - `lucide-react` icons (15+ icons)

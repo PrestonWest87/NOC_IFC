@@ -20,7 +20,7 @@ This guide provides recurring maintenance procedures for operators and maintaine
 | `worker` | Ingestion, scoring, briefs, maintenance, escalation | `docker compose ps`, worker logs |
 | `webhook` | SolarWinds gateway | `curl -fsS http://localhost:8100/health` |
 | `web` | Production React workspace | `curl -I http://localhost:8501` |
-| Database | SQLite in `./data` or configured PostgreSQL | API `/ready` and database backup |
+| Database | SQLite in `./data` | API `/ready` and database backup |
 
 ## Before Maintenance
 
@@ -76,7 +76,7 @@ ML retraining runs Sunday at 02:00 and requires at least 10 labeled articles. Th
 1. Perform and test a restore into an isolated database or disposable environment.
 2. Rotate SMTP, LLM, Elastic, webhook, and administrator credentials according to organizational policy.
 3. Review `CORS_ORIGINS`, firewall rules, reverse-proxy TLS certificates, and exposed ports.
-4. Review database retention volume and PostgreSQL/SQLite suitability.
+4. Review database retention volume and SQLite file capacity.
 5. Review the current release notes and compare deployed commit with `origin/main`.
 6. Rebuild the containers in a controlled maintenance window and verify all health checks.
 7. Review backup retention and confirm rollback tags are available for the deployed release.
@@ -106,40 +106,39 @@ The job also runs SQLite optimization and a passive WAL checkpoint. Pinned artic
 
 ## Database Backups
 
-The application export is the preferred logical backup because it can be created through the running API container:
+Use SQLite's online backup API for a complete, consistent file-level snapshot while services are running. The example assumes the default `DATABASE_URL`; adjust the source path if the deployment uses another location.
 
 ```bash
-$ mkdir -p backups
-$ docker compose exec api python -c "from src.services import export_backup; export_backup('/app/data/backup.json')"
-$ docker compose cp api:/app/data/backup.json ./backups/backup-$(date +%Y%m%d-%H%M%S).json
+$ stamp=$(date +%Y%m%d-%H%M%S)
+$ backup_dir="${BACKUP_DIR:-$HOME/noc-ifc-backups}"
+$ docker compose exec -T api python -c "import sqlite3; source=sqlite3.connect('/app/data/noc_fusion.db'); target=sqlite3.connect('/app/data/noc-fusion-$stamp.db'); source.backup(target); target.close(); source.close()"
+$ mkdir -p "$backup_dir"
+$ docker compose cp "api:/app/data/noc-fusion-$stamp.db" "$backup_dir/noc-fusion-$stamp.db"
+$ docker compose exec -T api rm -f "/app/data/noc-fusion-$stamp.db"
 ```
 
-Verify the file exists, has a sensible size, and is copied to protected storage. Do not store backups in the repository or expose them through the web container.
+Set `BACKUP_DIR` to a protected destination (preferably off-host). Verify the backup exists and has a sensible size. Do not store backups in the repository or expose them through the web container.
 
-For SQLite file-level backups, stop writers first or use SQLite’s supported backup tooling. Do not copy a live SQLite file during an active write and assume the copy is consistent.
+The Settings JSON tools are partial logical imports/exports: the legacy backup covers four configuration collections, while `export-all` covers 27 supported application models and excludes `user_sessions`, `failed_login_attempts`, `registration_invites`, `email_change_requests`, `password_reset_requests`, `password_reset_tokens`, `account_audit_events`, and `scheduler_job_config`. The full export can contain password hashes and stored integration credentials; protect and encrypt it. `/admin/upload-db` imports table records into the current database; it does not atomically replace the SQLite file. Do not use either JSON export or `.db` upload as a complete disaster-recovery backup.
 
 ## Database Initialization and Migrations
 
-`init_db()` runs when the API and worker start. It creates missing tables, applies guarded additive migrations, creates indexes, seeds roles/feeds/keywords, creates `SystemConfig`, and optionally seeds demo assets. It does not intentionally drop existing tables or columns.
+At API, worker, webhook, and standalone worker startup, the application checks the Alembic revision under a SQLite file lock and applies only pending revisions. A current database receives no schema DDL. Migration failures stop the affected service before it accepts work.
 
-Run the additive initialization manually only after reviewing logs and creating a backup:
-
-```bash
-$ docker compose exec api python -c "from src.core.db import init_db; init_db()"
-```
+Migrations are not a separate one-shot service or administrative API. To retry after resolving a reported failure, restart the affected backend service; it will re-read the database revision before applying upgrades.
 
 `RESCORE_ON_STARTUP` defaults to false. Set it temporarily only when a deliberate full article rescore is required; restart the affected containers and unset it afterward. A full rescore can create database contention and extend startup time.
 
 ## Restore and Disaster Recovery
 
-Use the administrative restore workflow or the documented deployment restore procedure. Before restoring:
+For full disaster recovery, stop backend writers and restore a verified SQLite snapshot into the configured database path. The administrative JSON and `.db` upload workflows are partial table imports, not full-file restoration. Before restoring:
 
 1. Stop or isolate API, worker, and webhook writers.
 2. Preserve a backup of the current database.
 3. Confirm the restore file source, timestamp, and integrity.
 4. Restore into the intended database location.
-5. Run `init_db()` to apply additive migrations.
-6. Start API and verify `/ready`.
+5. Start API; its startup migration check applies pending revisions before `/ready` succeeds.
+6. Verify `/ready`.
 7. Start worker and webhook.
 8. Verify authentication, dashboards, feeds, RCA data, email configuration, and WebSocket updates.
 9. Record the restore result and any data-loss window.

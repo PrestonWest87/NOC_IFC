@@ -6,7 +6,7 @@ Enterprise intelligence HUD for Network Operations Centers. Ingests RSS feeds, w
 
 The application rewrite is on `architecture/monolith-to-decoupled` — a decoupled FastAPI + React SPA. For the current implementation, the user has directed that all changes be made on `main`, then synchronized to `architecture/monolith-to-decoupled` after verification.
 
-## Active Implementation Plan — User, Permissions, and Application Settings
+## Completed Implementation Plan — User, Permissions, and Application Settings
 
 **Implementation branch:** `main` (user-directed). `origin/main` was pulled before work began and was already up to date. Keep this checklist current as work progresses. After implementation and verification, merge/synchronize `main` into `architecture/monolith-to-decoupled` and verify both branches contain the same intended changes. Do not force-push.
 
@@ -31,7 +31,7 @@ The application rewrite is on `architecture/monolith-to-decoupled` — a decoupl
 
 - [x] Add account type (`individual` or `display`), nullable normalized email, active status, creation time, last sign-in, and last activity fields.
 - [x] Require email for individual invitations; allow administrator-created display accounts without email. Keep email optional in the database to support display accounts.
-- [x] Add additive migrations for existing SQLite/PostgreSQL schemas. Existing email-less accounts are individual until classified; display accounts are exempt.
+- [x] Add additive compatibility migrations for existing account schemas. Existing email-less accounts are individual until classified; display accounts are exempt.
 - [x] Implement user-requested email changes as pending requests requiring user-administrator approval and mailbox verification.
 - [x] Record durable last sign-in and last activity. Throttle activity updates once per five minutes and display both timestamps in America/Chicago.
 
@@ -72,7 +72,22 @@ The application rewrite is on `architecture/monolith-to-decoupled` — a decoupl
 - [x] Test upgrade from an existing SQLite schema and startup with a fresh SQLite database. PostgreSQL service was unavailable for an integration run.
 - [x] Run final verification on both branches: `DATABASE_URL=sqlite:// /tmp/opencode/noc-venv/bin/python -m unittest discover -v` (59 tests passed), Python `compileall`, and `web/npm run build` (passed; existing >500 kB chunk warning).
 - [x] Review `git status`, `git diff`, and `git diff --check` on `main`; no whitespace errors remain.
-- [x] Mirror verified `main` changes into the `architecture/monolith-to-decoupled` worktree, run the same checks there, and verify tracked-tree and untracked-source parity. Changes remain uncommitted and unpublished on both branches.
+- [x] Mirror verified `main` changes into the `architecture/monolith-to-decoupled` worktree, run the same checks there, and verify tracked-tree and untracked-source parity.
+
+---
+
+## Completed Implementation Plan — Startup Migrations and Efficiency
+
+**Implementation branch:** `main` (user-directed). The checked-in progress log is `docs/IMPLEMENTATION_LOG_EFFICIENCY_AND_MIGRATIONS.md`. Verified changes are synchronized to `/tmp/opencode/noc-arch` (`architecture/monolith-to-decoupled`) and parity-checked.
+
+- [x] Confirm clean `main` worktree and record the implementation plan/log.
+- [x] Add Alembic startup migration runner, SQLite lock, and legacy adoption revision; run migrations before pragmas, seeds, API readiness, or jobs.
+- [x] Preserve production Elasticsearch and ML training/scoring behavior.
+- [x] Finish SQLite-only documentation and Python/frontend dependency cleanup.
+- [x] Finish bounded analytics, DataFrame removal, and batched ingestion paths.
+- [x] Run fresh/legacy/partial/concurrent migration tests, the 77-test Python suite, compile checks, and frontend build/audit.
+- [x] Review the main diff/status, update the progress log, and pass `git diff --check`.
+- [x] Mirror verified changes to the architecture worktree, run checks there, and verify parity.
 
 ---
 
@@ -93,6 +108,8 @@ Comprehensive enterprise documentation is in `docs/`:
 | [WEBHOOK.md](docs/WEBHOOK.md) | SolarWinds webhook gateway: payload normalization, device classification, resolution detection |
 | [FRONTEND.md](docs/FRONTEND.md) | React SPA: component tree, routing, hooks, state management, theme system, WebSocket client |
 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Docker Compose, environment variables, commands, production considerations, troubleshooting |
+| [IMPLEMENTATION_PLAN_EFFICIENCY_AND_MIGRATIONS.md](docs/IMPLEMENTATION_PLAN_EFFICIENCY_AND_MIGRATIONS.md) | Current startup migration, dependency, and efficiency implementation plan |
+| [IMPLEMENTATION_LOG_EFFICIENCY_AND_MIGRATIONS.md](docs/IMPLEMENTATION_LOG_EFFICIENCY_AND_MIGRATIONS.md) | Dated progress and verification record for the active implementation |
 
 ---
 
@@ -201,12 +218,16 @@ The complete environment template and source mapping are maintained in [`.env.ex
 |------|---------|
 | `src/api/main.py` | FastAPI app entry, router mounting, WebSocket manager |
 | `src/api/routes/*.py` | 17 route modules, including permissions, user administration, and application settings |
-| `src/services.py` | Central Data Access Layer (~5250 lines) |
+| `src/services.py` | Central Data Access Layer (~5,100 lines) |
 | `src/services/aiops_engine.py` | EnterpriseAIOpsEngine — clustering, patient zero, RCA |
 | `src/services/logic.py` | HybridScorer — keyword + ML scoring |
 | `src/services/categorizer.py` | Article categorization (8 categories via regex) |
 | `src/services/ioc_extractor.py` | Enterprise IOC extraction (18 types, 5 categories) |
-| `src/core/db.py` | DB engine + session + init_db() (schema + seed data) |
+| `src/core/db.py` | SQLite-only engine/session + startup migration/bootstrap entrypoint |
+| `src/core/migration_runner.py` | Alembic startup runner and cross-process SQLite migration lock |
+| `migrations/schema_v1.py` | Frozen first-revision schema snapshot; keep immutable |
+| `migrations/versions/` | Versioned baseline adoption and future schema/data revisions |
+| `src/core/bootstrap.py` | Conditional role/admin/feed/keyword/system-config seed data |
 | `src/core/config.py` | Pydantic settings + logging |
 | `src/models/schema.py` | 35 SQLAlchemy models |
 | `src/core/permissions.py` | Canonical page, tab, and action permission catalog |

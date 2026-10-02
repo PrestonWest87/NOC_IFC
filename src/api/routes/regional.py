@@ -1,5 +1,4 @@
 import logging
-import pandas as pd
 from fastapi import APIRouter, Query, Body, Depends, HTTPException
 from typing import Any
 
@@ -61,7 +60,7 @@ def compile_map(data: dict[str, Any] = Body({}), user=Depends(get_current_user))
     usgs_ar = data.get("usgs_ar_data")
     usgs_oos = data.get("usgs_oos_data")
     selected = tuple(data.get("selected_events", []))
-    raw_map_df = data.get("map_df", [])
+    raw_map_rows = data.get("map_df", [])
 
     # The browser no longer needs to echo the full GeoJSON snapshot back to the
     # API. Keep accepting the old fields for compatibility, but use the server's
@@ -69,19 +68,17 @@ def compile_map(data: dict[str, Any] = Body({}), user=Depends(get_current_user))
     if not any((spc, ar, oos, usgs_ar, usgs_oos)):
         spc, _, _, ar, oos, usgs_ar, usgs_oos = svc.get_cached_geojson()
 
-    if raw_map_df:
-        map_df = pd.DataFrame(raw_map_df)
-    else:
-        map_df = pd.DataFrame()
-    if str(user.role or "").casefold() not in {"admin", "administrator"} and not map_df.empty:
+    map_rows = [dict(row) for row in raw_map_rows if isinstance(row, dict)] if isinstance(raw_map_rows, list) else []
+    if str(user.role or "").casefold() not in {"admin", "administrator"} and map_rows:
         allowed_names = svc.get_allowed_site_names_for_user(user)
-        site_column = next((name for name in ("Monitored Site", "name", "Name") if name in map_df.columns), None)
+        available_columns = {key for row in map_rows for key in row}
+        site_column = next((name for name in ("Monitored Site", "name", "Name") if name in available_columns), None)
         if site_column:
-            map_df = map_df[map_df[site_column].astype(str).isin(allowed_names)]
+            map_rows = [row for row in map_rows if str(row.get(site_column, "")) in allowed_names]
         else:
-            map_df = map_df.iloc[0:0]
+            map_rows = []
 
-    cache = svc._precompute_geo_matrix(spc, ar, oos, usgs_ar, usgs_oos, selected, map_df)
+    cache = svc._precompute_geo_matrix(spc, ar, oos, usgs_ar, usgs_oos, selected, map_rows)
 
     toggled_affected_sites_dict = {}
     for site in cache["master_affected_sites"]:
@@ -112,18 +109,18 @@ def compile_map(data: dict[str, Any] = Body({}), user=Depends(get_current_user))
 
     master_affected_sites = cache["master_affected_sites"]
 
-    analytics = svc.get_infrastructure_analytics(map_df, master_affected_sites)
+    analytics = svc.get_infrastructure_analytics(map_rows, master_affected_sites)
     analytics_serialized = {
         "total_sites": int(analytics["total_sites"]),
         "at_risk_sites": int(analytics["at_risk_sites"]),
         "highest_risk": str(analytics["highest_risk"]),
-        "spc_distribution": analytics["spc_distribution"].to_dict(orient="records") if not analytics["spc_distribution"].empty else [],
-        "nws_distribution": analytics["nws_distribution"].to_dict(orient="records") if not analytics["nws_distribution"].empty else [],
-        "type_distribution": analytics["type_distribution"].reset_index().to_dict(orient="records") if not analytics["type_distribution"].empty else [],
-        "district_distribution": analytics["district_distribution"].reset_index().to_dict(orient="records") if not analytics["district_distribution"].empty else [],
-        "priority_risk_matrix": analytics["priority_risk_matrix"].reset_index().to_dict(orient="records") if not analytics["priority_risk_matrix"].empty else [],
-        "type_risk_matrix": analytics["type_risk_matrix"].reset_index().to_dict(orient="records") if not analytics["type_risk_matrix"].empty else [],
-        "district_risk_matrix": analytics["district_risk_matrix"].reset_index().to_dict(orient="records") if not analytics["district_risk_matrix"].empty else [],
+        "spc_distribution": analytics["spc_distribution"],
+        "nws_distribution": analytics["nws_distribution"],
+        "type_distribution": analytics["type_distribution"],
+        "district_distribution": analytics["district_distribution"],
+        "priority_risk_matrix": analytics["priority_risk_matrix"],
+        "type_risk_matrix": analytics["type_risk_matrix"],
+        "district_risk_matrix": analytics["district_risk_matrix"],
     }
 
     def _strip_feature(f):

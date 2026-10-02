@@ -449,10 +449,10 @@ from sqlalchemy.orm import declarative_base
 Base = declarative_base()
 ```
 
-The `init_db()` function in `src/core/db.py` calls `Base.metadata.create_all(bind=engine)`, applies additive compatibility migrations, and seeds default data:
+The application runs Alembic revisions at startup before seeding data. `Base.metadata.create_all()` is used only by the one-time legacy adoption revision and isolated tests. Conditional bootstrap data includes:
 - The built-in administrator role and an operational analyst role without new sensitive grants
 - A bootstrap administrator only when `DEFAULT_ADMIN_PASSWORD` is configured and no users exist
 - 70 default keywords with weights
 - 7 default RSS feed sources
 - Default system configuration
-- Rescales all existing articles with current keyword weights
+- Rescales articles only when `RESCORE_ON_STARTUP=true` is explicitly configured

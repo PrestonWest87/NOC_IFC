@@ -95,7 +95,7 @@ The checked-in `.env.example` is the complete environment template. The API, wor
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `sqlite:////app/data/noc_fusion.db` | Database connection string. Use `postgresql://user:pass@host:5432/db` for PostgreSQL. |
+| `DATABASE_URL` | `sqlite:////app/data/noc_fusion.db` | SQLite database file shared by the API, worker, and webhook. |
 
 ### Optional Variables
 
@@ -192,7 +192,7 @@ Configure AI in the Settings page (AI & SMTP tab):
 | Command | Description |
 |---------|-------------|
 | `docker compose down && rm data/noc_fusion.db && docker compose up --build -d` | Full database reset (re-seeds on startup) |
-| `docker compose exec api python -c "from src.core.db import init_db; init_db()"` | Re-seed database without restart |
+| `docker compose restart api worker webhook` | Run the automatic schema-revision check on backend startup |
 
 ---
 
@@ -262,12 +262,9 @@ docker compose down
 rm -f data/noc_fusion.db
 docker compose up --build -d
 
-# Or re-seed without data loss
-docker compose exec api python -c "
-from src.core.db import init_db
-init_db()
-print('Database re-seeded successfully')
-"
+# Back up first, then restart backend services to retry a startup migration.
+# Review `docker compose logs api` if the revision remains behind.
+docker compose restart api worker webhook
 ```
 
 ### WebSocket Not Connecting
@@ -306,4 +303,4 @@ docker compose up --build -d --force-recreate web
 
 4. **HTTPS**: Use a reverse proxy (nginx, Caddy, Traefik) for TLS termination in production.
 
-5. **Database**: Default SQLite is suitable for evaluation. For production, use PostgreSQL with proper backup procedures.
+5. **Database**: The application uses SQLite. Back up the shared database file before upgrades or restores.

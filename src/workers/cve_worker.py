@@ -20,9 +20,18 @@ def fetch_cisa_kev():
         added_count = 0
 
         with SessionLocal() as session:
-            # Batch: load all existing CVE IDs into a set (single query)
-            existing_ids = {row[0] for row in session.query(CveItem.cve_id).all()}
-            logger.debug("cve_worker: %d existing CVEs in DB", len(existing_ids))
+            incoming_ids = list(dict.fromkeys(
+                vuln.get("cveID") for vuln in vulnerabilities if vuln.get("cveID")
+            ))
+            existing_ids = set()
+            # Query only the IDs in this CISA response; the catalog grows over time.
+            for offset in range(0, len(incoming_ids), 500):
+                id_chunk = incoming_ids[offset:offset + 500]
+                existing_ids.update(
+                    row[0] for row in session.query(CveItem.cve_id)
+                    .filter(CveItem.cve_id.in_(id_chunk)).all()
+                )
+            logger.debug("cve_worker: %d of %d incoming CVEs already exist", len(existing_ids), len(incoming_ids))
 
             batch = []
             for vuln in vulnerabilities:

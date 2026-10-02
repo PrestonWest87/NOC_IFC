@@ -198,7 +198,7 @@ Each tab renders a dedicated sub-component:
 - `MapContainer` from `../components/MapContainer`
 - `DeckGL` from `@deck.gl/react`
 - `ScatterplotLayer`, `GeoJsonLayer`, `BitmapLayer` from `@deck.gl/layers`
-- `Map as MapLibreMap` from `react-map-gl/maplibre`
+- `Map as MapLibreMap` from `@vis.gl/react-maplibre`
 - `MapViewState` type from `@deck.gl/core`
 - `recharts` (`PieChart`, `Pie`, `Cell`, `BarChart`, `Bar`, `XAxis`, `YAxis`, `Tooltip`, `ResponsiveContainer`, `CartesianGrid`, `Legend`)
 - `lucide-react` icons
@@ -248,7 +248,7 @@ Two-column layout:
 ### Dependencies
 - `MapContainer` from `../components/MapContainer`
 - `DeckGL` from `@deck.gl/react`
-- `MapLibreMap` from `react-map-gl/maplibre`
+- `MapLibreMap` from `@vis.gl/react-maplibre`
 - All local components (`ToggleSwitch`, `FilterChip`, `InfoBox`, etc.)
 
 ---
@@ -399,7 +399,7 @@ Renders tabbed SPC convective outlook maps (Day 1, Day 2, Day 3).
 ### Dependencies
 - `DeckGL` from `@deck.gl/react`
 - `GeoJsonLayer` from `@deck.gl/layers`
-- `MapLibreMap` from `react-map-gl/maplibre`
+- `MapLibreMap` from `@vis.gl/react-maplibre`
 
 ---
 

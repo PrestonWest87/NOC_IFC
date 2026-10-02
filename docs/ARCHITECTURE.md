@@ -42,15 +42,15 @@ SolarWinds -> webhook:8100 -> shared database
 | `web` | `web/Dockerfile` | host 8501 -> container 5173 | Production React build served by nginx |
 | `web-dev` | Vite under the `dev` profile | 5173 | Development frontend with source mounts and HMR |
 
-The API, worker, and webhook share `./data` as `/app/data`. SQLite is appropriate for a single-node deployment; use PostgreSQL for multi-instance or high-concurrency operation.
+The API, worker, and webhook share `./data` as `/app/data`. SQLite is the only supported application database.
 
 ## Backend Boundaries
 
 ### API application
 
-`src/api/main.py` creates the FastAPI application, installs `authentication_middleware`, configures CORS from `CORS_ORIGINS`, includes 14 routers, initializes the database during lifespan startup, and starts the 10-second WebSocket broadcaster. `/health` is a liveness response; `/ready` verifies a database query and returns `503` when the database is unavailable.
+`src/api/main.py` creates the FastAPI application, installs `authentication_middleware`, configures CORS from `CORS_ORIGINS`, includes 17 routers, initializes the database during lifespan startup, and starts the 10-second WebSocket broadcaster. `/health` is a liveness response; `/ready` verifies a database query and returns `503` when the database is unavailable.
 
-The router modules are `auth`, `dashboard`, `threat`, `regional`, `hunting`, `rca`, `aiops`, `logbook`, `reporting`, `settings`, `settings_admin` (mounted as `/admin`), `llm`, `email`, and `keyword_analysis`.
+The 17 router modules are `auth`, `dashboard`, `threat`, `regional`, `hunting`, `rca`, `aiops`, `logbook`, `reporting`, `settings`, `settings_admin` (mounted as `/admin`), `llm`, `email`, `keyword_analysis`, `permissions`, `user_admin`, and `application_settings`.
 
 ### Data access and compatibility modules
 
@@ -97,9 +97,9 @@ Risk overrides and editable scheduler schedules are under Settings > Application
 
 ## Database Lifecycle
 
-`init_db()` calls `Base.metadata.create_all`, then applies additive migrations with guarded `ALTER TABLE` statements, creates indexes, seeds roles, optional users, feeds, keywords, and `SystemConfig`, and optionally seeds demo assets. Existing tables and columns are not dropped. A one-time permission-catalog migration removes the old analyst startup grant union; subsequent startup does not broaden edited roles. Set `RESCORE_ON_STARTUP=true` only when an explicit startup rescore is acceptable.
+`init_db()` applies pending Alembic revisions under a shared SQLite migration lock before it configures SQLite pragmas or seeds data. The database's `alembic_version` table records the last successful revision; startup at the current revision performs no schema DDL. The initial adoption revision handles a fresh database or upgrades missing legacy objects and one-time backfills. Migration errors abort startup. Conditional bootstrap seeds preserve operator-edited feeds, keyword weights, and custom role grants. Set `RESCORE_ON_STARTUP=true` only when an explicit full-corpus rescore is acceptable.
 
-SQLite startup enables WAL, `synchronous=NORMAL`, memory temp storage, a 16 MB cache, a 64 MB mmap, and a 30-second connection timeout. SQLite uses `NullPool`.
+After migrations, SQLite startup enables WAL. Each NullPool connection receives `synchronous=NORMAL`, memory temp storage, a 16 MB cache, a 64 MB mmap, and a 30-second connection timeout.
 
 ## Failure Isolation
 

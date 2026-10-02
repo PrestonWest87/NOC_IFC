@@ -62,21 +62,19 @@ Authenticates a user by username and password, returning a user object and sessi
 ### Purpose
 Retrieves the authenticated user's profile by session token.
 
-### Parameters
-| Parameter | Type   | Description                              |
-|-----------|--------|------------------------------------------|
-| `token`   | `str`  | Session token (query parameter).         |
+### Authentication
+Uses the authenticated request context. Send `Authorization: Bearer <session-token>`; the legacy `token` and `session_token` query parameters remain accepted for compatibility.
 
 ### Returns
 The user object dictionary.
 
 ### Raises
-- `HTTPException 401` — if the token is invalid or expired.
+- `HTTPException 401` — if there is no valid session or the account is inactive.
 
 ### Flow
-1. Calls `svc.get_user_by_token(token)`.
-2. If no user is returned, raises 401.
-3. Returns the user dict.
+1. Authentication middleware resolves the bearer token or legacy query token and attaches the active user.
+2. `get_current_user` returns that request-state user (or resolves a token for direct dependency callers).
+3. The route returns `_public_user(user)`, excluding password and session-token fields.
 
 ### Dependencies
 - `src.services.get_user_by_token()`
@@ -86,12 +84,7 @@ The user object dictionary.
 ## Endpoint: `POST /logout`
 
 ### Purpose
-Logs out a user by clearing their session token.
-
-### Parameters
-| Parameter  | Type   | Description                  |
-|------------|--------|------------------------------|
-| `username` | `str`  | Username to log out (body).  |
+Revokes the current authenticated session. The authenticated user and session token are taken from the request context.
 
 ### Returns
 ```json
@@ -102,7 +95,7 @@ Logs out a user by clearing their session token.
 None.
 
 ### Flow
-1. Calls `svc.logout_user(username)`.
+1. Calls `svc.logout_user(user.username, request.state.auth_token)`.
 2. Returns success status.
 
 ### Dependencies
@@ -118,7 +111,6 @@ Updates a user's profile fields and optionally changes the password.
 ### Parameters
 | Parameter  | Type             | Description                       |
 |------------|------------------|-----------------------------------|
-| `username` | `str`            | Username to update (body).        |
 | `body`     | `ProfileUpdate`  | Profile update fields (body).     |
 
 ### Returns

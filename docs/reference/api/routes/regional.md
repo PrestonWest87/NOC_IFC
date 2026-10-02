@@ -97,8 +97,8 @@ Compiles the regional map data by precomputing a geo-spatial matrix, applying to
 None.
 
 ### Flow
-1. Extracts toggle states, hazard data objects, selected events, and raw map dataframe from the request body.
-2. Converts `raw_map_df` list to a `pandas.DataFrame` (or empty DataFrame if not provided).
+1. Extracts toggle states, hazard data objects, selected events, and site record list from the request body.
+2. Keeps site rows as dictionaries and filters non-admin callers to allowed site names.
 3. Calls `svc._precompute_geo_matrix()` to compute the geo-spatial intersection matrix.
 4. Iterates over `master_affected_sites` from the cache, applying toggle visibility rules:
    - `SPC:` prefix → `spc` toggle.
@@ -108,12 +108,11 @@ None.
    - `[OOS]` prefix → `oos` toggle.
    - `[AR]` prefix → `warn` or `watch` toggle based on severity.
 5. Builds `toggled_affected_sites` dict with deduplicated hazards per site, then converts to list with `Intersecting Hazards` string.
-6. Calls `svc.get_infrastructure_analytics()` with the map DataFrame and master affected sites.
-7. Serializes analytics DataFrames to JSON-compatible dicts (converts to lists of records).
+6. Calls `svc.get_infrastructure_analytics()` with site dictionaries and master affected sites.
+7. Receives JSON-ready list/dictionary aggregates without constructing DataFrames.
 8. Returns a 6-element list: `[layers, viewState, diagnostics, toggled_affected_sites, master_affected_sites, analytics]`.
 
 ### Dependencies
-- `pandas`
 - `src.services._precompute_geo_matrix()`
 - `src.services.get_infrastructure_analytics()`
 

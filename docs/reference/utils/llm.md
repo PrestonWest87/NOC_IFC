@@ -485,7 +485,7 @@ def generate_executive_weather_brief(
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `analytics` | `dict` | Dictionary with keys `district_distribution` (DataFrame), `total_sites`, `at_risk_sites`, `highest_risk` |
+| `analytics` | `dict` | Dictionary with JSON-ready `district_distribution` records, `total_sites`, `at_risk_sites`, and `highest_risk` |
 | `p1_count` | `int` | Number of critical (Priority 1) sites exposed |
 | `sys_config` | `SystemConfig \| dict` | System configuration object or dict with `is_active` key |
 
@@ -499,7 +499,7 @@ def generate_executive_weather_brief(
 
 **Flow:**
 1. Returns disabled message if `sys_config` is falsy or not active
-2. Extracts district distribution counts from the analytics DataFrame
+2. Extracts district distribution counts from the analytics records
 3. Builds a prompt with weather threat data (total sites, at-risk sites, highest risk, P1 count, district distribution)
 4. Calls LLM with a meteorological intelligence analyst system prompt at temperature 0.2
 5. Returns the LLM response

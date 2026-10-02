@@ -74,16 +74,29 @@ def fetch_nws_alerts_for_region(area_str, feed_name):
                 added, updated = 0, 0
                 logger.debug("fetch_nws_alerts_for_region: got %d features", len(features))
 
-                for f in features:
-                    props = f.get('properties', {})
-                    hazard_id = props.get('id', str(uuid.uuid4()))
-                    existing_hazard = session.query(RegionalHazard).filter_by(hazard_id=hazard_id).first()
+                alert_rows = []
+                for feature in features:
+                    properties = feature.get('properties', {})
+                    hazard_id = properties.get('id', str(uuid.uuid4()))
+                    alert_rows.append((hazard_id, properties))
+
+                incoming_ids = list(dict.fromkeys(hazard_id for hazard_id, _ in alert_rows))
+                existing_hazards = {}
+                for offset in range(0, len(incoming_ids), 500):
+                    id_chunk = incoming_ids[offset:offset + 500]
+                    for hazard in session.query(RegionalHazard).filter(
+                        RegionalHazard.hazard_id.in_(id_chunk)
+                    ).all():
+                        existing_hazards[hazard.hazard_id] = hazard
+
+                for hazard_id, props in alert_rows:
+                    existing_hazard = existing_hazards.get(hazard_id)
 
                     if existing_hazard:
                         existing_hazard.updated_at = datetime.utcnow()
                         updated += 1
                     else:
-                        session.add(RegionalHazard(
+                        existing_hazard = RegionalHazard(
                             hazard_id=hazard_id,
                             hazard_type=props.get('event', 'Unknown'),
                             severity=props.get('severity', 'Unknown'),
@@ -91,7 +104,9 @@ def fetch_nws_alerts_for_region(area_str, feed_name):
                             description=props.get('description', ''),
                             location=props.get('areaDesc', 'Regional'),
                             updated_at=datetime.utcnow()
-                        ))
+                        )
+                        session.add(existing_hazard)
+                        existing_hazards[hazard_id] = existing_hazard
                         added += 1
 
                 session.commit()

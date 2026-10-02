@@ -4,24 +4,15 @@ Settings & Admin page. Provides eleven tabs: Profile, Theme, Facilities, Interna
 
 ## Current Source Behavior
 
-The role editor loads the backend permission catalog and groups page, tab, action, and site-type grants. User management is a searchable directory with separate individual-invitation and display-account creation, account status and access history, session revocation, and reviewed recovery requests. Application Settings contains risk scoring, scheduler, and global defaults. Existing backup, restore, danger-zone, facilities, assets, RSS, and AI/SMTP administration remain administrator-only.
+The role editor loads the backend permission catalog and groups page, tab, action, and site-type grants. User management is a searchable directory with separate individual-invitation and display-account creation, account status and access history, session revocation, and reviewed recovery requests. Application Settings contains risk scoring, scheduler, and global defaults. A tab grant controls visibility; component permissions and backend route dependencies control edits. Backup, restore, and danger-zone operations remain administrator-only.
 
 ---
 
 ## Constants
 
-### `ALL_PAGES`
-Array of 8 page names used for role-based page permissions.
-
-### `ALL_ACTIONS`
-Array of 35+ action/permission strings including page-level tab granularity and functional actions.
-
-### `ALL_SITE_TYPES`
-Array of 7 site type strings: `NOC`, `SOC`, `Data Center`, `Field Office`, `HQ`, `Remote Site`, `Cloud`.
-
 ### `TABS`
-Array of 10 tab configuration objects with id, label, and icon:
-`profile`, `theme`, `facilities`, `assets`, `rss`, `ml`, `ai-smtp`, `users`, `backup`, `danger`
+Array of 11 tab configuration objects. Tab visibility is filtered by the current user's `Tab: Settings -> ...` grants; administrators see every tab:
+`profile`, `theme`, `facilities`, `assets`, `rss`, `ml`, `ai-smtp`, `application`, `users`, `backup`, `danger`.
 
 ### `btn(color)`
 Returns a `React.CSSProperties` object with the given background color.
@@ -88,36 +79,39 @@ None (uses `useAuth` for user context).
 
 ### Flow
 1. Reads `currentUser` from `useAuth()`.
-2. Calls `getAllowedTabs(currentUser?.allowed_actions, "settings")` for permission filtering.
-3. Filters `TABS` against `SETTINGS_ACTION_IDS` derived from `TAB_PERMISSION_MAP.settings`.
-4. Fetches config, roles, users, locations, lists, and ML counts via React Query.
-5. Creates `saveConfigMutation` for posting config changes.
+2. Calls `getAllowedTabs(currentUser?.allowed_actions, "settings")`; Profile and Theme are available to signed-in users, while administrators see all tabs.
+3. Enables tab-specific queries only while their tab is active: AI/SMTP config, facilities, RSS/keywords, or ML counts.
+4. Keeps AI/SMTP changes in `saveConfigMutation`; permission-sensitive sections continue to rely on backend route authorization.
+5. Delegates account/role management to `UsersRolesTab` and risk/scheduler/global settings to `ApplicationSettingsTab`.
 
 ### Dependencies
 - `useState`, `useEffect` from `react`
 - `useQuery`, `useMutation`, `useQueryClient` from `@tanstack/react-query`
 - `api` from `../utils/api`
 - `useAuth` from `../utils/AuthContext`
-- `getAllowedTabs`, `TAB_PERMISSION_MAP` from `../utils/permissions`
+- `getAllowedTabs`, `hasActionPermission`, `isAdministrator` from `../utils/permissions`
 - `ThemeSelector` from `../components/ThemeSelector`
+- `UsersRolesTab` and `ApplicationSettingsTab` from `../components/`
 - `lucide-react` icons
 
 ---
 
-## `ProfileTab({ user })`
+## `ProfileTab({ user, onProfileUpdated })`
 
 ### Purpose
-Profile settings — personal information and password change.
+Profile settings — personal information, password change, and reviewed recovery-email requests.
 
 ### Props
 | Prop | Type | Description |
 |------|------|-------------|
 | `user` | `any` | Current user object |
+| `onProfileUpdated` | `() => void` | Refreshes the current authenticated user after an update. |
 
 ### Returns
 Two-column grid:
 - Personal Information card (username, full name, job title, contact info, default shift)
 - Change Password card (current password, new password with show/hide toggle, role display)
+- Password Recovery Email card (request approval, resend verification, and pending-state messages for individual accounts)
 
 ### Flow
 1. Initializes local state from `user` object.
@@ -126,7 +120,7 @@ Two-column grid:
 
 ---
 
-## `FacilitiesTab({ locations, queryClient })`
+## `FacilitiesTab({ locations, locationsLoading, locationsError, refetchLocations, queryClient, canEdit })`
 
 ### Purpose
 Facility locations management — JSON import and manual table editing.
@@ -135,26 +129,37 @@ Facility locations management — JSON import and manual table editing.
 | Prop | Type | Description |
 |------|------|-------------|
 | `locations` | `any` | Array of location records |
+| `locationsLoading` | `boolean` | Whether the location query is pending. |
+| `locationsError` | `boolean` | Whether the location query failed. |
+| `refetchLocations` | `() => unknown` | Retries the location query. |
 | `queryClient` | `any` | React Query client for cache invalidation |
+| `canEdit` | `boolean` | Whether the current user may edit location data. |
 
 ### Returns
-- Mass Import JSON card (file picker + import button via `POST /admin/location/import`)
-- Manual Adjustments card (editable table of all locations with Name, Type, District, Priority, Lat, Lon columns + Save Changes button via `PUT /admin/location`)
+- Facility map (DeckGL/MapLibre) and site details.
+- JSON import with add/upsert/replace modes via `POST /admin/location/import`.
+- Location table with Name, Type, District, Priority, Lat, and Lon; writes use `PUT /admin/location` and are administrator-managed.
 
 ---
 
-## `AssetsTab()`
+## `AssetsTab({ canManage })`
 
 ### Purpose
 Internal Assets upload — CSV upload for software and hardware assets.
 
+### Props
+| Prop | Type | Description |
+|------|------|-------------|
+| `canManage` | `boolean` | Whether the current user may import assets. |
+
 ### Returns
-- Software Assets card (CSV file upload with `name` column requirement, uploads via `POST /admin/config` as `software_assets_csv`)
-- Hardware Assets card (CSV file upload with `IP Address` column requirement, uploads via `POST /admin/config` as `hardware_assets_csv`)
+- Software CSV upload with a required `name` column via `POST /admin/assets/software`.
+- Hardware CSV upload with a required `IP Address` column via `POST /admin/assets/hardware`.
+- Non-administrators with tab access receive a read-only notice.
 
 ---
 
-## `RssTab({ lists, queryClient })`
+## `RssTab({ lists, queryClient, canManage })`
 
 ### Purpose
 RSS Sources management — bulk add keywords and feeds.
@@ -164,6 +169,7 @@ RSS Sources management — bulk add keywords and feeds.
 |------|------|-------------|
 | `lists` | `any` | Object with `keywords` and `feeds` arrays |
 | `queryClient` | `any` | React Query client |
+| `canManage` | `boolean` | Whether the current user may manage keywords and feeds. |
 
 ### Returns
 Two-column grid:
@@ -172,7 +178,7 @@ Two-column grid:
 
 ---
 
-## `MlTab({ mlCounts })`
+## `MlTab({ mlCounts, canTrain })`
 
 ### Purpose
 ML Training tab — displays dataset counts and retrain trigger.
@@ -181,14 +187,15 @@ ML Training tab — displays dataset counts and retrain trigger.
 | Prop | Type | Description |
 |------|------|-------------|
 | `mlCounts` | `any` | Object with `total`, `positive`, `negative` counts |
+| `canTrain` | `boolean` | Whether manual retraining is permitted. |
 
 ### Returns
 - Three metric cards (Total Samples, Positives, Negatives)
-- Retrain Model Now button via `POST /admin/ml-retrain`
+- Retrain Model Now button via `POST /application-settings/ml-retrain`, shown only with `Action: Train ML Model`.
 
 ---
 
-## `AiSmtpTab({ config, configLoading, saveConfigMutation })`
+## `AiSmtpTab({ config, configLoading, saveConfigMutation, readOnly })`
 
 ### Purpose
 AI & SMTP configuration.
@@ -199,14 +206,14 @@ AI & SMTP configuration.
 | `config` | `any` | Current system configuration |
 | `configLoading` | `boolean` | Config loading state |
 | `saveConfigMutation` | `any` | Mutation for saving config |
+| `readOnly` | `boolean` | Whether this tab is view-only. |
 
 ### Returns
 - LLM Configuration card (endpoint, API key with show/hide, model name, tech stack, enable toggle, test connection button)
 - SMTP Broadcast card (server, port, username, password, sender, recipient, enabled toggle)
-- Failed Login Alerts card (enable toggle, recipient list, attempt threshold, and time window; requires SMTP to be enabled)
-- Threat Matrix Baseline Overrides card (cyber baseline, physical baseline)
-- CIS Countermeasures card (system and network sliders 1-5)
-- Save Configuration button
+- Configuration editor covers LLM endpoint/model/key and SMTP server/credentials/sender/recipient.
+- LLM connection test uses `POST /api/v1/llm/test-connection`.
+- Editing is administrator-only; risk overrides, scheduler schedules, application defaults, and failed-login alert settings are in `ApplicationSettingsTab`.
 
 ### Flow
 1. Initializes `form` state from `config` data once loaded.
@@ -215,62 +222,46 @@ AI & SMTP configuration.
 
 ---
 
-## `CheckboxGroup({ label, options, selected, onChange })`
+## `UsersRolesTab({ user })`
 
 ### Purpose
-Renders a group of toggleable checkbox chips.
+User and role management is implemented in `web/src/components/UsersRolesTab.tsx` and imported by `SettingsPage`. It receives the current user and fetches the directory, roles, invitations, permission catalog, and recovery queues itself.
 
 ### Props
 | Prop | Type | Description |
 |------|------|-------------|
-| `label` | `string` | Group label |
-| `options` | `string[]` | Available options |
-| `selected` | `string[]` | Currently selected options |
-| `onChange` | `(v: string[]) => void` | Selection change handler |
+| `user` | current user or `null` | Used to gate user, role, recovery, and self-approval controls. |
 
 ### Returns
-A section with clickable chip-style labels that toggle options in/out of the selected array. Checkboxes are visually hidden; selection is indicated by blue background.
+Renders a searchable account directory, invite-individual and create-display-account flows, role editor, session controls, administrator-assisted reset, and recovery-request queues. Each action is gated by the corresponding canonical permission; the API remains authoritative.
 
 ---
 
-## `UsersRolesTab({ roles, users, queryClient })`
+## `ApplicationSettingsTab({ user })`
+
+Risk-scoring overrides, validated scheduler settings, application defaults, and failed-login alert configuration are implemented in `web/src/components/ApplicationSettingsTab.tsx`. Each section has a separate action permission; reads and writes use `/api/v1/application-settings/*` routes.
+
+---
+
+## `BackupRestoreTab({ isAdmin })`
 
 ### Purpose
-User & Role management — invite individuals by required email; create email-optional display accounts; search/filter users; edit identity and role; disable/reactivate; revoke sessions; review password-reset and recovery-email requests.
-
-### Props
-| Prop | Type | Description |
-|------|------|-------------|
-| `roles` | `any` | Array of role objects |
-| `users` | `any` | Array of user objects |
-| `queryClient` | `any` | React Query client |
+Backup & Restore — administrator-only legacy JSON backup/restore, supported 27-model JSON export/import, and SQLite file data import.
 
 ### Returns
-Two-column grid:
-- Create User card (username, password, full name, role selector via `POST /admin/users`)
-- Change User Role card (user dropdown, role dropdown via `PUT /admin/users/{username}/role`)
-- Create Custom Role card (name, allowed pages/actions/site types checkboxes via `POST /admin/roles`)
-- Edit Existing Role card (role selector, editable name + checkboxes via `PUT /admin/roles/{name}`)
-- Reset Password card (user dropdown, new password input via `POST /admin/users/{username}/reset-password`)
+Administrator-only controls provide a legacy four-collection JSON backup/restore, export/import for the 27 supported application models via `GET /admin/export-all` and `POST /admin/import-all`, and a `.db` upload that imports rows into the current database via `POST /admin/upload-db`. None of these JSON/upload paths replaces a complete SQLite database-file backup.
 
 ---
 
-## `BackupRestoreTab()`
-
-### Purpose
-Backup & Restore — download full JSON backup or upload a backup for restoration.
-
-### Returns
-Two-column grid:
-- Export Backup card (downloads backup JSON via `GET /admin/backup`, displays truncated preview)
-- Import Restore card (file upload + restore via `POST /admin/restore`)
-
----
-
-## `DangerZoneTab()`
+## `DangerZoneTab({ isAdmin })`
 
 ### Purpose
 Danger Zone — destructive administrative actions.
+
+### Props
+| Prop | Type | Description |
+|------|------|-------------|
+| `isAdmin` | `boolean` | Controls administrator-only rendering; backend dependencies remain authoritative. |
 
 ### Returns
 - Delete Record card (model name + record ID inputs via `DELETE /admin/record`)

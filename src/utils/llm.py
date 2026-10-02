@@ -1597,7 +1597,7 @@ def generate_executive_weather_brief(analytics, p1_count, sys_config):
 
     dist_data = analytics.get('district_distribution', [])
     if hasattr(dist_data, 'empty'):
-        # Legacy Pandas DataFrame fallback
+        # Compatibility fallback for callers that still provide table-like data.
         dist_counts = dist_data.to_dict().get('Count', {}) if not dist_data.empty else {}
     else:
         # Handles standard Python lists and dicts

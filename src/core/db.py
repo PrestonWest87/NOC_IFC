@@ -1,51 +1,79 @@
-import time
-import random
 import logging
-import os
-import re
-from datetime import datetime
-from sqlalchemy import create_engine, text
+import time
+import weakref
+
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
-from src.models import Base
+
 from src.core.config import DATABASE_URL, settings
+from src.models import Base
 
 logger = logging.getLogger(__name__)
 
-_connect_args = {"check_same_thread": False, "timeout": 30} if DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(DATABASE_URL, poolclass=NullPool, connect_args=_connect_args)
+
+def validate_database_url(database_url: str):
+    url = make_url(database_url)
+    if url.get_backend_name() != "sqlite":
+        raise RuntimeError(
+            "Only SQLite databases are supported; configure DATABASE_URL with a sqlite:/// URL."
+        )
+    return url
 
 
-def _set_sqlite_pragmas():
-    """Set WAL mode and performance pragmas once at startup.
-    WAL mode persists in the DB file header, so subsequent connections
-    don't need to re-set it. Runs with retry to handle concurrent
-    container startup races."""
+validate_database_url(DATABASE_URL)
+engine = create_engine(
+    DATABASE_URL,
+    poolclass=NullPool,
+    connect_args={"check_same_thread": False, "timeout": 30},
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+_sqlite_connection_pragmas_configured = weakref.WeakSet()
+_sqlite_wal_configured = weakref.WeakSet()
+
+
+def _apply_sqlite_connection_pragmas(dbapi_connection, _connection_record):
+    """Apply connection-local SQLite tuning on every NullPool connection."""
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA cache_size=-16000")
+        cursor.execute("PRAGMA temp_store=MEMORY")
+        cursor.execute("PRAGMA mmap_size=67108864")
+    finally:
+        cursor.close()
+
+
+def _set_sqlite_pragmas(bind=engine):
+    """Enable persistent WAL and connection-local pragmas after migrations."""
+    if bind not in _sqlite_connection_pragmas_configured:
+        event.listen(bind, "connect", _apply_sqlite_connection_pragmas)
+        _sqlite_connection_pragmas_configured.add(bind)
+    if bind in _sqlite_wal_configured:
+        return
+
     max_attempts = 3
     for attempt in range(max_attempts):
         try:
-            conn = engine.connect()
-            conn.execute(text("PRAGMA journal_mode=WAL"))
-            conn.execute(text("PRAGMA synchronous=NORMAL"))
-            conn.execute(text("PRAGMA cache_size=-16000"))
-            conn.execute(text("PRAGMA temp_store=MEMORY"))
-            conn.execute(text("PRAGMA mmap_size=67108864"))
-            conn.close()
+            with bind.connect() as connection:
+                journal_mode = connection.execute(text("PRAGMA journal_mode")).scalar_one()
+                if str(journal_mode).lower() != "wal":
+                    connection.execute(text("PRAGMA journal_mode=WAL"))
+            _sqlite_wal_configured.add(bind)
             return
-        except Exception as e:
+        except Exception as exc:
             wait = 0.5 * (attempt + 1)
-            logger.warning("PRAGMA setup attempt %d/%d failed: %s. retrying in %.1fs...", attempt+1, max_attempts, e, wait)
+            logger.warning(
+                "SQLite WAL setup attempt %d/%d failed: %s; retrying in %.1fs",
+                attempt + 1, max_attempts, exc, wait,
+            )
             time.sleep(wait)
-    logger.warning("PRAGMA setup failed after %d attempts — WAL mode may already be active from another process.", max_attempts)
-
-if engine.dialect.name == "sqlite":
-    _set_sqlite_pragmas()
-
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    logger.warning("SQLite WAL setup failed after %d attempts.", max_attempts)
 
 
 def get_db():
-    """Dependency injection helper yielding a database session."""
+    """FastAPI dependency yielding a database session."""
     db = SessionLocal()
     try:
         yield db
@@ -54,673 +82,12 @@ def get_db():
 
 
 def init_db():
-    # Create tables before additive migrations so first boot and old databases
-    # follow the same path. create_all never drops existing tables or columns.
-    try:
-        Base.metadata.create_all(bind=engine)
-    except Exception:
-        logger.exception("Database schema creation failed")
-        raise
+    """Run pending schema migrations before pragmas or bootstrap data."""
+    from src.core.migration_runner import run_migrations
 
-    # User, recovery, permission, and scheduler migrations are additive. Email
-    # stays nullable because administrator-created display accounts may omit it.
-    additive_columns = {
-        "users": [
-            ("account_type", "VARCHAR(20) NOT NULL DEFAULT 'individual'"),
-            ("email", "VARCHAR(254)"),
-            ("email_normalized", "VARCHAR(254)"),
-            ("email_verified_at", "TIMESTAMP"),
-            ("is_active", "BOOLEAN NOT NULL DEFAULT TRUE"),
-            ("created_at", "TIMESTAMP"),
-            ("last_login_at", "TIMESTAMP"),
-            ("last_activity_at", "TIMESTAMP"),
-        ],
-        "registration_invites": [
-            ("email", "VARCHAR(254) NOT NULL DEFAULT ''"),
-            ("email_normalized", "VARCHAR(254) NOT NULL DEFAULT ''"),
-            ("account_type", "VARCHAR(20) NOT NULL DEFAULT 'individual'"),
-        ],
-        "system_config": [
-            ("permission_catalog_version", "INTEGER NOT NULL DEFAULT 0"),
-            ("scheduler_revision", "INTEGER NOT NULL DEFAULT 0"),
-            ("scheduler_applied_revision", "INTEGER NOT NULL DEFAULT 0"),
-        ],
-        "timeline_events": [
-            ("site_name", "VARCHAR(255)"),
-        ],
-    }
-    for table_name, columns in additive_columns.items():
-        for column_name, column_definition in columns:
-            try:
-                with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-                    conn.execute(text(
-                        f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}"
-                    ))
-            except Exception as e:
-                logger.debug("%s.%s migration skipped: %s", table_name, column_name, e)
+    run_migrations(engine)
+    _set_sqlite_pragmas(engine)
 
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("UPDATE users SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL"))
-            conn.execute(text(
-                "UPDATE users SET last_login_at = (SELECT MAX(created_at) FROM user_sessions "
-                "WHERE user_sessions.user_id = users.id) WHERE last_login_at IS NULL "
-                "AND EXISTS (SELECT 1 FROM user_sessions WHERE user_sessions.user_id = users.id)"
-            ))
-            conn.execute(text(
-                "UPDATE users SET last_activity_at = last_login_at "
-                "WHERE last_activity_at IS NULL AND last_login_at IS NOT NULL"
-            ))
-            conn.execute(text(
-                "UPDATE registration_invites SET used_at = CURRENT_TIMESTAMP "
-                "WHERE email = '' AND used_at IS NULL"
-            ))
-            conn.execute(text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_email_normalized "
-                "ON users (email_normalized)"
-            ))
-            conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS ix_email_change_requests_user_status "
-                "ON email_change_requests (user_id, status)"
-            ))
-            conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS ix_password_reset_requests_ip_time "
-                "ON password_reset_requests (requester_ip, requested_at)"
-            ))
-    except Exception as e:
-        logger.warning("Account/security index or data migration failed: %s", e)
+    from src.core.bootstrap import ensure_bootstrap_data
 
-    # Run additive migrations for databases created by earlier releases.
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN alerted_eq_ids TEXT DEFAULT '[]'"))
-    except Exception as e:
-        logger.debug("system_config.alerted_eq_ids migration skipped: %s", e)
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN alerted_wildfire_ids TEXT DEFAULT '[]'"))
-    except Exception as e:
-        logger.debug("system_config.alerted_wildfire_ids migration skipped: %s", e)
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN wildfire_proximity_state TEXT DEFAULT '{}'"))
-    except Exception as e:
-        logger.debug("system_config.wildfire_proximity_state migration skipped: %s", e)
-
-    article_columns = [
-        ("ingested_at", "TIMESTAMP"),
-        ("enrichment_status", "VARCHAR DEFAULT 'enriched'"),
-        ("enrichment_attempts", "INTEGER DEFAULT 0"),
-        ("last_enrichment_error", "TEXT"),
-        ("last_enriched_at", "TIMESTAMP"),
-    ]
-    for column_name, column_definition in article_columns:
-        try:
-            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-                conn.execute(text(f"ALTER TABLE articles ADD COLUMN {column_name} {column_definition}"))
-        except Exception as e:
-            logger.debug("articles.%s migration skipped: %s", column_name, e)
-
-    time.sleep(random.uniform(0.1, 1.5))
-    for index_sql in (
-        "CREATE INDEX IF NOT EXISTS ix_articles_published_score_pinned ON articles (published_date, score, is_pinned)",
-        "CREATE INDEX IF NOT EXISTS ix_internal_risk_snapshots_timestamp ON internal_risk_snapshots (timestamp)",
-        "CREATE INDEX IF NOT EXISTS ix_solarwinds_status_received ON solarwinds_alerts (status, received_at)",
-        "CREATE INDEX IF NOT EXISTS ix_solarwinds_node_ticketed_received ON solarwinds_alerts (node_name, is_ticketed, received_at)",
-        "CREATE INDEX IF NOT EXISTS ix_cloud_outages_resolved_updated ON cloud_outages (is_resolved, updated_at)",
-        "CREATE INDEX IF NOT EXISTS ix_crime_timestamp_category_distance ON crime_incidents (timestamp, category, distance_miles)",
-        "CREATE INDEX IF NOT EXISTS ix_shift_logs_deleted_created ON shift_logs (is_deleted, created_at)",
-    ):
-        try:
-            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-                conn.execute(text(index_sql))
-        except Exception as e:
-            logger.warning("Index migration failed: %s", e)
-
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE roles ADD COLUMN allowed_site_types JSON"))
-    except Exception as e:
-        logger.debug("roles.allowed_site_types migration skipped: %s", e)
-
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE solarwinds_alerts ADD COLUMN is_dispatched BOOLEAN DEFAULT FALSE"))
-    except Exception as e:
-        logger.debug("solarwinds_alerts.is_dispatched migration skipped: %s", e)
-
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN district VARCHAR DEFAULT 'Central'"))
-    except Exception as e:
-        logger.debug("monitored_locations.district migration skipped: %s", e)
-
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE shift_logs ADD COLUMN author_role VARCHAR DEFAULT 'analyst'"))
-    except Exception as e:
-        logger.debug("shift_logs.author_role migration skipped: %s", e)
-
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN baseline_override_cyber FLOAT DEFAULT 0.0"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN baseline_override_phys FLOAT DEFAULT 0.0"))
-    except Exception as e:
-        logger.debug("system_config baseline migration skipped: %s", e)
-
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN status_modified_by VARCHAR"))
-            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN status_modified_at TIMESTAMP"))
-            conn.execute(text("ALTER TABLE monitored_locations ADD COLUMN last_auto_ticket TIMESTAMP"))
-    except Exception as e:
-        logger.debug("monitored_locations status migration skipped: %s", e)
-
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE articles ADD COLUMN full_content TEXT"))
-    except Exception as e:
-        logger.debug("articles.full_content migration skipped: %s", e)
-
-    for _col in [
-        "status_modified_by VARCHAR",
-        "status_modified_at TIMESTAMP",
-        "last_auto_ticket TIMESTAMP",
-        "last_escalation_ticket TIMESTAMP",
-        "last_auto_dispatch TIMESTAMP",
-        "last_escalation_dispatch TIMESTAMP",
-    ]:
-        try:
-            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-                conn.execute(text(f"ALTER TABLE monitored_locations ADD COLUMN {_col}"))
-        except Exception as e:
-            logger.debug("monitored_locations column migration skipped (%s): %s", _col, e)
-
-    try:
-        weather_id = "INTEGER PRIMARY KEY AUTOINCREMENT" if engine.dialect.name == "sqlite" else "SERIAL PRIMARY KEY"
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text(f"""
-                CREATE TABLE IF NOT EXISTS user_weather_prefs (
-                    id {weather_id},
-                    username VARCHAR,
-                    alert_type VARCHAR
-                )
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_weather_prefs_username ON user_weather_prefs (username)"))
-    except Exception as e:
-        logger.debug("user_weather_prefs migration skipped: %s", e)
-
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE shift_logs ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE"))
-    except Exception as e:
-        logger.debug("shift_logs.is_deleted migration skipped: %s", e)
-
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN unified_brief TEXT"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN unified_brief_time TIMESTAMP"))
-    except Exception as e:
-        logger.debug("system_config unified brief migration skipped: %s", e)
-
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN global_brief TEXT"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN global_brief_time TIMESTAMP"))
-    except Exception as e:
-        logger.debug("system_config global brief migration skipped: %s", e)
-
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN internal_brief TEXT"))
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN internal_brief_time TIMESTAMP"))
-    except Exception as e:
-        logger.debug("system_config internal brief migration skipped: %s", e)
-
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN public_app_url VARCHAR DEFAULT 'http://localhost:8501'"))
-    except Exception as e:
-        logger.debug("system_config public_app_url migration skipped: %s", e)
-
-    failed_login_alert_columns = [
-        ("failed_login_alert_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
-        ("failed_login_alert_recipients", "TEXT NOT NULL DEFAULT ''"),
-        ("failed_login_alert_threshold", "INTEGER NOT NULL DEFAULT 5"),
-        ("failed_login_alert_window_minutes", "INTEGER NOT NULL DEFAULT 5"),
-        ("failed_login_alert_last_sent", "TIMESTAMP"),
-    ]
-    for column_name, column_definition in failed_login_alert_columns:
-        try:
-            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-                conn.execute(text(
-                    f"ALTER TABLE system_config ADD COLUMN {column_name} {column_definition}"
-                ))
-        except Exception as e:
-            logger.debug("system_config.%s migration skipped: %s", column_name, e)
-
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE users ADD COLUMN theme VARCHAR DEFAULT 'standard'"))
-    except Exception as e:
-        logger.debug("users.theme migration skipped: %s", e)
-
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE users ADD COLUMN default_shift VARCHAR DEFAULT 'No Shift'"))
-    except Exception as e:
-        logger.debug("users.default_shift migration skipped: %s", e)
-
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE crime_incidents ADD COLUMN is_alert_dispatched BOOLEAN DEFAULT FALSE"))
-    except Exception as e:
-        logger.debug("crime_incidents.is_alert_dispatched migration skipped: %s", e)
-
-    risk_alert_alterations = [
-        "ALTER TABLE system_config ADD COLUMN last_global_risk VARCHAR",
-        "ALTER TABLE system_config ADD COLUMN last_internal_risk VARCHAR",
-        "ALTER TABLE system_config ADD COLUMN last_risk_alert_time TIMESTAMP",
-        "ALTER TABLE system_config ADD COLUMN sys_countermeasures INTEGER DEFAULT 3",
-        "ALTER TABLE system_config ADD COLUMN net_countermeasures INTEGER DEFAULT 3"
-    ]
-    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        for stmt in risk_alert_alterations:
-            try:
-                conn.execute(text(stmt))
-            except Exception as e:
-                logger.debug("risk alert migration skipped (%s): %s", stmt, e)
-
-    for _col in [
-        "is_ticketed BOOLEAN DEFAULT FALSE",
-        "acknowledged_by VARCHAR",
-        "acknowledged_at TIMESTAMP",
-        "dispatched_by VARCHAR",
-        "dispatched_at TIMESTAMP",
-    ]:
-        try:
-            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-                conn.execute(text(f"ALTER TABLE solarwinds_alerts ADD COLUMN {_col}"))
-        except Exception as e:
-            logger.debug("solarwinds alert migration skipped (%s): %s", _col, e)
-
-    scoring_alterations = [
-        "ALTER TABLE system_config ADD COLUMN scoring_mode VARCHAR DEFAULT 'auto'",
-        "ALTER TABLE system_config ADD COLUMN cyber_criticality_override INTEGER DEFAULT 0",
-        "ALTER TABLE system_config ADD COLUMN cyber_lethality_override INTEGER DEFAULT 0",
-        "ALTER TABLE system_config ADD COLUMN physical_criticality_override INTEGER DEFAULT 0",
-        "ALTER TABLE system_config ADD COLUMN physical_lethality_override INTEGER DEFAULT 0",
-        "ALTER TABLE system_config ADD COLUMN internal_criticality_override INTEGER DEFAULT 0",
-        "ALTER TABLE system_config ADD COLUMN internal_lethality_override INTEGER DEFAULT 0",
-        "ALTER TABLE system_config ADD COLUMN global_risk_offset INTEGER DEFAULT 0",
-        "ALTER TABLE system_config ADD COLUMN internal_risk_offset INTEGER DEFAULT 0"
-    ]
-    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        for stmt in scoring_alterations:
-            try:
-                conn.execute(text(stmt))
-            except Exception as e:
-                logger.debug("scoring migration skipped (%s): %s", stmt, e)
-
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text("ALTER TABLE system_config ADD COLUMN llm_context_window INTEGER DEFAULT 128000"))
-    except Exception as e:
-        logger.debug("system_config.llm_context_window migration skipped: %s", e)
-
-    # Migrate priority from Integer to String
-    try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-            conn.execute(text(
-                "UPDATE monitored_locations SET priority = CASE "
-                "WHEN priority = '1' OR priority = 1 THEN 'P1-Critical' "
-                "WHEN priority = '2' OR priority = 2 THEN 'P2-High' "
-                "WHEN priority = '3' OR priority = 3 THEN 'P3-Moderate' "
-                "WHEN priority = '4' OR priority = 4 THEN 'P4-Low' "
-                "WHEN priority = '5' OR priority = 5 THEN 'P5-Planning' "
-                "ELSE 'P3-Moderate' END "
-                "WHERE priority IS NOT NULL AND CAST(priority AS INTEGER) = priority"
-            ))
-    except Exception as e:
-        logger.warning("Priority migration skipped; existing values were preserved: %s", e)
-
-    session = SessionLocal()
-    try:
-        from src.models.schema import (
-            AccountAuditEvent, EmailChangeRequest, MonitoredLocation, Role,
-            SystemConfig, User,
-        )
-        from src.core.permissions import ADMIN_ACTIONS, PAGE_KEYS, TAB_CATALOG
-
-        site_types = ["NOC", "SOC", "Data Center", "Field Office", "HQ", "Remote Site", "Cloud"]
-        site_types.extend(
-            value for (value,) in session.query(MonitoredLocation.loc_type).distinct().all()
-            if value
-        )
-        site_types = list(dict.fromkeys(site_types))
-        tabs_by_key = {
-            tab["key"]: group
-            for group, tabs in TAB_CATALOG.items()
-            for tab in tabs
-        }
-        operational_pages = [page for page in PAGE_KEYS if page != "Settings & Admin"]
-        analyst_actions = [
-            "Action: Pin Articles", "Action: Boost Threat Score", "Action: Manually Sync Data",
-            "Action: Submit Shift Log", "Action: Dispatch RCA Tickets",
-            "Action: Acknowledge RCA Alerts", "Action: Manage Site Maintenance",
-            "Action: Generate Risk Snapshot", "Action: Run RCA Analysis",
-        ]
-        analyst_actions.extend(
-            key for key, group in tabs_by_key.items() if group != "settings"
-        )
-        settings_user_tab = "Tab: Settings -> Users & Roles"
-
-        admin_role = session.query(Role).filter_by(name="admin").first()
-        if not admin_role:
-            session.add(Role(
-                name="admin", allowed_pages=list(PAGE_KEYS),
-                allowed_actions=list(ADMIN_ACTIONS), allowed_site_types=site_types,
-            ))
-        else:
-            admin_role.allowed_pages = list(PAGE_KEYS)
-            admin_role.allowed_actions = list(ADMIN_ACTIONS)
-            admin_role.allowed_site_types = site_types
-
-        analyst_role = session.query(Role).filter_by(name="analyst").first()
-        if not analyst_role:
-            session.add(Role(
-                name="analyst", allowed_pages=operational_pages,
-                allowed_actions=analyst_actions, allowed_site_types=site_types,
-            ))
-
-        viewer_role = session.query(Role).filter_by(name="viewer").first()
-        if not viewer_role:
-            session.add(Role(
-                name="viewer", allowed_pages=["Global Dashboards", "Regional Grid"],
-                allowed_actions=[
-                    "Tab: Dashboards -> Operational",
-                    "Tab: Regional Grid -> Geospatial Map",
-                ], allowed_site_types=site_types,
-            ))
-
-        user_admin_role = session.query(Role).filter_by(name="user-admin").first()
-        if not user_admin_role:
-            session.add(Role(
-                name="user-admin", allowed_pages=["Settings & Admin"],
-                allowed_actions=[
-                    settings_user_tab,
-                    "Action: Manage Users",
-                    "Action: Review Account Recovery Requests",
-                    "Action: Approve Recovery Email Changes",
-                ], allowed_site_types=[],
-            ))
-
-        config = session.query(SystemConfig).first()
-        if not config:
-            config = SystemConfig()
-            session.add(config)
-            session.flush()
-
-        if int(config.permission_catalog_version or 0) < 1:
-            # The old startup path repeatedly unioned every grant into analyst.
-            # Replace that built-in baseline once; custom roles retain explicit
-            # grants, with the broad AI action mapped only to report generation.
-            analyst_role = session.query(Role).filter_by(name="analyst").first()
-            if analyst_role:
-                analyst_role.allowed_pages = operational_pages
-                analyst_role.allowed_actions = analyst_actions
-                analyst_role.allowed_site_types = site_types
-            for role in session.query(Role).filter(Role.name.notin_(["admin", "analyst"])).all():
-                current_actions = list(role.allowed_actions or [])
-                if "Action: Trigger AI Functions" in current_actions:
-                    current_actions = [
-                        key for key in current_actions if key != "Action: Trigger AI Functions"
-                    ]
-                    current_actions.append("Action: Generate Reports")
-                role.allowed_actions = list(dict.fromkeys(current_actions))
-                # Before server-side site filtering, an empty site-type grant
-                # meant "unrestricted" in the legacy UI. Normalize existing
-                # roles once to retain that behavior, while keeping the new
-                # settings-only user-admin role explicitly site-less.
-                if not role.allowed_site_types and role.name != "user-admin":
-                    role.allowed_site_types = site_types
-            config.permission_catalog_version = 1
-
-        admin_email = settings.default_admin_email.strip()
-        email_valid = bool(re.fullmatch(
-            r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}",
-            admin_email,
-        ))
-        normalized_admin_email = admin_email.casefold() if email_valid else None
-
-        admin_pw = os.environ.get("DEFAULT_ADMIN_PASSWORD", "").strip()
-        if admin_pw and not session.query(User).first():
-            import bcrypt
-            hashed = bcrypt.hashpw(admin_pw.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-            now = datetime.utcnow()
-            session.add(User(
-                username="admin",
-                password_hash=hashed,
-                role="admin",
-                account_type="individual",
-                is_active=True,
-                email=admin_email if email_valid else None,
-                email_normalized=normalized_admin_email,
-                email_verified_at=now if email_valid else None,
-                created_at=now,
-                full_name="Administrator",
-                job_title="System Admin",
-                contact_info="NOC Desk"
-            ))
-
-        # DEFAULT_ADMIN_EMAIL is an operator-controlled bootstrap mechanism for
-        # the first administrator's recovery/reviewer address. Also apply it to
-        # an existing email-less bootstrap admin so a lone admin can recover
-        # from a recovery-email request that has no independent reviewer yet.
-        if email_valid:
-            bootstrap_admin = session.query(User).filter_by(username="admin").first()
-            if bootstrap_admin and not bootstrap_admin.email_verified_at:
-                existing_normalized = str(
-                    bootstrap_admin.email_normalized or bootstrap_admin.email or ""
-                ).strip().casefold()
-                duplicate = session.query(User).filter(
-                    User.email_normalized == normalized_admin_email,
-                    User.id != bootstrap_admin.id,
-                ).first()
-                if duplicate:
-                    logger.warning("DEFAULT_ADMIN_EMAIL bootstrap skipped because the address belongs to another account")
-                elif existing_normalized and existing_normalized != normalized_admin_email:
-                    logger.warning("DEFAULT_ADMIN_EMAIL bootstrap skipped because admin has a different unverified address")
-                else:
-                    now = datetime.utcnow()
-                    bootstrap_admin.email = admin_email
-                    bootstrap_admin.email_normalized = normalized_admin_email
-                    bootstrap_admin.email_verified_at = now
-                    for pending_request in session.query(EmailChangeRequest).filter(
-                        EmailChangeRequest.user_id == bootstrap_admin.id,
-                        EmailChangeRequest.status.in_(["pending_review", "pending_verification"]),
-                    ).all():
-                        if pending_request.requested_email_normalized == normalized_admin_email:
-                            pending_request.status = "completed"
-                            pending_request.reviewed_at = now
-                            pending_request.verified_at = now
-                            pending_request.verification_token_hash = None
-                            pending_request.verification_expires_at = None
-                            pending_request.decision_reason = "Completed by trusted DEFAULT_ADMIN_EMAIL bootstrap configuration."
-                        else:
-                            pending_request.status = "denied"
-                            pending_request.reviewed_at = now
-                            pending_request.verification_token_hash = None
-                            pending_request.verification_expires_at = None
-                            pending_request.decision_reason = "Superseded by trusted DEFAULT_ADMIN_EMAIL bootstrap configuration."
-                    session.add(AccountAuditEvent(
-                        subject_user_id=bootstrap_admin.id,
-                        event_type="bootstrap_recovery_email_configured",
-                        event_detail={"source": "DEFAULT_ADMIN_EMAIL"},
-                        created_at=now,
-                    ))
-
-        session.commit()
-    except Exception as e:
-        session.rollback()
-        logger.error("Database initialization error: %s", e)
-    finally:
-        session.close()
-
-    # Seed default RSS feeds (adds if missing, safe for existing DBs)
-    try:
-        from src.models.schema import FeedSource
-        session2 = SessionLocal()
-        default_feeds = [
-            ("https://feeds.feedburner.com/TheHackersNews", "The Hacker News"),
-            ("https://krebsonsecurity.com/feed/", "Krebs on Security"),
-            ("https://www.bleepingcomputer.com/feed/", "BleepingComputer"),
-            ("https://feeds.a.dj.com/rss/RSSWorldNews.xml", "WSJ World News"),
-            ("https://www.cisa.gov/cybersecurity-advisories/all.xml", "CISA Advisories"),
-            ("https://www.darkreading.com/rss.xml", "Dark Reading"),
-            ("https://therecord.media/feed/", "The Record"),
-        ]
-        added = 0
-        for url, name in default_feeds:
-            if not session2.query(FeedSource).filter_by(url=url).first():
-                session2.add(FeedSource(url=url, name=name, is_active=True))
-                added += 1
-        if added:
-            session2.commit()
-            logger.info(f"Added {added} default RSS feed sources.")
-        session2.close()
-    except Exception as e:
-        logger.warning(f"Could not seed default feeds: {e}")
-
-    from src.models.schema import Keyword
-    session3 = SessionLocal()
-    default_keywords = [
-        ("ransomware", 90), ("breach", 85), ("data breach", 85), ("zero-day", 85),
-        ("exploit", 80), ("infrastructure", 80), ("malware", 80), ("outage", 80),
-        ("vulnerability", 75), ("ddos", 75), ("phishing", 75), ("backdoor", 75),
-        ("attack", 70), ("cve", 70), ("cyberattack", 70), ("hack", 70),
-        ("threat", 60), ("cyber", 55), ("security", 55), ("hacker", 60),
-        ("espionage", 75), ("apt", 80), ("nation-state", 75),
-        ("supply chain", 70), ("rce", 80), ("botnet", 75),
-        ("trojan", 70), ("spyware", 70), ("wiper", 75),
-        ("data exfiltration", 80), ("lateral movement", 70),
-        ("privilege escalation", 70), ("cobalt strike", 80),
-        ("critical infrastructure", 70), ("power grid", 65),
-        ("disruption", 60), ("degraded", 50), ("bgp", 55),
-        ("submarine cable", 60), ("intrusion", 60),
-        ("ransomware gang", 85), ("lockbit", 85), ("blackcat", 85),
-        ("clop", 80), ("alphv", 80), ("conti", 80),
-        ("solarwinds", 70), ("log4j", 80), ("log4shell", 85),
-        ("cisa", 60), ("fbi", 55), ("nsa", 55),
-        ("nato", 50), ("intelligence", 50), ("sanctions", 50),
-        ("disinformation", 50), ("deepfake", 50),
-        ("ai", 40), ("artificial intelligence", 45),
-        ("machine learning", 40), ("drone", 45), ("uav", 45),
-        ("missile", 50), ("military", 45), ("defense", 40),
-        ("pipeline", 50), ("energy", 40), ("financial", 35),
-        ("cryptocurrency", 35), ("bitcoin", 30),
-    ]
-    try:
-        added_kw = 0
-        for word, weight in default_keywords:
-            if not session3.query(Keyword).filter_by(word=word).first():
-                session3.add(Keyword(word=word, weight=weight))
-                added_kw += 1
-        if added_kw:
-            session3.commit()
-            logger.info(f"Seeded {added_kw} default keywords.")
-        session3.close()
-    except Exception as e:
-        logger.warning(f"Could not seed default keywords: {e}")
-
-    try:
-        from src.models.schema import SystemConfig
-        session_cfg = SessionLocal()
-        if not session_cfg.query(SystemConfig).first():
-            session_cfg.add(SystemConfig(is_active=False))
-            session_cfg.commit()
-            logger.info("Created default SystemConfig.")
-        session_cfg.close()
-    except Exception as e:
-        logger.warning(f"Could not seed default SystemConfig: {e}")
-
-    # Seed dummy internal assets for testing (only if empty)
-    try:
-        from src.models.schema import HardwareAsset, SoftwareAsset
-        session_assets = SessionLocal()
-
-        if settings.demo_seed_data and session_assets.query(HardwareAsset).count() == 0:
-            dummy_hw = [
-                HardwareAsset(ip_address="10.0.1.10", asset_name="FW-CORE-01", operating_system="PAN-OS", os_vendor="Palo Alto Networks", os_product="PA-5260", os_version="11.1.2", host_type="Firewall", instances=1, critical_instances=1, vulnerabilities=3, critical_vulnerabilities=1, severe_vulnerabilities=1, exploit_count=1, raw_risk_score=85.0, risk_score=85.0),
-                HardwareAsset(ip_address="10.0.1.20", asset_name="FW-BRANCH-01", operating_system="PAN-OS", os_vendor="Palo Alto Networks", os_product="PA-460", os_version="11.0.4", host_type="Firewall", instances=1, critical_instances=0, vulnerabilities=2, critical_vulnerabilities=0, severe_vulnerabilities=1, exploit_count=0, raw_risk_score=45.0, risk_score=45.0),
-                HardwareAsset(ip_address="10.0.1.30", asset_name="RTR-CORE-01", operating_system="IOS-XE", os_vendor="Cisco", os_product="Catalyst 9300", os_version="17.9.4", host_type="Router", instances=1, critical_instances=0, vulnerabilities=4, critical_vulnerabilities=2, severe_vulnerabilities=1, exploit_count=1, raw_risk_score=72.0, risk_score=72.0),
-                HardwareAsset(ip_address="10.0.1.40", asset_name="SW-DIST-01", operating_system="IOS-XE", os_vendor="Cisco", os_product="Catalyst 9500", os_version="17.6.3", host_type="Switch", instances=1, critical_instances=0, vulnerabilities=2, critical_vulnerabilities=0, severe_vulnerabilities=1, exploit_count=0, raw_risk_score=35.0, risk_score=35.0),
-                HardwareAsset(ip_address="10.0.1.50", asset_name="SW-ACCESS-01", operating_system="IOS", os_vendor="Cisco", os_product="Catalyst 2960", os_version="15.2(2)E", host_type="Switch", instances=1, critical_instances=0, vulnerabilities=1, critical_vulnerabilities=0, severe_vulnerabilities=0, exploit_count=0, raw_risk_score=15.0, risk_score=15.0),
-                HardwareAsset(ip_address="10.0.2.10", asset_name="SRV-DC-01", operating_system="Windows Server 2022", os_vendor="Microsoft", os_product="Windows Server", os_version="21H2", host_type="Server", instances=1, critical_instances=1, vulnerabilities=8, critical_vulnerabilities=3, severe_vulnerabilities=2, exploit_count=2, raw_risk_score=92.0, risk_score=92.0),
-                HardwareAsset(ip_address="10.0.2.20", asset_name="SRV-DC-02", operating_system="Windows Server 2022", os_vendor="Microsoft", os_product="Windows Server", os_version="21H2", host_type="Server", instances=1, critical_instances=1, vulnerabilities=8, critical_vulnerabilities=3, severe_vulnerabilities=2, exploit_count=2, raw_risk_score=90.0, risk_score=90.0),
-                HardwareAsset(ip_address="10.0.2.30", asset_name="SRV-APP-01", operating_system="Ubuntu 22.04 LTS", os_vendor="Canonical", os_product="Ubuntu", os_version="22.04", host_type="Server", instances=1, critical_instances=0, vulnerabilities=5, critical_vulnerabilities=1, severe_vulnerabilities=2, exploit_count=1, raw_risk_score=65.0, risk_score=65.0),
-                HardwareAsset(ip_address="10.0.2.40", asset_name="SRV-DB-01", operating_system="Red Hat Enterprise Linux 9", os_vendor="Red Hat", os_product="RHEL", os_version="9.3", host_type="Server", instances=1, critical_instances=1, vulnerabilities=3, critical_vulnerabilities=1, severe_vulnerabilities=1, exploit_count=0, raw_risk_score=55.0, risk_score=55.0),
-                HardwareAsset(ip_address="10.0.3.10", asset_name="UPS-IDF-01", operating_system="Network Management Card", os_vendor="APC", os_product="APC UPS", os_version="6.2.0", host_type="UPS", instances=1, critical_instances=0, vulnerabilities=1, critical_vulnerabilities=0, severe_vulnerabilities=0, exploit_count=0, raw_risk_score=20.0, risk_score=20.0),
-                HardwareAsset(ip_address="10.0.3.20", asset_name="HVAC-CTRL-01", operating_system="BACnet", os_vendor="Honeywell", os_product="Tridium Niagara", os_version="4.12", host_type="HVAC", instances=1, critical_instances=0, vulnerabilities=2, critical_vulnerabilities=1, severe_vulnerabilities=0, exploit_count=0, raw_risk_score=40.0, risk_score=40.0),
-                HardwareAsset(ip_address="10.0.4.10", asset_name="RTU-SITE-01", operating_system="RTOS", os_vendor="Schneider Electric", os_product="Modicon M340", os_version="3.20", host_type="RTU", instances=1, critical_instances=1, vulnerabilities=2, critical_vulnerabilities=1, severe_vulnerabilities=1, exploit_count=1, raw_risk_score=78.0, risk_score=78.0),
-                HardwareAsset(ip_address="10.0.4.20", asset_name="PLC-PROCESS-01", operating_system="ControlLogix", os_vendor="Rockwell Automation", os_product="Allen-Bradley ControlLogix", os_version="33.011", host_type="SCADA", instances=1, critical_instances=1, vulnerabilities=3, critical_vulnerabilities=2, severe_vulnerabilities=1, exploit_count=1, raw_risk_score=88.0, risk_score=88.0),
-                HardwareAsset(ip_address="10.0.5.10", asset_name="WLC-CAMPUS-01", operating_system="AireOS", os_vendor="Cisco", os_product="Catalyst 9800", os_version="17.9.3", host_type="Wireless Controller", instances=1, critical_instances=0, vulnerabilities=3, critical_vulnerabilities=1, severe_vulnerabilities=1, exploit_count=0, raw_risk_score=50.0, risk_score=50.0),
-                HardwareAsset(ip_address="10.0.5.20", asset_name="AP-LOBBY-01", operating_system="IOS-XE", os_vendor="Cisco", os_product="Catalyst 9130", os_version="17.6.3", host_type="Access Point", instances=1, critical_instances=0, vulnerabilities=1, critical_vulnerabilities=0, severe_vulnerabilities=0, exploit_count=0, raw_risk_score=10.0, risk_score=10.0),
-            ]
-            session_assets.add_all(dummy_hw)
-            session_assets.commit()
-            logger.info("Seeded %d dummy hardware assets.", len(dummy_hw))
-
-        if settings.demo_seed_data and session_assets.query(SoftwareAsset).count() == 0:
-            dummy_sw = [
-                SoftwareAsset(name="Windows Server 2022"),
-                SoftwareAsset(name="Windows 11 Enterprise"),
-                SoftwareAsset(name="Windows 10 Pro"),
-                SoftwareAsset(name="Microsoft SQL Server 2022"),
-                SoftwareAsset(name="Microsoft Exchange Server 2019"),
-                SoftwareAsset(name="Microsoft Office LTSC 2024"),
-                SoftwareAsset(name="Microsoft Defender for Endpoint"),
-                SoftwareAsset(name="Active Directory Domain Services"),
-                SoftwareAsset(name="Palo Alto PAN-OS"),
-                SoftwareAsset(name="Cisco IOS-XE"),
-                SoftwareAsset(name="Cisco IOS"),
-                SoftwareAsset(name="VMware vSphere 8"),
-                SoftwareAsset(name="VMware ESXi 8"),
-                SoftwareAsset(name="Ubuntu 22.04 LTS"),
-                SoftwareAsset(name="Red Hat Enterprise Linux 9"),
-                SoftwareAsset(name="Apache HTTP Server 2.4"),
-                SoftwareAsset(name="nginx 1.24"),
-                SoftwareAsset(name="OpenSSH 9.3"),
-                SoftwareAsset(name="OpenSSL 3.1"),
-                SoftwareAsset(name="Google Chrome 125"),
-                SoftwareAsset(name="Mozilla Firefox 126"),
-                SoftwareAsset(name="Fortinet FortiGate 7.4"),
-                SoftwareAsset(name="SolarWinds Orion 2024"),
-                SoftwareAsset(name="Docker Engine 26"),
-                SoftwareAsset(name="Kubernetes 1.30"),
-                SoftwareAsset(name="PostgreSQL 16"),
-                SoftwareAsset(name="Redis 7.2"),
-                SoftwareAsset(name="BIND 9.18"),
-                SoftwareAsset(name="Tridium Niagara 4.12"),
-                SoftwareAsset(name="Wireshark 4.2"),
-            ]
-            session_assets.add_all(dummy_sw)
-            session_assets.commit()
-            logger.info("Seeded %d dummy software assets.", len(dummy_sw))
-
-        session_assets.close()
-    except Exception as e:
-        logger.warning(f"Could not seed dummy assets: {e}")
-
-    # Rescoring thousands of articles is maintenance work, not readiness
-    # work. Running it here made every API/worker/webhook restart block for
-    # over a minute and also caused SQLite contention between containers.
-    if os.environ.get("RESCORE_ON_STARTUP", "false").lower() in {"1", "true", "yes"}:
-        try:
-            from src.services import rescore_all_articles
-            rescored = rescore_all_articles()
-            logger.info(f"Rescored {rescored} existing articles with new keywords.")
-        except Exception as e:
-            logger.warning(f"Could not rescore articles: {e}")
-    else:
-        logger.info("Skipping startup article rescore; run maintenance rescore explicitly when required.")
+    ensure_bootstrap_data(SessionLocal)

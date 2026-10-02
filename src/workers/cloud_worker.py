@@ -150,6 +150,7 @@ def fetch_cloud_outages():
                     feed_entries = len(feed.entries)
                     logger.debug("cloud_worker: %s returned %d entries", provider, feed_entries)
 
+                    candidates = []
                     for entry in feed.entries[:15]:
                         published_tuple = entry.get('published_parsed')
                         if published_tuple:
@@ -180,29 +181,47 @@ def fetch_cloud_outages():
                         region_tag = f" [{', '.join(us_impact)}]" if us_impact else ""
                         final_service_name = f"{base_service}{region_tag}"
 
-                        exists = session.query(CloudOutage).filter_by(
-                            provider=provider,
-                            title=title,
-                            updated_at=updated_at
-                        ).first()
+                        candidates.append({
+                            "updated_at": updated_at,
+                            "title": title,
+                            "service": final_service_name,
+                            "description": description,
+                            "link": link,
+                            "is_resolved": is_resolved,
+                        })
+
+                    # Fetch matching existing rows once per provider instead of
+                    # issuing one SELECT for every feed entry.
+                    timestamps = list({item["updated_at"] for item in candidates})
+                    existing_by_key = {}
+                    if timestamps:
+                        for outage in session.query(CloudOutage).filter(
+                            CloudOutage.provider == provider,
+                            CloudOutage.updated_at.in_(timestamps),
+                        ).all():
+                            existing_by_key.setdefault((outage.title, outage.updated_at), outage)
+
+                    for item in candidates:
+                        key = (item["title"], item["updated_at"])
+                        exists = existing_by_key.get(key)
 
                         if not exists:
-                            new_outage = CloudOutage(
+                            exists = CloudOutage(
                                 provider=provider,
-                                service=final_service_name,
-                                title=title,
-                                description=description,
-                                link=link,
-                                is_resolved=is_resolved,
-                                updated_at=updated_at
+                                service=item["service"],
+                                title=item["title"],
+                                description=item["description"],
+                                link=item["link"],
+                                is_resolved=item["is_resolved"],
+                                updated_at=item["updated_at"],
                             )
-                            session.add(new_outage)
+                            session.add(exists)
+                            existing_by_key[key] = exists
                             added_count += 1
-                        else:
-                            if is_resolved and not exists.is_resolved:
-                                exists.is_resolved = True
-                                exists.updated_at = updated_at
-                                resolved_count += 1
+                        elif item["is_resolved"] and not exists.is_resolved:
+                            exists.is_resolved = True
+                            exists.updated_at = item["updated_at"]
+                            resolved_count += 1
 
                 except Exception as e:
                     logger.warning("cloud_worker: error processing %s: %s", provider, e)

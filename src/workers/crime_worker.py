@@ -86,6 +86,27 @@ def geocode_address_arcgis(address, hq_lat, hq_lon, region="Little Rock, AR"):
     return lat, lon, True
 
 
+def _store_crime_batch(db, items):
+    """Insert only new incident IDs with one lookup for the whole batch."""
+    if not items:
+        return 0
+    batch_ids = [item.id for item in items]
+    existing_ids = {
+        row[0] for row in db.query(CrimeIncident.id)
+        .filter(CrimeIncident.id.in_(batch_ids)).all()
+    }
+    new_items = []
+    seen_ids = set(existing_ids)
+    for item in items:
+        if item.id not in seen_ids:
+            new_items.append(item)
+            seen_ids.add(item.id)
+    if new_items:
+        db.add_all(new_items)
+    db.commit()
+    return len(new_items)
+
+
 def fetch_live_crimes():
     import logging
     logger = logging.getLogger(__name__)
@@ -149,24 +170,14 @@ def fetch_live_crimes():
                     ))
 
                     if len(batch) >= batch_size:
-                        for item in batch:
-                            existing = db.query(CrimeIncident).filter_by(id=item.id).first()
-                            if not existing:
-                                db.add(item)
-                                added_count += 1
-                        db.commit()
+                        added_count += _store_crime_batch(db, batch)
                         batch = []
 
                 except Exception:
                     continue
 
             if batch:
-                for item in batch:
-                    existing = db.query(CrimeIncident).filter_by(id=item.id).first()
-                    if not existing:
-                        db.add(item)
-                        added_count += 1
-                db.commit()
+                added_count += _store_crime_batch(db, batch)
 
             db.query(CrimeIncident).filter(CrimeIncident.timestamp < seven_days_ago_utc).delete()
             db.commit()

@@ -1,9 +1,9 @@
 # NOC Intelligence Fusion Center — Database Schema Reference
 
 > **Source of truth:** `src/models/schema.py` (SQLAlchemy declarative models)
-> **Engine:** SQLite (default) or PostgreSQL via `DATABASE_URL` env var
-> **Driver:** SQLAlchemy 2.x with `NullPool` for SQLite
-> **Last verified:** 2026-10-01
+> **Engine:** SQLite via `DATABASE_URL`
+> **Driver:** SQLAlchemy 2.x with `NullPool`
+> **Last verified:** 2026-10-02
 
 ---
 
@@ -13,7 +13,7 @@
 2. [Complete Table Reference](#2-complete-table-reference)
 3. [Schema Evolution Strategy](#3-schema-evolution-strategy)
 4. [Index Strategy](#4-index-strategy)
-5. [init_db() Initialization Sequence](#5-init_db-initialization-sequence)
+5. [Startup Migration and Bootstrap Sequence](#5-startup-migration-and-bootstrap-sequence)
 6. [Key Design Decisions](#6-key-design-decisions)
 7. [Data Retention Policies](#7-data-retention-policies)
 
@@ -664,44 +664,19 @@ Stores the registered job key, validated interval/daily/weekly schedule fields, 
 
 ## 3. Schema Evolution Strategy
 
-This project uses **no Alembic, no migration framework**. All schema changes are managed via inline `ALTER TABLE` statements in `src/core/db.py:init_db()`.
+Schema changes use Alembic revisions under `migrations/`. `alembic_version` stores the last successfully applied revision. Every API, worker, and webhook startup checks the recorded revision under a shared SQLite migration lock; it applies only revisions newer than the database and performs no schema DDL when the database is current.
 
-### Pattern
+The first revision adopts legacy databases without dropping tables or user data. It uses the frozen `migrations/schema_v1.py` snapshot to create missing tables, adds only missing legacy columns, applies one-time backfills, and validates unique normalized-email data before adding its index. Migration errors stop startup; operators should resolve the reported issue rather than manually editing the revision table.
 
-Every new column added since the original `create_all` is guarded by a try/except that silently catches `"duplicate column name"` errors:
+### Adding a schema or data migration
 
-```python
-try:
-    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        conn.execute(text("ALTER TABLE target_table ADD COLUMN new_col TYPE DEFAULT value"))
-except Exception:
-    pass  # Column already exists
-```
+1. Change the SQLAlchemy model and add a new forward-only revision under `migrations/versions/` in the same change.
+2. Use SQLite-compatible DDL. Guard additions that may already exist after a partial legacy adoption.
+3. Keep deterministic data conversions in the revision and make them safe to retry if SQLite leaves partial DDL behind.
+4. Do not edit released revisions or add schema changes to `Base.metadata.create_all()` at application startup.
+5. Test a fresh SQLite database, a legacy upgrade, and a second startup at head.
 
-### Rules for Adding Columns
-
-1. **Each ALTER TABLE adds exactly one column.** SQLite does not support `ADD COLUMN a, ADD COLUMN b` in a single statement.
-2. **Always provide a DEFAULT.** Existing rows must have a value — SQLite requires this for non-nullable columns.
-3. **Wrap in try/except.** Duplicate ALTER is idempotent via the exception swallow.
-4. **Place before `Base.metadata.create_all()`** for critical columns needed by API queries at startup.
-5. **Test both fresh DB and existing DB paths.** Fresh DBs get the column from `create_all`; existing DBs get it from ALTER.
-6. **Never DROP columns.** SQLite supports `ALTER TABLE ... DROP COLUMN` only since 3.35.0 (2021). If a column must be removed, leave it unused.
-
-### Adding a New Table
-
-Tables are created automatically by `Base.metadata.create_all()`. No manual DDL is needed — just define the SQLAlchemy model in `schema.py` and it appears on next restart.
-
-### Adding a New Index
-
-Add `index=True` to the Column definition in `schema.py`. On existing databases, `create_all()` does **not** add missing indexes. To add an index to an existing table:
-
-```python
-try:
-    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_target_col ON target_table (column_name)"))
-except Exception:
-    pass
-```
+`Base.metadata.create_all()` is used only by the one-time adoption revision and isolated tests. Default data seeds remain separate, conditional bootstrap behavior.
 
 ### Data Migrations
 
@@ -799,72 +774,42 @@ conn.execute(text(
 
 ### SQLite PRAGMA Optimizations
 
-Applied on every connection via the `@event.listens_for(engine, "connect")` handler:
+After migrations, startup enables persistent WAL mode. The SQLAlchemy connection event applies connection-local pragmas on every new NullPool connection:
 
 | PRAGMA | Value | Purpose |
 |---|---|---|
-| `journal_mode` | WAL | Write-ahead logging for concurrent reads |
 | `synchronous` | NORMAL | Reduced fsync (WAL ensures crash safety) |
 | `cache_size` | -16000 | 16 MB page cache |
 | `temp_store` | MEMORY | Temp tables in RAM |
-| `mmap_size` | 268435456 | 256 MB memory-mapped I/O |
+| `mmap_size` | 67108864 | 64 MiB memory-mapped I/O |
 
 ---
 
-## 5. init_db() Initialization Sequence
+## 5. Startup Migration and Bootstrap Sequence
 
-`init_db()` in `src/core/db.py` executes in this exact order on every API/container startup:
+`init_db()` in `src/core/db.py` is called before the API lifespan starts its broadcaster, before scheduler jobs are registered, and before the webhook app is created.
 
-### Phase 1 — Pre-create ALTER TABLE migrations (lines 46–48)
+### Phase 1 — Check and apply Alembic revisions
 
-Runs **before** `create_all()` so that queries during startup don't fail on missing columns:
+`src/core/migration_runner.py` acquires a cross-process lock beside the SQLite file and runs `alembic upgrade head`. The `alembic_version` row records the last successful revision. At head, startup performs a version check and no schema DDL. A migration failure aborts startup.
 
-```
-ALTER TABLE system_config ADD COLUMN alerted_eq_ids TEXT DEFAULT '[]'
-```
+### Phase 2 — One-time legacy adoption
 
-### Phase 2 — Create all tables (line 53)
+Revision `20261002_0001` uses the frozen `migrations/schema_v1.py` snapshot to create missing baseline tables, adds only missing legacy columns, creates missing indexes, and applies one-time user, invitation, and priority backfills. Existing tables and records are retained. Duplicate normalized email values that prevent creation of the unique index fail with an actionable error.
 
-```python
-Base.metadata.create_all(bind=engine)
-```
+The explicit compatibility column map covers account/recovery fields, scheduler revisions, scoring and alert settings, article enrichment metadata, role site types, alert dispatch fields, location tracking, shift-log state, crime dispatch state, and timeline site metadata. The revision validates every model table's final column set before recording success.
 
-Creates all tables defined in `schema.py` that don't already exist. Idempotent.
+### Phase 3 — SQLite runtime settings
 
-### Phase 3 — Post-create ALTER TABLE migrations (lines 58–197)
+After migration, startup enables WAL. Connection-local synchronous, cache, temp-storage, and mmap settings are applied to each NullPool connection.
 
-Adds columns to existing tables that were created before the column was added to the model. Each is individually try/except guarded:
-
-| Order | Table | Columns Added |
-|---|---|---|
-| 1 | `roles` | `allowed_site_types JSON` |
-| 2 | `solarwinds_alerts` | `is_dispatched BOOLEAN DEFAULT 0` |
-| 3 | `monitored_locations` | `district VARCHAR DEFAULT 'Central'` |
-| 4 | `shift_logs` | `author_role VARCHAR DEFAULT 'analyst'` |
-| 5 | `system_config` | `baseline_override_cyber FLOAT DEFAULT 0.0`, `baseline_override_phys FLOAT DEFAULT 0.0` |
-| 6 | `monitored_locations` | `under_maintenance BOOLEAN DEFAULT 0`, `maintenance_etr DATETIME`, `maintenance_reason TEXT` |
-| 7 | `monitored_locations` | `status_modified_by VARCHAR`, `status_modified_at DATETIME`, `last_auto_ticket DATETIME`, `last_escalation_ticket DATETIME`, `last_auto_dispatch DATETIME`, `last_escalation_dispatch DATETIME` |
-| 8 | `user_weather_prefs` | Full table + index (CREATE TABLE IF NOT EXISTS) |
-| 9 | `shift_logs` | `is_deleted BOOLEAN DEFAULT 0` |
-| 10 | `system_config` | `unified_brief TEXT`, `unified_brief_time DATETIME` |
-| 11 | `users` | `default_shift VARCHAR DEFAULT 'No Shift'` |
-| 12 | `crime_incidents` | `is_alert_dispatched BOOLEAN DEFAULT 0` |
-| 13 | `system_config` | `last_global_risk VARCHAR`, `last_internal_risk VARCHAR`, `last_risk_alert_time DATETIME`, `sys_countermeasures INTEGER DEFAULT 3`, `net_countermeasures INTEGER DEFAULT 3` |
-| 14 | `solarwinds_alerts` | `is_ticketed BOOLEAN DEFAULT 0`, `acknowledged_by VARCHAR`, `acknowledged_at DATETIME`, `dispatched_by VARCHAR`, `dispatched_at DATETIME` |
-| 15 | `system_config` | `scoring_mode VARCHAR DEFAULT 'auto'`, `cyber_criticality_override INTEGER DEFAULT 0`, `cyber_lethality_override INTEGER DEFAULT 0`, `physical_criticality_override INTEGER DEFAULT 0`, `physical_lethality_override INTEGER DEFAULT 0`, `internal_criticality_override INTEGER DEFAULT 0`, `internal_lethality_override INTEGER DEFAULT 0`, `global_risk_offset INTEGER DEFAULT 0`, `internal_risk_offset INTEGER DEFAULT 0` |
-| 16 | `system_config` | `llm_context_window INTEGER DEFAULT 128000` |
-
-### Phase 4 — Data migration (lines 199–213)
-
-Migrates `monitored_locations.priority` from Integer encoding to String encoding (`1` → `"P1-Critical"`, etc.).
-
-### Phase 5 — Seed default roles (lines 215–273)
+### Phase 4 — Conditional data bootstrap
 
 Creates missing starter roles (`admin`, `analyst`, `viewer`, and `user-admin`) from the permission catalog. A one-time catalog migration removes the old broad analyst startup union and maps the legacy AI grant conservatively; subsequent startups do not union grants. Creates `admin` if `DEFAULT_ADMIN_PASSWORD` is set and no users exist.
 
 **Initial admin credentials:** username `admin` and the value of `DEFAULT_ADMIN_PASSWORD`; no user is created when that variable is empty. Optional `DEFAULT_ADMIN_EMAIL` is normalized and verified for recovery/reviewer notifications. If supplied later for an existing email-less bootstrap admin, startup applies it as trusted configuration and completes any matching pending initial recovery-email request.
 
-### Phase 6 — Seed RSS feeds (lines 276–299)
+### Default RSS feeds
 
 Seeds 7 default feeds if they don't exist:
 
@@ -878,7 +823,7 @@ Seeds 7 default feeds if they don't exist:
 | Dark Reading | `https://www.darkreading.com/rss.xml` |
 | The Record | `https://therecord.media/feed/` |
 
-### Phase 7 — Seed keywords (lines 301–340)
+### Default keywords
 
 Seeds 70 security-weighted keywords (weight range 30–90). Key examples:
 
@@ -890,13 +835,13 @@ Seeds 70 security-weighted keywords (weight range 30–90). Key examples:
 | `rce` | 80 | `cobalt strike` | 80 |
 | `apt` | 80 | `log4j` | 80 |
 
-### Phase 8 — Seed SystemConfig (lines 342–351)
+### System configuration and demo assets
 
 Creates a single default `SystemConfig` row if none exists.
 
-### Phase 9 — Rescore all articles (lines 353–358)
+### Optional article rescoring
 
-Calls `rescore_all_articles()` to recompute `articles.score` using the (potentially newly seeded) keyword dictionary. **This is why keyword changes require an API rebuild.**
+`RESCORE_ON_STARTUP=true` explicitly opts into a full rescore of `articles.score`; normal startup skips this maintenance work. Keyword changes do not require an API rebuild.
 
 ---
 
@@ -929,7 +874,7 @@ SQLite stores JSON as TEXT. Queries use string matching, not native JSON operato
 engine = create_engine(DATABASE_URL, poolclass=NullPool, ...)
 ```
 
-`NullPool` disables connection pooling entirely. Each request opens/closes a fresh connection. This prevents `QueuePool` contention issues observed under concurrent FastAPI workers and the background scheduler writing to the same SQLite file. For PostgreSQL deployments, `NullPool` should be replaced with `QueuePool` or `AsyncAdaptedQueuePool`.
+`NullPool` disables connection pooling entirely. Each request opens/closes a fresh connection. This avoids pooled-connection contention observed with concurrent FastAPI and scheduler access to the shared SQLite file. SQLite is the only supported application database.
 
 ### String Primary Keys
 

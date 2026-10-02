@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { MapContainer } from "../components/MapContainer";
 import DeckGL from "@deck.gl/react";
-import { Map } from "react-map-gl/maplibre";
+import { Map } from "@vis.gl/react-maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { ScatterplotLayer, PolygonLayer } from "@deck.gl/layers";
 import type { MapViewState } from "@deck.gl/core";

@@ -2,7 +2,7 @@
 
 ## Overview
 
-UI component and initialization utility for switching between six application themes. Theme choice is persisted in `localStorage` and applied by setting a `data-theme` attribute on `document.body`.
+UI component and initialization utility for switching between 21 application themes. Theme choice is persisted in `localStorage` and, for authenticated users, to the user account through `POST /api/v1/auth/update-theme`. It is applied by setting a `data-theme` attribute on `document.body`.
 
 ---
 
@@ -21,6 +21,21 @@ UI component and initialization utility for switching between six application th
 | `"cyberpunk"` | Cyberpunk |
 | `"solarized-dark"` | Solarized Dark |
 | `"midnight-ocean"` | Midnight Ocean |
+| `"arctic-command"` | Arctic Command |
+| `"ember-watch"` | Ember Watch |
+| `"forest-ops"` | Forest Ops |
+| `"amethyst-grid"` | Amethyst Grid |
+| `"slate-steel"` | Slate Steel |
+| `"paper-light"` | Paper Light |
+| `"nordic-frost"` | Nordic Frost |
+| `"dracula-console"` | Dracula Console |
+| `"synthwave"` | Synthwave |
+| `"desert-signal"` | Desert Signal |
+| `"olive-command"` | Olive Command |
+| `"mono-ops"` | Monochrome Ops |
+| `"rose-pine"` | Rose Pine |
+| `"oceanic-teal"` | Oceanic Teal |
+| `"copper-wire"` | Copper Wire |
 
 ### `STORAGE_KEY`
 
@@ -56,8 +71,8 @@ UI component and initialization utility for switching between six application th
 - **Flow**:
   1. Initializes `theme` state from `getSavedTheme()`.
   2. On `theme` change, calls `applyTheme(theme)` via `useEffect`.
-  3. Renders a row of `<button>` elements, one per theme entry.
-  4. The currently active theme button is highlighted with `accent-blue` background and bold text.
+  3. Selecting a theme persists it locally and posts the preference to the account when a user is signed in.
+  4. Renders a row of `<button>` elements, one per theme entry; the active theme is highlighted.
 - **Returns**: A `<div>` containing theme selection buttons and a helper text note.
 
 ---

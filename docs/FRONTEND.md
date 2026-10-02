@@ -35,7 +35,7 @@ Branch: `architecture/monolith-to-decoupled`
 | Zustand | 4.5.x | Lightweight client-state store |
 | Axios | 1.7.x | HTTP client |
 | MapLibre GL | 4.7.x | Vector map rendering |
-| react-map-gl | 7.1.x | React bindings for MapLibre |
+| @vis.gl/react-maplibre | 8.1.x | MapLibre-only React bindings |
 | deck.gl | 9.0.x | Geospatial data overlays |
 | Recharts | 3.8.x | Charting library |
 | Lucide React | 1.16.x | Icon set |
@@ -128,7 +128,7 @@ The Vite dev server (`vite.config.ts:16-26`) proxies:
 
 ### Route Definitions
 
-Defined in `src/utils/routeConfig.ts:1-14` and wired in `src/App.tsx:31-45`:
+Defined in `src/utils/routeConfig.ts` and wired in `src/App.tsx`:
 
 | Route | Page Component | Permission Key |
 |-------|---------------|----------------|
@@ -296,14 +296,13 @@ Tab visibility follows the caller's `Tab: Settings -> ...` grants rather than an
 | **AI/LLM** | Configure LLM connection, model selection, temperature |
 | **Users & Roles** | Searchable account directory, email invitations, display accounts, recovery requests, role assignment |
 | **Application Settings** | Risk-scoring overrides, bounded scheduler schedules, and global application defaults |
-| **Backup & Restore** | Database backup download, restore from file, DB file upload |
-| **Database** | Direct SQLite file upload for database replacement |
+| **Backup & Restore** | Legacy configuration backup, 27-model JSON export/import, and SQLite file data import (not a full database-file swap) |
 
 ---
 
 ## 6. Shared Components
 
-### Layout (`src/components/Layout.tsx:1-103`)
+### Layout (`src/components/Layout.tsx`)
 
 Full-height sidebar navigation:
 
@@ -318,7 +317,7 @@ Full-height sidebar navigation:
 
 Map visualization component used by `RegionalGridPage` and `AiopsRcaPage`. Renders MapLibre GL map with overlay layers, site markers, and hazard polygons.
 
-### MapContainer (`src/components/MapContainer.tsx:1-73`)
+### MapContainer (`src/components/MapContainer.tsx`)
 
 Fullscreen-capable wrapper for map components:
 
@@ -326,9 +325,9 @@ Fullscreen-capable wrapper for map components:
 - **Window-fill fullscreen**: Toggles between relative positioning and fixed `100vw × 100vh` overlay with `z-index: 1000`.
 - Backdrop click exits fullscreen.
 
-### ThemeSelector (`src/components/ThemeSelector.tsx:1-64`)
+### ThemeSelector (`src/components/ThemeSelector.tsx`)
 
-Theme picker rendering 6 preset buttons:
+Theme picker rendering 21 preset buttons:
 
 | Theme ID | Label |
 |----------|-------|
@@ -338,14 +337,29 @@ Theme picker rendering 6 preset buttons:
 | `cyberpunk` | Cyberpunk (pink/cyan on purple) |
 | `solarized-dark` | Solarized Dark |
 | `midnight-ocean` | Midnight Ocean (blue on navy) |
+| `arctic-command` | Arctic Command |
+| `ember-watch` | Ember Watch |
+| `forest-ops` | Forest Ops |
+| `amethyst-grid` | Amethyst Grid |
+| `slate-steel` | Slate Steel |
+| `paper-light` | Paper Light |
+| `nordic-frost` | Nordic Frost |
+| `dracula-console` | Dracula Console |
+| `synthwave` | Synthwave |
+| `desert-signal` | Desert Signal |
+| `olive-command` | Olive Command |
+| `mono-ops` | Monochrome Ops |
+| `rose-pine` | Rose Pine |
+| `oceanic-teal` | Oceanic Teal |
+| `copper-wire` | Copper Wire |
 
-Applies theme via `data-theme` attribute on `<body>`. Persists selection to `localStorage` under key `noc_theme`. `initTheme()` is called at app startup (`main.tsx:9`) to restore saved theme before first render.
+The selector currently exposes 21 themes. It applies the theme via the `data-theme` attribute on `<body>` and saves it to `localStorage` under `noc_theme`. When a user is signed in, selecting a theme also persists it through `POST /api/v1/auth/update-theme`; `ThemeSync` applies the account preference after login.
 
 ---
 
 ## 7. Custom Hooks
 
-### useAIOpsWebSocket (`src/hooks/useAIOpsWebSocket.ts:1-104`)
+### useAIOpsWebSocket (`src/hooks/useAIOpsWebSocket.ts`)
 
 Manages the persistent WebSocket connection to the backend for users with AIOps RCA page access:
 
@@ -367,7 +381,7 @@ Manages the persistent WebSocket connection to the backend for users with AIOps 
 
 ## 8. State Management
 
-### AuthContext (`src/utils/AuthContext.tsx:1-75`)
+### AuthContext (`src/utils/AuthContext.tsx`)
 
 React Context providing authentication state:
 
@@ -419,7 +433,7 @@ Server-state management for all API data fetching:
 - **Polling**: Brief generation status polled with `refetchInterval`.
 - **Invalidation**: WebSocket `RCA_UPDATE` messages trigger `queryClient.invalidateQueries()` for affected keys.
 
-### Zustand Store (`src/store/useAppStore.ts:1-48`)
+### Zustand Store (`src/store/useAppStore.ts`)
 
 Lightweight global store for UI-level state:
 
@@ -440,7 +454,7 @@ interface AppState {
 
 ## 9. API Client
 
-### Axios Instance (`src/utils/api.ts:1-27`)
+### Axios Instance (`src/utils/api.ts`)
 
 ```typescript
 const api = axios.create({
@@ -474,8 +488,8 @@ const { data } = await api.post("/auth/login", { username, password });
 
 Three-layer CSS custom property system:
 
-1. **Base** (`src/styles/theme.css:1-125`): `:root` defaults — the standard dark theme.
-2. **Overrides** (`src/themes/themes.css:1-183`): `[data-theme="..."]` selectors that redefine the same variables.
+1. **Base** (`src/styles/theme.css`): `:root` defaults — the standard dark theme.
+2. **Overrides** (`src/themes/themes.css`): `[data-theme="..."]` selectors that redefine the same variables.
 3. **Components** (`src/styles/components.css`): Component-level styles consuming the variables.
 
 ### Variable Reference
@@ -544,7 +558,7 @@ Each risk level also has a `--shade-{color}` variant at 15% opacity for backgrou
 
 ### Theme Overrides
 
-Six themes defined in `src/themes/themes.css` via `[data-theme="..."]` attribute selectors. Each overrides the full set of CSS custom properties. Themes are applied by setting `document.body.setAttribute("data-theme", id)`.
+Twenty-one themes are exposed by `ThemeSelector`; the non-standard palettes are defined in `src/themes/themes.css` via `[data-theme="..."]` selectors. The base `standard` palette is defined in `src/styles/theme.css`. The active theme is applied by setting `document.body.setAttribute("data-theme", id)`.
 
 | Theme | Character |
 |-------|-----------|
@@ -554,12 +568,27 @@ Six themes defined in `src/themes/themes.css` via `[data-theme="..."]` attribute
 | `cyberpunk` | Pink/cyan accents on deep purple |
 | `solarized-dark` | Solarized palette — muted earth tones |
 | `midnight-ocean` | Blue/cyan accents on deep navy |
+| `arctic-command` | Arctic Command |
+| `ember-watch` | Ember Watch |
+| `forest-ops` | Forest Ops |
+| `amethyst-grid` | Amethyst Grid |
+| `slate-steel` | Slate Steel |
+| `paper-light` | Paper Light |
+| `nordic-frost` | Nordic Frost |
+| `dracula-console` | Dracula Console |
+| `synthwave` | Synthwave |
+| `desert-signal` | Desert Signal |
+| `olive-command` | Olive Command |
+| `mono-ops` | Monochrome Ops |
+| `rose-pine` | Rose Pine |
+| `oceanic-teal` | Oceanic Teal |
+| `copper-wire` | Copper Wire |
 
 ---
 
 ## 11. Timezone Handling
 
-### Centralized Utilities (`src/utils/timezone.ts:1-104`)
+### Centralized Utilities (`src/utils/timezone.ts`)
 
 All timestamps are displayed in **America/Chicago** timezone. The module provides:
 
@@ -610,7 +639,7 @@ docker compose --profile dev up --build -d
 
 The `web` container mounts the `web/` source directory, so changes to frontend files are reflected instantly via Vite HMR in dev mode. Production builds require `docker compose up --build -d --force-recreate web`.
 
-### Vite Configuration (`web/vite.config.ts:1-27`)
+### Vite Configuration (`web/vite.config.ts`)
 
 | Setting | Value | Purpose |
 |---------|-------|---------|

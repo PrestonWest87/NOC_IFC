@@ -1,13 +1,19 @@
 import os
+import tempfile
+import threading
 import unittest
 from unittest.mock import patch
+from pathlib import Path
 
-from sqlalchemy import Column, MetaData, Table, create_engine, text
+from sqlalchemy import Column, Integer, MetaData, Table, create_engine, event, inspect, text
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool, StaticPool
 
 from src.core import db as core_db
-from src.models.schema import AccountAuditEvent, EmailChangeRequest, Role, SystemConfig, User
+from src.core.migration_runner import run_migrations
+from src.models.schema import (
+    AccountAuditEvent, EmailChangeRequest, MonitoredLocation, Role, SystemConfig, User,
+)
 
 
 class DatabaseMigrationTests(unittest.TestCase):
@@ -133,6 +139,141 @@ class DatabaseMigrationTests(unittest.TestCase):
             self.assertNotIn("Action: Adjust Risk Scoring Overrides", roles["analyst"].allowed_actions)
             self.assertEqual(roles["user-admin"].allowed_site_types, [])
             self.assertEqual(session.query(SystemConfig).one().permission_catalog_version, 1)
+            revision = session.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+            self.assertEqual(revision, "20261002_0001")
+
+    def test_fresh_install_uses_frozen_baseline_not_runtime_model_metadata(self):
+        future_table = Table(
+            "post_v1_model_table",
+            core_db.Base.metadata,
+            Column("id", Integer, primary_key=True),
+        )
+        try:
+            with patch.dict(os.environ, {"DEFAULT_ADMIN_PASSWORD": ""}):
+                core_db.init_db()
+            self.assertFalse(inspect(self.engine).has_table(future_table.name))
+        finally:
+            core_db.Base.metadata.remove(future_table)
+
+    def test_partial_legacy_column_groups_are_completed(self):
+        legacy_tables = []
+        for model, omitted in (
+            (SystemConfig, {"baseline_override_phys"}),
+            (MonitoredLocation, {"status_modified_at", "last_auto_ticket"}),
+        ):
+            table = Table(model.__tablename__, MetaData())
+            for column in model.__table__.columns:
+                if column.name not in omitted:
+                    table.append_column(Column(
+                        column.name, column.type,
+                        primary_key=column.primary_key,
+                        nullable=True,
+                    ))
+            legacy_tables.append(table)
+        for table in legacy_tables:
+            table.create(self.engine)
+
+        with self.engine.begin() as connection:
+            connection.execute(text(
+                "INSERT INTO system_config (id, baseline_override_cyber) VALUES (1, 2.5)"
+            ))
+            connection.execute(text(
+                "INSERT INTO monitored_locations (id, name, lat, lon, loc_type, status_modified_by) "
+                "VALUES (1, 'legacy-site', 1.0, 2.0, 'NOC', 'legacy')"
+            ))
+
+        with patch.dict(os.environ, {"DEFAULT_ADMIN_PASSWORD": ""}):
+            core_db.init_db()
+
+        with self.engine.connect() as connection:
+            config_columns = {row[1] for row in connection.execute(text("PRAGMA table_info(system_config)"))}
+            location_columns = {row[1] for row in connection.execute(text("PRAGMA table_info(monitored_locations)"))}
+        self.assertIn("baseline_override_phys", config_columns)
+        self.assertIn("status_modified_at", location_columns)
+        self.assertIn("last_auto_ticket", location_columns)
+
+    def test_startup_at_head_performs_no_schema_ddl(self):
+        with patch.dict(os.environ, {"DEFAULT_ADMIN_PASSWORD": ""}):
+            core_db.init_db()
+
+        statements = []
+
+        def record_mutation(_connection, _cursor, statement, _parameters, _context, _executemany):
+            normalized = statement.lstrip().upper()
+            if normalized.startswith((
+                "CREATE TABLE", "CREATE INDEX", "ALTER TABLE", "DROP TABLE", "DROP INDEX",
+                "INSERT", "UPDATE", "DELETE",
+            )):
+                statements.append(statement)
+
+        event.listen(self.engine, "before_cursor_execute", record_mutation)
+        try:
+            with patch.dict(os.environ, {"DEFAULT_ADMIN_PASSWORD": ""}):
+                core_db.init_db()
+        finally:
+            event.remove(self.engine, "before_cursor_execute", record_mutation)
+
+        self.assertEqual(statements, [])
+
+    def test_migration_runner_serializes_first_start_for_shared_sqlite_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_url = f"sqlite:///{Path(temp_dir) / 'shared.db'}"
+            engines = [create_engine(database_url, poolclass=NullPool) for _ in range(2)]
+            errors = []
+
+            def migrate(engine):
+                try:
+                    run_migrations(engine)
+                except Exception as exc:  # captured for assertion in the test thread
+                    errors.append(exc)
+
+            threads = [threading.Thread(target=migrate, args=(engine,)) for engine in engines]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=30)
+
+            try:
+                self.assertTrue(all(not thread.is_alive() for thread in threads))
+                self.assertEqual(errors, [])
+                with engines[0].connect() as connection:
+                    revision = connection.execute(
+                        text("SELECT version_num FROM alembic_version")
+                    ).scalar_one()
+                self.assertEqual(revision, "20261002_0001")
+            finally:
+                for engine in engines:
+                    engine.dispose()
+
+    def test_database_url_rejects_postgresql(self):
+        with self.assertRaisesRegex(RuntimeError, "Only SQLite databases are supported"):
+            core_db.validate_database_url("postgresql://user:pass@localhost/noc")
+
+    def test_legacy_duplicate_recovery_emails_fail_without_recording_success(self):
+        legacy_users = Table("users", MetaData())
+        for column in User.__table__.columns:
+            legacy_users.append_column(Column(
+                column.name, column.type,
+                primary_key=column.primary_key,
+                nullable=True,
+            ))
+        legacy_users.create(self.engine)
+        with self.engine.begin() as connection:
+            connection.execute(text(
+                "INSERT INTO users (id, email_normalized) VALUES "
+                "(1, 'duplicate@example.com'), (2, 'duplicate@example.com')"
+            ))
+
+        with self.assertRaisesRegex(RuntimeError, "duplicate email groups must be resolved"):
+            core_db.init_db()
+
+        with self.engine.connect() as connection:
+            version_table = connection.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"
+            )).first()
+            self.assertIsNotNone(version_table)
+            version = connection.execute(text("SELECT version_num FROM alembic_version")).first()
+            self.assertIsNone(version)
 
     def test_default_admin_email_bootstraps_existing_admin_and_resolves_pending_request(self):
         with patch.dict(os.environ, {"DEFAULT_ADMIN_PASSWORD": ""}):

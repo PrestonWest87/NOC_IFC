@@ -3261,191 +3261,177 @@ def _get_eq_severity(mag):
     if mag >= 3.0: return "Moderate"
     return "Minor"
 
-def calculate_site_intersections(map_df, master_polygons):
-    import pandas as pd
+def _mapping_value(row, *keys, default=None):
+    for key in keys:
+        value = row.get(key)
+        if value is not None:
+            return value
+    return default
+
+
+def calculate_site_intersections(map_rows, master_polygons):
+    from math import isfinite
     from shapely.geometry import Point
+
     toggled_affected_sites, master_affected_sites = [], []
-    if map_df.empty or not master_polygons: return toggled_affected_sites, master_affected_sites
+    if not map_rows or not master_polygons:
+        return toggled_affected_sites, master_affected_sites
 
-    # 1. Pre-calculate bounding boxes once to avoid recalculating in the loop
-    for p in master_polygons:
-        p['bounds'] = p['shape'].bounds # Returns (minx, miny, maxx, maxy)
+    for polygon in master_polygons:
+        polygon["bounds"] = polygon["shape"].bounds
 
-    for _, row in map_df.iterrows():
-        if pd.notna(row['Lat']) and pd.notna(row['Lon']):
-            lat, lon = row['Lat'], row['Lon']
-            site_pt = Point(lon, lat)
-            act_toggled = []
-            
-            for p in master_polygons:
-                minx, miny, maxx, maxy = p['bounds']
-                
-                # 2. LIGHTNING FAST Bounding Box Pre-Check (Pure float math)
-                if minx <= lon <= maxx and miny <= lat <= maxy:
-                    
-                    # 3. Only execute heavy Shapely CPU math if the point is inside the rough square!
-                    if site_pt.within(p["shape"]):
-                        
-                        # Always add to the Master List for Executive Analytics
-                        master_affected_sites.append({
-                            "Monitored Site": row['Name'], 
-                            "Type": row['Type'], 
-                            "District": row.get('District', 'Central'),
-                            "Priority": row['Priority'], 
-                            "Hazard": p["event"], 
-                            "Severity": p["severity"]
-                        })
-                        
-                        # Only add to the Map/Toggled list if the UI switch is turned on
-                        if p.get("is_toggled", False):
-                            act_toggled.append(p["event"])
-                            
-            if act_toggled: 
-                toggled_affected_sites.append({
-                    "Monitored Site": row['Name'], 
-                    "District": row.get('District', 'Central'),
-                    "Facility Type": row['Type'], 
-                    "Priority": row['Priority'], 
-                    "Intersecting Hazards": ", ".join(list(set(act_toggled)))
+    for row in map_rows:
+        try:
+            lat = float(_mapping_value(row, "Lat", "lat"))
+            lon = float(_mapping_value(row, "Lon", "lon"))
+        except (TypeError, ValueError):
+            continue
+        if not isfinite(lat) or not isfinite(lon):
+            continue
+
+        site_name = _mapping_value(row, "Name", "Monitored Site", "name", default="Unknown")
+        facility_type = _mapping_value(row, "Type", "Facility Type", "loc_type", "type", default="General")
+        district = _mapping_value(row, "District", "district", default="Central")
+        priority = _mapping_value(row, "Priority", "priority", default="P3-Moderate")
+        site_point = Point(lon, lat)
+        toggled_events = []
+
+        for polygon in master_polygons:
+            minx, miny, maxx, maxy = polygon["bounds"]
+            if minx <= lon <= maxx and miny <= lat <= maxy and site_point.within(polygon["shape"]):
+                master_affected_sites.append({
+                    "Monitored Site": site_name,
+                    "Type": facility_type,
+                    "District": district,
+                    "Priority": priority,
+                    "Hazard": polygon["event"],
+                    "Severity": polygon["severity"],
                 })
-                
+                if polygon.get("is_toggled", False):
+                    toggled_events.append(polygon["event"])
+
+        if toggled_events:
+            toggled_affected_sites.append({
+                "Monitored Site": site_name,
+                "District": district,
+                "Facility Type": facility_type,
+                "Priority": priority,
+                "Intersecting Hazards": ", ".join(dict.fromkeys(toggled_events)),
+            })
+
     return toggled_affected_sites, master_affected_sites
 
-def get_infrastructure_analytics(map_df, master_affected_sites):
-    import pandas as pd
-    """Generates real-time analytics by reading the live geospatial intersection array."""
+
+def get_infrastructure_analytics(map_rows, master_affected_sites):
+    """Aggregate the regional map's small site/hazard lists without DataFrames."""
+    from collections import Counter, defaultdict
+
     payload = {
-        "total_sites": len(map_df),
-        "at_risk_sites": 0, "highest_risk": "None", 
-        "spc_distribution": pd.DataFrame(), "nws_distribution": pd.DataFrame(),
-        "type_distribution": pd.DataFrame(), "district_distribution": pd.DataFrame(), 
-        "priority_risk_matrix": pd.DataFrame(), "type_risk_matrix": pd.DataFrame(), "district_risk_matrix": pd.DataFrame()
+        "total_sites": len(map_rows),
+        "at_risk_sites": 0,
+        "highest_risk": "None",
+        "spc_distribution": [],
+        "nws_distribution": [],
+        "type_distribution": [],
+        "district_distribution": [],
+        "priority_risk_matrix": [],
+        "type_risk_matrix": [],
+        "district_risk_matrix": [],
     }
-    
-    spc_risks = {}
-    nws_alerts = {}
-    
     severity_rank = {
         "HIGH": 100, "MDT": 90, "ENH": 80, "SLGT": 70, "MRGL": 60, "TSTM": 50,
-        "Extreme": 95, "Severe": 85, "Moderate": 75, "Minor": 65,
-        "WARNING": 85, "WATCH": 75, "ADVISORY": 65, "STATEMENT": 55, "NONE": 0
+        "EXTREME": 95, "SEVERE": 85, "MODERATE": 75, "MINOR": 65,
+        "WARNING": 85, "WATCH": 75, "ADVISORY": 65, "STATEMENT": 55, "NONE": 0,
     }
-    
-    if master_affected_sites:
-        sites_df = pd.DataFrame(master_affected_sites)
-        
-        def rank_hazard(hazard_str):
-            score = 0
-            for key, val in severity_rank.items():
-                if key.upper() in str(hazard_str).upper() and val > score: score = val
-            return score if score > 0 else 10 
 
-        sites_df['Risk_Score'] = sites_df['Hazard'].apply(rank_hazard)
-        worst_risks_df = sites_df.sort_values('Risk_Score', ascending=False).drop_duplicates(subset=['Monitored Site']).copy()
-        
-        for _, r in sites_df.iterrows():
-            site = r['Monitored Site']
-            haz = r['Hazard'].upper()
-            if "SPC:" in haz:
-                risk_lvl = "TSTM"
-                for lvl in ["HIGH", "MDT", "ENH", "SLGT", "MRGL", "TSTM"]:
-                    if lvl in haz: risk_lvl = lvl; break
-                if site not in spc_risks or severity_rank.get(risk_lvl, 0) > severity_rank.get(spc_risks.get(site, "NONE"), 0):
-                    spc_risks[site] = risk_lvl
-            else:
-                alert_type = "STATEMENT"
-                if "WARNING" in haz: alert_type = "WARNING"
-                elif "WATCH" in haz: alert_type = "WATCH"
-                elif "ADVISORY" in haz: alert_type = "ADVISORY"
-                if site not in nws_alerts or severity_rank.get(alert_type, 0) > severity_rank.get(nws_alerts.get(site, "NONE"), 0):
-                    nws_alerts[site] = alert_type
+    def rank_hazard(hazard):
+        hazard_text = str(hazard).upper()
+        return max((rank for level, rank in severity_rank.items() if level in hazard_text), default=10)
 
-        payload["at_risk_sites"] = len(worst_risks_df)
-        
-        def get_primary_label(hazard_str):
-            s = str(hazard_str).upper()
-            if "HIGH" in s: return "HIGH"
-            if "MDT" in s: return "MDT"
-            if "ENH" in s: return "ENH"
-            if "SLGT" in s: return "SLGT"
-            if "MRGL" in s: return "MRGL"
-            if "TSTM" in s: return "TSTM"
-            if "WARNING" in s: return "WARNING"
-            if "WATCH" in s: return "WATCH"
-            if "ADVISORY" in s: return "ADVISORY"
-            return "OTHER"
-            
-        payload["highest_risk"] = get_primary_label(worst_risks_df.iloc[0]['Hazard']) if not worst_risks_df.empty else "None"
-        
-        payload["type_distribution"] = worst_risks_df['Type'].value_counts().reset_index().rename(columns={'Type': 'Facility Type', 'count': 'Count'}).set_index('Facility Type')
-        payload["district_distribution"] = worst_risks_df['District'].value_counts().reset_index().rename(columns={'District': 'District', 'count': 'Count'}).set_index('District')
-        
-        worst_risks_df['Risk_Label'] = worst_risks_df['Hazard'].apply(get_primary_label)
-        payload["priority_risk_matrix"] = pd.crosstab(worst_risks_df['Priority'], worst_risks_df['Risk_Label'])
-        payload["type_risk_matrix"] = pd.crosstab(worst_risks_df['Type'], worst_risks_df['Risk_Label'])
-        payload["district_risk_matrix"] = pd.crosstab(worst_risks_df['District'], worst_risks_df['Risk_Label'])
-    
-    # Map SPC and NWS back to ALL sites to get complete totals
-    spc_list = []
-    nws_list = []
-    for _, row in map_df.iterrows():
-        site = row['Name']
-        spc_list.append(spc_risks.get(site, "None"))
-        nws_list.append(nws_alerts.get(site, "None"))
-        
-    map_df_copy = map_df.copy()
-    map_df_copy['Live_SPC'] = spc_list
-    map_df_copy['Live_NWS'] = nws_list
-    
-    risk_order = ["HIGH", "MDT", "ENH", "SLGT", "MRGL", "TSTM", "None"]
-    map_df_copy['Live_SPC'] = pd.Categorical(map_df_copy['Live_SPC'], categories=risk_order, ordered=True)
-    payload["spc_distribution"] = map_df_copy['Live_SPC'].value_counts().reset_index().rename(columns={'Live_SPC': 'SPC Risk'})
-    
-    nws_order = ["WARNING", "WATCH", "ADVISORY", "STATEMENT", "None"]
-    map_df_copy['Live_NWS'] = pd.Categorical(map_df_copy['Live_NWS'], categories=nws_order, ordered=True)
-    payload["nws_distribution"] = map_df_copy['Live_NWS'].value_counts().reset_index().rename(columns={'Live_NWS': 'NWS Alert'})
+    def primary_label(hazard):
+        text_value = str(hazard).upper()
+        for label in ("HIGH", "MDT", "ENH", "SLGT", "MRGL", "TSTM", "WARNING", "WATCH", "ADVISORY"):
+            if label in text_value:
+                return label
+        return "OTHER"
 
+    spc_risks, nws_alerts = {}, {}
+    worst_by_site = {}
+    for row in master_affected_sites:
+        site = row.get("Monitored Site")
+        hazard = str(row.get("Hazard", ""))
+        hazard_upper = hazard.upper()
+        score = rank_hazard(hazard)
+        prior = worst_by_site.get(site)
+        if prior is None or score > prior[0]:
+            worst_by_site[site] = (score, row)
+
+        if "SPC:" in hazard_upper:
+            risk_level = next(
+                (level for level in ("HIGH", "MDT", "ENH", "SLGT", "MRGL", "TSTM") if level in hazard_upper),
+                "TSTM",
+            )
+            if severity_rank.get(risk_level, 0) > severity_rank.get(spc_risks.get(site, "NONE"), 0):
+                spc_risks[site] = risk_level
+        else:
+            alert_type = next(
+                (level for level in ("WARNING", "WATCH", "ADVISORY") if level in hazard_upper),
+                "STATEMENT",
+            )
+            if severity_rank.get(alert_type, 0) > severity_rank.get(nws_alerts.get(site, "NONE"), 0):
+                nws_alerts[site] = alert_type
+
+    worst_rows = [row for _, row in sorted(worst_by_site.values(), key=lambda item: item[0], reverse=True)]
+    if worst_rows:
+        payload["at_risk_sites"] = len(worst_rows)
+        payload["highest_risk"] = primary_label(worst_rows[0].get("Hazard"))
+
+        type_counts = Counter(row.get("Type") for row in worst_rows if row.get("Type") is not None)
+        district_counts = Counter(row.get("District") for row in worst_rows if row.get("District") is not None)
+        payload["type_distribution"] = [
+            {"Facility Type": value, "Count": count} for value, count in type_counts.most_common()
+        ]
+        payload["district_distribution"] = [
+            {"District": value, "Count": count} for value, count in district_counts.most_common()
+        ]
+
+        labels = {primary_label(row.get("Hazard")) for row in worst_rows}
+        for field, output_key in (
+            ("Priority", "priority_risk_matrix"),
+            ("Type", "type_risk_matrix"),
+            ("District", "district_risk_matrix"),
+        ):
+            matrix = defaultdict(Counter)
+            for row in worst_rows:
+                value = row.get(field)
+                if value is not None:
+                    matrix[value][primary_label(row.get("Hazard"))] += 1
+            payload[output_key] = [
+                {field: value, **{label: matrix[value].get(label, 0) for label in sorted(labels)}}
+                for value in sorted(matrix)
+            ]
+
+    def ordered_distribution(values, order, key):
+        counts = Counter(values)
+        order_index = {value: index for index, value in enumerate(order)}
+        return [
+            {key: value, "count": counts.get(value, 0)}
+            for value in sorted(order, key=lambda value: (-counts.get(value, 0), order_index[value]))
+        ]
+
+    site_names = [_mapping_value(row, "Name", "name", "Monitored Site") for row in map_rows]
+    payload["spc_distribution"] = ordered_distribution(
+        [spc_risks.get(site, "None") for site in site_names],
+        ["HIGH", "MDT", "ENH", "SLGT", "MRGL", "TSTM", "None"],
+        "SPC Risk",
+    )
+    payload["nws_distribution"] = ordered_distribution(
+        [nws_alerts.get(site, "None") for site in site_names],
+        ["WARNING", "WATCH", "ADVISORY", "STATEMENT", "None"],
+        "NWS Alert",
+    )
     return payload
 
-
-def generate_hazard_sitrep_html(analytics_df):
-    analytics_df['_tier'] = analytics_df['Priority'].apply(lambda p: priority_tier(p))
-    p1_count = len(analytics_df[analytics_df['_tier'] == 1]['Monitored Site'].unique())
-    rows_html = ""
-    for _, r in analytics_df.sort_values(by=['_tier', 'Monitored Site']).iterrows():
-        tier = r['_tier']
-        p_style = "background-color: #d9534f; color: white;" if tier == 1 else "background-color: #f0ad4e; color: white;" if tier == 2 else "background-color: #6c757d; color: white;"
-        rows_html += f"<tr><td style='padding: 12px; border-bottom: 1px solid #e0e0e0;'>{r['Monitored Site']}</td><td style='padding: 12px; border-bottom: 1px solid #e0e0e0;'>{r['Facility Type']}</td><td style='padding: 12px; border-bottom: 1px solid #e0e0e0; text-align: center;'><span style='{p_style} padding: 4px 8px; border-radius: 4px; font-weight: bold;'>{r['Priority']}</span></td><td style='padding: 12px; border-bottom: 1px solid #e0e0e0; color: #d9534f; font-weight: bold;'>{r['Hazard']}</td></tr>"
-
-    return f"""
-    <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-    <body style="margin: 0; padding: 0; background-color: #f4f7f6;">
-    <div style="font-family: Arial, sans-serif; max-width: 850px; margin: 0 auto; background-color: #f4f7f6; padding: 10px;">
-        <div style="background-color: #ffffff; border-radius: 8px; border-top: 6px solid #d9534f; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-            <div style="padding: 20px; border-bottom: 1px solid #eeeeee; background-color: #fafafa;">
-                <h2 style="margin: 0; color: #333333; font-size: 22px;">SEVERE WEATHER INFRASTRUCTURE IMPACT</h2>
-                <p style="margin: 5px 0 0 0; color: #777777; font-size: 13px;">Automated NOC Broadcast | {datetime.now(LOCAL_TZ).strftime('%Y-%m-%d %H:%M %Z')}</p>
-            </div>
-            <div style="padding: 20px;">
-                <h3 style="color: #2c3e50; font-size: 18px; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">Executive Overview</h3>
-                <div style="text-align: center; margin-bottom: 20px;">
-                    <div style="display: inline-block; width: 45%; min-width: 200px; padding: 15px; background-color: #f8f9fa; border-radius: 6px; border: 1px solid #e9ecef; margin: 5px;">
-                        <div style="font-size: 28px; font-weight: bold; color: #333333;">{len(analytics_df['Monitored Site'].unique())}</div>
-                        <div style="font-size: 12px; color: #6c757d;">Total Sites Impacted</div>
-                    </div>
-                    <div style="display: inline-block; width: 45%; min-width: 200px; padding: 15px; background-color: #fff5f5; border-radius: 6px; border: 1px solid #ffe3e3; margin: 5px;">
-                        <div style="font-size: 28px; font-weight: bold; color: #d9534f;">{p1_count}</div>
-                        <div style="font-size: 12px; color: #d9534f;">Critical (P1) Exposures</div>
-                    </div>
-                </div>
-                <h3 style="color: #2c3e50; font-size: 18px; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">Detailed Impact Matrix</h3>
-                <table style="width: 100%; border-collapse: collapse; font-size: 14px; text-align: left;">
-                    <thead><tr style="background-color: #343a40; color: #ffffff;"><th style="padding: 10px;">Monitored Site</th><th style="padding: 10px;">Type</th><th style="padding: 10px; text-align: center;">Priority</th><th style="padding: 10px;">Hazard</th></tr></thead>
-                    <tbody>{rows_html}</tbody>
-                </table>
-            </div>
-        </div>
-    </div></body></html>""".replace("\n", "")
 
 def import_locations(data, mode="add"):
     with SessionLocal() as db:
@@ -3482,18 +3468,35 @@ def import_locations(data, mode="add"):
     get_cached_locations.clear()
     return count
 
-def update_locations(edited_df):
-    cols = {k.lower(): k for k in edited_df.columns}
+def update_locations(edited_rows):
+    """Update location rows from records, loading existing rows in one query."""
+    if hasattr(edited_rows, "to_dict"):
+        edited_rows = edited_rows.to_dict(orient="records")
+    rows = [row for row in edited_rows if isinstance(row, dict)]
+
+    normalized_rows = [
+        {str(key).lower(): value for key, value in row.items()}
+        for row in rows
+    ]
+    location_ids = {
+        row.get("id") for row in normalized_rows if row.get("id") is not None
+    }
     with SessionLocal() as db:
-        for _, row in edited_df.iterrows():
-            db_loc = db.query(MonitoredLocation).filter_by(id=row.get(cols.get('id', 'id')) or row.get('id')).first()
-            if db_loc:
-                db_loc.name = row.get(cols.get('name', 'Name')) or db_loc.name
-                db_loc.loc_type = row.get(cols.get('loc_type', 'loc_type')) or row.get(cols.get('type', 'Type')) or db_loc.loc_type
-                db_loc.district = row.get(cols.get('district', 'District')) or db_loc.district
-                db_loc.priority = row.get(cols.get('priority', 'Priority')) or db_loc.priority
-                db_loc.lat = float(row.get(cols.get('lat', 'Lat')) or db_loc.lat)
-                db_loc.lon = float(row.get(cols.get('lon', 'Lon')) or db_loc.lon)
+        locations = (
+            db.query(MonitoredLocation).filter(MonitoredLocation.id.in_(location_ids)).all()
+            if location_ids else []
+        )
+        locations_by_id = {location.id: location for location in locations}
+        for row in normalized_rows:
+            db_loc = locations_by_id.get(row.get("id"))
+            if not db_loc:
+                continue
+            db_loc.name = row.get("name") or db_loc.name
+            db_loc.loc_type = row.get("loc_type") or row.get("type") or db_loc.loc_type
+            db_loc.district = row.get("district") or db_loc.district
+            db_loc.priority = row.get("priority") or db_loc.priority
+            db_loc.lat = float(row.get("lat") or db_loc.lat)
+            db_loc.lon = float(row.get("lon") or db_loc.lon)
         db.commit()
     get_cached_locations.clear()
 
@@ -4901,69 +4904,8 @@ def nuke_weather_data():
 # 10. UI MAP GENERATION ENGINE (PyDeck)
 # ==========================================
 
-def build_crime_map_layers(df_crimes):
-    """Builds the PyDeck layers and view state for the Crime Intelligence map."""
-    import pydeck as pdk
-    import pandas as pd
-    
-    # Campus Boundary Polygon
-    campus_boundary = [
-        [-92.325885, 34.678235], [-92.326196, 34.675942], [-92.324565, 34.675888],
-        [-92.324636, 34.674884], [-92.32406120583306, 34.67474187702983],
-        [-92.3238084241607, 34.67452124894587], [-92.32373734260989, 34.674349128685705],
-        [-92.32376809344501, 34.673623615079805], [-92.32351586802497, 34.67332173763069],
-        [-92.3220985004393, 34.67324489899573], [-92.32198879648926, 34.673705411555176],
-        [-92.32118128553886, 34.673676198116304], [-92.32110794479303, 34.67493955311931],
-        [-92.32189171929349, 34.67527638012709], [-92.32180319236035, 34.67672422178229],
-        [-92.3216835943636, 34.678465279952555], [-92.32589779219425, 34.67833455896807],
-        [-92.325885, 34.678235]
-    ]
-    polygon_df = pd.DataFrame([{"coordinates": campus_boundary}])
-    
-    layers = [
-        pdk.Layer(
-            "PolygonLayer", polygon_df, get_polygon="coordinates", 
-            get_fill_color=[0, 255, 100, 45], get_line_color=[0, 255, 100, 255], 
-            line_width_min_pixels=2, stroked=True, filled=True
-        ),
-        pdk.Layer(
-            "ScatterplotLayer", data=df_crimes, get_position="[lon, lat]", 
-            get_radius=50, get_fill_color=[255, 69, 0, 220], 
-            pickable=True, auto_highlight=True
-        )
-    ]
-    view_state = pdk.ViewState(latitude=34.6755, longitude=-92.3235, zoom=15.5, pitch=45)
-    return layers, view_state
-
-def build_aiops_map_layers(alerts, locs):
-    """Builds the PyDeck layers and view state for the AIOps RCA board."""
-    import pydeck as pdk
-    import pandas as pd
-    from collections import Counter
-    
-    map_data, alert_pulses = [], []
-    alert_counts = Counter(a.mapped_location for a in alerts)
-    
-    for l in locs:
-        c = alert_counts.get(l.name, 0)
-        map_data.append({
-            "name": l.name, "lat": l.lat, "lon": l.lon, 
-            "color": [255, 0, 0, 200] if c > 0 else [0, 255, 0, 160]
-        })
-        if c > 0:
-            alert_pulses.append({"lat": l.lat, "lon": l.lon, "radius": 4000 + (c * 2500)})
-
-    layers = [
-        pdk.Layer("ScatterplotLayer", pd.DataFrame(map_data), get_position="[lon, lat]", get_fill_color="color", get_radius=1800, pickable=True)
-    ]
-    if alert_pulses:
-        layers.append(pdk.Layer("ScatterplotLayer", pd.DataFrame(alert_pulses), get_position="[lon, lat]", get_fill_color=[255, 0, 0, 40], get_radius="radius"))
-        
-    view_state = pdk.ViewState(latitude=34.8, longitude=-92.2, zoom=6.0, pitch=0)
-    return layers, view_state
-
 @TTLCache(ttl=120, max_entries=4)
-def _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, selected_events_tuple, map_df):
+def _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, selected_events_tuple, map_rows):
     """Heavy Math Engine: Parses JSON, builds Shapely objects, and calculates all intersections ONCE."""
     from shapely.geometry import Point, shape
     from datetime import datetime
@@ -5077,7 +5019,7 @@ def _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_d
             process_usgs_quakes(usgs_d, prefix)
 
     # 6. Execute CPU-Heavy Bounding Box Math ONCE
-    _, master_affected_sites = calculate_site_intersections(map_df, master_polygons)
+    _, master_affected_sites = calculate_site_intersections(map_rows, master_polygons)
     
     return {
         "spc_micro": spc_micro,
@@ -5090,104 +5032,15 @@ def _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_d
         "map_diagnostics": map_diagnostics
     }
 
-def compile_regional_grid_map(map_df, spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, selected_events, toggles):
-    """Lightweight UI Compiler: Reads from RAM cache and filters strings natively."""
-    import pydeck as pdk
-    import pandas as pd
-    import uuid
-    
-    layer_id = str(uuid.uuid4())[:6]
-    
-    # Extract fully pre-computed dictionaries from RAM (0% CPU impact on UI Toggle)
-    cache = _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, tuple(selected_events), map_df)
-    
-    layers = []
-    show_radar = toggles.get("radar", True)
-    show_spc = toggles.get("spc", True)
-    show_warn = toggles.get("warn", True)
-    show_watch = toggles.get("watch", True)
-    show_oos = toggles.get("oos", True)
-    show_fire_risk = toggles.get("fire_risk", False)
-    show_active_wildfires = toggles.get("active_wildfires", False)
-    show_earthquakes = toggles.get("earthquakes", True)
-    
-    # 1. RADAR
-    if show_radar:
-        layers.append(pdk.Layer("BitmapLayer", image="https://mesonet.agron.iastate.edu/data/gis/images/4326/USCOMP/n0q_0.png", bounds=[-126.0, 21.0, -66.0, 50.0], opacity=0.5, pickable=False))
-        
-    # 2. Add Pre-computed Layers instantly based on toggles
-    if show_spc and cache["spc_micro"]["features"]: 
-        layers.append(pdk.Layer("GeoJsonLayer", cache["spc_micro"], id=f"spc_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=1))
-        
-    if show_warn and cache["ar_warn"]["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=cache["ar_warn"], id=f"ar_warn_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
-    if show_watch and cache["ar_watch"]["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=cache["ar_watch"], id=f"ar_watch_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
-    
-    if show_oos and cache["oos_warn"]["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=cache["oos_warn"], id=f"oos_warn_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
-    if show_oos and cache["oos_watch"]["features"]: layers.append(pdk.Layer("GeoJsonLayer", data=cache["oos_watch"], id=f"oos_watch_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
-    
-    if show_fire_risk and cache["ar_fire_geo"]["features"]:
-        layers.append(pdk.Layer("GeoJsonLayer", data=cache["ar_fire_geo"], id=f"fire_risk_{layer_id}", pickable=True, stroked=True, filled=True, get_fill_color="properties.fill_color", get_line_color="properties.line_color", line_width_min_pixels=2))
-        
-    if show_active_wildfires and cache["nifc_data"]:
-        df_fires = pd.DataFrame(cache["nifc_data"])
-        df_fires['info'] = "FIRE: " + df_fires['name'] + " (" + df_fires['state'] + ")\nAcres: " + df_fires['acres'].astype(str) + "\nContainment: " + df_fires['contained'].astype(str) + "%"
-        layers.append(pdk.Layer("ScatterplotLayer", data=df_fires, id=f"nifc_{layer_id}", pickable=True, opacity=0.9, stroked=True, filled=True, get_radius="1500 + (acres * 15)", radius_min_pixels=5, radius_max_pixels=35, line_width_min_pixels=1, get_position="[lon, lat]", get_fill_color="color", get_line_color=[0, 0, 0, 255]))
-
-    if show_earthquakes and cache["eq_data"]:
-        df_eq = pd.DataFrame(cache["eq_data"])
-        df_eq['radius'] = df_eq['mag'] * 3000 + 1000
-        layers.append(pdk.Layer("ScatterplotLayer", data=df_eq, id=f"eq_{layer_id}", pickable=True, opacity=0.9, stroked=True, filled=True, get_radius="radius", radius_min_pixels=4, radius_max_pixels=30, line_width_min_pixels=1, get_position="[lon, lat]", get_fill_color="color", get_line_color=[0, 0, 0, 255], gettooltip=True))
-
-    # Facility Sites
-    if not map_df.empty:
-        layers.append(pdk.Layer("ScatterplotLayer", map_df, pickable=True, opacity=0.9, stroked=True, filled=True, radius_scale=6, radius_min_pixels=4, radius_max_pixels=12, line_width_min_pixels=1, get_position="[Lon, Lat]", get_fill_color=[255, 255, 255], get_line_color=[0, 0, 0]))
-
-    # 3. Filter the pre-computed intersection matrix for the UI dataframe
-    toggled_affected_sites_dict = {}
-    for site in cache["master_affected_sites"]:
-        hazard = site["Hazard"]
-        is_visible = False
-        
-        if "SPC:" in hazard and show_spc: is_visible = True
-        elif "Wildfire Risk:" in hazard and show_fire_risk: is_visible = True
-        elif "Active Wildfire:" in hazard and show_active_wildfires: is_visible = True
-        elif "EQ (" in hazard and show_earthquakes: is_visible = True
-        elif "[OOS]" in hazard and show_oos: is_visible = True
-        elif "[AR]" in hazard:
-            if site["Severity"] == "Warning" and show_warn: is_visible = True
-            elif site["Severity"] == "Watch/Advisory" and show_watch: is_visible = True
-            
-        if is_visible:
-            name = site["Monitored Site"]
-            if name not in toggled_affected_sites_dict:
-                toggled_affected_sites_dict[name] = {
-                    "Monitored Site": name, 
-                    "District": site["District"], 
-                    "Facility Type": site["Type"], 
-                    "Priority": site["Priority"], 
-                    "Hazards": set()
-                }
-            toggled_affected_sites_dict[name]["Hazards"].add(hazard)
-            
-    toggled_affected_sites = []
-    for v in toggled_affected_sites_dict.values():
-        v["Intersecting Hazards"] = ", ".join(list(v["Hazards"]))
-        v.pop("Hazards")
-        toggled_affected_sites.append(v)
-        
-    view_state = pdk.ViewState(latitude=34.8, longitude=-92.2, zoom=5.5, pitch=0)
-
-    return layers, view_state, cache["map_diagnostics"], toggled_affected_sites, cache["master_affected_sites"]
-
-
 def deduplicate_articles(session):
     """De-duplicate articles by link and similar titles within the past 24 hours.
     
-    Uses bucket pre-filtering to avoid O(n²) SequenceMatcher calls:
+    Uses bucket pre-filtering and RapidFuzz's native ratio implementation to
+    reduce the cost of title comparisons:
     articles are grouped by (source_domain, hour_bucket, len_bucket) so only
     articles within the same bucket are compared for similarity.
     """
-    from difflib import SequenceMatcher
+    from rapidfuzz.fuzz import ratio as title_ratio
 
     removed = 0
     cutoff = datetime.utcnow() - timedelta(hours=24)
@@ -5243,8 +5096,7 @@ def deduplicate_articles(session):
                 t2 = (bucket_arts[j].title or "").lower().strip()
                 if not t2:
                     continue
-                ratio = SequenceMatcher(None, t1, t2).ratio()
-                if ratio > 0.85:
+                if title_ratio(t1, t2) > 85:
                     dup = bucket_arts[j]
                     session.delete(dup)
                     bucket_arts[j] = None

@@ -34,7 +34,7 @@ Enterprise-grade backend services powering the NOC Intelligence Fusion Center. T
 ├─────────────────────────────────────────────────────────────────────┤
 │                     core/ (config, db — SQLAlchemy)                 │
 ├─────────────────────────────────────────────────────────────────────┤
-│                     SQLite / PostgreSQL                             │
+│                          SQLite                                      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -45,7 +45,7 @@ Enterprise-grade backend services powering the NOC Intelligence Fusion Center. T
 ## src/services.py — Data Access Layer
 
 **Location**: `src/services.py`  
-**Size**: ~5,250 lines
+**Size**: ~5,100 lines
 **Role**: The central Data Access Layer. Every major feature routes through this module. Organized into 13 functional sections.
 
 Account and authorization services cover individual invitations, display accounts, role grants, session revocation, user activity, reviewed recovery-email changes, password-reset approval/token consumption, and durable account audit events. Site-scoped AIOps helpers filter alert and timeline payloads by the caller's allowed site types. Scheduler persistence helpers validate registry settings and expose worker-applied revisions.
@@ -76,21 +76,21 @@ High-frequency lookup functions wrapped in `TTLCache` for performance.
 
 | Function | Description |
 |---|---|
-| `authenticate_user(username, password)` | Validates credentials via bcrypt hash comparison. On success, generates a UUID4 token, stores it in the `users` table, and returns the token. |
-| `get_user_by_token(token)` | Resolves a bearer token to a full user record including role, permissions, and allowed site types. Returns `None` for expired/invalid tokens. |
-| `update_user_profile(user_id, updates)` | Partial update of user fields (name, title, email). Validates uniqueness constraints on email. |
-| `logout_user(token)` | Invalidates a session token by clearing the stored hash. |
+| `authenticate_user(username, password)` | Validates credentials with bcrypt. On success, creates a database-backed session and returns the user and opaque session token. |
+| `get_user_by_token(token)` | Resolves an active user session to a full user record including role, permissions, and allowed site types. Returns `None` for missing, revoked, or inactive sessions. |
+| `update_user_profile(username, full_name, job_title, contact_info, old_pwd, new_pwd, default_shift="")` | Updates profile fields and optionally changes the password after verifying the current password. Recovery-email changes use a separate reviewed workflow. |
+| `logout_user(username, token=None)` | Revokes the selected user's current session when a token is supplied; legacy callers without a token revoke all of that user's sessions. |
 
 ### Dashboard
 
 | Function | Description |
 |---|---|
-| `get_dashboard_metrics()` | Aggregated counts: total articles, active alerts, site statuses, risk levels. Powers the top-level dashboard cards. |
-| `get_pinned_articles(user_id)` | Returns pinned articles for a specific user. Supports per-operator intelligence bookmarking. |
-| `get_live_articles(limit, offset)` | Time-ordered article feed with pagination. Excludes archived and deduplicated entries. |
-| `toggle_pin(article_id, user_id)` | Add/remove a pin bookmark. Returns new pinned state. |
-| `boost_score(article_id, weight)` | Manual score boost for operator-driven training. Multiplies existing score by the weight factor. |
-| `change_status(article_id, new_status)` | Operator status change (e.g., `new` → `reviewed` → `dismissed`). Triggers keyword weight training when dismissing false positives. |
+| `get_dashboard_metrics()` | Counts high-scoring articles, recent CVEs, recent hazards, and unresolved recent cloud outages. Results are cached for 60 seconds. |
+| `get_pinned_articles()` | Returns all pinned articles ordered by publication date. Pin state is shared across users. |
+| `get_live_articles(limit=15)` | Returns recent high-scoring, unpinned articles up to `limit`. |
+| `toggle_pin(art_id)` | Toggles the shared pin state for an article. |
+| `boost_score(art_id, amount=15)` | Adds the requested amount to an article score, capped at 100. |
+| `change_status(art_id, new_feedback)` | Stores analyst feedback (`0`, `1`, or `2`) and adjusts matched keyword weights when feedback is first submitted. |
 
 ### CIS Scoring
 
@@ -147,10 +147,9 @@ Persists a point-in-time risk snapshot to the database. Used for historical tren
 |---|---|
 | `process_nws_alerts(raw_alerts)` | Normalizes NWS alert JSON into internal hazard format. Deduplicates by event ID, extracts affected zones, and assigns severity tiers. |
 | `get_weather_alerts_log()` | Returns the persisted weather alert history for logbook and dashboard display. |
-| `calculate_site_intersections(hazards, locations)` | **Bounding-box optimized** spatial intersection. Checks if any monitored site falls within a hazard's geographic extent. Returns intersecting site-hazard pairs with distance calculations. |
-| `get_infrastructure_analytics()` | Aggregate infrastructure health metrics across all sites: alert counts by domain, maintenance status, fleet-level trends. |
-| `_precompute_geo_matrix()` | Precomputes a site-to-site distance matrix for cluster detection and proximity analysis. Cached in memory. |
-| `compile_regional_grid_map()` | The master map compilation function. Returns `[layers[], viewState{}, diagnostics[], toggled_affected[], master_affected[], analytics{}]` — a 6-element array consumed by the frontend `MapContainer`. |
+| `calculate_site_intersections(map_rows, polygons)` | **Bounding-box optimized** spatial intersection over site dictionaries. Returns the toggled and complete site-hazard records. |
+| `get_infrastructure_analytics()` | Builds JSON-ready risk distributions and matrices from site/hazard record lists. |
+| `_precompute_geo_matrix()` | Parses weather/fire/earthquake GeoJSON, builds Shapely polygons, and computes affected-site intersections. Cached in memory. |
 | `_hazard_color(severity)` | Maps hazard severity to a display color (green/yellow/orange/red). |
 | `get_active_wildfires()` | Fetches and filters active wildfire perimeters from NIFC. Returns GeoJSON polygons with fire size and containment data. |
 
@@ -187,20 +186,20 @@ Full administrative CRUD for system configuration.
 
 | Function | Description |
 |---|---|
-| `get_all_roles()` | Returns all roles with their permission sets. |
-| `create_role(name, permissions)` / `update_role(role_id, updates)` | Role management with permission bitmask. |
-| `create_user(username, password, role_id, ...)` | User creation with bcrypt hashing, role assignment, and site-type scoping. |
-| `force_reset_pwd(user_id, new_password)` | Admin password reset. Bypasses current password verification. |
-| `update_user_role(user_id, role_id)` | Role reassignment. Validates the new role exists and permissions are valid. |
-| `save_global_config(key, value)` | Upserts a global configuration key. Cached functions auto-invalidate on change. |
-| `add_bulk_keywords(keyword_list)` | Batch insert keywords for the hybrid scorer. Deduplicates by keyword text. |
+| `get_all_roles()` | Returns roles with page, action, and site-type grants. |
+| `create_role(name, allowed_pages, allowed_actions, allowed_site_types=None)` / `update_role(...)` | Creates or updates validated role grants. |
+| `create_user(username, password, role, full_name="")` / `create_display_account(...)` | Creates individual or display accounts with password hashing and role assignment. Individual invitations use a separate email-verification workflow. |
+| `force_reset_pwd(username, new_password, actor_user_id=None)` | Administrator-assisted password reset with audit context. |
+| `update_user_role(username, new_role, actor_user_id=None)` | Reassigns a user's role and revokes sessions when required. |
+| `save_global_config(data, allow_system_fields=True)` | Validates a config-field allowlist, persists supported values, and invalidates cached configuration. |
+| `add_bulk_keywords(raw_text)` | Parses and inserts keyword/weight lines, avoiding duplicate words. |
 | `update_keyword_weight(keyword_id, weight)` | Adjusts individual keyword weight for scorer training. |
-| `add_bulk_feeds(feed_list)` | Batch insert RSS feed URLs. Validates URL format and checks for duplicates. |
-| `delete_record(table, record_id)` | Generic soft/hard delete for any managed table. Respects foreign key constraints. |
-| `get_admin_lists()` | Returns all admin-managed lists (keywords, feeds, roles, users) for the Settings page. |
-| `backup_database()` / `restore_database(backup_path)` | SQLite backup/restore. Creates a file-system copy of the database file. |
-| `export_data(table)` / `import_data(table, data)` | JSON export/import for individual tables. Used for data migration and disaster recovery. |
-| `restore_from_db_upload(upload_path)` | Restores from a user-uploaded database file. Validates integrity before swapping. |
+| `add_bulk_feeds(raw_text)` | Parses and inserts feed URL/name lines while avoiding duplicate URLs. |
+| `delete_record(model_name, record_id)` | Deletes a record from the explicitly managed model set. |
+| `get_admin_lists()` | Returns keyword, feed, and user rows used by legacy administrator views. |
+| `get_backup_data()` / `restore_backup_data(data)` | Legacy JSON backup/restore for keywords, feeds, monitored locations, and aliases (four collections). |
+| `export_all_tables()` / `import_all_tables(data, merge=False)` | JSON export/import for the 27 model classes in `ALL_MODELS`; this omits user-session, recovery, failed-login, audit, and scheduler-job tables. It is not a full database backup. |
+| `restore_from_db_upload(db_file_path)` | Imports table rows from an uploaded SQLite file into the current database; it does not replace the database file or perform an atomic file swap. |
 
 ### Maintenance
 
@@ -538,9 +537,8 @@ Extends `pydantic.BaseSettings` with `.env` file support. The complete field tab
 
 ## src/core/db.py — Database Core
 
-**Location**: `src/core/db.py`  
-**Size**: ~358 lines  
-**Role**: SQLAlchemy engine configuration, session management, and database initialization with migrations and seed data.
+**Location**: `src/core/db.py`, `src/core/migration_runner.py`, `migrations/`<br>
+**Role**: SQLite engine/session setup, startup migration lock and Alembic revision checks, post-migration tuning, and conditional bootstrap data.
 
 ### Engine Configuration
 
@@ -552,10 +550,12 @@ engine = create_engine(
 )
 ```
 
-SQLite pragmas applied on each connection:
+SQLite tuning is applied after migrations. WAL mode persists in the database; connection-local settings are applied whenever NullPool opens a connection:
 - `PRAGMA journal_mode=WAL` — Write-Ahead Logging for concurrent reads
-- `PRAGMA mmap_size=268435456` — 256MB memory-mapped I/O
-- `PRAGMA foreign_keys=ON`
+- `PRAGMA synchronous=NORMAL` — balanced WAL durability/performance
+- `PRAGMA cache_size=-16000` — 16 MiB page cache
+- `PRAGMA temp_store=MEMORY` — in-memory temporary tables
+- `PRAGMA mmap_size=67108864` — 64 MiB memory-mapped I/O
 
 ### Session Management
 
@@ -564,34 +564,22 @@ SQLite pragmas applied on each connection:
 | `SessionLocal` | SQLAlchemy `sessionmaker` bound to the engine. Non-scoped for simplicity. |
 | `get_db()` | FastAPI dependency injection helper. Yields a session and ensures cleanup on request completion. |
 
-### `init_db()` — 9-Phase Initialization
+### `init_db()` — Startup Migration and Bootstrap
 
-Called on application startup. Performs schema creation, column migrations, and seed data insertion.
+Called on each service startup before serving requests or starting jobs. Alembic checks the database revision and only applies pending migrations.
 
 | Phase | Operation | Notes |
 |---|---|---|
-| 1 | **Create all tables** | `Base.metadata.create_all()` — idempotent |
-| 2 | **Column migrations** | ALTER TABLE ADD COLUMN for each known missing column. Split into per-column try/except blocks to prevent one failure from blocking subsequent migrations. |
-| 3 | **Seed roles** | Creates missing starter roles and performs a one-time permission migration; it does not union grants at every startup. |
-| 4 | **Bootstrap admin recovery email** | Creates `admin` with `DEFAULT_ADMIN_PASSWORD` if no users exist. A valid `DEFAULT_ADMIN_EMAIL` is verified at creation or safely applied to an existing email-less bootstrap admin, completing a matching pending setup request. |
-| 5 | **Seed RSS feeds** | Inserts default feed URLs for cybersecurity, weather, crime, and infrastructure news |
-| 6 | **Seed keywords** | Inserts 70 default keywords with weights for the hybrid scorer. **Critical**: keywords must be seeded before any scoring. |
-| 7 | **Rescale scores** | After keyword seeding, rescales all existing article scores to account for new keyword weights |
-| 8 | **Seed global config** | Inserts default configuration values (risk thresholds, alert settings, UI preferences) |
-| 9 | **Create indexes** | Performance indexes on frequently queried columns (timestamps, foreign keys, status fields) |
+| 1 | **Acquire SQLite migration lock** | Serializes API, worker, webhook, and standalone worker startup on a shared file. |
+| 2 | **Check/apply Alembic revision** | `alembic_version` tracks successful migration state. No DDL is run when current. |
+| 3 | **Configure SQLite** | WAL and per-connection performance pragmas are configured after migration. |
+| 4 | **Seed roles/config/admin** | Adds missing defaults, preserves custom grants, and retains the one-time `permission_catalog_version` conversion. |
+| 5 | **Seed feeds/keywords** | Existing keys are fetched in batches; operator-edited weights are retained. |
+| 6 | **Optional demo/rescore work** | Demo assets require `DEMO_SEED_DATA`; full rescore requires `RESCORE_ON_STARTUP=true`. |
 
-### Column Migration Safety
+### Migration Safety
 
-ALTER TABLE operations are wrapped in individual try/except blocks:
-
-```python
-try:
-    engine.execute("ALTER TABLE articles ADD COLUMN status TEXT DEFAULT 'new'")
-except Exception:
-    pass  # Column already exists
-```
-
-This prevents the common SQLite issue where a failed ALTER TABLE (due to existing column) blocks all subsequent migrations in the same run.
+Alembic records the successful revision in `alembic_version`. Startup serializes upgrades with a lock file beside the SQLite database, applies only pending revisions, and fails closed if a migration errors. The initial adoption revision checks legacy columns individually; future schema changes are added as new forward revisions.
 
 ### Dependencies
 

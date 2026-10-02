@@ -16,7 +16,7 @@ import {
 import { ThemeSelector } from "../components/ThemeSelector";
 import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer } from "@deck.gl/layers";
-import { Map } from "react-map-gl/maplibre";
+import { Map } from "@vis.gl/react-maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 const TABS = [

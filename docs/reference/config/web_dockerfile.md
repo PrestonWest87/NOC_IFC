@@ -8,14 +8,14 @@ Multi-stage Docker build for the React frontend. Stage 1 compiles the TypeScript
 
 ## Stages
 
-### Stage 1: Builder (`node:20-alpine`)
+### Stage 1: Builder (`node:22-alpine`)
 
 | Directive | Value | Description |
 |-----------|-------|-------------|
-| `FROM` | `node:20-alpine AS builder` | Lightweight Node.js 20 Alpine image for dependency installation and build. |
+| `FROM` | `node:22-alpine AS builder` | Lightweight Node.js 22 Alpine image, satisfying Vite and MapLibre toolchain engine requirements. |
 | `WORKDIR` | `/app` | Working directory for the build stage. |
 | `COPY` | `package.json package-lock.json ./` | Copies manifest and lockfile first to leverage Docker layer caching — `npm ci` re-runs only when dependencies change. |
-| `RUN` | `npm ci` | Clean install from lockfile. Faster and more deterministic than `npm install`. Fails if `package-lock.json` is out of sync with `package.json`. |
+| `RUN` | `npm ci` with a BuildKit npm-cache mount | Clean install from lockfile with cached package downloads. Fails if `package-lock.json` is out of sync with `package.json`. |
 | `COPY` | `. .` | Copies all frontend source (`src/`, `public/`, `index.html`, `vite.config.ts`, `tsconfig.json`, etc.). |
 | `RUN` | `npm run build` | Executes `tsc -b && vite build`. Outputs production assets to `/app/dist`. |
 

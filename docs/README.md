@@ -18,6 +18,7 @@
 | Maintain, back up, and recover production | [MAINTENANCE.md](MAINTENANCE.md) |
 | Understand job timing and escalation | [SCHEDULER.md](SCHEDULER.md), [ESCALATION.md](ESCALATION.md) |
 | Understand ingestion pipelines | [DATA_FLOWS.md](DATA_FLOWS.md), [TRIGGER_ACTION_FLOWS.md](TRIGGER_ACTION_FLOWS.md) |
+| Review startup migration and efficiency work | [IMPLEMENTATION_PLAN_EFFICIENCY_AND_MIGRATIONS.md](IMPLEMENTATION_PLAN_EFFICIENCY_AND_MIGRATIONS.md), [implementation log](IMPLEMENTATION_LOG_EFFICIENCY_AND_MIGRATIONS.md) |
 
 ## Authority and Maintenance
 

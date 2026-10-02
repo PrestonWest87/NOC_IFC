@@ -1,6 +1,5 @@
 import logging
 from fastapi import APIRouter, Query, Depends
-from typing import Optional
 from datetime import datetime, timedelta
 from src.api.auth_guard import require_page, require_action
 
@@ -17,7 +16,7 @@ def keyword_overview():
     try:
         total_keywords = session.query(Keyword).count()
         total_articles = session.query(Article).count()
-        keywords_list = session.query(Keyword).all()
+        keywords_list = session.query(Keyword.weight).all()
 
         if not keywords_list:
             return {
@@ -30,12 +29,12 @@ def keyword_overview():
                 "keywords_unused": 0,
             }
 
-        weights = [k.weight for k in keywords_list]
+        weights = [weight for (weight,) in keywords_list]
         used_words = set()
         articles_with_kw = 0
-        for art in session.query(Article).all():
-            if art.keywords_found:
-                kw_list = art.keywords_found if isinstance(art.keywords_found, list) else []
+        for (keywords_found,) in session.query(Article.keywords_found).yield_per(1000):
+            if keywords_found:
+                kw_list = keywords_found if isinstance(keywords_found, list) else []
                 if kw_list:
                     articles_with_kw += 1
                     for w in kw_list:
@@ -76,9 +75,9 @@ def keyword_stats(
         trigger_counts = defaultdict(int)
         score_contributions = defaultdict(list)
 
-        for art in session.query(Article).all():
-            if art.keywords_found:
-                kw_list = art.keywords_found if isinstance(art.keywords_found, list) else []
+        for (keywords_found,) in session.query(Article.keywords_found).yield_per(1000):
+            if keywords_found:
+                kw_list = keywords_found if isinstance(keywords_found, list) else []
                 for w in kw_list:
                     wl = w.lower()
                     trigger_counts[wl] += 1
@@ -130,26 +129,25 @@ def category_distribution(
             cutoff = datetime.utcnow() - timedelta(days=days)
             query = query.filter(Article.published_date >= cutoff)
 
-        articles = query.all()
+        articles = query.with_entities(Article.category, Article.score).yield_per(1000)
         cat_counts = Counter()
-        cat_scores = {}
+        cat_score_sums = {}
+        total_articles = 0
 
-        for art in articles:
-            cat = art.category or "General"
+        for category, score in articles:
+            total_articles += 1
+            cat = category or "General"
             cat_counts[cat] += 1
-            if cat not in cat_scores:
-                cat_scores[cat] = []
-            cat_scores[cat].append(art.score or 0)
+            cat_score_sums[cat] = cat_score_sums.get(cat, 0) + (score or 0)
 
         results = []
         for cat, count in cat_counts.most_common():
-            scores = cat_scores.get(cat, [])
-            avg_score = round(sum(scores) / len(scores), 1) if scores else 0
+            avg_score = round(cat_score_sums[cat] / count, 1) if count else 0
             results.append({
                 "category": cat,
                 "count": count,
                 "avg_score": avg_score,
-                "percent": round(count / len(articles) * 100, 1) if articles else 0,
+                "percent": round(count / total_articles * 100, 1) if total_articles else 0,
             })
 
         return results
@@ -171,23 +169,25 @@ def keyword_timeline(
     session = SessionLocal()
     try:
         cutoff = datetime.utcnow() - timedelta(days=days)
-        articles = session.query(Article).filter(Article.published_date >= cutoff).all()
+        articles = session.query(
+            Article.published_date, Article.score, Article.keywords_found
+        ).filter(Article.published_date >= cutoff).yield_per(1000)
 
-        daily_data = defaultdict(lambda: {"total": 0, "matched": 0, "avg_score": 0, "scores": []})
+        daily_data = defaultdict(lambda: {"total": 0, "matched": 0, "score_sum": 0})
 
-        for art in articles:
-            if not art.published_date:
+        for published_date, score, keywords_found in articles:
+            if not published_date:
                 continue
             if interval == "week":
-                day_key = art.published_date.strftime("%Y-W%U")
+                day_key = published_date.strftime("%Y-W%U")
             else:
-                day_key = art.published_date.strftime("%Y-%m-%d")
+                day_key = published_date.strftime("%Y-%m-%d")
 
             daily_data[day_key]["total"] += 1
-            daily_data[day_key]["scores"].append(art.score or 0)
+            daily_data[day_key]["score_sum"] += score or 0
 
-            if art.keywords_found:
-                kw_list = art.keywords_found if isinstance(art.keywords_found, list) else []
+            if keywords_found:
+                kw_list = keywords_found if isinstance(keywords_found, list) else []
                 if keyword:
                     if any(keyword.lower() == w.lower() for w in kw_list):
                         daily_data[day_key]["matched"] += 1
@@ -198,7 +198,7 @@ def keyword_timeline(
         results = []
         for day_key in sorted(daily_data.keys()):
             d = daily_data[day_key]
-            avg_score = round(sum(d["scores"]) / len(d["scores"]), 1) if d["scores"] else 0
+            avg_score = round(d["score_sum"] / d["total"], 1) if d["total"] else 0
             results.append({
                 "date": day_key,
                 "total_articles": d["total"],
@@ -222,20 +222,23 @@ def keyword_articles(
 
     session = SessionLocal()
     try:
-        articles = session.query(Article).order_by(Article.published_date.desc()).all()
+        articles = session.query(
+            Article.id, Article.title, Article.source, Article.category, Article.score,
+            Article.published_date, Article.keywords_found,
+        ).order_by(Article.published_date.desc()).yield_per(500)
         matched = []
-        for art in articles:
-            if not art.keywords_found:
+        for article_id, title, source, category, score, published_date, keywords_found in articles:
+            if not keywords_found:
                 continue
-            kw_list = art.keywords_found if isinstance(art.keywords_found, list) else []
+            kw_list = keywords_found if isinstance(keywords_found, list) else []
             if any(keyword.lower() == w.lower() for w in kw_list):
                 matched.append({
-                    "id": art.id,
-                    "title": art.title,
-                    "source": art.source,
-                    "category": art.category,
-                    "score": art.score,
-                    "published_date": art.published_date.isoformat() if art.published_date else None,
+                    "id": article_id,
+                    "title": title,
+                    "source": source,
+                    "category": category,
+                    "score": score,
+                    "published_date": published_date.isoformat() if published_date else None,
                     "keywords_found": kw_list,
                 })
                 if len(matched) >= limit:
@@ -261,19 +264,19 @@ def score_distribution(
             cutoff = datetime.utcnow() - timedelta(days=days)
             query = query.filter(Article.published_date >= cutoff)
 
-        articles = query.all()
+        articles = query.with_entities(Article.score, Article.category).yield_per(1000)
         buckets = {}
         for i in range(0, 101, bucket_size):
             label = f"{i}-{min(i + bucket_size - 1, 100)}"
             buckets[label] = {"count": 0, "categories": {}}
 
-        for art in articles:
-            score = int(art.score or 0)
+        for article_score, category in articles:
+            score = int(article_score or 0)
             bucket_idx = min(score // bucket_size * bucket_size, 100 - bucket_size)
             label = f"{bucket_idx}-{min(bucket_idx + bucket_size - 1, 100)}"
             if label in buckets:
                 buckets[label]["count"] += 1
-                cat = art.category or "General"
+                cat = category or "General"
                 buckets[label]["categories"][cat] = buckets[label]["categories"].get(cat, 0) + 1
 
         results = []
@@ -301,14 +304,14 @@ def category_keyword_matrix(
     session = SessionLocal()
     try:
         keywords = {k.word.lower(): k.weight for k in session.query(Keyword).all()}
-        articles = session.query(Article).all()
+        articles = session.query(Article.category, Article.keywords_found).yield_per(1000)
 
         cat_kw_counts = defaultdict(Counter)
-        for art in articles:
-            if not art.keywords_found:
+        for category, keywords_found in articles:
+            if not keywords_found:
                 continue
-            cat = art.category or "General"
-            kw_list = art.keywords_found if isinstance(art.keywords_found, list) else []
+            cat = category or "General"
+            kw_list = keywords_found if isinstance(keywords_found, list) else []
             for w in kw_list:
                 cat_kw_counts[cat][w.lower()] += 1
 
@@ -348,16 +351,19 @@ def category_details(
             cutoff = datetime.utcnow() - timedelta(days=days)
             query = query.filter(Article.published_date >= cutoff)
 
-        articles = query.order_by(Article.published_date.desc()).limit(200).all()
+        articles = query.with_entities(
+            Article.id, Article.title, Article.source, Article.score,
+            Article.published_date, Article.keywords_found,
+        ).order_by(Article.published_date.desc()).limit(200).all()
 
         kw_counter = Counter()
         source_counter = Counter()
         scores = []
-        for art in articles:
-            scores.append(art.score or 0)
-            source_counter[art.source or "Unknown"] += 1
-            if art.keywords_found:
-                kw_list = art.keywords_found if isinstance(art.keywords_found, list) else []
+        for _article_id, _title, source, score, _published_date, keywords_found in articles:
+            scores.append(score or 0)
+            source_counter[source or "Unknown"] += 1
+            if keywords_found:
+                kw_list = keywords_found if isinstance(keywords_found, list) else []
                 for w in kw_list:
                     kw_counter[w.lower()] += 1
 
@@ -368,13 +374,13 @@ def category_details(
             "top_keywords": [{"word": w, "count": c} for w, c in kw_counter.most_common(15)],
             "top_sources": [{"source": s, "count": c} for s, c in source_counter.most_common(10)],
             "recent_articles": [{
-                "id": art.id,
-                "title": art.title,
-                "source": art.source,
-                "score": art.score,
-                "published_date": art.published_date.isoformat() if art.published_date else None,
-                "keywords_found": art.keywords_found if isinstance(art.keywords_found, list) else [],
-            } for art in articles[:50]],
+                "id": article_id,
+                "title": title,
+                "source": source,
+                "score": score,
+                "published_date": published_date.isoformat() if published_date else None,
+                "keywords_found": keywords_found if isinstance(keywords_found, list) else [],
+            } for article_id, title, source, score, published_date, keywords_found in articles[:50]],
         }
     finally:
         session.close()
@@ -388,15 +394,30 @@ def recategorize_all():
 
     session = SessionLocal()
     try:
-        articles = session.query(Article).all()
+        total = 0
         changed = 0
-        for art in articles:
-            text = f"{art.title or ''} {art.summary or ''}"
-            new_cat = categorize_text(text)
-            if art.category != new_cat:
-                art.category = new_cat
-                changed += 1
-        session.commit()
-        return {"status": "ok", "total": len(articles), "changed": changed}
+        last_id = 0
+        batch_size = 250
+        while True:
+            articles = session.query(
+                Article.id, Article.title, Article.summary, Article.category
+            ).filter(Article.id > last_id).order_by(Article.id).limit(batch_size).all()
+            if not articles:
+                break
+
+            updates = []
+            for article_id, title, summary, current_category in articles:
+                new_category = categorize_text(f"{title or ''} {summary or ''}")
+                if current_category != new_category:
+                    updates.append({"id": article_id, "category": new_category})
+            if updates:
+                session.bulk_update_mappings(Article, updates)
+                session.commit()
+                changed += len(updates)
+
+            total += len(articles)
+            last_id = articles[-1][0]
+
+        return {"status": "ok", "total": total, "changed": changed}
     finally:
         session.close()

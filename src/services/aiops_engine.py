@@ -162,13 +162,19 @@ class EnterpriseAIOpsEngine:
         return fleet_events
 
     def generate_chronic_insights(self):
-        import pandas as pd
+        from collections import Counter
         from datetime import datetime, timedelta
 
         logger.info("generate_chronic_insights: fetching alerts from last 60 days")
         cutoff = datetime.utcnow() - timedelta(days=60)
         with self.session_factory() as session:
-            alerts = session.query(SolarWindsAlert).filter(SolarWindsAlert.received_at >= cutoff).all()
+            alerts = session.query(
+                SolarWindsAlert.node_name,
+                SolarWindsAlert.device_type,
+                SolarWindsAlert.mapped_location,
+                SolarWindsAlert.raw_payload,
+                SolarWindsAlert.status,
+            ).filter(SolarWindsAlert.received_at >= cutoff).all()
         logger.debug("generate_chronic_insights: found %d total alerts", len(alerts))
 
         if not alerts:
@@ -176,55 +182,66 @@ class EnterpriseAIOpsEngine:
             return None, None, None
 
         data = []
-        for a in alerts:
-            p = a.raw_payload if isinstance(a.raw_payload, dict) else {}
+        for node_name, device_type, mapped_location, raw_payload, status in alerts:
+            p = raw_payload if isinstance(raw_payload, dict) else {}
             cp = p.get('Custom_Properties_Universal') or {}
-            site = cp.get('Site') or a.mapped_location or 'Unknown'
+            site = cp.get('Site') or mapped_location or 'Unknown'
 
-            if 'resolved' in str(a.status).lower(): continue
+            if 'resolved' in str(status).lower(): continue
 
             data.append({
-                'node_name': a.node_name,
-                'device_type': a.device_type,
+                'node_name': node_name,
+                'device_type': device_type,
                 'site': site
             })
 
-        df = pd.DataFrame(data)
-        if df.empty:
+        if not data:
             return None, None, None
 
-        node_counts = df['node_name'].value_counts().reset_index()
-        node_counts.columns = ['Node Name', 'Total Incidents (60 Days)']
+        node_counts = Counter()
+        node_metadata = {}
+        site_counts = Counter()
+        for row in data:
+            node_name = row['node_name']
+            if node_name is not None:
+                node_counts[node_name] += 1
+                node_metadata.setdefault(node_name, {
+                    "Device Type": row["device_type"],
+                    "Site": row["site"],
+                })
+            if row["site"] not in (None, "Unknown"):
+                site_counts[row["site"]] += 1
 
-        node_meta = df[['node_name', 'device_type', 'site']].drop_duplicates(subset=['node_name'])
-        f = pd.merge(node_counts, node_meta, left_on='Node Name', right_on='node_name').drop(columns=['node_name'])
-        f.rename(columns={'device_type': 'Device Type', 'site': 'Site'}, inplace=True)
-        f = f.head(15)
-
-        site_counts = df[df['site'] != 'Unknown']['site'].value_counts().reset_index()
-        site_counts.columns = ['Site', 'Total Incidents (60 Days)']
-        v = site_counts.head(10)
+        f = [
+            {
+                "Node Name": node,
+                "Total Incidents (60 Days)": count,
+                **node_metadata[node],
+            }
+            for node, count in node_counts.most_common(15)
+        ]
+        v = [
+            {"Site": site, "Total Incidents (60 Days)": count}
+            for site, count in site_counts.most_common(10)
+        ]
 
         r = []
-        if not f.empty:
-            top_node = f.iloc[0]['Node Name']
-            top_node_count = int(f.iloc[0]['Total Incidents (60 Days)'])
+        if f:
+            top_node = f[0]['Node Name']
+            top_node_count = int(f[0]['Total Incidents (60 Days)'])
             if top_node_count > 5:
                 r.append(f"[CRITICAL] **CRITICAL FLAP DETECTED:** Node `{top_node}` is exhibiting severe chronic instability with {top_node_count} logged incidents this week. Recommend immediate hardware diagnostic or circuit test.")
 
-        if not v.empty:
-            top_site = v.iloc[0]['Site']
-            top_site_count = int(v.iloc[0]['Total Incidents (60 Days)'])
+        if v:
+            top_site = v[0]['Site']
+            top_site_count = int(v[0]['Total Incidents (60 Days)'])
             if top_site_count > 15:
                 r.append(f"[HIGH] **REGIONAL DEGRADATION:** The `{top_site}` facility is a current infrastructure hotspot. Recommend dispatching field tech to review local power conditioning and physical transport handoffs.")
 
         if not r:
             r.append("[OK] Telemetry indicates normal operational limits. Devices are stable and no immediate predictive maintenance is required.")
 
-        f_json = json.loads(f.to_json(orient="records")) if not f.empty else []
-        v_json = json.loads(v.to_json(orient="records")) if not v.empty else []
-
-        return f_json, v_json, r
+        return f, v, r
 
     def calculate_root_cause(self, site_name, data, active_weather, active_cloud, active_bgp, fleet_events=None):
         logger.info("calculate_root_cause: site=%s domains=%s", site_name, data.get('domains_affected', set()))

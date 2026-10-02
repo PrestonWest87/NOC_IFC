@@ -1,8 +1,25 @@
 # Changelog — NOC Intelligence Fusion Center
 
-All notable changes for the `architecture/monolith-to-decoupled` branch are documented here.
+All notable changes to the NOC Intelligence Fusion Center application are documented here.
 
 ---
+
+## Unreleased
+
+### Accounts, Permissions, and Administration
+- Canonical page/tab/action permissions are enforced by the API, including site-scoped AIOps/WebSocket access.
+- Added individual invitations, email-optional display accounts, reviewed recovery requests, session revocation, and account activity history.
+- Added permission-scoped application settings and dynamically reloaded, validated scheduler schedules.
+
+### Database Lifecycle and Efficiency
+- SQLite is the only supported database backend. Alembic revisions run at backend startup under a cross-process SQLite lock.
+- The legacy-adoption migration uses a frozen v1 schema snapshot; future schema changes require forward revisions.
+- Removed pandas and unused runtime dependencies; analytics use projected rows, counters, and batches. Article deduplication uses RapidFuzz at the established threshold.
+- Added a hash-pinned Python runtime lock, Docker build caches, and a persistent dependency-aware frontend development install. Runtime data and generated model artifacts are excluded from image build contexts.
+
+### Frontend and Documentation
+- Updated MapLibre/deck.gl dependencies and the React map wrapper; the theme selector currently offers 21 themes.
+- Updated deployment, database, operations, API, user, and frontend documentation for current behavior.
 
 ## v2.0.0 — 2026-07-01
 

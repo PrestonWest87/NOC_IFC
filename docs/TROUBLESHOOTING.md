@@ -63,10 +63,9 @@ Look for import errors, database initialization failures, unhandled scheduler st
 
 ```bash
 docker compose logs --tail=300 api | grep -iE 'database|sqlite|migration|column|locked'
-docker compose exec api python -c "from src.core.db import init_db; init_db()"
 ```
 
-Back up first. Confirm only one process is writing the SQLite file outside the intended API/worker/webhook deployment. SQLite uses WAL and `NullPool`, but concurrent long-running writes can still contend. Move to PostgreSQL for multi-replica deployments. Never manually drop columns to fix a migration error.
+Back up first. Confirm the API, worker, and webhook share the intended SQLite file. Startup migrations serialize on a lock file next to the database and apply only revisions absent from `alembic_version`. Long-running SQLite writes can still contend. Never manually drop columns, invoke migration code as a repair shortcut, or edit `alembic_version`; resolve the reported migration/data issue and restart the backend.
 
 ## WebSocket Disconnects or No Live Updates
 
