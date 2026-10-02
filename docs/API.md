@@ -414,6 +414,41 @@ Body: array of location dicts.
 ### PUT /admin/location
 Body: array of edited location records (`list[dict]`).
 
+### GET /admin/backups/status
+Returns whether encrypted backups are configured, the byte limit, and the scheduled-retention policy. Key material is never returned.
+
+### GET /admin/backups
+Returns encrypted full-backup filename, kind (`Manual`, `Pre-restore safety`, or `Scheduled`), creation time, and size metadata. New pre-restore snapshots receive their own filename/category; older packages retain their original label until reclassified.
+
+### POST /admin/backups
+Creates and returns a manual encrypted full SQLite snapshot. It includes every SQLite table and the persistent ML model artifact when present. Stored database credentials are encrypted with the package; `.env` and environment variables are not included.
+
+### GET /admin/backups/{backup_id}/download
+Streams the selected encrypted `.nocbackup` package with `Cache-Control: no-store`.
+
+### POST /admin/backups/{backup_id}/download-link
+Creates a 60-second, path-scoped HttpOnly download cookie and returns a same-origin streaming URL. This lets the browser download large packages without buffering the entire backup in JavaScript or placing the session token in a URL.
+
+### DELETE /admin/backups/{backup_id}
+Deletes a manual or pre-restore safety backup. Scheduled backups are managed by the three-package retention policy and cannot be deleted through this endpoint.
+
+### GET /admin/backups/staged
+Lists encrypted packages staged for an offline restore.
+
+### POST /admin/backups/staged
+Multipart upload with form field `file`. Authenticates and validates the encrypted package, manifest/checksums, archive layout, and SQLite integrity before saving it under `./data/backups/staged`. It does not restore the active database.
+
+### DELETE /admin/backups/staged/{stage_id}
+Deletes a staged encrypted restore package.
+
+### POST /admin/backups/staged/{stage_id}/restore
+Starts a UI-managed restore and returns HTTP 202 with a random `restore_id`. The service gates API requests, drains worker/webhook writes, closes WebSocket clients, then validates/migrates and atomically installs the staged snapshot with a pre-restore backup. On success it removes all staged restore packages and invalidates sessions and outstanding account links.
+
+### POST /restore-status
+Body: `{"restore_id":"<value returned by the restore request>"}`. Returns restore state and progress for up to 24 hours. The random ID is a status capability so progress remains available after the restored database revokes the caller's prior session. It exposes status only, not database contents or package paths.
+
+The `database_backup` scheduler job creates a full encrypted snapshot every Sunday at 00:00 `America/Chicago` and keeps the latest three scheduled snapshots. Backup-management and restore-start operations are administrator-only. See [Maintenance](MAINTENANCE.md#restore-and-disaster-recovery) for the UI workflow and offline fallback.
+
 ### GET /admin/backup
 Returns the legacy configuration backup containing keywords, feeds, monitored locations, and node aliases. This is a four-collection logical backup, not a full database snapshot.
 

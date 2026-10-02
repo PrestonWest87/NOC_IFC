@@ -58,6 +58,7 @@ class RegistrationInvite(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     expires_at = Column(DateTime, nullable=False, index=True)
     used_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
     email = Column(String(254), nullable=False)
     email_normalized = Column(String(254), nullable=False, index=True)
     account_type = Column(String(20), nullable=False, default="individual")

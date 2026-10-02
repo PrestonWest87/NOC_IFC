@@ -117,6 +117,9 @@ The checked-in `.env.example` is the complete environment template. The API, wor
 | `DEFAULT_ADMIN_PASSWORD` | Initial admin password | First boot when no users exist |
 | `DEFAULT_ADMIN_EMAIL` | Optional trusted bootstrap email for the administrator | Recovery and account-review notifications; can initialize an existing email-less bootstrap admin at startup |
 | `LOG_LEVEL` | `INFO` | Python log threshold |
+| `BACKUP_ENCRYPTION_ACTIVE_KEY_ID` | `primary` | Active key ID for full encrypted database backups; set with `BACKUP_ENCRYPTION_KEYS` to enable backups |
+| `BACKUP_ENCRYPTION_KEYS` | Empty | JSON key-ID map of 32-byte hex encryption keys; keep outside the repository and retain old keys until matching backups expire |
+| `BACKUP_MAX_BYTES` | `10737418240` | Maximum encrypted full-backup and restore-upload size in bytes |
 | `CRIME_ALERT_SMS` | SMS gateway address | Crime notifications |
 | `CRIME_ALERT_EMAIL` | Email address | Crime notifications |
 | `WEBHOOK_HMAC_SECRET` | Shared signing secret | Signed SolarWinds webhooks |

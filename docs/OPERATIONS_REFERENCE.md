@@ -85,4 +85,4 @@ Change these through the Settings UI or the corresponding `SystemConfig` fields,
 
 ## Safe Database Actions
 
-Use the SQLite online backup procedure in [Maintenance](MAINTENANCE.md#database-backups) before destructive work. The Settings JSON exports cover only supported application-model subsets; they are not full database backups. Do not delete the database or run destructive admin actions without a verified file-level backup. Schema migrations run automatically at backend startup; conditional bootstrap data preserves existing keyword weights and custom role grants.
+Create and verify an encrypted full SQLite backup through Settings > Backup & Restore before destructive work. Packages include all database tables and the trained model when present; `.env` secrets remain separate. Restore uses the offline maintenance-window procedure in [Maintenance](MAINTENANCE.md#restore-and-disaster-recovery). The legacy Settings JSON exports cover only supported application-model subsets and are not full database backups. Schema migrations run automatically at backend startup; conditional bootstrap data preserves existing keyword weights and custom role grants.

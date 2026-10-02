@@ -3,13 +3,14 @@ import json
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Body
 from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.core.db import engine, init_db
 from src.core.config import setup_logging
 from src.core.config import settings as app_settings
+from src.core import restore_control
 from src import services as svc
 from src.api.ws_manager import ConnectionManager
 from src.api.auth_guard import (
@@ -38,6 +39,9 @@ async def broadcaster():
     from src import services as svc
     cycle = 0
     while True:
+        if not restore_control.begin_api_background_writer():
+            await asyncio.sleep(0.5)
+            continue
         try:
             if manager.count == 0:
                 await asyncio.sleep(10)
@@ -64,12 +68,21 @@ async def broadcaster():
                               cycle, len(alerts), len(events), manager.count)
         except Exception as e:
             logger.error("Broadcaster error: %s", e)
+        finally:
+            restore_control.end_api_background_writer()
         await asyncio.sleep(10)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    if restore_control.maintenance_requested():
+        logger.warning("Starting API in restore maintenance mode; waiting for restore recovery.")
+    else:
+        init_db()
     task = asyncio.create_task(broadcaster())
+    if restore_control.maintenance_requested():
+        from src.core.ui_restore import resume_pending_restore
+
+        resume_pending_restore()
     logger.info("FastAPI server started with WebSocket broadcaster.")
     yield
     task.cancel()
@@ -115,6 +128,8 @@ def health():
 @app.get("/ready")
 def ready():
     """Readiness probe: the process is serving only after the database responds."""
+    if restore_control.maintenance_requested():
+        raise HTTPException(status_code=503, detail="database restore in progress")
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
@@ -123,8 +138,20 @@ def ready():
         raise HTTPException(status_code=503, detail="database unavailable")
     return {"status": "ready"}
 
+
+@app.post("/api/v1/restore-status")
+def restore_status(data: dict = Body(...)):
+    """Expose progress through an unguessable, short-lived restore ID capability."""
+    status = restore_control.restore_status(str(data.get("restore_id", "")))
+    if status is None:
+        raise HTTPException(status_code=404, detail="Restore status not found.")
+    return status
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    if restore_control.maintenance_requested():
+        await websocket.close(code=1012, reason="Database restore in progress")
+        return
     token = websocket.query_params.get("token", "")
     user = await asyncio.to_thread(svc.get_user_by_token, token)
     if not user:
@@ -136,6 +163,9 @@ async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket, user)
     try:
         while True:
+            if restore_control.maintenance_requested():
+                await websocket.close(code=1012, reason="Database restore in progress")
+                break
             try:
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=30)
             except asyncio.TimeoutError:

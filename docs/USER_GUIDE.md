@@ -364,10 +364,12 @@ Eleven tabs for profile, appearance, operations, and system administration:
 - For first-admin setup, `DEFAULT_ADMIN_EMAIL` is a trusted bootstrap option; setting it for an existing email-less `admin` account and restarting the API or worker verifies the address and completes a matching pending setup request.
 
 #### Backup & Restore
-- Download the legacy JSON backup for keywords, feeds, locations, and aliases.
-- Export/import the 27 application models supported by the JSON table tools; this excludes user sessions, failed logins, invitations, recovery queues/tokens, account-audit events, and scheduler configuration.
-- Import records from a `.db` file into the current database; it does not replace the SQLite file.
-- Use the SQLite online-backup procedure in [Maintenance](MAINTENANCE.md#database-backups) for complete disaster recovery.
+- Create and download complete encrypted SQLite snapshots; they include every database table and the trained model when present.
+- Backup history labels manual, scheduled, and pre-restore safety snapshots separately. Restore clears staged restore packages after successful installation while retaining permanent backups.
+- Automatic full backups run Sunday at 00:00 `America/Chicago`; the latest three scheduled packages are retained. Manual packages remain until explicitly deleted.
+- Upload a `.nocbackup` file to authenticate and validate it, then choose **Restore now**. The UI coordinates the maintenance window, reports progress, applies migrations, creates a pre-restore safety backup, revokes sessions and outstanding links while retaining request/audit history, and clears all staged restore files on success.
+- Configure the backup encryption keys in the deployment environment and retain them separately from the host and backup files. `.env` secrets are not included in the package.
+- Legacy JSON exports/imports and `.db` row imports remain available under “Legacy partial data migration tools”; they are not full backups or restore methods.
 
 #### Danger Zone
 - Database garbage collection

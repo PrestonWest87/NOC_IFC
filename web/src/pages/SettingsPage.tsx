@@ -1053,23 +1053,62 @@ function BackupRestoreTab({ isAdmin }: { isAdmin: boolean }) {
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [importAllFile, setImportAllFile] = useState<File | null>(null);
   const [dbFile, setDbFile] = useState<File | null>(null);
+  const [stageFile, setStageFile] = useState<File | null>(null);
+  const [notice, setNotice] = useState("");
+  const [activeRestoreId, setActiveRestoreId] = useState(() => sessionStorage.getItem("noc_restore_id") || "");
+  const [restoreResult, setRestoreResult] = useState<any>(null);
   const queryClient = useQueryClient();
 
-  const { data: backup, isLoading: backupLoading } = useQuery({
+  const { data: legacyBackup, isLoading: legacyBackupLoading } = useQuery({
     queryKey: ["admin-backup"],
     queryFn: () => api.get("/admin/backup").then(r => r.data),
     enabled: isAdmin,
   });
 
-  const downloadBackup = () => {
-    if (!backup) return;
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+  const { data: backupStatus } = useQuery({
+    queryKey: ["admin-backups-status"],
+    queryFn: () => api.get("/admin/backups/status").then(r => r.data),
+    enabled: isAdmin,
+  });
+  const { data: fullBackups, isLoading: backupsLoading } = useQuery({
+    queryKey: ["admin-backups"],
+    queryFn: () => api.get("/admin/backups").then(r => r.data),
+    enabled: isAdmin,
+  });
+  const { data: stagedBackups } = useQuery({
+    queryKey: ["admin-staged-backups"],
+    queryFn: () => api.get("/admin/backups/staged").then(r => r.data),
+    enabled: isAdmin,
+  });
+  const { data: restoreStatus } = useQuery({
+    queryKey: ["admin-backup-restore-status", activeRestoreId],
+    queryFn: () => api.post("/restore-status", { restore_id: activeRestoreId }).then(r => r.data),
+    enabled: !!activeRestoreId,
+    refetchInterval: 1500,
+    retry: 3,
+  });
+
+  useEffect(() => {
+    if (!activeRestoreId || !["complete", "error"].includes(restoreStatus?.state)) return;
+    setRestoreResult(restoreStatus);
+    setActiveRestoreId("");
+    sessionStorage.removeItem("noc_restore_id");
+    if (restoreStatus.state === "complete") {
+      setNotice("Restore completed. Existing sessions were revoked; sign in again to continue.");
+    } else {
+      setNotice(restoreStatus.message || "Restore failed. The current database was preserved or rolled back.");
+    }
+  }, [activeRestoreId, restoreStatus]);
+
+  const downloadLegacyBackup = () => {
+    if (!legacyBackup) return;
+    const blob = new Blob([JSON.stringify(legacyBackup, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `noc_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `noc_legacy_backup_${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const downloadFullExport = async () => {
@@ -1079,11 +1118,80 @@ function BackupRestoreTab({ isAdmin }: { isAdmin: boolean }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `noc_full_export_${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `noc_legacy_model_export_${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
-      URL.revokeObjectURL(url);
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (e: any) {
-      alert("Export error: " + (e.response?.data?.detail || e.message));
+      setNotice(getApiErrorMessage(e, "Export failed."));
+    }
+  };
+
+  const createBackupMutation = useMutation({
+    mutationFn: () => api.post("/admin/backups"),
+    onSuccess: (response) => {
+      setNotice(`Encrypted full backup created: ${response.data.filename}`);
+      queryClient.invalidateQueries({ queryKey: ["admin-backups"] });
+    },
+    onError: (e: any) => setNotice(getApiErrorMessage(e, "Could not create the full backup.")),
+  });
+
+  const stageBackupMutation = useMutation({
+    mutationFn: (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      return api.post("/admin/backups/staged", formData);
+    },
+    onSuccess: (response) => {
+      const info = response.data;
+      setNotice(`Backup authenticated and staged (${info.table_count} tables; ${info.model_included ? "model included" : "no model artifact"}).`);
+      setStageFile(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-staged-backups"] });
+    },
+    onError: (e: any) => setNotice(getApiErrorMessage(e, "The uploaded backup could not be validated.")),
+  });
+
+  const restoreStagedMutation = useMutation({
+    mutationFn: (stageId: string) => api.post(`/admin/backups/staged/${encodeURIComponent(stageId)}/restore`),
+    onSuccess: (response) => {
+      const restoreId = response.data.restore_id;
+      sessionStorage.setItem("noc_restore_id", restoreId);
+      setActiveRestoreId(restoreId);
+      setRestoreResult(null);
+      setNotice("Restore started. API writes, scheduled jobs, and webhook intake are paused until it finishes.");
+    },
+    onError: (e: any) => setNotice(getApiErrorMessage(e, "Could not start the restore.")),
+  });
+
+  const deleteBackupMutation = useMutation({
+    mutationFn: (backupId: string) => api.delete(`/admin/backups/${encodeURIComponent(backupId)}`),
+    onSuccess: () => {
+      setNotice("Manual backup deleted.");
+      queryClient.invalidateQueries({ queryKey: ["admin-backups"] });
+    },
+    onError: (e: any) => setNotice(getApiErrorMessage(e, "Could not delete the backup.")),
+  });
+
+  const deleteStageMutation = useMutation({
+    mutationFn: (stageId: string) => api.delete(`/admin/backups/staged/${encodeURIComponent(stageId)}`),
+    onSuccess: () => {
+      setNotice("Staged restore package deleted.");
+      queryClient.invalidateQueries({ queryKey: ["admin-staged-backups"] });
+    },
+    onError: (e: any) => setNotice(getApiErrorMessage(e, "Could not delete the staged package.")),
+  });
+
+  const downloadEncryptedBackup = async (backupId: string) => {
+    try {
+      const response = await api.post(`/admin/backups/${encodeURIComponent(backupId)}/download-link`);
+      const a = document.createElement("a");
+      a.href = response.data.url;
+      a.download = backupId;
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (e: any) {
+      setNotice(getApiErrorMessage(e, "Could not download the backup."));
     }
   };
 
@@ -1093,8 +1201,8 @@ function BackupRestoreTab({ isAdmin }: { isAdmin: boolean }) {
       const data = JSON.parse(text);
       return api.post("/admin/restore", data);
     },
-    onSuccess: () => { alert("Restore completed."); queryClient.invalidateQueries(); },
-    onError: (e: any) => alert("Restore error: " + (e.response?.data?.detail || e.message)),
+    onSuccess: () => { setNotice("Legacy restore completed."); queryClient.invalidateQueries(); },
+    onError: (e: any) => setNotice(getApiErrorMessage(e, "Legacy restore failed.")),
   });
 
   const importAllMutation = useMutation({
@@ -1106,10 +1214,10 @@ function BackupRestoreTab({ isAdmin }: { isAdmin: boolean }) {
     onSuccess: (res) => {
       const counts = res.data?.counts;
       const summary = counts ? Object.entries(counts).filter(([,c]) => (c as number) > 0).map(([t, c]) => `${t}: ${c}`).join(", ") : "";
-      alert(`Full import completed. ${summary}`);
+      setNotice(`Legacy full import completed. ${summary}`);
       queryClient.invalidateQueries();
     },
-    onError: (e: any) => alert("Import error: " + (e.response?.data?.detail || e.message)),
+    onError: (e: any) => setNotice(getApiErrorMessage(e, "Legacy import failed.")),
   });
 
   const uploadDbMutation = useMutation({
@@ -1121,10 +1229,10 @@ function BackupRestoreTab({ isAdmin }: { isAdmin: boolean }) {
     onSuccess: (res) => {
       const counts = res.data?.counts;
       const summary = counts ? Object.entries(counts).filter(([,c]) => (c as number) > 0).map(([t, c]) => `${t}: ${c}`).join(", ") : "";
-      alert(`Database restored from .db file. ${summary}`);
+      setNotice(`Legacy database import completed. ${summary}`);
       queryClient.invalidateQueries();
     },
-    onError: (e: any) => alert("DB upload error: " + (e.response?.data?.detail || e.message)),
+    onError: (e: any) => setNotice(getApiErrorMessage(e, "Legacy database import failed.")),
   });
 
   if (!isAdmin) {
@@ -1135,71 +1243,148 @@ function BackupRestoreTab({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-      <Card title="Export" icon={Download} wide>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
-          <div>
-            <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>Legacy Backup (4 tables)</h4>
-            <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", margin: "0 0 0.6rem" }}>
-              Keywords, feeds, locations, aliases.
-            </p>
-            <button onClick={downloadBackup} disabled={backupLoading || !backup} style={btn("var(--accent-blue)")}>
-              <Download size={14} /> {backupLoading ? "Loading..." : "Download Legacy JSON"}
-            </button>
-          </div>
-          <div>
-            <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>Full Export (all 27 tables)</h4>
-            <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", margin: "0 0 0.6rem" }}>
-               Exports every database table as a separate JSON array.
-            </p>
-            <button onClick={downloadFullExport} style={btn("var(--accent-cyan)")}>
-              <Download size={14} /> Download Full Export JSON
-            </button>
-          </div>
+      {notice && <div role="status" style={{ color: "var(--text-primary)", background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-md)", padding: "0.75rem" }}>{notice}</div>}
+
+      <Card title="Encrypted Full Backups" icon={HardDrive} wide>
+        <p style={{ color: "var(--text-secondary)", fontSize: "0.8rem", marginTop: 0 }}>
+          Complete SQLite online snapshots include every database table and the trained ML model when present. Archives use authenticated AES-256-GCM encryption.
+          {backupStatus?.scheduled_policy ? ` ${backupStatus.scheduled_policy}` : " Scheduled backups run Sunday at 00:00 America/Chicago; the latest three are retained."}
+        </p>
+        {!backupStatus?.encryption_configured && <div role="alert" style={{ color: "var(--accent-orange)", margin: "0.75rem 0", fontSize: "0.8rem" }}>
+          Configure BACKUP_ENCRYPTION_KEYS and BACKUP_ENCRYPTION_ACTIVE_KEY_ID in the deployment environment before creating or staging encrypted backups.
+        </div>}
+        <button
+          onClick={() => createBackupMutation.mutate()}
+          disabled={!backupStatus?.encryption_configured || createBackupMutation.isPending}
+          style={btn("var(--accent-blue)")}
+        >
+          <HardDrive size={14} /> {createBackupMutation.isPending ? "Creating encrypted backup..." : "Create Full Backup"}
+        </button>
+        <p style={{ color: "var(--text-muted)", fontSize: "0.73rem", marginBottom: 0 }}>
+          Manual backups are retained until explicitly deleted. Download copies to protected off-host storage; `.env` secrets are not included.
+        </p>
+        <div style={{ overflowX: "auto", marginTop: "1rem" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
+            <thead><tr style={{ color: "var(--text-muted)", textAlign: "left" }}>
+              <th style={{ padding: "0.5rem" }}>Created (UTC)</th><th>Kind</th><th>Size</th><th>Actions</th>
+            </tr></thead>
+            <tbody>
+              {(fullBackups?.backups || []).map((item: any) => (
+                <tr key={item.id} style={{ borderTop: "1px solid var(--border-primary)" }}>
+                  <td style={{ padding: "0.55rem" }}>{new Date(item.created_at).toLocaleString("en-US", { timeZone: "UTC" })}</td>
+                  <td>{item.kind === "scheduled" ? "Scheduled" : item.kind === "pre-restore" ? "Pre-restore safety" : "Manual"}</td>
+                  <td>{formatBackupBytes(item.size_bytes)}</td>
+                  <td style={{ display: "flex", gap: "0.4rem", padding: "0.45rem" }}>
+                    <button onClick={() => downloadEncryptedBackup(item.id)} style={btn("var(--accent-cyan)")}><Download size={13} /> Download</button>
+                    {item.kind !== "scheduled" && <button
+                      onClick={() => window.confirm(`Delete ${item.kind === "pre-restore" ? "pre-restore safety" : "manual"} backup ${item.filename}?`) && deleteBackupMutation.mutate(item.id)}
+                      disabled={deleteBackupMutation.isPending}
+                      style={btn("var(--accent-red)")}
+                    ><Trash2 size={13} /> Delete</button>}
+                  </td>
+                </tr>
+              ))}
+              {!backupsLoading && !(fullBackups?.backups || []).length && <tr><td colSpan={4} style={{ color: "var(--text-muted)", padding: "0.75rem" }}>No encrypted full backups yet.</td></tr>}
+              {backupsLoading && <tr><td colSpan={4} style={{ color: "var(--text-muted)", padding: "0.75rem" }}>Loading backups…</td></tr>}
+            </tbody>
+          </table>
         </div>
       </Card>
 
-      <Card title="Import" icon={Upload} wide>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1.25rem" }}>
+      <Card title="Restore an Encrypted Backup" icon={Upload} wide>
+        <p style={{ color: "var(--text-secondary)", fontSize: "0.8rem", marginTop: 0 }}>
+          Uploading authenticates the encryption tag, checks hashes, and validates SQLite integrity. Restore starts here: API writes, scheduled jobs, and webhook intake pause while the database is migrated and atomically replaced. Keep enough free disk space for the package, current database, temporary restore files, and pre-restore safety snapshot.
+        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+          <input type="file" accept=".nocbackup" onChange={e => setStageFile(e.target.files?.[0] || null)}
+            style={{ color: "var(--text-primary)", fontSize: "0.8rem", maxWidth: 420 }} />
+          <button onClick={() => stageFile && stageBackupMutation.mutate(stageFile)}
+            disabled={!stageFile || !backupStatus?.encryption_configured || stageBackupMutation.isPending}
+            style={btn("var(--accent-orange)")}>
+            <Upload size={14} /> {stageBackupMutation.isPending ? "Validating and staging..." : "Validate & Stage"}
+          </button>
+        </div>
+        {activeRestoreId && <div role="status" aria-live="polite" style={{ marginTop: "0.9rem", padding: "0.75rem", border: "1px solid var(--accent-orange)", borderRadius: "var(--radius-sm)", color: "var(--text-primary)" }}>
+          <strong>Restore in progress:</strong> {restoreStatus?.message || "Pausing writers and preparing the restore…"}
+          {restoreStatus?.percent != null && <span> ({restoreStatus.percent}%)</span>}
+        </div>}
+        {restoreResult?.state === "complete" && restoreResult.result && <p role="status" style={{ color: "var(--accent-green)", fontSize: "0.78rem" }}>
+          Restored {restoreResult.result.table_count} tables; {restoreResult.result.model_restored ? "the ML model was restored" : "no ML model was included"}. Safety backup: {restoreResult.result.pre_restore_backup || "not needed"}.
+        </p>}
+        <div style={{ display: "grid", gap: "0.8rem", marginTop: "1rem" }}>
+          {(stagedBackups?.backups || []).map((item: any) => (
+            <div key={item.stage_id} style={{ border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.75rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
+                <span style={{ color: "var(--text-primary)", fontSize: "0.78rem" }}>{item.stage_id} · {formatBackupBytes(item.size_bytes)}</span>
+                <button onClick={() => deleteStageMutation.mutate(item.stage_id)} disabled={deleteStageMutation.isPending}
+                  style={btn("var(--accent-red)")}><Trash2 size={13} /> Remove staged file</button>
+              </div>
+              <p style={{ color: "var(--text-muted)", fontSize: "0.73rem", margin: "0.45rem 0" }}>
+                Restore creates an encrypted pre-restore backup, invalidates restored sessions and outstanding account links, applies migrations, clears all staged restore packages on success, and resumes services when complete. You will need to sign in again.
+              </p>
+              <button
+                onClick={() => window.confirm(`Restore ${item.stage_id}? Database writers will pause and all restored sessions will be revoked.`) && restoreStagedMutation.mutate(item.stage_id)}
+                disabled={!!activeRestoreId || restoreStagedMutation.isPending}
+                style={btn("var(--accent-orange)")}
+              >
+                <Database size={14} /> {restoreStagedMutation.isPending ? "Starting restore..." : "Restore now"}
+              </button>
+            </div>
+          ))}
+          {!(stagedBackups?.backups || []).length && <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", margin: 0 }}>No staged restore packages.</p>}
+        </div>
+      </Card>
+
+      <details style={{ color: "var(--text-secondary)", background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-md)", padding: "0.8rem" }}>
+        <summary style={{ cursor: "pointer", fontWeight: 700, fontSize: "0.8rem" }}>Legacy partial data migration tools</summary>
+        <p style={{ fontSize: "0.73rem" }}>These older JSON and `.db` tools are partial imports/exports, not encrypted disaster-recovery backups. Prefer the full encrypted snapshots above.</p>
+        <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginBottom: "1rem" }}>
+          <button onClick={downloadLegacyBackup} disabled={legacyBackupLoading || !legacyBackup} style={btn("var(--accent-blue)")}>
+            <Download size={14} /> Download legacy 4-collection JSON
+          </button>
+          <button onClick={downloadFullExport} style={btn("var(--accent-cyan)")}>
+            <Download size={14} /> Download legacy model export JSON
+          </button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1rem" }}>
           <div>
-            <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>Legacy Restore (4 tables)</h4>
-            <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", margin: "0 0 0.6rem" }}>
-              Upload a legacy backup JSON (keywords, feeds, locations, aliases).
-            </p>
-            <input type="file" accept=".json" onChange={e => setRestoreFile(e.target.files?.[0] || null)}
-              style={{ marginBottom: "0.6rem", color: "var(--text-primary)", fontSize: "0.8rem", width: "100%" }} />
-            <button onClick={() => restoreFile && restoreMutation.mutate(restoreFile)}
-              disabled={!restoreFile || restoreMutation.isPending} style={btn("var(--accent-orange)")}>
-              <Upload size={14} /> {restoreMutation.isPending ? "Restoring..." : "Restore Legacy JSON"}
+            <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.8rem" }}>Restore legacy JSON (4 collections)</h4>
+            <input type="file" accept=".json" onChange={e => setRestoreFile(e.target.files?.[0] || null)} style={{ marginBottom: "0.6rem", width: "100%" }} />
+            <button onClick={() => restoreFile && restoreMutation.mutate(restoreFile)} disabled={!restoreFile || restoreMutation.isPending} style={btn("var(--accent-orange)")}>
+              <Upload size={14} /> {restoreMutation.isPending ? "Restoring..." : "Restore legacy JSON"}
             </button>
           </div>
           <div>
-            <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>Full Import (all 27 tables)</h4>
-            <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", margin: "0 0 0.6rem" }}>
-              Upload a full export JSON. Replaces all existing data.
-            </p>
-            <input type="file" accept=".json" onChange={e => setImportAllFile(e.target.files?.[0] || null)}
-              style={{ marginBottom: "0.6rem", color: "var(--text-primary)", fontSize: "0.8rem", width: "100%" }} />
-            <button onClick={() => importAllFile && importAllMutation.mutate(importAllFile)}
-              disabled={!importAllFile || importAllMutation.isPending} style={btn("var(--accent-green)")}>
-              <FileJson size={14} /> {importAllMutation.isPending ? "Importing..." : "Import Full JSON"}
+            <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.8rem" }}>Import legacy model export JSON</h4>
+            <input type="file" accept=".json" onChange={e => setImportAllFile(e.target.files?.[0] || null)} style={{ marginBottom: "0.6rem", width: "100%" }} />
+            <button onClick={() => importAllFile && importAllMutation.mutate(importAllFile)} disabled={!importAllFile || importAllMutation.isPending} style={btn("var(--accent-green)")}>
+              <FileJson size={14} /> {importAllMutation.isPending ? "Importing..." : "Import legacy JSON"}
             </button>
           </div>
           <div>
-            <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>Restore from .db File</h4>
-            <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", margin: "0 0 0.6rem" }}>
-              Upload a SQLite .db file to replace the database.
-            </p>
-            <input type="file" accept=".db" onChange={e => setDbFile(e.target.files?.[0] || null)}
-              style={{ marginBottom: "0.6rem", color: "var(--text-primary)", fontSize: "0.8rem", width: "100%" }} />
-            <button onClick={() => dbFile && uploadDbMutation.mutate(dbFile)}
-              disabled={!dbFile || uploadDbMutation.isPending} style={btn("var(--accent-red)")}>
-              <Database size={14} /> {uploadDbMutation.isPending ? "Restoring..." : "Upload & Restore .db"}
+            <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.8rem" }}>Import rows from a `.db` file</h4>
+            <input type="file" accept=".db" onChange={e => setDbFile(e.target.files?.[0] || null)} style={{ marginBottom: "0.6rem", width: "100%" }} />
+            <button onClick={() => dbFile && uploadDbMutation.mutate(dbFile)} disabled={!dbFile || uploadDbMutation.isPending} style={btn("var(--accent-red)")}>
+              <Database size={14} /> {uploadDbMutation.isPending ? "Importing..." : "Import legacy .db rows"}
             </button>
           </div>
         </div>
-      </Card>
+      </details>
     </div>
   );
+}
+
+function formatBackupBytes(value: number): string {
+  if (!Number.isFinite(value) || value < 0) return "Unknown size";
+  if (value < 1024) return `${value} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let size = value / 1024;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return `${size.toFixed(1)} ${units[unitIndex]}`;
 }
 
 /* ============================

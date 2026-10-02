@@ -140,7 +140,8 @@ class DatabaseMigrationTests(unittest.TestCase):
             self.assertEqual(roles["user-admin"].allowed_site_types, [])
             self.assertEqual(session.query(SystemConfig).one().permission_catalog_version, 1)
             revision = session.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            self.assertEqual(revision, "20261002_0001")
+            self.assertEqual(revision, "20261002_0002")
+            self.assertIn("revoked_at", {column["name"] for column in inspect(self.engine).get_columns("registration_invites")})
 
     def test_fresh_install_uses_frozen_baseline_not_runtime_model_metadata(self):
         future_table = Table(
@@ -240,7 +241,7 @@ class DatabaseMigrationTests(unittest.TestCase):
                     revision = connection.execute(
                         text("SELECT version_num FROM alembic_version")
                     ).scalar_one()
-                self.assertEqual(revision, "20261002_0001")
+                self.assertEqual(revision, "20261002_0002")
             finally:
                 for engine in engines:
                     engine.dispose()

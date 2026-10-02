@@ -40,6 +40,13 @@ class SchedulerReloadTests(unittest.TestCase):
         self.assertNotIn("rss_fetch", keys)
         self.assertIn("tiered_alert_escalation", keys)
 
+    def test_worker_does_not_start_jobs_while_restore_maintenance_is_active(self):
+        with patch.object(scheduler.restore_control, "maintenance_requested", return_value=True), patch.object(
+            scheduler._job_executor, "submit"
+        ) as submit:
+            self.assertFalse(scheduler.run_threaded(lambda: None))
+        submit.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

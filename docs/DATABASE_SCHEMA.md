@@ -638,7 +638,7 @@ Stores one opaque session token and creation timestamp per browser/device. Sessi
 
 ### 2.30 `registration_invites` — Email-Bound Individual Invitations
 
-Stores a hashed single-use token, required invitation email and normalized email, assigned role, creator, expiry, and use time. Legacy invitations without email are invalidated during migration.
+Stores a hashed single-use token, required invitation email and normalized email, assigned role, creator, expiry, use time, and nullable `revoked_at`. Legacy invitations without email are invalidated during migration. A restore marks pending links revoked without deleting invitation history.
 
 ### 2.31 `email_change_requests` — Approved Recovery-Email Changes
 
@@ -795,7 +795,7 @@ After migrations, startup enables persistent WAL mode. The SQLAlchemy connection
 
 ### Phase 2 — One-time legacy adoption
 
-Revision `20261002_0001` uses the frozen `migrations/schema_v1.py` snapshot to create missing baseline tables, adds only missing legacy columns, creates missing indexes, and applies one-time user, invitation, and priority backfills. Existing tables and records are retained. Duplicate normalized email values that prevent creation of the unique index fail with an actionable error.
+Revision `20261002_0001` uses the frozen `migrations/schema_v1.py` snapshot to create missing baseline tables, adds only missing legacy columns, creates missing indexes, and applies one-time user, invitation, and priority backfills. Revision `20261002_0002` adds `registration_invites.revoked_at` for auditable invite invalidation during full restore. Existing tables and records are retained. Duplicate normalized email values that prevent creation of the unique index fail with an actionable error.
 
 The explicit compatibility column map covers account/recovery fields, scheduler revisions, scoring and alert settings, article enrichment metadata, role site types, alert dispatch fields, location tracking, shift-log state, crime dispatch state, and timeline site metadata. The revision validates every model table's final column set before recording success.
 

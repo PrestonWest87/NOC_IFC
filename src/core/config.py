@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     public_app_url: str = "http://localhost:8501"
     default_admin_email: str = ""
     registration_invite_ttl_hours: int = 72
+    backup_encryption_keys: str = ""
+    backup_encryption_active_key_id: str = "primary"
+    backup_max_bytes: int = Field(default=10737418240, gt=0, le=107374182400)
 
     class Config:
         env_file = ".env"

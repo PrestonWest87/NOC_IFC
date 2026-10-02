@@ -201,6 +201,10 @@ Full administrative CRUD for system configuration.
 | `export_all_tables()` / `import_all_tables(data, merge=False)` | JSON export/import for the 27 model classes in `ALL_MODELS`; this omits user-session, recovery, failed-login, audit, and scheduler-job tables. It is not a full database backup. |
 | `restore_from_db_upload(db_file_path)` | Imports table rows from an uploaded SQLite file into the current database; it does not replace the database file or perform an atomic file swap. |
 
+### Encrypted Backups and Restore
+
+`src/core/backup_manager.py` creates consistent SQLite online snapshots, includes the persistent scorer model when present, writes a versioned manifest and SHA-256 hashes, and encrypts the package in authenticated AES-256-GCM chunks. It implements manual/scheduled retention, staged upload validation, and restore with migration, credential invalidation, a pre-restore encrypted snapshot, and atomic database/model installation. `src/core/restore_control.py` and `src/core/ui_restore.py` coordinate API request draining plus worker/webhook maintenance acknowledgements for the Settings UI. `scripts/restore_backup.py` remains the offline fallback and requires confirmation that API, worker, and webhook writers have stopped.
+
 ### Maintenance
 
 | Function | Description |

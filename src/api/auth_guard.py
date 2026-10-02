@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 
 from src import services as svc
 from src.core.permissions import ACTION_KEYS, PAGE_KEYS, TAB_KEYS
+from src.core import restore_control
 
 
 def token_from_request(request: Request) -> str:
@@ -10,6 +11,11 @@ def token_from_request(request: Request) -> str:
     authorization = request.headers.get("Authorization", "")
     if authorization.lower().startswith("bearer "):
         return authorization[7:].strip()
+    path = request.url.path
+    if path.startswith("/api/v1/admin/backups/") and path.endswith("/download"):
+        download_token = request.cookies.get("noc_backup_download", "")
+        if download_token:
+            return download_token
     return request.query_params.get("token") or request.query_params.get("session_token") or ""
 
 
@@ -116,22 +122,60 @@ def require_any_action(actions: list[str]):
 
 async def authentication_middleware(request: Request, call_next):
     path = request.url.path.rstrip("/")
+    restore_status = path == "/api/v1/restore-status"
+    restore_start = (
+        path.startswith("/api/v1/admin/backups/staged/") and path.endswith("/restore")
+    )
+    maintenance_exempt = path == "/health" or restore_status or restore_start
+    if restore_control.maintenance_requested() and not maintenance_exempt:
+        if path == "/ready":
+            message = "database restore in progress"
+        else:
+            message = "A full database restore is in progress. Retry after maintenance completes."
+        return JSONResponse(
+            status_code=503,
+            content={"detail": {"code": "restore_in_progress", "message": message}},
+            headers={"Retry-After": "5"},
+        )
+
+    track_request = (
+        request.method != "OPTIONS"
+        and path.startswith("/api/v1")
+        and not maintenance_exempt
+        and path != "/ready"
+    )
+    if track_request and not restore_control.begin_api_request():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": {
+                    "code": "restore_in_progress",
+                    "message": "A full database restore is in progress. Retry after maintenance completes.",
+                }
+            },
+            headers={"Retry-After": "5"},
+        )
+
     public = path in {
         "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/register/validate",
         "/api/v1/auth/request-password-reset", "/api/v1/auth/reset-password",
         "/api/v1/auth/verify-recovery-email",
         "/health", "/ready",
     }
-    if request.method == "OPTIONS" or public or not path.startswith("/api/v1"):
-        return await call_next(request)
+    try:
+        if request.method == "OPTIONS" or public or restore_status or not path.startswith("/api/v1"):
+            return await call_next(request)
 
-    auth_token = token_from_request(request)
-    user = svc.get_user_by_token(auth_token)
-    if not user:
-        return JSONResponse(
-            status_code=401,
-            content={"detail": {"code": "unauthenticated", "message": "Not authenticated"}},
-        )
-    request.state.user = user
-    request.state.auth_token = auth_token
-    return await call_next(request)
+        auth_token = token_from_request(request)
+        user = svc.get_user_by_token(auth_token)
+        if not user:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": {"code": "unauthenticated", "message": "Not authenticated"}},
+            )
+        request.state.user = user
+        request.state.auth_token = auth_token
+        return await call_next(request)
+    finally:
+        if track_request:
+            restore_control.end_api_request()

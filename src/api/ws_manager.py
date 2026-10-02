@@ -29,6 +29,16 @@ class ConnectionManager:
             self.connection_users.pop(websocket, None)
             logger.info("WebSocket client disconnected. Total: %d", len(self.active_connections))
 
+    async def close_all(self, code: int = 1012, reason: str = "Service maintenance"):
+        """Close connected clients before an offline database replacement."""
+        for connection in tuple(self.active_connections):
+            try:
+                await connection.close(code=code, reason=reason)
+            except Exception:
+                logger.debug("Unable to close WebSocket during maintenance", exc_info=True)
+            finally:
+                self.disconnect(connection)
+
     async def broadcast_json(self, data: dict[str, Any], transform=None):
         async def send(conn, user):
             outgoing = transform(data, user) if transform else data

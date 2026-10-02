@@ -1,16 +1,35 @@
 import logging
 import uuid
 import threading
-from fastapi import APIRouter, Query, Body, Depends
+from fastapi import APIRouter, Query, Body, Depends, HTTPException
 from typing import Any
 
 from src import services as svc
 from src.utils.llm import init_brief_progress, get_brief_progress, update_brief_progress, clear_brief_progress
 from src.api.auth_guard import get_current_user, has_action_permission, require_page, require_action
+from src.core import restore_control
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"], dependencies=[Depends(require_page("Global Dashboards"))])
+
+
+def _launch_report_writer(target, generation_id: str) -> None:
+    if not restore_control.begin_api_background_writer():
+        raise HTTPException(status_code=503, detail="A database restore is in progress.")
+
+    def _tracked_run():
+        try:
+            target()
+        finally:
+            restore_control.end_api_background_writer()
+
+    thread = threading.Thread(target=_tracked_run, daemon=True, name=f"brief-{generation_id[:8]}")
+    try:
+        thread.start()
+    except Exception:
+        restore_control.end_api_background_writer()
+        raise
 
 
 @router.get("/metrics", dependencies=[Depends(require_action("Tab: Dashboards -> Operational"))])
@@ -112,8 +131,7 @@ def generate_unified_brief():
             update_brief_progress(generation_id, stage="error", message=str(e), percent=0)
             logger.error("Background brief generation failed: %s", e)
 
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
+    _launch_report_writer(_run, generation_id)
     return {"status": "started", "generation_id": generation_id}
 
 
@@ -138,8 +156,7 @@ def generate_global_brief():
             update_brief_progress(generation_id, stage="error", message=str(e), percent=0)
             logger.error("Background global brief generation failed: %s", e)
 
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
+    _launch_report_writer(_run, generation_id)
     return {"status": "started", "generation_id": generation_id}
 
 
@@ -164,8 +181,7 @@ def generate_internal_brief():
             update_brief_progress(generation_id, stage="error", message=str(e), percent=0)
             logger.error("Background internal brief generation failed: %s", e)
 
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
+    _launch_report_writer(_run, generation_id)
     return {"status": "started", "generation_id": generation_id}
 
 

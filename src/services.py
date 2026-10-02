@@ -713,10 +713,12 @@ def create_registration_invite(username: str, email: str, role: str, created_by:
         same_username_pending = db.query(RegistrationInvite).filter(
             RegistrationInvite.username == username,
             RegistrationInvite.used_at.is_(None),
+            RegistrationInvite.revoked_at.is_(None),
         ).all()
         other_email_invite = db.query(RegistrationInvite).filter(
             RegistrationInvite.email_normalized == normalized_email,
             RegistrationInvite.used_at.is_(None),
+            RegistrationInvite.revoked_at.is_(None),
             RegistrationInvite.expires_at > now,
             RegistrationInvite.username != username,
         ).first()
@@ -746,6 +748,7 @@ def get_registration_invite(raw_token: str):
         invite = db.query(RegistrationInvite).filter(
             RegistrationInvite.token_hash == _invite_token_hash(raw_token),
             RegistrationInvite.used_at.is_(None),
+            RegistrationInvite.revoked_at.is_(None),
             RegistrationInvite.expires_at > datetime.utcnow(),
         ).first()
         if not invite:
@@ -763,6 +766,7 @@ def get_pending_registration_invites():
     with SessionLocal() as db:
         rows = db.query(RegistrationInvite).filter(
             RegistrationInvite.used_at.is_(None),
+            RegistrationInvite.revoked_at.is_(None),
             RegistrationInvite.expires_at > now,
         ).order_by(RegistrationInvite.created_at.desc()).all()
         return [{
@@ -773,6 +777,7 @@ def get_pending_registration_invites():
             "created_at": invite.created_at.isoformat() if invite.created_at else None,
             "expires_at": invite.expires_at.isoformat(),
             "created_by": invite.created_by,
+            "revoked_at": invite.revoked_at.isoformat() if invite.revoked_at else None,
         } for invite in rows]
 
 
@@ -782,10 +787,11 @@ def revoke_registration_invite(invite_id, actor_user_id=None):
         invite = db.query(RegistrationInvite).filter(
             RegistrationInvite.id == invite_id,
             RegistrationInvite.used_at.is_(None),
+            RegistrationInvite.revoked_at.is_(None),
         ).first()
         if not invite:
             return False
-        invite.used_at = now
+        invite.revoked_at = now
         _audit_account_event(
             db, "registration_invite_revoked", actor_user_id=actor_user_id,
             detail={"invite_id": invite.id, "username": invite.username},
@@ -804,6 +810,7 @@ def complete_registration(raw_token, password, full_name, job_title, contact_inf
         invite = db.query(RegistrationInvite).filter(
             RegistrationInvite.token_hash == _invite_token_hash(raw_token),
             RegistrationInvite.used_at.is_(None),
+            RegistrationInvite.revoked_at.is_(None),
             RegistrationInvite.expires_at > now,
         ).first()
         if not invite:
@@ -983,6 +990,7 @@ def get_user_directory():
         }
         pending_invites = db.query(RegistrationInvite).filter(
             RegistrationInvite.used_at.is_(None),
+            RegistrationInvite.revoked_at.is_(None),
             RegistrationInvite.expires_at > datetime.utcnow(),
         ).all()
         invited_usernames = {invite.username.casefold() for invite in pending_invites}
@@ -1065,6 +1073,7 @@ def submit_email_change_request(user_id, requested_email):
         if db.query(RegistrationInvite).filter(
             RegistrationInvite.email_normalized == normalized,
             RegistrationInvite.used_at.is_(None),
+            RegistrationInvite.revoked_at.is_(None),
             RegistrationInvite.expires_at > now,
         ).first():
             raise ValueError("That email address already has a pending invitation.")

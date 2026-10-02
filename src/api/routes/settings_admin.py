@@ -2,7 +2,8 @@ import logging
 import os
 import tempfile
 import json
-from fastapi import APIRouter, Query, Body, HTTPException, UploadFile, File, Depends, BackgroundTasks
+from fastapi import APIRouter, Query, Body, HTTPException, UploadFile, File, Depends, BackgroundTasks, Request, Response
+from fastapi.responses import FileResponse
 from typing import Any
 
 from src import services as svc
@@ -258,6 +259,151 @@ def update_locations(data: list[dict] = Body([])):
 def backup():
     logger.info("GET /admin/backup")
     return svc.get_backup_data()
+
+
+@router.get("/backups/status")
+def full_backup_status():
+    from src.core import backup_manager
+
+    return {
+        "encryption_configured": backup_manager.encryption_configured(),
+        "max_bytes": settings.backup_max_bytes,
+        "scheduled_policy": "Sunday at 00:00 America/Chicago; retain the latest three scheduled backups.",
+    }
+
+
+@router.get("/backups")
+def list_full_backups():
+    from src.core.backup_manager import list_backups
+
+    return {"backups": list_backups()}
+
+
+@router.post("/backups")
+def create_full_backup(user=Depends(require_admin)):
+    from src.core.backup_manager import BackupError, create_backup
+
+    try:
+        return create_backup(kind="manual", created_by=user.username)
+    except BackupError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/backups/{backup_id}/download")
+def download_full_backup(backup_id: str, request: Request):
+    from src.core.backup_manager import BackupError, get_backup_path
+
+    try:
+        path = get_backup_path(backup_id)
+    except BackupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(
+        path,
+        filename=path.name,
+        media_type="application/octet-stream",
+        headers={
+            "Cache-Control": "no-store",
+            "Set-Cookie": (
+                f"noc_backup_download=; Path=/api/v1/admin/backups/{backup_id}/download; "
+                "Max-Age=0; HttpOnly; SameSite=Strict"
+                + ("; Secure" if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https" else "")
+            ),
+        },
+    )
+
+
+@router.post("/backups/{backup_id}/download-link")
+def create_full_backup_download_link(backup_id: str, request: Request, response: Response):
+    from src.core.backup_manager import BackupError, get_backup_path
+    from src.api.auth_guard import token_from_request
+
+    try:
+        get_backup_path(backup_id)
+    except BackupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    token = token_from_request(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    is_secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+    response.set_cookie(
+        key="noc_backup_download",
+        value=token,
+        max_age=60,
+        path=f"/api/v1/admin/backups/{backup_id}/download",
+        secure=is_secure,
+        httponly=True,
+        samesite="strict",
+    )
+    return {"url": f"/api/v1/admin/backups/{backup_id}/download"}
+
+
+@router.delete("/backups/{backup_id}")
+def delete_full_backup(backup_id: str):
+    from src.core.backup_manager import BackupError, delete_backup
+
+    try:
+        delete_backup(backup_id)
+    except BackupError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "deleted"}
+
+
+@router.get("/backups/staged")
+def list_staged_full_backups():
+    from src.core.backup_manager import list_staged_backups
+
+    return {"backups": list_staged_backups()}
+
+
+@router.post("/backups/staged")
+def stage_full_backup(file: UploadFile = File(...)):
+    from src.core.backup_manager import BackupError, stage_uploaded_backup
+
+    try:
+        return stage_uploaded_backup(file.file)
+    except BackupError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        file.file.close()
+
+
+@router.delete("/backups/staged/{stage_id}")
+def delete_staged_full_backup(stage_id: str):
+    from src.core.backup_manager import BackupError, delete_staged_backup
+
+    try:
+        delete_staged_backup(stage_id)
+    except BackupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": "deleted"}
+
+
+@router.post("/backups/staged/{stage_id}/restore", status_code=202)
+async def restore_from_staged_backup(stage_id: str, user=Depends(require_admin)):
+    from src.core import restore_control
+    from src.core.backup_manager import BackupError
+    from src.core.ui_restore import launch_staged_restore, prepare_staged_restore
+
+    restore_id = None
+    try:
+        restore_id = prepare_staged_restore(stage_id, user.username)
+        from src.api.main import manager
+
+        await manager.close_all(code=1012, reason="Database restore in progress")
+        launch_staged_restore(restore_id)
+    except BackupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except restore_control.RestoreInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        if restore_id:
+            try:
+                restore_control.finish_restore(restore_id, "error", "Unable to start the restore service.")
+            except Exception:
+                logger.exception("Unable to release restore maintenance mode")
+        logger.exception("Unable to start a UI-initiated restore")
+        raise HTTPException(status_code=500, detail="Unable to start the restore service.") from exc
+    return {"status": "started", "restore_id": restore_id}
 
 
 @router.post("/restore")

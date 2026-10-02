@@ -296,7 +296,7 @@ Tab visibility follows the caller's `Tab: Settings -> ...` grants rather than an
 | **AI/LLM** | Configure LLM connection, model selection, temperature |
 | **Users & Roles** | Searchable account directory, email invitations, display accounts, recovery requests, role assignment |
 | **Application Settings** | Risk-scoring overrides, bounded scheduler schedules, and global application defaults |
-| **Backup & Restore** | Legacy configuration backup, 27-model JSON export/import, and SQLite file data import (not a full database-file swap) |
+| **Backup & Restore** | Administrator-only encrypted full SQLite snapshots, weekly retention, off-host download, validated staging, UI-managed maintenance restore with progress, and offline fallback; legacy partial migration tools remain available |
 
 ---
 

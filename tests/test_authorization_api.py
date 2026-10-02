@@ -1,6 +1,8 @@
 import unittest
+import tempfile
 from types import SimpleNamespace
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
@@ -99,6 +101,114 @@ class AuthorizationApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["detail"]["permission"], "Action: Adjust Risk Scoring Overrides")
+
+    def test_full_backup_listing_requires_administrator_role(self):
+        self.get_user.return_value = SimpleNamespace(
+            id=10, username="analyst", role="analyst",
+            allowed_pages=["Settings & Admin"], allowed_actions=[], allowed_site_types=[],
+        )
+        denied = self.client.get("/api/v1/admin/backups", headers={"Authorization": "Bearer analyst-token"})
+        self.assertEqual(denied.status_code, 403)
+
+        self.get_user.return_value = SimpleNamespace(
+            id=1, username="admin", role="admin",
+            allowed_pages=[], allowed_actions=[], allowed_site_types=[],
+        )
+        with patch("src.core.backup_manager.list_backups", return_value=[]):
+            allowed = self.client.get("/api/v1/admin/backups", headers={"Authorization": "Bearer admin-token"})
+        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual(allowed.json(), {"backups": []})
+
+    def test_full_backup_download_uses_a_scoped_http_only_cookie(self):
+        self.get_user.return_value = SimpleNamespace(
+            id=1, username="admin", role="admin",
+            allowed_pages=[], allowed_actions=[], allowed_site_types=[],
+        )
+        backup_id = "noc-ifc-manual-20261002T000000Z-" + ("0" * 32) + ".nocbackup"
+        with tempfile.NamedTemporaryFile() as backup_file, patch(
+            "src.core.backup_manager.get_backup_path", return_value=Path(backup_file.name)
+        ):
+            backup_file.write(b"encrypted-backup-bytes")
+            backup_file.flush()
+            response = self.client.post(
+                f"/api/v1/admin/backups/{backup_id}/download-link",
+                headers={"Authorization": "Bearer admin-token"},
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["url"], f"/api/v1/admin/backups/{backup_id}/download")
+            cookie = response.headers["set-cookie"]
+            self.assertIn("HttpOnly", cookie)
+            self.assertIn(f"Path=/api/v1/admin/backups/{backup_id}/download", cookie)
+
+            streamed = self.client.get(response.json()["url"])
+            self.assertEqual(streamed.status_code, 200)
+            self.assertEqual(streamed.content, b"encrypted-backup-bytes")
+
+    def test_ui_restore_starts_the_maintenance_coordinator(self):
+        self.get_user.return_value = SimpleNamespace(
+            id=1, username="admin", role="admin",
+            allowed_pages=[], allowed_actions=[], allowed_site_types=[],
+        )
+        stage_id = "stage-" + ("4" * 32) + ".nocbackup"
+        with patch("src.core.ui_restore.prepare_staged_restore", return_value="5" * 32) as prepare, patch(
+            "src.core.ui_restore.launch_staged_restore"
+        ) as launch, patch("src.api.main.manager.close_all", new_callable=AsyncMock) as close_sockets:
+            response = self.client.post(
+                f"/api/v1/admin/backups/staged/{stage_id}/restore",
+                headers={"Authorization": "Bearer admin-token"},
+            )
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json(), {"status": "started", "restore_id": "5" * 32})
+        prepare.assert_called_once_with(stage_id, "admin")
+        close_sockets.assert_awaited_once()
+        launch.assert_called_once_with("5" * 32)
+
+    def test_restore_status_capability_survives_maintenance_without_session_auth(self):
+        restore_id = "6" * 32
+        state = {"restore_id": restore_id, "state": "restoring", "message": "Installing snapshot"}
+        with patch("src.core.restore_control.maintenance_requested", return_value=True), patch(
+            "src.core.restore_control.restore_status", return_value=state
+        ):
+            blocked = self.client.get("/api/v1/dashboard/metrics")
+            status = self.client.post("/api/v1/restore-status", json={"restore_id": restore_id})
+
+        self.assertEqual(blocked.status_code, 503)
+        self.assertEqual(blocked.json()["detail"]["code"], "restore_in_progress")
+        self.assertEqual(status.status_code, 200)
+        self.assertEqual(status.json()["state"], "restoring")
+
+    def test_admin_ui_restore_starts_maintenance_and_returns_progress_capability(self):
+        self.get_user.return_value = SimpleNamespace(
+            id=1, username="admin", role="admin",
+            allowed_pages=[], allowed_actions=[], allowed_site_types=[],
+        )
+        stage_id = "stage-" + ("1" * 32) + ".nocbackup"
+        with patch("src.core.ui_restore.prepare_staged_restore", return_value="2" * 32) as prepare, patch(
+            "src.core.ui_restore.launch_staged_restore"
+        ) as launch, patch("src.api.main.manager.close_all", new_callable=AsyncMock) as close_sockets:
+            response = self.client.post(
+                f"/api/v1/admin/backups/staged/{stage_id}/restore",
+                headers={"Authorization": "Bearer admin-token"},
+            )
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.json(), {"status": "started", "restore_id": "2" * 32})
+        prepare.assert_called_once_with(stage_id, "admin")
+        close_sockets.assert_awaited_once()
+        launch.assert_called_once_with("2" * 32)
+
+    def test_restore_progress_capability_remains_available_during_maintenance(self):
+        restore_id = "3" * 32
+        state = {"restore_id": restore_id, "state": "restoring", "message": "Installing snapshot"}
+        with patch("src.core.restore_control.maintenance_requested", return_value=True), patch(
+            "src.core.restore_control.restore_status", return_value=state
+        ):
+            blocked = self.client.get("/api/v1/dashboard/metrics")
+            status = self.client.post("/api/v1/restore-status", json={"restore_id": restore_id})
+
+        self.assertEqual(blocked.status_code, 503)
+        self.assertEqual(blocked.json()["detail"]["code"], "restore_in_progress")
+        self.assertEqual(status.status_code, 200)
+        self.assertEqual(status.json()["state"], "restoring")
 
     def test_settings_tab_grants_allow_scoped_facility_and_rss_read_views(self):
         self.get_user.return_value = SimpleNamespace(
