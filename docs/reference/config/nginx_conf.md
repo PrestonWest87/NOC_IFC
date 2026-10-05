@@ -18,6 +18,10 @@ Production nginx server block copied to `/etc/nginx/conf.d/default.conf` by `web
 
 Exact-match liveness endpoint. Disables access logging, adds a text content type, and returns `ok` without contacting the API.
 
+### `location ~ \.mjs$`
+
+Serves JavaScript module files with `application/javascript`. Missing `.mjs` files return `404` rather than the SPA entry document, preventing module workers from receiving HTML with an invalid MIME type.
+
 ### `location /`
 
 Allows `10.0.0.0/8` clients and uses `try_files $uri /index.html` for the React SPA fallback. The allow rule applies to normal workspace routes, while the exact health endpoint is separate.

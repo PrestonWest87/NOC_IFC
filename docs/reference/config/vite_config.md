@@ -6,6 +6,8 @@
 
 Configures the Vite bundler for the React/TypeScript frontend. Defines build plugins, dev server port, and HTTP/WebSocket proxy rules to the FastAPI backend.
 
+The `maplibre-assets` plugin serves MapLibre's module worker and shared module during development and emits both files into `dist/assets/` for production. MapLibre resolves these files relative to its bundled JavaScript, and the worker imports the shared module by its fixed sibling filename. It also removes an obsolete Firefox-only focus selector and guards MapLibre's drag-selection reset against undefined CSS values. A dependency-optimizer compatibility plugin uses WebGL's standard renderer value in Firefox rather than requesting the deprecated unmasked-renderer extension.
+
 ## Configuration Options
 
 ### `plugins`
@@ -13,6 +15,8 @@ Configures the Vite bundler for the React/TypeScript frontend. Defines build plu
 | Option | Value | Description |
 |--------|-------|-------------|
 | `plugins` | `[react()]` | Official Vite plugin for React — enables JSX transform, Fast Refresh (HMR), and Babel-based compilation. Imported from `@vitejs/plugin-react`. |
+| `maplibre-assets` | MapLibre compatibility and worker plugin | Serves `maplibre-gl-worker.mjs` and `maplibre-gl-shared.mjs` in development, emits them together under `assets/` in production builds, and applies the Firefox CSS/drag-selection compatibility fixes. |
+| `optimizeDeps.esbuildOptions.plugins` | Browser compatibility optimizer | Avoids Firefox's deprecated `WEBGL_debug_renderer_info` query while retaining standard `VENDOR`/`RENDERER` device information. |
 
 ### `server`
 
