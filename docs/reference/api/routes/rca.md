@@ -233,6 +233,33 @@ JSON body:
 
 ---
 
+## Endpoint: `POST /needs-dispatch`
+
+### Purpose
+Sets or clears the persisted Needs Dispatch workflow state for a site's active, uncorrelated SolarWinds alerts. Requires the AIOps RCA page, Active Board tab, `Action: Dispatch RCA Tickets`, and site-type access.
+
+### Parameters
+JSON body:
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `site` | `str` | `""` | Monitored site name. |
+| `needs_dispatch` | `bool` | required | Whether to mark active alerts as needing dispatch. Setting true requires at least one active alert. |
+
+### Returns
+`{"status": "ok", "updated_alerts": <count>}`.
+
+### Flow
+1. Validates the boolean state and caller's site access.
+2. Calls `svc.set_site_needs_dispatch()` to persist the flag and update site tracking metadata.
+3. Broadcasts `RCA_UPDATE` so connected boards refresh their state.
+
+### Dependencies
+- `src.services.set_site_needs_dispatch()`
+- `src.api.main.manager`
+
+---
+
 ## Endpoint: `POST /generate-ticket`
 
 ### Purpose

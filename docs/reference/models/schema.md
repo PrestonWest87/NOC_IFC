@@ -253,6 +253,7 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `is_dispatched` | `Boolean` | `False` | Y | Whether a dispatch ticket was sent |
 | `is_ticketed` | `Boolean` | `False` | Y | Whether automatically ticketed by escalation engine |
 | `is_correlated` | `Boolean` | `False` | Y | Whether processed by AIOps correlation engine |
+| `needs_dispatch` | `Boolean` | `False` | — | Operator-selected Needs Dispatch state; migration `20261005_0003` |
 | `ai_root_cause` | `Text` | `nullable` | — | AI-determined root cause |
 | `device_type` | `String` | `"Unknown"` | Y | Classified device type (ontology domain) |
 | `event_category` | `String` | `"Unknown"` | — | Event category classification |

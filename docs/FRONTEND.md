@@ -212,15 +212,17 @@ Core AIOps correlation and incident response board:
 |---------|-------------|
 | **Active Alerts Board** | Filterable by `user.allowed_site_types`; color-coded by status |
 | **Global Correlation** | Scatterplot visualization of cross-domain alert correlation |
-| **Site Dialog** | Detailed per-site view with maintenance controls |
-| **Status Tracking** | Investigating → Dispatched → Maintenance state machine |
+| **Site Dialog** | Shows derived up/down health and offers Down / Action Required, Investigating, Needs Dispatch, Ticket Dispatched, and Under Maintenance workflow choices; maintenance exposes ETR and notes |
+| **Status Tracking** | Up/down health plus investigating, needs-dispatch, dispatched, and maintenance map states |
 | **Fullscreen Mode** | CSS fixed-position fullscreen (not Fullscreen API) |
 
-Color logic:
-- **Investigating** (transitional, auto-clears on next dashboard update)
-- **Dispatched** (manual clear only)
-- **Maintenance** (sticky, requires manual clearing)
-- **Green** when no active alerts; coloring only applies when alerts are present
+Map status colors and precedence:
+- **Up / Clear** is green; **Down / Action Required** is red.
+- **Needs Dispatch** is bright silver/white after an operator selects it for active alerts; ordinary down alerts remain red until that workflow state is selected.
+- **Investigating** is amber; **Ticket Dispatched** is purple and takes precedence over an investigation marker after the dispatch write completes.
+- **Under Maintenance** is blue and takes precedence over the alert workflow colors; maintenance remains sticky until manually cleared.
+- Dispatch coloring aggregates all current site alerts: a site is dispatched only when every active alert is marked dispatched.
+- Investigating is auto-cleared when a site's active alert count transitions from greater than zero to zero.
 
 ### ShiftLogbookPage (`src/pages/ShiftLogbookPage.tsx`)
 

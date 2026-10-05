@@ -4,7 +4,7 @@ AIOps Root Cause Analysis page. Provides three tabs: Active Board (live map + co
 
 ## Current Source Behavior
 
-Live dashboard polling is 10 seconds when enabled; analysis polling is 60 seconds. Maintenance state is sticky until manually cleared, investigating state is transitional, and site filtering respects `user.allowed_site_types`. RCA synchronization also arrives through the authenticated WebSocket hook.
+Live dashboard polling is 10 seconds when enabled; analysis polling is 60 seconds. Maintenance state is sticky until manually cleared; investigating state clears when active alerts transition from present to none. Site filtering respects `user.allowed_site_types`, and RCA synchronization also arrives through the authenticated WebSocket hook.
 
 ---
 
@@ -43,7 +43,6 @@ None (uses `useAuth` for user context).
 |-------|------|---------|-------------|
 | `activeTab` | `number` | `0` | Active tab index |
 | `livePolling` | `boolean` | `true` | Enables 10s dashboard polling and 60s analysis polling |
-| `dispatchChecked` | `Record<string, boolean>` | `{}` | Per-site dispatch checkbox state |
 | `ticketExpanded` | `string \| null` | `null` | Site with expanded ticket panel |
 | `maintExpanded` | `string \| null` | `null` | Site with expanded maintenance panel |
 | `maintForm` | `Record<string, { status, etr, reason }>` | `{}` | Maintenance form data per site |
@@ -52,8 +51,7 @@ None (uses `useAuth` for user context).
 | `deepAnalysisRun` | `boolean` | `false` | Whether deep analysis has been triggered |
 | `investigatingSites` | `Set<string>` | `new Set()` | Sites marked as investigating |
 | `siteDialog` | `object \| null` | `null` | Map popup dialog state |
-| `dialogDispatch` | `boolean` | `false` | Dialog dispatch checkbox |
-| `dialogStatus` | `string` | `"Investigate/Dispatch"` | Dialog radio selection |
+| `dialogStatus` | `SiteWorkflowStatus \| null` | `null` | Selected workflow state: action required, investigating, needs dispatch, dispatched, or maintenance |
 | `dialogEtr` | `string` | today's date | Dialog ETR date |
 | `dialogReason` | `string` | `""` | Dialog reason text |
 
@@ -76,9 +74,10 @@ None (uses `useAuth` for user context).
 **Tab 0 — Active Board:**
 - Live polling toggle (10s interval for dashboard, 60s for analysis)
 - deck.gl map with:
-  - Site scatter points color-coded by status (Operational=green, No Dispatch=blue, Dispatched=yellow, Investigating=orange, Action Required=red)
+  - Site scatter points color-coded as Up/Clear (green), Down/Action Required (red), Needs Dispatch (bright silver/white), Investigating (amber), Ticket Dispatched (purple), or Under Maintenance (blue).
+  - Status precedence is maintenance, fully dispatched, investigating, selected needs-dispatch, down/action-required, then up/clear. Needs Dispatch is stored on active alert rows; new alerts remain Down / Action Required until selected.
   - Alert pulse layer for sites requiring action
-  - Click handler opens site dialog popup
+  - Click handler opens a site dialog showing derived Up/Clear or Down/Action Required health and workflow choices for Down / Action Required, Investigating, Needs Dispatch, Ticket Dispatched, and Under Maintenance. Dispatch workflow choices are disabled without active alerts; ETR and maintenance notes appear for Under Maintenance.
 - Event Log sidebar (timestamped event messages)
 - Global Fleet Event banner (when fleet outages detected)
 - Incident correlation cards per site showing:
@@ -113,14 +112,15 @@ None (uses `useAuth` for user context).
 #### Handlers
 - `handleAcknowledge(site)`: Collects alert IDs for the site and acknowledges them.
 - `handleDispatchToggle(site, checked)`: Sets dispatch state for all alerts at the site.
+- `updateDispatchStatus(alertIds, dispatched)`: Updates dispatch flags in the dashboard query cache immediately, then refetches the current server state.
 - `handleGenerateTicket(site)`: Generates a ticket via API or falls back to formatted text.
 - `openSiteDialog(site)`: Populates the site dialog state from a site object.
 - `handleMapClick(info)`: Opens site dialog when a mapped site is clicked.
-- `handleSaveSiteDialog()`: Saves dispatch and maintenance changes from the dialog.
+- `handleSaveSiteDialog()`: Applies the selected workflow state through the permission-specific investigation, dispatch, and maintenance APIs.
 - `handleRunDeepAnalysis()`: Triggers analysis refetch and sets state flag.
 - `handleRunGlobalCorrelation()`: Triggers sitrep fetch and stores report.
 - `saveMaint(site)`: Saves maintenance form data via mutation.
-- `mapTooltip(info)`: Returns HTML tooltip for site layer.
+- `mapTooltip(info)`: Shows the map status, operational up/down state, alert count, dispatch state, investigation state, and maintenance state for the hovered site. Dynamic site names are HTML-escaped.
 - `mapLayers`: Memoized deck.gl layers (sites + alert pulses) with color/size logic.
 - `renderChronicTable(data, caption)`: Renders a generic tabular display for chronic insights.
 

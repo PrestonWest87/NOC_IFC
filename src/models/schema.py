@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, JSON, ForeignKey, Index
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, JSON, ForeignKey, Index, text
 from sqlalchemy.orm import declarative_base
 from datetime import datetime
 
@@ -421,6 +421,7 @@ class SolarWindsAlert(Base):
     is_dispatched = Column(Boolean, default=False, index=True)
     is_ticketed = Column(Boolean, default=False, index=True)
     is_correlated = Column(Boolean, default=False, index=True)
+    needs_dispatch = Column(Boolean, nullable=False, default=False, server_default=text("0"))
     ai_root_cause = Column(Text, nullable=True)
     device_type = Column(String, default="Unknown", index=True)
     event_category = Column(String, default="Unknown")
