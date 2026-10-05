@@ -11,6 +11,7 @@
 | Operate features | [USER_GUIDE.md](USER_GUIDE.md) |
 | Find REST endpoints | [API.md](API.md) |
 | Understand tables and retention | [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md) |
+| Review SQLite upgrade compatibility and recovery | [MIGRATION_COMPATIBILITY.md](MIGRATION_COMPATIBILITY.md) |
 | Follow service call chains and functions | [CODE_REFERENCE.md](CODE_REFERENCE.md) and `reference/` |
 | Change polling, email, and security settings | [OPERATIONS_REFERENCE.md](OPERATIONS_REFERENCE.md) |
 | Diagnose and recover from failures | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) |

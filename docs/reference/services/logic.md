@@ -8,12 +8,12 @@
 
 **Purpose:** Hybrid scoring engine that combines keyword-based scoring with an optional joblib/scikit-learn model to score articles on a 0-100 scale. The ML model can boost hidden threats, penalize noise, or provide synergy bonuses.
 
-### `__init__(self, model_path="src/ml_model.pkl")`
+### `__init__(self, model_path=None)`
 
 **Purpose:** Initializes the scorer by loading the ML model (if available) and keyword weights from the database.
 
 **Parameters:**
-- `model_path` (str) -- Repository-relative runtime path by default: `src/ml_model.pkl`. It is resolved relative to the process working directory, not the module file.
+- `model_path` (str | None) -- Optional model path override. When omitted, the path comes from `src.core.paths.ml_model_path()`: beside the configured SQLite file under `models/ml_model.pkl`, or the repository-local `src/ml_model.pkl` fallback for in-memory SQLite.
 
 **Attributes:**
 - `model_path` (str) -- Path to ML model file

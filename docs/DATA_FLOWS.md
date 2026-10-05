@@ -1195,7 +1195,6 @@ For each monitored site (Lat, Lon):
 ```
 run_database_maintenance()
   ├── deduplicate_articles()
-  ├── Delete articles: score <= 0.0
   ├── Delete low-score articles: older than 3 days AND not pinned
   ├── Delete other articles: older than 30 days AND not pinned
   ├── Delete SolarWindsAlert: older than 60 days
@@ -1205,9 +1204,12 @@ run_database_maintenance()
   ├── Delete CveItem: older than 7 days
   ├── Delete CloudOutage: older than 24 hours (or 14 days if unresolved)
   ├── Delete CrimeIncident: older than 7 days
+  ├── Delete expired/used PasswordResetToken rows older than 30 days
+  ├── Mark password-reset requests pending over 30 days as expired; delete terminal requests older than 90 days
+  ├── Mark expired pending email-change verification requests; delete terminal requests older than 90 days
   ├── Delete orphaned ExtractedIOCs
   ├── PRAGMA optimize (SQLite)
-  └── PRAGMA wal_checkpoint(TRUNCATE) (SQLite)
+  └── PRAGMA wal_checkpoint(PASSIVE) (SQLite)
 ```
 
 ### 9.2 ML Model Retraining (weekly, Sunday 02:00)

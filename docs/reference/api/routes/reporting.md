@@ -23,10 +23,13 @@ Reporting and daily briefing routes for executive intel, saved reports, daily fu
 ### `GenerateCustomRequest`
 | Field       | Type     | Default      | Description                          |
 |-------------|----------|--------------|--------------------------------------|
-| `target`    | `str`    | `""`         | Search target/keyword for the report.|
-| `days_back` | `int`    | `7`          | Days of article history to include.  |
-| `objective` | `str`    | `""`         | Report objective/context.            |
-| `analyst`   | `str`    | `"Unknown"`  | Analyst name for attribution.        |
+| `target` | `str` | `""` | Search target/keyword for the report. |
+| `days_back` | `int` | `7` | Lookback window, constrained to 1–30 days. |
+| `article_ids` | `list[int] \| None` | `None` | Optional selection of up to 100 positive article IDs. |
+| `objective` | `str` | `""` | Report objective/context. |
+| `analyst` | `str` | `"Unknown"` | Analyst attribution shown in the report. |
+
+`BroadcastCustomRequest` contains `title`, `content`, and `recipients`. `SearchArticlesRequest` contains `target` and `days_back` (1–30); both reporting recipient request models reject newlines, validate addresses, and limit recipient lists to 20.
 
 ---
 
@@ -221,7 +224,7 @@ Calls `svc.delete_record("SavedReport", report_id)`.
 ## Endpoint: `POST /generate-custom`
 
 ### Purpose
-Generates a custom intelligence report using AI/LLM based on a search target, lookback window, and objective.
+Starts asynchronous custom intelligence report generation from either a search target/lookback window or selected article IDs.
 
 ### Parameters
 | Parameter | Type                   | Description                      |
@@ -230,24 +233,18 @@ Generates a custom intelligence report using AI/LLM based on a search target, lo
 
 ### Returns
 ```json
-{
-  "status": "ok" | "error",
-  "content": "<full report markdown>" | null,
-  "message": "<error description>"
-}
+{"status":"started","generation_id":"<uuid>"}
 ```
+The endpoint returns this immediately; poll the custom-report status route for progress/result.
 
 ### Raises
 None.
 
 ### Flow
-1. Searches for articles matching the target via `svc.search_articles_for_hunting()`.
-2. If no articles found, returns an error status.
-3. Opens a database session.
-4. Calls `build_custom_intel_report()` from `src.utils.llm` with articles, objective, and session.
-5. If report generation failed, returns an error.
-6. Prepends a report header with the target, current datetime (America/Chicago), and analyst name.
-7. Returns the full report markdown.
+1. Requires either a non-empty target or a non-empty `article_ids` list and validates search terms.
+2. Creates a generation ID and starts a tracked daemon thread.
+3. Loads the selected articles or searches by target, then calls `build_custom_intel_report()` with the objective and database session.
+4. Stores progress/results in process memory; poll `GET /generate-custom-status?generation_id=...` for progress or the completed report.
 
 ### Dependencies
 - `src.services.search_articles_for_hunting()`
@@ -270,9 +267,9 @@ Router prefix: `/api/v1/reporting`. The router requires page permission `Reporti
 |---|---|---|
 | `POST /broadcast-custom` | `Action: Dispatch Exec Report` | Sends a custom report to validated recipients. |
 | `POST /search-articles` | Router page permission | Searches source articles for custom report building. |
-| `POST /generate-custom` | `Action: Trigger AI Functions` | Starts daemon/background custom report generation and returns a generation ID. |
+| `POST /generate-custom` | `Action: Generate Reports` | Starts daemon/background custom report generation and returns a generation ID. |
 | `GET /generate-custom-status` | Router page permission | Reads progress/result from the in-memory report stores. |
 | `DELETE /saved-reports/{report_id}` | `Action: Dispatch Exec Report` | Deletes a saved report. |
-| `POST /generate-daily` | `Action: Trigger AI Functions` | Generates the daily report. |
+| `POST /generate-daily` | `Action: Generate Reports` | Generates the daily report. |
 
 Custom generation uses `_report_progress_store`, `_report_result_store`, and `_report_lock` to coordinate progress and result retrieval. Generation can use either a search `target` or explicit `article_ids`.

@@ -19,7 +19,7 @@ Returns CVE (Common Vulnerabilities and Exposures) entries with configurable loo
 List of CVE objects.
 
 ### Raises
-Returns HTTP 502 when the Elasticsearch sync cannot be completed.
+Returns HTTP 502 when the Elasticsearch sync fails and HTTP 503 when synchronization is skipped because `ELASTIC_URL` is not configured.
 
 ### Flow
 Direct delegation to `svc.get_cves()`.
@@ -133,7 +133,7 @@ None.
 ```
 
 ### Raises
-Returns HTTP 502 when the Elasticsearch sync cannot be completed.
+Returns HTTP 502 when the Elasticsearch sync fails and HTTP 503 when synchronization is skipped because `ELASTIC_URL` is not configured.
 
 ### Flow
 1. Imports `fetch_feeds` from `src.scheduler`.
@@ -238,7 +238,7 @@ Manually triggers synchronization of the Elasticsearch cache for recent data.
 ### Parameters
 | Parameter    | Type  | Default | Constraints | Description                           |
 |--------------|-------|---------|-------------|---------------------------------------|
-| `hours_back` | `int` | `24`    | >=1         | Hours of data to include in the sync. |
+| `hours_back` | `int` | `24` | 1–168 | Hours of data to include in the sync. |
 
 ### Returns
 ```json
@@ -254,7 +254,7 @@ None.
 ### Flow
 1. Imports the worker's `run_elastic_sync` entry point.
 2. Synchronizes bounded, high-severity events into the local cache.
-3. Returns the worker result or HTTP 502 on a synchronization failure.
+3. Returns the worker result, HTTP 502 on a sync error, or HTTP 503 when the worker skips because `ELASTIC_URL` is blank.
 
 ### Dependencies
 - `src.workers.elastic_worker.run_elastic_sync()`
@@ -292,7 +292,7 @@ Returns HTTP 413 when the serialized event payload exceeds 100 KB.
 - `src.core.db.SessionLocal`
 ## Current Source Corrections
 
-The router prefix is `/api/v1/threat` and every route requires the `Threat Telemetry` page permission. Manual synchronization endpoints require `Action: Manually Sync Data`; SIEM triage requires `Action: Trigger AI Functions`.
+The router prefix is `/api/v1/threat` and every route requires the `Threat Telemetry` page permission. Elastic cache sync and SIEM triage additionally require the `Threat Hunting & IOCs` page and `Tab: Reporting -> Elastic SIEM Report`; manual sync requires `Action: Manually Sync Data`, and triage requires `Action: Trigger AI Functions`.
 
 Current endpoint details:
 

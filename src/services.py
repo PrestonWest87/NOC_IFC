@@ -41,7 +41,7 @@ VALID_THEMES = {
 
 
 class TTLCache:
-    """Simple TTL cache to replace Streamlit's @st.cache_data."""
+    """Small process-local TTL cache for repeatedly requested service data."""
     def __init__(self, ttl: int = 300, max_entries: int = 128):
         self.ttl = ttl
         self.max_entries = max_entries

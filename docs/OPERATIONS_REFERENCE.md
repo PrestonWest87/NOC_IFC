@@ -29,6 +29,8 @@ curl -fsS http://localhost:8101/ready
 
 ## Environment Variables
 
+The rows below are a selected operations quick reference, not a complete variable inventory. Use [`.env.example`](../.env.example) and the [environment source reference](reference/config/env_example.md) for the full list, defaults, and readers.
+
 | Variable | Default | Change when |
 |---|---|---|
 | `DATABASE_URL` | SQLite in `/app/data` | Selecting the shared SQLite database file |
@@ -56,22 +58,36 @@ curl -fsS http://localhost:8101/ready
 | `REGISTRATION_INVITE_TTL_HOURS` | `72` | Changing invite expiration |
 | `RESCORE_ON_STARTUP` | `false` if absent | Explicitly rescoring all existing articles during startup |
 
+These defaults describe runtime configuration when a variable is unset. The `.env.example` deliberately contains a change-me placeholder for `DEFAULT_ADMIN_PASSWORD`; replace it before first startup.
+
 ## Frequency Controls
+
+The values below are registry defaults for all 20 jobs; a user with scheduler-management permission may save a different validated value in Settings > Application Settings. `src/core/scheduler_registry.py` is the source of truth.
 
 | Behavior | Source location | Current value |
 |---|---|---:|
-| RSS fetch | `src/scheduler.py`, `schedule.every(5).minutes` | 5 minutes |
-| Enrichment | `src/scheduler.py`, `schedule.every(3).minutes` | 3 minutes |
-| Hazards | `src/scheduler.py`, `schedule.every(7).minutes` | 7 minutes |
-| Crime | `src/scheduler.py`, `schedule.every(10).minutes` | 10 minutes |
-| Cloud | `src/scheduler.py`, `schedule.every(8).minutes` | 8 minutes |
-| Telemetry | `src/scheduler.py`, `schedule.every(6).minutes` | 6 minutes |
-| Escalation | `src/scheduler.py`, `schedule.every(1).minutes` | 1 minute |
-| Internal risk | `src/scheduler.py`, `schedule.every(2).hours` | 2 hours |
-| Brief generation | `src/scheduler.py`, `schedule.every(3/6).hours` | 3/6 hours by brief |
-| KEV | `src/scheduler.py`, `schedule.every(7).hours` | 7 hours |
-| Daily email | `src/scheduler.py`, `07:00 America/Chicago` | Daily |
-| WebSocket broadcast | `src/api/main.py`, `asyncio.sleep(10)` | 10 seconds |
+| RSS fetch | `JOB_REGISTRY["rss_fetch"]` | 5 minutes |
+| Enrichment | `JOB_REGISTRY["article_enrichment"]` | 3 minutes |
+| Maintenance expiry | `JOB_REGISTRY["maintenance_expiry"]` | 5 minutes |
+| Hazards | `JOB_REGISTRY["regional_hazards"]` | 7 minutes |
+| Crime | `JOB_REGISTRY["crime_fetch"]` | 10 minutes |
+| Cloud | `JOB_REGISTRY["cloud_outages"]` | 8 minutes |
+| Telemetry | `JOB_REGISTRY["telemetry_sync"]` | 6 minutes |
+| Elastic cache sync | `JOB_REGISTRY["elastic_sync"]` | 6 minutes |
+| Escalation | `JOB_REGISTRY["tiered_alert_escalation"]` | 1 minute (cannot be disabled; 1–5 minute bound) |
+| Database maintenance | `JOB_REGISTRY["database_maintenance"]` | 60 minutes |
+| Internal risk | `JOB_REGISTRY["internal_risk"]` | 2 hours |
+| Rolling shift summary | `JOB_REGISTRY["rolling_summary"]` | 30 minutes |
+| Internal asset brief | `JOB_REGISTRY["internal_brief"]` | 3 hours |
+| Unified brief | `JOB_REGISTRY["unified_brief"]` | 6 hours |
+| KEV | `JOB_REGISTRY["cisa_kev"]` | 7 hours |
+| Global brief | `JOB_REGISTRY["global_brief"]` | Daily 02:00 America/Chicago |
+| Daily Fusion report | `JOB_REGISTRY["daily_fusion_report"]` | Daily 06:00 America/Chicago |
+| Daily email | `JOB_REGISTRY["daily_email_brief"]` | Daily 07:00 America/Chicago |
+| ML retraining | `JOB_REGISTRY["ml_retrain"]` | Sunday 02:00 America/Chicago |
+| Encrypted database backup | `JOB_REGISTRY["database_backup"]` | Sunday 00:00 America/Chicago (cannot be disabled) |
+
+The WebSocket dashboard broadcaster is independent of the scheduler and broadcasts every 10 seconds while clients are connected.
 
 ## Application-Level Controls
 

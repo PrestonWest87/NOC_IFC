@@ -8,7 +8,8 @@ This directory is the detailed source-oriented reference corpus. It is part of t
 - `scheduler.md`: Scheduler functions, ingestion algorithms, retention, escalation, and ML retraining.
 - `train_model.md`: Feedback-to-model training pipeline and artifact behavior.
 - `api/webhook_listener.md`: SolarWinds gateway validation, normalization, and background processing.
-- `core/`: settings, database sessions, migrations, and seed behavior.
+- `core/`: settings, database sessions/migrations, bootstrap data, permission and scheduler registries, persistent paths, and encrypted backup/restore lifecycle.
+- [Migration compatibility](../MIGRATION_COMPATIBILITY.md): supported legacy SQLite upgrade shapes, additive changes, and fail-closed recovery behavior.
 - `database_compat.md`: active compatibility exports used by services and workers.
 - `models/`: SQLAlchemy entities and relationships.
 - `services/`: data access, scoring, categorization, IOC extraction, and AIOps algorithms.

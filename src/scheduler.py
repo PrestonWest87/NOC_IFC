@@ -468,7 +468,10 @@ def run_database_maintenance():
             session.query(RegionalOutage).filter(RegionalOutage.detected_at < hours_12_ago).delete()
             session.query(BgpAnomaly).filter(BgpAnomaly.detected_at < hours_12_ago).delete()
             session.query(CveItem).filter(CveItem.date_added < days_7_ago).delete()
-            session.query(CloudOutage).filter(CloudOutage.updated_at < hours_24_ago).delete()
+            session.query(CloudOutage).filter(
+                CloudOutage.is_resolved == True,
+                CloudOutage.updated_at < hours_24_ago,
+            ).delete()
             session.query(CloudOutage).filter(
                 CloudOutage.is_resolved == False,
                 CloudOutage.updated_at < days_14_ago

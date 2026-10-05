@@ -13,6 +13,10 @@ Loads typed environment configuration with Pydantic Settings, imports `.env` val
 | `log_level` | `str` | `INFO` | Declared logging setting; `setup_logging()` also reads `LOG_LEVEL` directly when no level is supplied. |
 | `elastic_url` | `str` | `""` | Elasticsearch endpoint; a blank value disables Elastic sync. |
 | `elastic_api_key` | `str` | `""` | Optional Elasticsearch API key. |
+| `elastic_verify_certs` | `bool` | `True` | Verify TLS certificates for Elasticsearch. |
+| `elastic_ca_certs` | `str \| None` | `None` | Optional CA bundle path. |
+| `elastic_request_timeout` | `float` | `15.0` (greater than 0, at most 120) | Elasticsearch request timeout in seconds. |
+| `elastic_max_results` | `int` | `500` (greater than 0, at most 5000) | Maximum result count for Elastic queries. |
 | `crime_alert_sms` | `str \| None` | `None` | Crime SMS gateway destination. |
 | `crime_alert_email` | `str \| None` | `None` | Crime email destination. |
 | `risk_alert_recipients` | `str` | `""` | Comma-separated risk/daily-brief recipients. |
@@ -28,6 +32,9 @@ Loads typed environment configuration with Pydantic Settings, imports `.env` val
 | `public_app_url` | `str` | `http://localhost:8501` | Base URL used for registration links. |
 | `default_admin_email` | `str` | Empty | Optional verified email for the bootstrap admin/recovery reviewer. |
 | `registration_invite_ttl_hours` | `int` | `72` | Default registration invite lifetime. |
+| `backup_encryption_keys` | `str` | `""` | JSON map of backup key IDs to 32-byte hexadecimal keys. |
+| `backup_encryption_active_key_id` | `str` | `primary` | Key ID selected for new encrypted backups. |
+| `backup_max_bytes` | `int` | `10737418240` (greater than 0, at most 107374182400) | Maximum encrypted backup/upload size in bytes. |
 
 ### Pydantic configuration
 

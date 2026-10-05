@@ -65,7 +65,7 @@ Look for import errors, database initialization failures, unhandled scheduler st
 docker compose logs --tail=300 api | grep -iE 'database|sqlite|migration|column|locked'
 ```
 
-Back up first. Confirm the API, worker, and webhook share the intended SQLite file. Startup migrations serialize on a lock file next to the database and apply only revisions absent from `alembic_version`. Long-running SQLite writes can still contend. Never manually drop columns, invoke migration code as a repair shortcut, or edit `alembic_version`; resolve the reported migration/data issue and restart the backend.
+Back up first. Confirm the API, worker, and webhook share the intended SQLite file. Startup migrations serialize on a lock file next to the database and apply only revisions absent from `alembic_version`. The pre-Alembic adoption migration adds known legacy columns and preserves existing rows; unknown missing columns or conflicting normalized emails stop startup before revision success. Some additive objects may already exist after a failed attempt; the revision checks before retry. Long-running SQLite writes can still contend. Never manually drop columns, stamp `alembic_version`, or invoke migration code as a repair shortcut. Follow [Migration Compatibility](MIGRATION_COMPATIBILITY.md) and resolve the reported issue before restarting.
 
 ## WebSocket Disconnects or No Live Updates
 

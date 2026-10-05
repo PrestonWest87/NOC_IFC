@@ -4,7 +4,7 @@ The worker entrypoint and scheduled-job implementation. It is started by Docker 
 
 ## Startup
 
-The `__main__` entrypoint configures logging and calls `run_scheduler()`. `run_scheduler()` calls `init_db()` first, so pending Alembic revisions complete before schedule registration, startup jobs, or the one-second `schedule.run_pending()` loop.
+The `__main__` entrypoint configures logging and calls `run_scheduler()`. `run_scheduler()` calls `init_db()` first, so pending Alembic revisions complete before schedule registration, startup jobs, or the one-second `schedule.run_pending()` loop. Only registry entries with `startup_run=True` are submitted during boot; other jobs wait for their configured schedule.
 
 Jobs execute through a module-level `ThreadPoolExecutor(max_workers=2)`. `_running_jobs` and `_running_jobs_lock` prevent overlapping executions of the same function name.
 
@@ -94,7 +94,7 @@ See `docs/ESCALATION.md` for the exact SLA dictionaries and destinations.
 
 ## `job_retrain_ml()`
 
-Calls `src.train_model.train()`, clears the global scorer, then reloads it. The model artifact is `src/ml_model.pkl` relative to the worker process working directory. Training requires at least 10 labeled articles.
+Calls `src.train_model.train()`, clears the global scorer, then reloads it. The model artifact path is derived from the configured SQLite database directory (production default `/app/data/models/ml_model.pkl`); in-memory test databases use the repository-local fallback. Training requires at least 10 labeled articles.
 
 ## `run_threaded(job_func, *args, **kwargs) -> bool`
 

@@ -19,11 +19,18 @@ Status: Complete
 
 | Date | Stage | Status | Notes |
 |---|---|---|---|
-| 2026-10-02 | Baseline and plan | Complete | Confirmed clean `main` worktree at `7d65f06`; architecture worktree is `/tmp/opencode/noc-arch` at `9bf0261`. Added this implementation document and log. |
+| 2026-10-02 | Baseline and plan | Complete | Confirmed clean `main` worktree at `7d65f06`; the architecture worktree was at `9bf0261`. Added this implementation document and log. |
 | 2026-10-02 | Startup migration implementation | Complete | Added Alembic startup runner, cross-process SQLite migration lock, frozen v1 schema snapshot, legacy adoption revision, SQLite URL validation, post-migration PRAGMA setup, and conditional bootstrap data. Snapshot DDL/index parity matches all 35 current tables. Fresh/legacy/partial migration, frozen-baseline, duplicate-email failure, concurrent startup, and no-DDL/no-DML-at-head tests pass. A locked Python 3.11 container smoke seeded 7 feeds, 70 keywords, and 4 roles, then restarted at head. |
 | 2026-10-02 | Dependency/runtime improvements | Complete | Removed unused Python SDK/parser/file-I/O dependencies and pandas; retained Elasticsearch and ML. Replaced DataFrame paths with record lists/counters; adopted RapidFuzz at the existing >85% title threshold. Batched CVE, crime, weather, and cloud duplicate lookups. Replaced the deck.gl umbrella and dual Mapbox/MapLibre React wrapper with used deck.gl modules and `@vis.gl/react-maplibre`. Added a hash-pinned `requirements.lock`, BuildKit caches, lockfile-hash-gated web-dev installs, and Docker ignores for the runtime data directory and generated model. The Python image is 589,260,648 bytes on `main`, down 17,356,291 bytes from the preceding local build that had copied ignored database/model artifacts; the architecture image is 589,046,181 bytes. Axios, React Router, MapLibre, Vite, and the React plugin were updated; npm reports zero vulnerabilities. |
 | 2026-10-02 | Verification and review | Complete | Follow-up coverage tests frozen baseline independence and duplicate records within a worker batch. Frozen-schema parity passed; all 77 Python tests pass on the host and Python 3.11 container. Python 3.11 and host compile checks pass. Node 22 `npm ci`, production build, and both audit modes pass with zero vulnerabilities; Vite retains the large map-chunk warning. Docker Compose validation and shell syntax checks pass. `git diff --check` is clean. |
-| 2026-10-02 | Branch synchronization | Complete | Synchronized verified main changes into `/tmp/opencode/noc-arch`, preserving architecture-only work. Reconciled two stale untracked permission-review files and byte-compared all current main changed/untracked implementation paths with their architecture-worktree counterparts. |
+| 2026-10-02 | Branch synchronization | Complete | Synchronized verified main changes into the `architecture/monolith-to-decoupled` worktree, preserving architecture-only work. Reconciled two stale untracked permission-review files and compared all current main changed/untracked implementation paths with their architecture-worktree counterparts. |
+
+## Documentation and Legacy-Schema Follow-up — 2026-10-05
+
+- Audited the current root guides, configuration references, API inventory, frontend route/component references, model schema, scheduler catalog, backup/restore workflow, and migration guidance against the checked-in source.
+- Added a migration-compatibility guide and regression coverage for upgrading a populated frozen pre-Alembic schema through revision `20261002_0002`, preserving user/article/site/invitation rows, and failing closed on an unsupported older schema without deleting its existing row or recording migration success.
+- Added documentation contract checks for every OpenAPI operation, all 35 mapped tables/columns/nullability, `.env.example` coverage, all registry jobs, reference pages for routed API/frontend modules, and local Markdown links.
+- Corrected cloud-outage retention so resolved records older than 24 hours and unresolved records older than 14 days follow the documented policy; added a focused scheduler test.
 
 ## Verification record
 

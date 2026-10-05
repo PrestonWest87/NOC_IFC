@@ -7,19 +7,27 @@ Email sending routes. Prefix: `/api/v1/email`.
 ## Pydantic Models
 
 ### `SendEmailRequest`
-| Field        | Type      | Default | Description                             |
-|--------------|-----------|---------|-----------------------------------------|
-| `subject`    | `str`     | `""`    | Email subject line.                     |
-| `body`       | `str`     | `""`    | Email body content.                     |
-| `recipients` | `str`     | `""`    | Comma-separated recipient addresses.    |
-| `is_html`    | `bool`    | `False` | Whether the body contains HTML markup.  |
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `to` | `str` | `""` | Recipient list, max 2,000 characters. |
+| `subject` | `str` | `""` | Subject, max 200 characters. |
+| `html_body` | `str` | `""` | HTML body, max 200,000 characters. |
+| `attachments` | `list[EmailAttachment]` | empty list | Up to five base64-encoded attachments. |
+
+`EmailAttachment` contains `filename` (max 120 chars), `content_type` (max 100 chars), and `content_base64` (max 7,000,000 chars).
+
+### `BroadcastBriefRequest`
+
+| Field | Type | Default |
+|---|---|---|
+| `email` | `str` | `""` |
 
 ---
 
 ## Endpoint: `POST /send`
 
 ### Purpose
-Sends an email via the configured SMTP mailer.
+Sends an HTML email via the configured SMTP mailer. Requires `Action: Send Email`.
 
 ### Parameters
 | Parameter | Type               | Description                 |
@@ -38,9 +46,8 @@ Sends an email via the configured SMTP mailer.
 None.
 
 ### Flow
-1. Validates that `recipients` is not empty; returns error if so.
-2. Calls `send_alert_email()` with subject, body, recipient override, and HTML flag.
-3. Returns success or error based on the boolean result.
+1. Calls `send_alert_email()` with `to` as recipient override, the HTML body, and decoded attachments.
+2. Returns success or error based on the mailer's boolean result.
 
 ### Dependencies
 - `src.utils.mailer.send_alert_email()`
@@ -53,4 +60,4 @@ The module defines `EmailAttachment`, `SendEmailRequest`, and `BroadcastBriefReq
 - `POST /broadcast-global-brief` for the saved Global Threat Brief.
 - `POST /broadcast-internal-brief` for the saved Internal Asset Risk Brief.
 
-Broadcast handlers load the relevant brief and internal-risk context before calling the shared mailer. SMTP configuration is read from `SystemConfig`.
+Broadcast handlers require either the Global Dashboards or Reporting page plus `Action: Dispatch Exec Report`; they load the relevant saved brief and current internal-risk context before calling the shared mailer. SMTP configuration is read from `SystemConfig`.

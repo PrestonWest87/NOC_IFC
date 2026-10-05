@@ -4,8 +4,8 @@
 
 | Requirement | Minimum | Recommended |
 |-------------|---------|-------------|
-| Docker Engine | v20.10.0 | v24.0+ |
-| Docker Compose | v2.0.0 | v2.20+ |
+| Docker Engine | v24.0+ | Latest supported release |
+| Docker Compose | v2.20+ | Latest supported release |
 | RAM | 4 GB | 8 GB |
 | Disk (SSD) | 10 GB | 15 GB |
 | CPU Cores | 2 | 4 |
@@ -79,7 +79,7 @@ The `dev` profile starts a `web-dev` container with Vite's HMR (Hot Module Repla
 
 ```bash
 cd web
-npm install
+npm ci
 npm run dev
 ```
 
@@ -89,7 +89,7 @@ This starts Vite dev server on port 5173 with proxy configuration for `/api` →
 
 ## Environment Configuration
 
-The checked-in `.env.example` is the complete environment template. The API, worker, and webhook load `.env` through Docker Compose. The frontend uses the `VITE_API_URL` value defined in `docker-compose.yml`; it is not read by the Python settings class.
+The checked-in `.env.example` is the complete environment template, and [the environment reference](reference/config/env_example.md) maps each variable to its reader and purpose. The API, worker, and webhook load `.env` through Docker Compose. The frontend uses the `VITE_API_URL` value defined in `docker-compose.yml`; it is not read by the Python settings class. The following optional list is a quick selection, not an exhaustive inventory.
 
 ### Required Variables
 
@@ -194,8 +194,8 @@ Configure AI in the Settings page (AI & SMTP tab):
 
 | Command | Description |
 |---------|-------------|
-| `docker compose down && rm data/noc_fusion.db && docker compose up --build -d` | Full database reset (re-seeds on startup) |
-| `docker compose restart api worker webhook` | Run the automatic schema-revision check on backend startup |
+| `docker compose down && rm data/noc_fusion.db && docker compose up --build -d` | Destructive full database reset (deletes all application data and re-seeds on startup); back up first and use only when a reset is intended |
+| `docker compose restart api worker webhook` | Run the automatic schema-revision check on backend startup; review [migration compatibility](MIGRATION_COMPATIBILITY.md) before upgrading older databases |
 
 ---
 
@@ -251,7 +251,8 @@ ls -la .env
 docker compose logs -f worker
 
 # Verify feeds are active (check Settings > RSS Sources)
-# The boot sequence runs all jobs immediately on startup
+# Only scheduler registry entries marked startup_run run at boot; the rest wait for their configured schedule.
+# See SCHEDULER.md for the current startup-run list and schedule defaults.
 
 # Check database exists
 ls -la data/noc_fusion.db
@@ -260,15 +261,16 @@ ls -la data/noc_fusion.db
 ### Database Errors
 
 ```bash
-# Reset database
-docker compose down
-rm -f data/noc_fusion.db
-docker compose up --build -d
+# Preserve the database and inspect the migration failure first.
+docker compose logs --tail=300 api
+docker compose logs --tail=300 worker
+docker compose logs --tail=300 webhook
 
-# Back up first, then restart backend services to retry a startup migration.
-# Review `docker compose logs api` if the revision remains behind.
+# After resolving the reported issue, backend services recheck/apply migrations on restart.
 docker compose restart api worker webhook
 ```
+
+Do not delete the database to recover a migration error. Full reset is destructive and only appropriate when all application data may be discarded; create a verified backup first. For older schema support and fail-closed migration behavior, see [Migration Compatibility](MIGRATION_COMPATIBILITY.md).
 
 ### WebSocket Not Connecting
 

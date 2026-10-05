@@ -2,7 +2,7 @@
 
 ## Overview
 
-Interactive geospatial visualization component for AIOps RCA. Renders NOC facility sites on a MapLibre dark-matter basemap using DeckGL scatterplot layers. Displays site health status via color-coded markers and alert-pulse radius overlays.
+Standalone interactive geospatial component that renders NOC facility sites on a MapLibre Dark Matter basemap using DeckGL scatterplot layers. It displays color-coded site markers, alert-pulse overlays, a tooltip, and a selected-site dialog. No current routed page imports this component; page routes compose their own map views.
 
 ---
 
@@ -66,8 +66,12 @@ Interactive geospatial visualization component for AIOps RCA. Renders NOC facili
 |-----------|------|-------------|
 | `info` | `any` | DeckGL picking info object with `.object` and `.layer.id` |
 
-- **Returns**: `{ html: string, style: object }` or `null`.
+- **Returns**: `{ text: string, style: object }` or `null`.
 - **Flow**: Returns a tooltip string with site name, alert count, and operational status. Styled with CSS custom properties.
+
+### `handleClick(info)`
+
+Selects a site marker and opens a dialog with its status, alert count, and coordinates. Clicking the backdrop or the dialog's Close button clears the selection.
 
 ### `toggleFs()`
 

@@ -9,6 +9,7 @@ from sqlalchemy import Column, Integer, MetaData, Table, create_engine, event, i
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool, StaticPool
 
+from migrations.schema_v1 import Base as LegacySchemaBase
 from src.core import db as core_db
 from src.core.migration_runner import run_migrations
 from src.models.schema import (
@@ -142,6 +143,91 @@ class DatabaseMigrationTests(unittest.TestCase):
             revision = session.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
             self.assertEqual(revision, "20261002_0002")
             self.assertIn("revoked_at", {column["name"] for column in inspect(self.engine).get_columns("registration_invites")})
+
+    def test_pre_alembic_schema_upgrade_preserves_existing_application_rows(self):
+        LegacySchemaBase.metadata.create_all(self.engine)
+        with self.engine.begin() as connection:
+            connection.execute(text(
+                "INSERT INTO users "
+                "(id, username, password_hash, role, account_type, is_active, created_at, email, email_normalized) "
+                "VALUES (41, 'legacy-admin', 'existing-hash', 'admin', 'individual', 1, "
+                "'2025-01-02 03:04:05', 'admin@example.com', 'admin@example.com')"
+            ))
+            connection.execute(text(
+                "INSERT INTO articles (id, title, link, summary, published_date, source, score, category) "
+                "VALUES (51, 'Legacy article', 'https://example.test/legacy', 'kept row', "
+                "'2025-01-02 03:04:05', 'legacy feed', 72.5, 'Cyber')"
+            ))
+            connection.execute(text(
+                "INSERT INTO monitored_locations (id, name, lat, lon, priority) "
+                "VALUES (61, 'Legacy site', 34.0, -92.0, 'P2-High')"
+            ))
+            connection.execute(text(
+                "INSERT INTO registration_invites "
+                "(id, username, role, token_hash, created_by, created_at, expires_at, "
+                "email, email_normalized, account_type) VALUES "
+                "(71, 'invitee', 'analyst', 'legacy-token-hash', 'legacy-admin', "
+                "'2025-01-02 03:04:05', '2030-01-02 03:04:05', "
+                "'invitee@example.com', 'invitee@example.com', 'individual')"
+            ))
+
+        run_migrations(self.engine)
+
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.execute(text(
+                    "SELECT username, password_hash, email_normalized FROM users WHERE id = 41"
+                )).one(),
+                ("legacy-admin", "existing-hash", "admin@example.com"),
+            )
+            self.assertEqual(
+                connection.execute(text(
+                    "SELECT title, link, score FROM articles WHERE id = 51"
+                )).one(),
+                ("Legacy article", "https://example.test/legacy", 72.5),
+            )
+            self.assertEqual(
+                connection.execute(text(
+                    "SELECT name, priority FROM monitored_locations WHERE id = 61"
+                )).one(),
+                ("Legacy site", "P2-High"),
+            )
+            migrated_invite = connection.execute(text(
+                "SELECT username, email, revoked_at FROM registration_invites WHERE id = 71"
+            )).one()
+            self.assertEqual(migrated_invite, ("invitee", "invitee@example.com", None))
+            self.assertEqual(
+                connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one(),
+                "20261002_0002",
+            )
+
+        self.assertIn(
+            "revoked_at",
+            {column["name"] for column in inspect(self.engine).get_columns("registration_invites")},
+        )
+
+    def test_unknown_older_schema_fails_closed_without_losing_existing_rows(self):
+        with self.engine.begin() as connection:
+            connection.execute(text(
+                "CREATE TABLE system_config (id INTEGER PRIMARY KEY, llm_endpoint VARCHAR)"
+            ))
+            connection.execute(text(
+                "INSERT INTO system_config (id, llm_endpoint) VALUES (91, 'https://legacy.example.test/v1')"
+            ))
+
+        with self.assertRaisesRegex(RuntimeError, "missing explicit column definitions"):
+            run_migrations(self.engine)
+
+        with self.engine.connect() as connection:
+            self.assertEqual(
+                connection.execute(text(
+                    "SELECT id, llm_endpoint FROM system_config WHERE id = 91"
+                )).one(),
+                (91, "https://legacy.example.test/v1"),
+            )
+            self.assertIsNone(connection.execute(text(
+                "SELECT version_num FROM alembic_version"
+            )).first())
 
     def test_fresh_install_uses_frozen_baseline_not_runtime_model_metadata(self):
         future_table = Table(

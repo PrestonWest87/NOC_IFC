@@ -8,7 +8,7 @@
 | Git | v2.30+ for repository cloning |
 | RAM | Minimum 2 GB available (4 GB+ recommended for production) |
 | Disk | Minimum 10 GB free (20 GB+ recommended for data retention) |
-| LLM Endpoint | OpenAI API key or local Ollama instance |
+| LLM Endpoint | Optional OpenAI-compatible or local Ollama endpoint; required only for AI-generated features |
 | Network | Ports 8100, 8101, 8501 (production) or 5173 (dev) must be available |
 
 Verify prerequisites:
@@ -110,7 +110,7 @@ Receives SolarWinds alerts at `POST http://localhost:8100/webhook/solarwinds`.
 
 ## 4. Environment Variables (.env)
 
-Create `.env` from the template and configure as needed:
+Create `.env` from the template and configure as needed. `.env.example` and [the environment reference](reference/config/env_example.md) are the authoritative exhaustive variable list and source mapping; the table below is a selected deployment quick reference. `VITE_API_URL` is configured in Compose, not in the Python `.env` settings.
 
 ```bash
 cp .env.example .env
@@ -120,7 +120,7 @@ cp .env.example .env
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | Yes | `sqlite:////app/data/noc_fusion.db` | Shared SQLite database file; non-SQLite URLs are rejected |
 | `DEMO_SEED_DATA` | No | `false` | Seed synthetic hardware/software assets; use only in disposable environments |
-| `DEFAULT_ADMIN_PASSWORD` | First boot | (empty) | Initial admin password when no users exist |
+| `DEFAULT_ADMIN_PASSWORD` | First boot | `.env.example` contains a change-me placeholder; runtime default is empty | Creates the initial admin only when no users exist and the value is non-empty; replace the placeholder before startup |
 | `DEFAULT_ADMIN_EMAIL` | Optional | (empty) | Trusted verified recovery/notification address for the bootstrap administrator; can initialize an existing email-less bootstrap admin at API/worker startup |
 | `LOG_LEVEL` | No | `INFO` | Python log threshold |
 | `RISK_ALERT_RECIPIENTS` | For alerts | (empty) | Comma-separated email addresses for risk alerts |
@@ -242,6 +242,7 @@ docker compose restart api worker webhook
 
 - SQLite is the supported application database. API, worker, and webhook containers must share the configured database file.
 - Startup checks the Alembic revision and applies pending migrations before the service accepts work. Back up the database before upgrades (see Section 7).
+- Pre-Alembic application schemas are upgraded additively when they match the documented compatibility map. Unknown missing columns and invalid legacy data stop startup before the revision is recorded; see [Migration Compatibility](MIGRATION_COMPATIBILITY.md) for the tested boundary and recovery procedure.
 
 ### Reverse Proxy and TLS
 
@@ -303,7 +304,7 @@ services:
     deploy:
       resources:
         limits:
-       memory: 1.5G
+          memory: 1.5G
 ```
 
 ### Logging and Monitoring
@@ -316,8 +317,9 @@ services:
 ### Secrets Management
 
 - Use Docker secrets or an external vault for sensitive values
-- SMTP credentials are stored in the `SystemConfig` database table (encrypted at rest)
-- LLM API keys are stored in environment variables and `SystemConfig`
+- SMTP credentials and LLM API keys may be stored as ordinary fields in the live SQLite `SystemConfig` row; they are not field-level encrypted at rest.
+- Encrypted full-backup packages protect the database snapshot, but do not include `.env` or environment-only secrets.
+- Restrict access to the SQLite data volume and `.env`, and use host-level disk encryption or an external secret store where required by policy.
 
 ---
 
@@ -366,7 +368,7 @@ All containers communicate on the same Docker bridge network. Internal service-t
 | CORS | `CORS_ORIGINS` is an explicit origin list; the default allows the local production and development frontends. | Set only the deployed frontend origin(s). |
 | WebSocket | Requires a session token and AIOps page/Active Board access; sessions and permissions are revalidated, and site data is filtered. | Prefer TLS (`wss://`) through a reverse proxy and restrict direct access to port 8101. |
 | SolarWinds webhook | HMAC and timestamp/replay checks are supported. Unsigned requests are rejected unless `ALLOW_UNSIGNED_WEBHOOKS=true`. | Configure a strong `WEBHOOK_HMAC_SECRET`; keep the unsigned exception disabled. |
-| SMTP/LLM credentials | SMTP passwords and LLM keys may be stored in `SystemConfig`; other integration secrets are environment-configured. | Protect the SQLite volume and backups. Define secret rotation and external secret-management requirements for the customer environment. |
+| SMTP/LLM credentials | SMTP passwords and LLM keys may be stored in `SystemConfig`; the live SQLite columns are not field-level encrypted. Full backup packages encrypt the database snapshot; `.env` and environment secrets stay external. | Protect the SQLite volume and backups. Define secret rotation and external secret-management requirements for the customer environment. |
 | Request limits | The webhook and WebSocket have configured size limits. There is no general API rate limiter; the database-upload endpoint currently reads its upload into memory. | Add route-level rate limits and bounded upload handling before exposing the service to broad or untrusted networks. |
 | Transport | Compose publishes the API, webhook, and web ports; TLS termination is not built into the stack. | Terminate HTTPS at a trusted reverse proxy and apply firewall rules to limit source networks. |
 
@@ -378,7 +380,7 @@ Set `DEFAULT_ADMIN_PASSWORD` before first boot; there is no guaranteed hard-code
 
 | Symptom | Likely Cause | Resolution |
 |---------|-------------|-----------|
-| Database migration failure | Unsupported schema state or invalid legacy data | Back up the database, review migration logs, resolve the reported issue, and restart |
+| Database migration failure | Unsupported schema state or invalid legacy data | Preserve the database, read the reported missing-column/duplicate-data details, and follow [Migration Compatibility](MIGRATION_COMPATIBILITY.md); do not edit `alembic_version` or drop columns |
 | LLM timeout / errors | Wrong endpoint or model | Verify LLM endpoint URL and API key in Settings > AI & SMTP |
 | WebSocket not connecting | API container issue or port conflict | Check `docker compose logs api` for startup errors |
 | Emails not sending | SMTP misconfiguration | Verify SMTP settings in Settings > AI & SMTP |
@@ -394,7 +396,7 @@ Set `DEFAULT_ADMIN_PASSWORD` before first boot; there is no guaranteed hard-code
 
 ```bash
 # All service logs
-docker compose logs api | worker | webhook | web
+docker compose logs api worker webhook web
 
 # Last 100 lines
 docker compose logs --tail=100 api

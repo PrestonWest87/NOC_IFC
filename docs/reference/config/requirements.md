@@ -3,9 +3,9 @@
 **Direct runtime manifest:** `requirements.txt`
 
 **Resolved runtime lock:** `requirements.lock`
-**Test manifest:** `requirements-test.txt` (adds HTTPX2 for FastAPI's `TestClient` after the runtime lock)
+**Test manifest:** `requirements-test.txt` (adds the `httpx2` distribution used by FastAPI/Starlette `TestClient` after the runtime lock)
 
-The Python image installs only runtime dependencies. The test manifest adds a pinned HTTPX2 version for FastAPI's `TestClient`; install it after `requirements.lock` when preparing a test environment.
+The Python image installs only runtime dependencies. The test manifest adds pinned `httpx2==2.13.1` for FastAPI/Starlette `TestClient`; install it after `requirements.lock` when preparing a test environment.
 
 | Package | Why it is required |
 |---|---|
@@ -37,6 +37,7 @@ Removed unused direct requirements: PostgreSQL's `psycopg2-binary`, `beautifulso
 pip install --require-hashes -r requirements.lock
 
 # Development and tests
+pip install --require-hashes -r requirements.lock
 pip install -r requirements-test.txt
 ```
 

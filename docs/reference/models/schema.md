@@ -56,7 +56,7 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declar
 | `id` | `Integer PK` | auto | Y | Primary key |
 | `username` | `String` | — | Y (unique) | Login username |
 | `password_hash` | `String` | — | — | bcrypt password hash |
-| `role` | `String` | `"analyst"` | Y | FK to `roles.name` |
+| `role` | `String` | `"analyst"` | Y | Logical role name; no SQL foreign key |
 | `session_token` | `String` | `nullable` | Y | Active database-backed session token |
 | `full_name` | `String` | `nullable` | — | Display name |
 | `job_title` | `String` | `nullable` | — | Job title (e.g., "NOC Analyst") |
@@ -78,7 +78,7 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declar
 | Column | Type | Default | Description |
 |---|---|---|---|
 | `id` | `Integer PK` | auto | Session row identifier |
-| `user_id` | `Integer` | required | Logical reference to `users.id` |
+| `user_id` | `Integer` | required | SQL foreign key to `users.id` |
 | `token` | `String` | required | Unique independently revocable session token |
 | `created_at` | `DateTime` | UTC now | Session creation time |
 
@@ -95,6 +95,7 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declar
 | `created_at` | `DateTime` | UTC now | Creation timestamp |
 | `expires_at` | `DateTime` | required | Invitation expiration |
 | `used_at` | `DateTime` | nullable | Completion timestamp |
+| `revoked_at` | `DateTime` | nullable | Auditable invalidation timestamp; added by migration `20261002_0002` |
 | `email` | `String(254)` | required | Invited individual email |
 | `email_normalized` | `String(254)` | required/indexed | Normalized invitation email |
 | `account_type` | `String(20)` | `individual` | Invite account type |
@@ -102,7 +103,7 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declar
 ### EmailChangeRequest
 **Table**: `email_change_requests`
 
-Stores user-requested recovery-email changes, reviewer decisions, and mailbox verification. An address becomes the approved recovery email only after administrator approval and successful mailbox verification.
+Stores user-requested recovery-email changes, reviewer decisions, and mailbox verification. `user_id` and optional `reviewed_by_id` are SQL foreign keys to `users.id`. An address becomes the approved recovery email only after administrator approval and successful mailbox verification.
 
 | Column | Type | Description |
 |---|---|---|
@@ -115,7 +116,7 @@ Stores user-requested recovery-email changes, reviewer decisions, and mailbox ve
 ### PasswordResetRequest and PasswordResetToken
 **Tables**: `password_reset_requests`, `password_reset_tokens`
 
-Reset requests retain a hash of the submitted identifier and requester IP for generic responses and rate limiting. User administrators review requests; approval creates an expiring, single-use token whose raw value is sent to the verified recovery address.
+Reset requests retain a hash of the submitted identifier and requester IP for generic responses and rate limiting. Optional request `user_id` and `reviewed_by_id` are SQL foreign keys to `users.id`; reset-token `request_id` and `user_id` are SQL foreign keys to their parent request and user. User administrators review requests; approval creates an expiring, single-use token whose raw value is sent to the verified recovery address.
 
 | Model | Key fields |
 |---|---|
@@ -124,6 +125,8 @@ Reset requests retain a hash of the submitted identifier and requester IP for ge
 
 ### AccountAuditEvent
 **Table**: `account_audit_events`
+
+Nullable actor and subject references are SQL foreign keys to `users.id`.
 
 | Column | Type | Description |
 |---|---|---|
@@ -135,7 +138,7 @@ Reset requests retain a hash of the submitted identifier and requester IP for ge
 ### SchedulerJobConfig
 **Table**: `scheduler_job_config`
 
-Stores validated per-job schedule type, interval/time/day, timezone, enabled state, and updater metadata. `system_config.scheduler_revision` and `scheduler_applied_revision` coordinate worker reloads.
+Stores validated per-job schedule type, interval/time/day, timezone, enabled state, and updater metadata. `system_config.scheduler_revision` and `scheduler_applied_revision` coordinate worker reloads. This table has no declared foreign keys.
 
 | Column | Type | Description |
 |---|---|---|
@@ -244,7 +247,7 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `details` | `Text` | — | — | Alert details/description |
 | `node_link` | `String` | — | — | SolarWinds node URL |
 | `raw_payload` | `JSON` | `nullable` | — | Complete webhook payload |
-| `mapped_location` | `String` | `nullable` | Y | FK to `monitored_locations.name` |
+| `mapped_location` | `String` | `nullable` | Y | Logical site-name association; no SQL foreign key |
 | `received_at` | `DateTime` | `utcnow` | Y | When the alert was ingested |
 | `resolved_at` | `DateTime` | `nullable` | Y | When the alert was resolved |
 | `is_dispatched` | `Boolean` | `False` | Y | Whether a dispatch ticket was sent |
@@ -253,6 +256,8 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `ai_root_cause` | `Text` | `nullable` | — | AI-determined root cause |
 | `device_type` | `String` | `"Unknown"` | Y | Classified device type (ontology domain) |
 | `event_category` | `String` | `"Unknown"` | — | Event category classification |
+| `acknowledged_by`, `acknowledged_at` | String, DateTime | `nullable` | — | Acknowledgment actor and time |
+| `dispatched_by`, `dispatched_at` | String, DateTime | `nullable` | — | Dispatch actor and time |
 
 ---
 
@@ -267,7 +272,7 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `lon` | `Float` | — | — | Longitude |
 | `loc_type` | `String` | `"General"` | Y | Location type (Fiber Hut, Data Center, etc.) |
 | `district` | `String` | `"Central"` | Y | Operational district |
-| `priority` | `Integer` | `3` | Y | Site priority (1-5) |
+| `priority` | `String` | `"P3-Moderate"` | Y | `P1-Critical` through `P5-Planning`; legacy numeric values are migrated |
 | `current_spc_risk` | `String` | `"None"` | — | Latest SPC risk level |
 | `last_updated` | `DateTime` | `utcnow` | — | Last modification time |
 | `under_maintenance` | `Boolean` | `False` | — | Whether site is in maintenance mode |
@@ -298,9 +303,15 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `keywords_found` | `JSON` | — | — | List of matched keywords |
 | `is_bubbled` | `Boolean` | `False` | — | Whether article exceeds alert threshold (>=45) |
 | `story_group` | `String` | `nullable` | — | Story grouping identifier |
-| `human_feedback` | `Integer` | `0` | — | Analyst feedback (-1, 0, 1) |
+| `human_feedback` | `Integer` | `0` | — | Training label: 1 dismiss/noise, 2 keep/important; 0 neutral |
 | `ai_bluf` | `Text` | `nullable` | — | AI-generated bottom-line-up-front summary |
 | `is_pinned` | `Boolean` | `False` | Y | Whether article is pinned by analyst |
+| `full_content` | `Text` | `nullable` | — | Extracted article body |
+| `ingested_at` | `DateTime` | UTC now | Y | Ingestion timestamp |
+| `enrichment_status` | `String` | `pending` | Y | `pending`, `content_pending`, `enriched`, or `failed` |
+| `enrichment_attempts` | `Integer` | `0` | — | Number of full-content attempts |
+| `last_enrichment_error` | `Text` | `nullable` | — | Last extraction error |
+| `last_enriched_at` | `DateTime` | `nullable` | — | Successful extraction time |
 
 ---
 
@@ -426,17 +437,17 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `feed_sources` | `id`, `url` (unique), `name`, `is_active` | RSS/Atom feed registry |
 | `keywords` | `id`, `word` (unique), `weight` | 70 default keywords seeded |
 | `software_assets` | `id`, `name`, `last_updated` | Simple software inventory |
-| `extracted_iocs` | `id`, `article_id`, `indicator_type`, `indicator_value`, `context` | FK to `articles.id` |
+| `extracted_iocs` | `id`, `article_id`, `indicator_type`, `indicator_value`, `context` | Logical `article_id` association; no SQL foreign key |
 | `cve_items` | `id`, `cve_id` (unique), `vendor`, `product`, `date_added` | CISA KEV catalog |
 | `elastic_events` | `id` (String PK), `timestamp`, `severity`, `message`, `source_ip` | Elasticsearch sync |
 | `daily_briefings` | `id`, `report_date` (unique), `content` | Fusion report archive |
-| `daily_threat_scores` | `id`, `record_date` (unique), `cyber_points`, `physical_points` | 14-day baseline |
+| `daily_threat_scores` | `id`, `record_date` (unique), `cyber_points`, `physical_points` | Historical score series; no automatic retention purge |
 | `regional_outages` | `id`, `outage_type`, `provider`, `lat`, `lon`, `radius_km`, `is_resolved` | Regional power/ISP outages |
 | `bgp_anomalies` | `id`, `asn`, `event_type`, `description`, `is_resolved` | RIPE RIS routing anomalies |
 | `timeline_events` | `id`, `timestamp`, `source`, `event_type`, `message`, `site_name` | RCA activity feed with site-scope metadata |
 | `geojson_cache` | `feed_name` (PK), `data` (JSON), `updated_at` | SPC/NWS/USGS cached |
 | `node_aliases` | `id`, `node_pattern`, `mapped_location_name`, `confidence_score`, `is_verified` | SolarWinds mapping |
-| `user_weather_prefs` | `id`, `username`, `alert_type` | Weather preferences |
+| `user_weather_prefs` | `id`, `username`, `alert_type` | Weather preferences; `username` is a logical user reference |
 
 ---
 
