@@ -374,7 +374,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 
 ### AIOps RCA Page
 - Site type filtering via `user.allowed_site_types`
-- Color logic: investigating > dispatched > maintenance > action required
+- Map status colors: Up/Clear, Down/Action Required, Needs Dispatch, Investigating, Ticket Dispatched, and Under Maintenance. Down / Action Required is the initial active-alert state; Needs Dispatch is an explicit persisted workflow selection. Maintenance and completed dispatch take precedence over investigation.
 - Window-fill fullscreen (CSS fixed positioning)
 - Auto-clear investigating transition guard
 - Maintenance is sticky (must be manually cleared)

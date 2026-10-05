@@ -69,6 +69,32 @@ def set_investigate(background_tasks: BackgroundTasks, data: dict = Body(...), u
     return {"status": "ok"}
 
 
+@router.post("/needs-dispatch", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board"))])
+def set_needs_dispatch(
+    background_tasks: BackgroundTasks,
+    data: dict = Body(...),
+    user=Depends(require_action("Action: Dispatch RCA Tickets")),
+):
+    site = str(data.get("site", ""))
+    needs_dispatch = data.get("needs_dispatch")
+    if not isinstance(needs_dispatch, bool):
+        raise HTTPException(status_code=422, detail="needs_dispatch must be a boolean.")
+    if not svc.user_can_access_site(user, site):
+        raise HTTPException(status_code=403, detail={
+            "code": "site_scope_denied", "message": "This site is outside your permitted site types."
+        })
+    try:
+        updated_alerts = svc.set_site_needs_dispatch(site, needs_dispatch, modified_by=user.username)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if updated_alerts is None:
+        raise HTTPException(status_code=404, detail="Site not found.")
+
+    from src.api.main import manager
+    background_tasks.add_task(manager.broadcast_json, {"type": "RCA_UPDATE"})
+    return {"status": "ok", "updated_alerts": updated_alerts}
+
+
 @router.post("/analyze", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board")), Depends(require_action("Action: Run RCA Analysis"))])
 def analyze(user=Depends(get_current_user)):
     logger.info("POST /rca/analyze: starting root cause analysis")

@@ -298,6 +298,9 @@ Requires the Active Board tab. Returns alerts, events, grid, locations, and site
 Requires: `Tab: AIOps RCA -> Active Board` and `Action: Dispatch RCA Tickets`.
 Body: `{site, is_investigating}`
 
+### POST /rca/needs-dispatch
+Requires `Tab: AIOps RCA -> Active Board` and `Action: Dispatch RCA Tickets`. Body: `{site, needs_dispatch}`. Applies or clears the persisted Needs Dispatch state on the site's active, uncorrelated alerts; setting it requires at least one active alert.
+
 ### POST /rca/analyze
 Requires `Tab: AIOps RCA -> Active Board` and `Action: Run RCA Analysis`. Runs full EnterpriseAIOpsEngine analysis. Returns site-scoped clustered alerts, fleet outages, root causes, and chronic insights when the caller has access to all site types.
 

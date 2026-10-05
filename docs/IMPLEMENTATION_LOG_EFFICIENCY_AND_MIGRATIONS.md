@@ -32,6 +32,12 @@ Status: Complete
 - Added documentation contract checks for every OpenAPI operation, all 35 mapped tables/columns/nullability, `.env.example` coverage, all registry jobs, reference pages for routed API/frontend modules, and local Markdown links.
 - Corrected cloud-outage retention so resolved records older than 24 hours and unresolved records older than 14 days follow the documented policy; added a focused scheduler test.
 
+## AIOps Dispatch Workflow Follow-up — 2026-10-05
+
+- Added a false-default `needs_dispatch` field to active SolarWinds alerts so initial Down / Action Required remains distinct from an operator-selected Needs Dispatch state.
+- Added a permission- and site-scoped `/rca/needs-dispatch` API and popup choices for Down / Action Required, Investigating, Needs Dispatch, Ticket Dispatched, and Under Maintenance.
+- Added migration, service, and authorization coverage for the persisted workflow state.
+
 ## Verification record
 
 Verification checkpoint: all 77 Python tests pass on `main` and the architecture worktree, both with the host venv and the Python 3.11 Docker images; host/container `compileall` passes in both. Frozen v1 table DDL and indexes match the 35 current model tables. Fresh/legacy/partial/concurrent migration cases and no-work-at-head are covered. The final Python image builds exclude local databases/backups and generated model weights; the tests confirmed these artifacts are absent. Node 22 `npm ci`, frontend production builds, `npm audit`, and `npm audit --omit=dev` pass on both worktrees; both audits report zero vulnerabilities. Vite reports the existing large MapLibre/deck.gl chunk warning. `docker compose config --quiet`, `sh -n web/dev-entrypoint.sh`, and `git diff --check` pass on both. The implementation changes are synchronized and parity-checked. No cold/warm timing baseline had been recorded before this work.

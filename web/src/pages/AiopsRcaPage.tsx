@@ -19,19 +19,24 @@ import {
 } from "lucide-react";
 
 const INITIAL_VIEW: MapViewState = { latitude: 34.8, longitude: -92.2, zoom: 6, pitch: 0 };
-type SiteMapStatus = "up" | "actionRequired" | "maintenance" | "investigating" | "dispatched";
+type SiteMapStatus = "up" | "actionRequired" | "needsDispatch" | "maintenance" | "investigating" | "dispatched";
+type SiteWorkflowStatus = "actionRequired" | "investigating" | "needsDispatch" | "dispatched" | "maintenance";
 type SiteMapColor = [number, number, number, number];
 
 const SITE_MAP_STATUS: Record<SiteMapStatus, { label: string; color: SiteMapColor; swatch: string }> = {
   up: { label: "Up / Clear", color: [34, 197, 94, 220], swatch: "#22c55e" },
   actionRequired: { label: "Down / Action Required", color: [239, 68, 68, 220], swatch: "#ef4444" },
+  needsDispatch: { label: "Needs Dispatch", color: [248, 250, 252, 235], swatch: "#f8fafc" },
   maintenance: { label: "Under Maintenance", color: [59, 130, 246, 220], swatch: "#3b82f6" },
   investigating: { label: "Investigating", color: [245, 158, 11, 230], swatch: "#f59e0b" },
   dispatched: { label: "Ticket Dispatched", color: [168, 85, 247, 230], swatch: "#a855f7" },
 };
 
 const SITE_MAP_STATUS_ORDER: SiteMapStatus[] = [
-  "up", "actionRequired", "maintenance", "investigating", "dispatched",
+  "up", "actionRequired", "needsDispatch", "investigating", "dispatched", "maintenance",
+];
+const SITE_WORKFLOW_STATUS_ORDER: SiteWorkflowStatus[] = [
+  "actionRequired", "investigating", "needsDispatch", "dispatched", "maintenance",
 ];
 
 const tabBtn = (active: boolean): React.CSSProperties => ({
@@ -81,6 +86,17 @@ const btnBase: React.CSSProperties = {
 
 const label: React.CSSProperties = { fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" };
 
+const TOOLTIP_HTML_ESCAPES: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
+const escapeTooltipHtml = (value: unknown) =>
+  String(value ?? "").replace(/[&<>"']/g, (character) => TOOLTIP_HTML_ESCAPES[character] ?? character);
+
 export function AiopsRcaPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -93,7 +109,6 @@ export function AiopsRcaPage() {
   const RCA_TAB_LABELS = ["Active Board", "Patterns", "Global"];
   const [activeTab, setActiveTab] = useState(0);
   const [livePolling, setLivePolling] = useState(true);
-  const [dispatchChecked, setDispatchChecked] = useState<Record<string, boolean>>({});
   const [ticketExpanded, setTicketExpanded] = useState<string | null>(null);
   const [maintExpanded, setMaintExpanded] = useState<string | null>(null);
   const [maintForm, setMaintForm] = useState<Record<string, { status: string; etr: string; reason: string }>>({});
@@ -159,23 +174,49 @@ export function AiopsRcaPage() {
     },
   });
 
+  const updateDispatchStatus = useCallback((alertIds: number[], dispatched: boolean) => {
+    const ids = new Set(alertIds);
+    queryClient.setQueryData(["rca-dashboard"], (current: any) => {
+      if (!current) return current;
+      return {
+        ...current,
+        alerts: (current.alerts ?? []).map((alert: any) =>
+          ids.has(alert.id) ? { ...alert, is_dispatched: dispatched, needs_dispatch: false } : alert
+        ),
+      };
+    });
+    queryClient.invalidateQueries({ queryKey: ["rca-dashboard"] });
+  }, [queryClient]);
+
   const dispatchMutation = useMutation({
     mutationFn: ({ alertIds, dispatched }: { alertIds: number[]; dispatched: boolean }) =>
       api.post("/rca/dispatch", { alert_ids: alertIds, is_dispatched: dispatched }).then((r) => r.data),
     onSuccess: (_result, variables) => {
-      // Reflect the completed write immediately; the broadcast/refetch still
-      // reconciles the cache with changes made by other users.
+      // Reflect the completed write immediately; the refetch reconciles other users' changes.
+      updateDispatchStatus(variables.alertIds, variables.dispatched);
+      queryClient.invalidateQueries({ queryKey: ["rca-analyze"] });
+    },
+  });
+
+  const needsDispatchMutation = useMutation({
+    mutationFn: ({ site, needsDispatch }: { site: string; needsDispatch: boolean }) =>
+      api.post("/rca/needs-dispatch", { site, needs_dispatch: needsDispatch }).then((r) => r.data),
+    onSuccess: (_result, variables) => {
       queryClient.setQueryData(["rca-dashboard"], (current: any) => {
         if (!current) return current;
-        const ids = new Set(variables.alertIds);
         return {
           ...current,
           alerts: (current.alerts ?? []).map((alert: any) =>
-            ids.has(alert.id) ? { ...alert, is_dispatched: variables.dispatched } : alert
+            alert.mapped_location === variables.site
+              ? {
+                  ...alert,
+                  needs_dispatch: variables.needsDispatch,
+                  ...(variables.needsDispatch ? { is_dispatched: false } : {}),
+                }
+              : alert
           ),
         };
       });
-      queryClient.invalidateQueries({ queryKey: ["rca-analyze"] });
       queryClient.invalidateQueries({ queryKey: ["rca-dashboard"] });
     },
   });
@@ -251,7 +292,8 @@ export function AiopsRcaPage() {
           lon: l.lon,
           loc_type: l.loc_type,
           alert_count: siteAlerts.length,
-          is_dispatched: siteAlerts.some((a: any) => a.is_dispatched),
+          is_dispatched: siteAlerts.length > 0 && siteAlerts.every((a: any) => Boolean(a.is_dispatched)),
+          needs_dispatch: siteAlerts.some((a: any) => Boolean(a.needs_dispatch)),
           under_maintenance: l.under_maintenance ?? false,
           maintenance_etr: l.maintenance_etr ?? null,
           maintenance_reason: l.maintenance_reason ?? null,
@@ -303,7 +345,6 @@ export function AiopsRcaPage() {
   };
 
   const handleDispatchToggle = (site: string, checked: boolean) => {
-    setDispatchChecked((prev) => ({ ...prev, [site]: checked }));
     const clusterAlerts = getClusterAlerts(site);
     const ids = clusterAlerts.map((a: any) => a.id).filter(Boolean);
     if (ids.length > 0) dispatchMutation.mutate({ alertIds: ids, dispatched: checked });
@@ -374,12 +415,11 @@ export function AiopsRcaPage() {
 
   const [siteDialog, setSiteDialog] = useState<{
     name: string; lat: number; lon: number; alert_count: number;
-    is_dispatched: boolean; under_maintenance: boolean;
+    is_dispatched: boolean; needs_dispatch: boolean; is_investigating: boolean; under_maintenance: boolean;
     maintenance_etr: string | null; maintenance_reason: string | null;
     status_modified_by: string | null; status_modified_at: string | null;
   } | null>(null);
-  const [dialogDispatch, setDialogDispatch] = useState(false);
-  const [dialogStatus, setDialogStatus] = useState<string>("Investigate/Dispatch");
+  const [dialogStatus, setDialogStatus] = useState<SiteWorkflowStatus | null>(null);
   const [dialogEtr, setDialogEtr] = useState("");
   const [dialogReason, setDialogReason] = useState("");
   const [dialogError, setDialogError] = useState("");
@@ -388,9 +428,19 @@ export function AiopsRcaPage() {
     const lat = site.position ? site.position[1] : site.lat;
     const lon = site.position ? site.position[0] : site.lon;
     setSiteDialog({ ...site, lat, lon });
-    setDialogDispatch(site.is_dispatched);
-    const isMaint = site.under_maintenance;
-    setDialogStatus(isMaint ? "No Dispatch Needed" : "Investigate/Dispatch");
+    const hasActiveAlerts = Number(site.alert_count) > 0;
+    const workflowStatus: SiteWorkflowStatus | null = site.under_maintenance
+      ? "maintenance"
+      : hasActiveAlerts && site.is_dispatched
+        ? "dispatched"
+      : hasActiveAlerts && site.is_investigating
+        ? "investigating"
+        : hasActiveAlerts && site.needs_dispatch
+          ? "needsDispatch"
+        : hasActiveAlerts
+            ? "actionRequired"
+            : null;
+    setDialogStatus(workflowStatus);
     setDialogEtr(site.maintenance_etr ? site.maintenance_etr.substring(0, 10) : chicagoDateString());
     setDialogReason(site.maintenance_reason ?? "");
   }, []);
@@ -409,8 +459,10 @@ export function AiopsRcaPage() {
     const clusterAlerts = alerts.filter((a: any) => a.mapped_location === name);
     const alertIds = clusterAlerts.map((a: any) => a.id).filter(Boolean);
 
-    const isMaint = dialogStatus === "No Dispatch Needed";
-    const isInvestigating = !isMaint;
+    const isMaint = dialogStatus === "maintenance";
+    const isInvestigating = dialogStatus === "investigating";
+    const isDispatched = dialogStatus === "dispatched";
+    const needsDispatch = dialogStatus === "needsDispatch";
 
     // SEQUENTIAL mutations — each must fully complete before next starts.
     // Parallel Promise.allSettled caused a race: each mutation's onSuccess
@@ -419,24 +471,32 @@ export function AiopsRcaPage() {
     // could show stale under_maintenance for other sites.
 
     try {
-      // 1. Investigate (fastest — in-memory set)
-      await investigateMutation.mutateAsync({ site: name, is_investigating: isInvestigating });
+      // Apply only the status mutations the current user is authorized to make.
+      if (canDispatch) {
+        await investigateMutation.mutateAsync({ site: name, is_investigating: isInvestigating });
+      }
 
-      // 2. Maintenance (clears get_cached_locations cache)
-      const etrDate = isMaint ? dialogEtr : "";
-      const reason = dialogReason;
-      await maintMutation.mutateAsync({ site_name: name, is_maint: isMaint, etr: etrDate, reason });
+      if (canManageMaint) {
+        const etrDate = isMaint ? dialogEtr : "";
+        const reason = isMaint ? dialogReason : "";
+        await maintMutation.mutateAsync({ site_name: name, is_maint: isMaint, etr: etrDate, reason });
+      }
 
-      // 3. Dispatch (last — invalidates both rca-dashboard and rca-analyze)
-      if (alertIds.length > 0) {
-        await dispatchMutation.mutateAsync({ alertIds, dispatched: dialogDispatch });
+      // Needs Dispatch and Investigating clear the ticket flag; Ticket Dispatched sets it.
+      // Maintenance preserves the per-alert dispatch history.
+      if (canDispatch && alertIds.length > 0 && dialogStatus && !isMaint) {
+        await dispatchMutation.mutateAsync({ alertIds, dispatched: isDispatched });
+      }
+
+      if (canDispatch && alertIds.length > 0 && dialogStatus) {
+        await needsDispatchMutation.mutateAsync({ site: name, needsDispatch });
       }
 
       setSiteDialog(null);
     } catch (error: any) {
       setDialogError(error?.response?.data?.detail || "Unable to save site status. Please retry.");
     }
-}, [siteDialog, dialogDispatch, dialogStatus, dialogEtr, dialogReason, alerts, dispatchMutation, maintMutation, investigateMutation]);
+}, [siteDialog, dialogStatus, dialogEtr, dialogReason, alerts, canDispatch, canManageMaint, dispatchMutation, needsDispatchMutation, maintMutation, investigateMutation]);
 
  useEffect(() => {
     const prev = prevAlertCounts.current;
@@ -486,8 +546,24 @@ export function AiopsRcaPage() {
     if (!info.object) return null;
     const d = info.object;
     if (info.layer?.id === "sites-ok" || info.layer?.id === "sites-alert") {
+      const alertCount = Number(d.alert_count) || 0;
+      const dispatchStatus = d.is_dispatched
+        ? "Ticket Dispatched"
+        : d.needs_dispatch
+          ? "Needs Dispatch"
+          : alertCount > 0
+            ? "Not Dispatched"
+            : "No Dispatch Pending";
       return {
-        html: `<b>${d.name}</b><br/>${d.status_text}`,
+        html: [
+          `<b>${escapeTooltipHtml(d.name)}</b>`,
+          `<br/><b>Map Status:</b> ${escapeTooltipHtml(d.status_text)}`,
+          `<br/><b>Operational:</b> ${alertCount > 0 ? "Down / Action Required" : "Up / Clear"}`,
+          `<br/><b>Alerts:</b> ${alertCount}`,
+          `<br/><b>Dispatch:</b> ${dispatchStatus}`,
+          `<br/><b>Investigation:</b> ${d.is_investigating ? "Investigating" : "Not Investigating"}`,
+          `<br/><b>Maintenance:</b> ${d.under_maintenance ? "Under Maintenance" : "Not in Maintenance"}`,
+        ].join(""),
         style: { background: "var(--bg-card)", color: "var(--text-primary)" },
       };
     }
@@ -504,23 +580,30 @@ export function AiopsRcaPage() {
       const isUnderMaintenance = s.under_maintenance;
       const isDispatched = s.is_dispatched;
       const isInvestigating = investigatingSites.has(s.name);
+      const needsDispatch = s.needs_dispatch;
 
       let statusKey: SiteMapStatus;
       let showPulse: boolean;
       let radius: number;
 
-      if (isDown && isInvestigating) {
-        statusKey = "investigating";
-        showPulse = false;
-        radius = 3500;
-      } else if (isDown && isDispatched) {
-        statusKey = "dispatched";
-        showPulse = false;
-        radius = 3000;
-      } else if (isUnderMaintenance) {
+      if (isUnderMaintenance) {
         statusKey = "maintenance";
         showPulse = false;
         radius = 2500;
+      } else if (isDown && isDispatched) {
+        // Dispatch completion supersedes investigation on the map, even if the
+        // investigation marker is still set.
+        statusKey = "dispatched";
+        showPulse = false;
+        radius = 3000;
+      } else if (isDown && isInvestigating) {
+        statusKey = "investigating";
+        showPulse = false;
+        radius = 3500;
+      } else if (isDown && needsDispatch) {
+        statusKey = "needsDispatch";
+        showPulse = true;
+        radius = 4000;
       } else if (isDown) {
         statusKey = "actionRequired";
         showPulse = true;
@@ -540,7 +623,8 @@ export function AiopsRcaPage() {
           name: s.name, position: [s.lon + 0.012 * offset, s.lat + 0.012 * offset] as [number, number],
           color, alert_count: s.alert_count, under_maintenance: s.under_maintenance,
           status_key: statusKey,
-          is_dispatched: s.is_dispatched, maintenance_etr: s.maintenance_etr,
+          is_dispatched: s.is_dispatched, needs_dispatch: s.needs_dispatch,
+          is_investigating: isInvestigating, maintenance_etr: s.maintenance_etr,
           maintenance_reason: s.maintenance_reason,
           status_modified_by: s.status_modified_by, status_modified_at: s.status_modified_at,
           status_text: statusText, radius,
@@ -551,7 +635,8 @@ export function AiopsRcaPage() {
           name: s.name, position: [s.lon, s.lat] as [number, number],
           color, alert_count: s.alert_count, under_maintenance: s.under_maintenance,
           status_key: statusKey,
-          is_dispatched: s.is_dispatched, maintenance_etr: s.maintenance_etr,
+          is_dispatched: s.is_dispatched, needs_dispatch: s.needs_dispatch,
+          is_investigating: isInvestigating, maintenance_etr: s.maintenance_etr,
           maintenance_reason: s.maintenance_reason,
           status_modified_by: s.status_modified_by, status_modified_at: s.status_modified_at,
           status_text: statusText, radius,
@@ -774,56 +859,55 @@ export function AiopsRcaPage() {
                       Manage Site Status — {siteDialog.name}
                     </div>
 
-                    <div style={{ marginBottom: "0.5rem" }}>
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Status</div>
-                      {canDispatch && (
-                        <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer", marginBottom: "0.2rem" }}>
-                          <input type="radio" name="site-status-modal" value="Investigate/Dispatch"
-                            checked={dialogStatus === "Investigate/Dispatch"}
-                            onChange={(e) => setDialogStatus(e.target.value)}
-                            style={{ accentColor: "var(--accent-blue)" }}
-                          /> Investigate/Dispatch
-                        </label>
-                      )}
-                      {canManageMaint && (
-                        <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
-                          <input type="radio" name="site-status-modal" value="No Dispatch Needed"
-                            checked={dialogStatus === "No Dispatch Needed"}
-                            onChange={(e) => setDialogStatus(e.target.value)}
-                            style={{ accentColor: "var(--accent-blue)" }}
-                          /> No Dispatch Needed
-                        </label>
-                      )}
-                    </div>
-
-                    {canDispatch && (
-                      <div style={{ marginBottom: "0.5rem" }}>
-                        <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: "pointer" }}>
-                          <input type="checkbox"
-                            checked={dialogDispatch}
-                            onChange={(e) => setDialogDispatch(e.target.checked)}
-                            style={{ accentColor: "var(--accent-blue)" }}
-                          /> Ticket Dispatched
-                        </label>
+                    <div style={{ marginBottom: "0.6rem" }}>
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.15rem" }}>Operational Health</div>
+                      <div style={{ marginBottom: "0.4rem", fontWeight: 600 }}>
+                        {siteDialog.alert_count > 0 ? "Down / Action Required" : "Up / Clear"}
                       </div>
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Workflow Status</div>
+                      {SITE_WORKFLOW_STATUS_ORDER
+                        .filter((status) => status === "maintenance" ? canManageMaint : canDispatch)
+                        .map((status) => {
+                          const needsActiveAlerts = status !== "maintenance";
+                          const disabled = needsActiveAlerts && siteDialog.alert_count === 0;
+                          return (
+                            <label key={status} style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.82rem", cursor: disabled ? "not-allowed" : "pointer", marginBottom: "0.2rem", opacity: disabled ? 0.55 : 1 }}>
+                              <input type="radio" name="site-status-modal" value={status}
+                                checked={dialogStatus === status}
+                                disabled={disabled}
+                                onChange={() => setDialogStatus(status)}
+                                style={{ accentColor: "var(--accent-blue)" }}
+                              /> {SITE_MAP_STATUS[status].label}
+                            </label>
+                          );
+                        })}
+                      {siteDialog.alert_count === 0 && (
+                        <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                          Investigation and dispatch statuses require an active alert.
+                        </div>
+                      )}
+                    </div>
+
+                    {canManageMaint && dialogStatus === "maintenance" && (
+                      <>
+                        <div style={{ marginBottom: "0.4rem" }}>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.15rem" }}>Estimated Time of Restoration (ETR)</div>
+                          <input type="date" value={dialogEtr}
+                            onChange={(e) => setDialogEtr(e.target.value)}
+                            style={{ width: "100%", boxSizing: "border-box", background: "var(--bg-input)", color: "var(--text-primary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.25rem 0.4rem", fontSize: "0.78rem" }}
+                          />
+                        </div>
+
+                        <div style={{ marginBottom: "0.5rem" }}>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.15rem" }}>Maintenance Notes</div>
+                          <textarea value={dialogReason}
+                            onChange={(e) => setDialogReason(e.target.value)}
+                            rows={2}
+                            style={{ width: "100%", boxSizing: "border-box", background: "var(--bg-input)", color: "var(--text-primary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.25rem 0.4rem", fontSize: "0.78rem", resize: "vertical" }}
+                          />
+                        </div>
+                      </>
                     )}
-
-                    <div style={{ marginBottom: "0.4rem" }}>
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.15rem" }}>ETR</div>
-                      <input type="date" value={dialogEtr}
-                        onChange={(e) => setDialogEtr(e.target.value)}
-                        style={{ width: "100%", boxSizing: "border-box", background: "var(--bg-input)", color: "var(--text-primary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.25rem 0.4rem", fontSize: "0.78rem" }}
-                      />
-                    </div>
-
-                    <div style={{ marginBottom: "0.5rem" }}>
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.15rem" }}>Reason</div>
-                      <textarea value={dialogReason}
-                        onChange={(e) => setDialogReason(e.target.value)}
-                        rows={2}
-                        style={{ width: "100%", boxSizing: "border-box", background: "var(--bg-input)", color: "var(--text-primary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.25rem 0.4rem", fontSize: "0.78rem", resize: "vertical" }}
-                      />
-                    </div>
 
                     {siteDialog.status_modified_by && (
                       <div style={{ marginBottom: "0.5rem", fontSize: "0.72rem", color: "var(--text-muted)" }}>
@@ -920,10 +1004,8 @@ export function AiopsRcaPage() {
               const rc = getRc(site);
               const siteInfo = getSiteInfo(site);
               const isUnderMaint = siteInfo?.under_maintenance ?? false;
-              const dispatchVal =
-                dispatchChecked[site] ??
-                getClusterAlerts(site).some((a: any) => a.is_dispatched);
               const clusterAlerts = getClusterAlerts(site);
+              const dispatchVal = clusterAlerts.length > 0 && clusterAlerts.every((a: any) => Boolean(a.is_dispatched));
               const alertIds = clusterAlerts.map((a: any) => a.id).filter(Boolean);
 
               const isAcking = ackMutation.isPending;
@@ -1162,7 +1244,8 @@ export function AiopsRcaPage() {
                                 recipient: "remedyforceworkflow@aecc.com, noc@aecc.com",
                                 alert_ids: alertIds,
                               });
-                              setDispatchChecked((prev) => ({ ...prev, [site]: true }));
+                              updateDispatchStatus(alertIds, true);
+                              queryClient.invalidateQueries({ queryKey: ["rca-analyze"] });
                             } catch (err) {
                               console.error("Failed to send ticket:", err);
                             }

@@ -194,7 +194,7 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ### `set_cluster_dispatch(alert_ids: list, is_dispatched: bool) -> bool`
 
-**Purpose:** Sets the dispatch flag on a batch of SolarWinds alerts.
+**Purpose:** Sets the dispatch flag on a batch of SolarWinds alerts and clears any manual Needs Dispatch marker for those alerts.
 
 **Parameters:**
 - `alert_ids` (list) -- List of alert IDs to update
@@ -203,6 +203,18 @@ A utility class extending `dict` to allow dot-notation attribute access.
 **Returns:** `True` on success.
 
 **Dependencies:** `SolarWindsAlert`, `SessionLocal`
+
+---
+
+### `set_site_needs_dispatch(site_name: str, needs_dispatch: bool, modified_by: str = "unknown") -> int | None`
+
+**Purpose:** Persists or clears the operator-selected Needs Dispatch state on a site's active, uncorrelated SolarWinds alerts. Setting the state to true also clears their dispatched flags; clearing it does not mark alerts as dispatched.
+
+**Parameters:** `site_name` is the monitored location name; `needs_dispatch` is the workflow state; `modified_by` is recorded on the location's status tracking fields.
+
+**Returns:** Updated alert count, or `None` if the site does not exist. Raises `ValueError` when Needs Dispatch is requested but the site has no active uncorrelated alerts.
+
+**Dependencies:** `SolarWindsAlert`, `MonitoredLocation`, `SessionLocal`
 
 ---
 

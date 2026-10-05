@@ -2,7 +2,7 @@
 
 ## Current behavior
 
-The packaged migration head is `20261002_0002`. The API, worker, and webhook run pending Alembic revisions under a shared file lock before serving requests or starting jobs. A database already at head receives no schema DDL. A migration error stops startup; the application does not mark the failed revision as complete.
+The packaged migration head is `20261005_0003`. The API, worker, and webhook run pending Alembic revisions under a shared file lock before serving requests or starting jobs. A database already at head receives no schema DDL. A migration error stops startup; the application does not mark the failed revision as complete.
 
 The initial adoption revision (`20261002_0001`) was designed for:
 
@@ -10,7 +10,7 @@ The initial adoption revision (`20261002_0001`) was designed for:
 - A pre-Alembic application database: keep existing tables and rows, create missing baseline tables, add the historical columns in the revision's explicit compatibility map, add missing indexes, and run the listed one-time data conversions.
 - A partially applied adoption: inspect objects and add only absent known objects so the revision can be retried.
 
-Revision `20261002_0002` adds nullable `registration_invites.revoked_at` only when that column is absent. Neither upgrade revision drops or renames tables or columns.
+Revision `20261002_0002` adds nullable `registration_invites.revoked_at` only when that column is absent. Revision `20261005_0003` adds non-null, false-default `solarwinds_alerts.needs_dispatch` only when absent, preserving all existing alert rows. None of the upgrade revisions drops or renames tables or columns.
 
 ## Data changes during adoption
 
@@ -31,7 +31,7 @@ Before upgrading production, create and verify an encrypted full backup. Do not 
 
 ## Verification coverage
 
-`tests/test_database_migrations.py` covers a populated pre-Alembic schema upgraded through both current revisions, preservation of existing user/article/site/invitation records, known partial-column upgrades, failure on an unsupported older schema without losing its row or recording success, duplicate-email failure, concurrent first startup, and no schema/data work on a second startup at head.
+`tests/test_database_migrations.py` covers a populated pre-Alembic schema upgraded through all current revisions, preservation of existing user/article/site/invitation/alert records, false-default backfill for `needs_dispatch`, known partial-column upgrades, failure on an unsupported older schema without losing its row or recording success, duplicate-email failure, concurrent first startup, and no schema/data work on a second startup at head.
 
 Run the focused suite with:
 

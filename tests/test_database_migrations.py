@@ -141,8 +141,9 @@ class DatabaseMigrationTests(unittest.TestCase):
             self.assertEqual(roles["user-admin"].allowed_site_types, [])
             self.assertEqual(session.query(SystemConfig).one().permission_catalog_version, 1)
             revision = session.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            self.assertEqual(revision, "20261002_0002")
+            self.assertEqual(revision, "20261005_0003")
             self.assertIn("revoked_at", {column["name"] for column in inspect(self.engine).get_columns("registration_invites")})
+            self.assertIn("needs_dispatch", {column["name"] for column in inspect(self.engine).get_columns("solarwinds_alerts")})
 
     def test_pre_alembic_schema_upgrade_preserves_existing_application_rows(self):
         LegacySchemaBase.metadata.create_all(self.engine)
@@ -161,6 +162,13 @@ class DatabaseMigrationTests(unittest.TestCase):
             connection.execute(text(
                 "INSERT INTO monitored_locations (id, name, lat, lon, priority) "
                 "VALUES (61, 'Legacy site', 34.0, -92.0, 'P2-High')"
+            ))
+            connection.execute(text(
+                "INSERT INTO solarwinds_alerts "
+                "(id, event_type, severity, node_name, ip_address, status, sw_timestamp, details, "
+                "node_link, mapped_location, received_at) VALUES "
+                "(81, 'Outage', 'Critical', 'legacy-node', '192.0.2.10', 'Active', 'raw-ts', "
+                "'Existing alert', '', 'Legacy site', '2025-01-02 03:04:05')"
             ))
             connection.execute(text(
                 "INSERT INTO registration_invites "
@@ -192,13 +200,19 @@ class DatabaseMigrationTests(unittest.TestCase):
                 )).one(),
                 ("Legacy site", "P2-High"),
             )
+            self.assertEqual(
+                connection.execute(text(
+                    "SELECT needs_dispatch FROM solarwinds_alerts WHERE id = 81"
+                )).scalar_one(),
+                0,
+            )
             migrated_invite = connection.execute(text(
                 "SELECT username, email, revoked_at FROM registration_invites WHERE id = 71"
             )).one()
             self.assertEqual(migrated_invite, ("invitee", "invitee@example.com", None))
             self.assertEqual(
                 connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one(),
-                "20261002_0002",
+                "20261005_0003",
             )
 
         self.assertIn(
@@ -327,7 +341,7 @@ class DatabaseMigrationTests(unittest.TestCase):
                     revision = connection.execute(
                         text("SELECT version_num FROM alembic_version")
                     ).scalar_one()
-                self.assertEqual(revision, "20261002_0002")
+                self.assertEqual(revision, "20261005_0003")
             finally:
                 for engine in engines:
                     engine.dispose()

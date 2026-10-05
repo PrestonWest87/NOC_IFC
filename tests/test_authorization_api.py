@@ -102,6 +102,54 @@ class AuthorizationApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["detail"]["permission"], "Action: Adjust Risk Scoring Overrides")
 
+    def test_needs_dispatch_write_requires_action_and_site_scope(self):
+        self.get_user.return_value = SimpleNamespace(
+            id=10, username="dispatcher", role="analyst",
+            allowed_pages=["AIOps RCA"],
+            allowed_actions=["Tab: AIOps RCA -> Active Board", "Action: Dispatch RCA Tickets"],
+            allowed_site_types=["NOC"],
+        )
+        with patch("src.api.routes.rca.svc.user_can_access_site", return_value=True), patch(
+            "src.api.routes.rca.svc.set_site_needs_dispatch", return_value=2
+        ) as set_needs_dispatch, patch(
+            "src.api.main.manager.broadcast_json", new_callable=AsyncMock
+        ):
+            response = self.client.post(
+                "/api/v1/rca/needs-dispatch",
+                headers={"Authorization": "Bearer dispatcher-token"},
+                json={"site": "NOC-1", "needs_dispatch": True},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok", "updated_alerts": 2})
+        set_needs_dispatch.assert_called_once_with("NOC-1", True, modified_by="dispatcher")
+
+        self.get_user.return_value.allowed_actions = ["Tab: AIOps RCA -> Active Board"]
+        with patch("src.api.routes.rca.svc.set_site_needs_dispatch") as denied_update:
+            denied = self.client.post(
+                "/api/v1/rca/needs-dispatch",
+                headers={"Authorization": "Bearer dispatcher-token"},
+                json={"site": "NOC-1", "needs_dispatch": True},
+            )
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(denied.json()["detail"]["permission"], "Action: Dispatch RCA Tickets")
+        denied_update.assert_not_called()
+
+        self.get_user.return_value.allowed_actions = [
+            "Tab: AIOps RCA -> Active Board", "Action: Dispatch RCA Tickets",
+        ]
+        with patch("src.api.routes.rca.svc.user_can_access_site", return_value=False), patch(
+            "src.api.routes.rca.svc.set_site_needs_dispatch"
+        ) as out_of_scope_update:
+            out_of_scope = self.client.post(
+                "/api/v1/rca/needs-dispatch",
+                headers={"Authorization": "Bearer dispatcher-token"},
+                json={"site": "Other-District", "needs_dispatch": True},
+            )
+        self.assertEqual(out_of_scope.status_code, 403)
+        self.assertEqual(out_of_scope.json()["detail"]["code"], "site_scope_denied")
+        out_of_scope_update.assert_not_called()
+
     def test_full_backup_listing_requires_administrator_role(self):
         self.get_user.return_value = SimpleNamespace(
             id=10, username="analyst", role="analyst",

@@ -249,6 +249,7 @@ def set_cluster_dispatch(alert_ids, is_dispatched, dispatched_by="unknown"):
         updated_sites = set()
         for a in alerts:
             a.is_dispatched = is_dispatched
+            a.needs_dispatch = False
             a.dispatched_by = dispatched_by
             a.dispatched_at = now_utc
             if a.mapped_location:
@@ -260,6 +261,33 @@ def set_cluster_dispatch(alert_ids, is_dispatched, dispatched_by="unknown"):
                 loc.status_modified_at = now_utc
         db.commit()
         return True
+
+def set_site_needs_dispatch(site_name, needs_dispatch, modified_by="unknown"):
+    from src.database import MonitoredLocation, SolarWindsAlert
+
+    with SessionLocal() as db:
+        location = db.query(MonitoredLocation).filter_by(name=site_name).first()
+        if not location:
+            return None
+
+        alerts = db.query(SolarWindsAlert).filter(
+            SolarWindsAlert.mapped_location == site_name,
+            SolarWindsAlert.status != "Resolved",
+            SolarWindsAlert.is_correlated == False,
+        ).all()
+        if needs_dispatch and not alerts:
+            raise ValueError("Needs Dispatch requires at least one active site alert.")
+
+        for alert in alerts:
+            alert.needs_dispatch = needs_dispatch
+            if needs_dispatch:
+                alert.is_dispatched = False
+
+        now_utc = datetime.utcnow()
+        location.status_modified_by = modified_by
+        location.status_modified_at = now_utc
+        db.commit()
+        return len(alerts)
       
 def get_shift_logs(role_filter="All", start_date=None, end_date=None):
     with SessionLocal() as db:
@@ -3845,6 +3873,7 @@ def resolve_alert(alert_id, node_name):
         site_name = a.mapped_location if a else None
         if a:
             a.status = 'Resolved'
+            a.needs_dispatch = False
             db.add(TimelineEvent(
                 source="User", event_type="Resolution",
                 message=f"[OK] Operator manually resolved {node_name}",
@@ -3860,6 +3889,7 @@ def acknowledge_cluster(alert_ids, username="unknown"):
             a = db.query(SolarWindsAlert).filter_by(id=aid).first()
             if a:
                 a.is_correlated = True
+                a.needs_dispatch = False
                 a.acknowledged_by = username
                 a.acknowledged_at = now_utc
                 if a.mapped_location:
