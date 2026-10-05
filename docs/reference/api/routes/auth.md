@@ -138,7 +138,13 @@ Public endpoints are login, registration validation, and registration. Protected
 - `POST /login` returns a database-backed session token and public user object.
 - `GET /register/validate` checks an invitation token without authenticating the caller.
 - `POST /register` completes an invitation-based account with profile, password, shift, and theme data.
+- `POST /request-password-reset` accepts a username/email identifier and returns a generic response while placing matching requests in the review queue.
+- `POST /reset-password` consumes the approved, single-use reset token and revokes active sessions.
+- `GET /verify-recovery-email` consumes the approved mailbox-verification token.
+- `POST /request-recovery-email` submits an authenticated user's address for review; `POST /resend-recovery-email-verification` sends a new link to the pending address.
 - `GET /me` returns the current user/permission payload.
 - `POST /logout` revokes the current session.
 - `POST /update-profile` validates profile/password changes.
 - `POST /update-theme` persists the selected user theme.
+
+Reset and email-verification routes return controlled errors for invalid/expired tokens. Password-reset requests are not sent directly to users; a permitted user administrator must approve a matching request first.

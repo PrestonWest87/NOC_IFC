@@ -7,7 +7,7 @@ Shift logbook entry management, soft-delete, and AI-powered summary generation r
 ## Endpoint: `GET /entries`
 
 ### Purpose
-Retrieves shift log entries with optional role filtering, date range filtering, and session-based role enforcement. Non-admin users are restricted to seeing only entries matching their own role.
+Retrieves shift log entries with optional role and date-range filtering. Non-administrators are limited to their own role; users without History-tab access are limited to the current Central-time day.
 
 ### Parameters
 | Parameter | Type | Default | Description |
@@ -15,7 +15,7 @@ Retrieves shift log entries with optional role filtering, date range filtering, 
 | `role_filter` | `str` | `"All"` | Filter by role name (e.g., analyst, admin). |
 | `start_date` | `str` | `None` | ISO 8601 start date for range filtering. |
 | `end_date` | `str` | `None` | ISO 8601 end date for range filtering. |
-| `session_token` | `str` | `None` | Session token for role-based access control. |
+| Authentication | Bearer session | Required | Legacy `token`/`session_token` query authentication remains supported by middleware. |
 
 ### Returns
 ```json
@@ -36,29 +36,28 @@ Retrieves shift log entries with optional role filtering, date range filtering, 
 
 ### Flow
 1. Parses `start_date` and `end_date` from ISO 8601 strings to `datetime` objects.
-2. If `session_token` is provided, looks up the user. Non-admin users are restricted to their own role.
+2. Uses the authenticated user context to restrict non-admin results by role and, without History-tab permission, to the current Central-time day.
 3. Delegates to `svc.get_shift_logs(role_filter, start_date, end_date)`.
 
 ### Dependencies
 - `src.services.get_shift_logs()`
-- `src.services.get_user_by_token()`
+- `src.api.auth_guard.get_current_user()`
 
 ---
 
 ## Endpoint: `POST /entries`
 
 ### Purpose
-Creates a new shift log entry with analyst attribution, role enforcement, and optional date override.
+Creates a shift-log entry attributed to the authenticated user's display name/username. Non-administrators cannot choose another role; an optional custom date is supported.
 
 ### Parameters
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `analyst` | `str` | `""` | Name of the analyst submitting the entry. |
-| `role` | `str` | `"analyst"` | Role of the analyst. |
-| `shift_period` | `str` | `"Morning"` | Shift period: Morning, Afternoon, Night. |
+| `role` | `str` | `"analyst"` | Admin-selected author role; non-admin values are replaced by the authenticated user's role. |
+| `shift_period` | `str` | `"Morning"` | One of Morning, Afternoon, Evening, or No Shift. |
 | `content` | `str` | `""` | Free-text log entry content. |
 | `custom_date` | `str` | `None` | ISO 8601 date override for historical entries. |
-| `session_token` | `str` | `None` | Session token for role enforcement. |
+| `Authentication` | Bearer session | Required | Analyst identity and role are derived from the session. |
 
 ### Returns
 ```json
@@ -66,20 +65,21 @@ Creates a new shift log entry with analyst attribution, role enforcement, and op
 ```
 
 ### Flow
-1. If `session_token` is provided, looks up the user. Non-admin users have their role overridden to the user's actual role (prevents privilege escalation).
-2. Parses `custom_date` to `datetime` if provided.
-3. Delegates to `svc.save_shift_log(analyst, role, shift_period, content, custom_date)`.
+1. Requires the Active Shift tab and `Action: Submit Shift Log`.
+2. Attributes the entry to the authenticated user's full name or username; non-admins use their own role.
+3. Rejects unsupported shift periods, empty content, or content longer than 20,000 characters.
+4. Parses `custom_date` when supplied and delegates to `svc.save_shift_log()`.
 
 ### Dependencies
 - `src.services.save_shift_log()`
-- `src.services.get_user_by_token()`
+- `src.api.auth_guard.get_current_user()`
 
 ---
 
 ## Endpoint: `PATCH /entries/{entry_id}`
 
 ### Purpose
-Updates a shift log entry's soft-delete status. Supports restoring previously deleted entries.
+Updates a shift log entry's soft-delete flag. The body supports `{ "is_deleted": true|false }`; content/date edits are not handled by this route.
 
 ### Parameters
 | Parameter | Type | Default | Description |
@@ -106,15 +106,19 @@ Updates a shift log entry's soft-delete status. Supports restoring previously de
 
 ### Flow
 1. Opens a database session and queries for the `ShiftLogEntry` by ID.
-2. If not found, returns error status.
-3. If `is_deleted` is provided (not `None`), sets the flag on the entry.
-4. Commits and returns updated state.
+2. If not found, returns an error status.
+3. Allows an admin, the entry's author, or a caller with `Action: Manage Shift Logs` to change `is_deleted`.
+4. Commits and returns the updated delete state.
 
 ### Dependencies
 - `src.models.schema.ShiftLogEntry`
 - `src.core.db.SessionLocal`
 
 ---
+
+## Endpoint: `GET /roles`
+
+Returns available role names for shift-log filters. It is protected by the router-level `Shift Logbook` page permission.
 
 ## Endpoint: `POST /generate-summary`
 
@@ -140,7 +144,7 @@ Result of `svc.trigger_shift_summary()`, which returns an LLM-generated summary 
 ### Flow
 1. Logs the trigger with key parameters.
 2. Delegates to `svc.trigger_shift_summary()` with the extracted parameters.
-3. The service layer queries matching entries, sends them to the configured LLM for synthesis, and optionally saves the result as a new entry.
+3. Requires the Active Shift tab and `Action: Generate Reports`; non-admin users are restricted to their own role before the service generates the summary.
 
 ### Dependencies
 - `src.services.trigger_shift_summary()`
@@ -149,6 +153,7 @@ Result of `svc.trigger_shift_summary()`, which returns an LLM-generated summary 
 Router prefix: `/api/v1/logbook`.
 
 - `GET /entries` supports role and date-range filtering.
+- `GET /roles` returns role names for filters.
 - `POST /entries` requires `Action: Submit Shift Log`.
-- `PATCH /entries/{entry_id}` requires `Action: Submit Shift Log` and supports content/date/soft-delete updates.
-- `POST /generate-summary` requires `Action: Trigger AI Functions`, uses the authenticated user context, and invokes the shift-summary pipeline.
+- `PATCH /entries/{entry_id}` requires a Shift Log tab and `Action: Submit Shift Log`; authors can update their own soft-delete state, while cross-user edits require `Action: Manage Shift Logs`.
+- `POST /generate-summary` requires `Action: Generate Reports`, uses the authenticated user context, and invokes the shift-summary pipeline.

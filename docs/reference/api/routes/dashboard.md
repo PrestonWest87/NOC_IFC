@@ -407,7 +407,7 @@ The router prefix is `/api/v1/dashboard` and the router-wide dependency requires
 
 ### Async Brief Endpoints
 
-These endpoints require `Action: Trigger AI Functions` and use the shared progress store from `src.utils.llm`:
+The brief-generation POST routes have separate dashboard-tab grants and require `Action: Generate Reports`. They use the generation progress store and return immediately with a generation ID:
 
 | Endpoint | Behavior |
 |---|---|
@@ -422,8 +422,9 @@ The three POST endpoints return `{"status":"started","generation_id":"..."}` imm
 
 ### Synchronous AI and Article Actions
 
-- `POST /generate-internal-risk` calls `generate_and_save_internal_risk_snapshot` synchronously.
-- `POST /generate-rolling-summary` and `POST /generate-scoring-rationale` require `Action: Trigger AI Functions`.
+- `POST /generate-internal-risk` requires the Internal Risk tab and `Action: Generate Risk Snapshot`; it calls `generate_and_save_internal_risk_snapshot` synchronously.
+- `POST /generate-rolling-summary` requires the Operational tab and `Action: Generate Reports`.
+- `POST /generate-scoring-rationale` requires the Global Risk tab and `Action: Trigger AI Functions`.
 - Pinning requires `Action: Pin Articles`.
 - Score boosting requires `Action: Boost Threat Score` and `amount` is constrained to 1–100.
 - Article feedback requires `Action: Trigger AI Functions` and accepts feedback values 0–2.

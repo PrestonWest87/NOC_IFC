@@ -8,8 +8,8 @@ This file is the complete template for environment variables used by the current
 |---|---|---|---|
 | `DATABASE_URL` | SQLite container path `/app/data/noc_fusion.db` | `src.core.config` | SQLAlchemy database URL; Docker maps `/app/data` to repository `./data` |
 | `DEMO_SEED_DATA` | `false` | `src.core.config` | Enable synthetic asset seed data |
-| `DEFAULT_ADMIN_PASSWORD` | change-me placeholder | `src.core.db` | Initial admin password when the database has no users |
-| `DEFAULT_ADMIN_EMAIL` | empty | `src.core.db` | Trusted verified bootstrap mailbox; can initialize an existing email-less bootstrap administrator on API/worker startup |
+| `DEFAULT_ADMIN_PASSWORD` | change-me placeholder | `src.core.bootstrap` | Initial admin password when the database has no users |
+| `DEFAULT_ADMIN_EMAIL` | empty | `src.core.config`, `src.core.bootstrap` | Trusted verified bootstrap mailbox; can initialize an existing email-less bootstrap administrator on API/worker startup |
 | `LOG_LEVEL` | `INFO` | `src.core.config` | Python logging threshold |
 | `RISK_ALERT_RECIPIENTS` | empty | scheduler/config | Risk and daily brief recipients |
 | `REMEDYFORCE_TICKET_EMAIL` | empty | scheduler | Required ticket destination for escalation |
@@ -38,8 +38,8 @@ This file is the complete template for environment variables used by the current
 | `BACKUP_ENCRYPTION_ACTIVE_KEY_ID` | `primary` | `src.core.backup_manager` | Active key ID for new encrypted full backups |
 | `BACKUP_ENCRYPTION_KEYS` | empty | `src.core.backup_manager` | JSON map of 32-byte hex backup keys; never commit or include in backup packages |
 | `BACKUP_MAX_BYTES` | `10737418240` | `src.core.backup_manager` | Maximum encrypted backup/upload size; default 10 GiB, maximum 100 GiB |
-| `RESCORE_ON_STARTUP` | `false` | `src.core.db` | Explicitly rescore all existing articles at startup; direct environment control, not a `Settings` field |
+| `RESCORE_ON_STARTUP` | `false` | `src.core.bootstrap` | Explicitly rescore all existing articles at startup; direct environment control, not a `Settings` field |
 
 ## Security
 
-Never commit `.env`. Replace all development defaults before production deployment. SMTP and LLM provider credentials are application settings stored in `SystemConfig`, not additional environment variables in the current runtime. Keep backup encryption keys separate from the database volume and retain old key IDs until backups using them are retired.
+Never commit `.env`. Replace all development defaults before production deployment. SMTP and LLM provider credentials are application settings stored as ordinary fields in `SystemConfig`; the live SQLite database does not apply field-level encryption. Encrypted backup packages protect their database snapshot, while `.env` and environment-only secrets remain external. Keep backup encryption keys separate from the database volume and retain old key IDs until backups using them are retired.

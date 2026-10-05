@@ -111,8 +111,9 @@ Comprehensive enterprise documentation is in `docs/`:
 | Document | Contents |
 |----------|----------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System context, C4 container model, technology stack, data flow overview, security, scalability |
-| [API.md](docs/API.md) | Complete API reference — all 110+ endpoints with paths, methods, parameters, request/response schemas |
+| [API.md](docs/API.md) | Complete REST operation inventory and endpoint behavior; path/method coverage is checked against the FastAPI OpenAPI schema |
 | [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | All 35 tables with columns, types, constraints, indexes, relationships, migration strategy, retention policies |
+| [MIGRATION_COMPATIBILITY.md](docs/MIGRATION_COMPATIBILITY.md) | Supported older SQLite upgrade shapes, additive migration behavior, failure handling, and safety-test coverage |
 | [DATA_FLOWS.md](docs/DATA_FLOWS.md) | 8 complete pipelines with ASCII diagrams: RSS ingestion, CIS scoring, internal risk, brief generation, webhook, AIOps correlation, risk alerting, weather telemetry |
 | [TRIGGER_ACTION_FLOWS.md](docs/TRIGGER_ACTION_FLOWS.md) | Every trigger (webhook, scheduler, user action, WebSocket) mapped to its complete action flow |
 | [SERVICES.md](docs/SERVICES.md) | All 11 service modules with function signatures, class hierarchies, call chains, dependencies |

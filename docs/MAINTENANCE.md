@@ -100,7 +100,11 @@ ML retraining runs Sunday at 02:00 and requires at least 10 labeled articles. Th
 | Internal risk snapshots | Deletes records older than 90 days |
 | Timeline events | Deletes records older than 90 days |
 | Elastic events | Deletes records older than 72 hours |
+| Failed-login attempts | Deletes records older than 24 hours |
 | Orphaned IOCs | Deletes IOC rows whose article no longer exists |
+| Password-reset tokens | Deletes expired or used tokens older than 30 days |
+| Password-reset requests | Marks pending requests older than 30 days expired; deletes terminal/unmatched requests older than 90 days |
+| Email-change requests | Marks expired verification requests; deletes terminal requests older than 90 days |
 
 The job also runs SQLite optimization and a passive WAL checkpoint. Pinned articles are excluded from normal article deletion. Confirm organizational retention requirements before changing these policies.
 
@@ -120,9 +124,9 @@ The older Settings JSON tools remain partial data migration utilities: the legac
 
 ## Database Initialization and Migrations
 
-At API, worker, webhook, and standalone worker startup, the application checks the Alembic revision under a SQLite file lock and applies only pending revisions. A current database receives no schema DDL. Migration failures stop the affected service before it accepts work.
+At API, worker, webhook, and standalone worker startup, the application checks the Alembic revision under a SQLite file lock and applies only pending revisions. A current database receives no schema DDL. The adoption revision is additive for the documented pre-Alembic schema and preserves existing rows; an unsupported schema or conflicting unique data fails closed before the revision is recorded. See [Migration Compatibility](MIGRATION_COMPATIBILITY.md) for the supported boundary and tested upgrade cases.
 
-Migrations are not a separate one-shot service or administrative API. To retry after resolving a reported failure, restart the affected backend service; it will re-read the database revision before applying upgrades.
+Migrations are not a separate one-shot service or administrative API. To retry after resolving a reported failure, restart the affected backend service; it will re-read the database revision before applying upgrades. Do not manually stamp `alembic_version`, drop columns, or try a downgrade as a rollback. Restore a verified pre-upgrade backup if rollback is required.
 
 `RESCORE_ON_STARTUP` defaults to false. Set it temporarily only when a deliberate full article rescore is required; restart the affected containers and unset it afterward. A full rescore can create database contention and extend startup time.
 
@@ -150,7 +154,7 @@ For a failed release, use the rollback tag or a previously verified image/commit
 
 ## Scheduler Maintenance
 
-The worker scheduler starts jobs during boot and then runs them through a bounded two-thread executor. Boot can immediately generate external requests, emails, and LLM work.
+The worker registers all configured schedules during boot, then submits only the registry entries marked `startup_run` through a bounded two-thread executor. Boot can therefore immediately generate external requests and LLM work; daily email, Daily Fusion report, ML retraining, database maintenance, and weekly backup wait for their configured times. See [Scheduler](SCHEDULER.md) for the exact boot groups.
 
 Current high-impact jobs include:
 

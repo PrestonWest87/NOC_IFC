@@ -10,14 +10,14 @@ Root Cause Analysis (RCA) routes for AIOps alert clustering, fleet outage detect
 INVESTIGATING_SITES = set()  # In-memory set of site names under investigation
 ```
 
-This set survives page refreshes but resets on server restart. It is returned in the `/dashboard` response and managed via the `/investigate` endpoint.
+This process-local set survives browser page refreshes but resets when the API process restarts. `GET /dashboard` returns investigation state only for sites visible to the caller (all sites for administrators); `POST /investigate` changes a site in the set.
 
 ---
 
 ## Function: `require_action(action: str)`
 
 ### Purpose
-Factory function that returns a FastAPI `Depends` dependency callable. Validates that the requesting user's token grants a specific action permission.
+Wrapper around `src.api.auth_guard.require_action`. The shared request middleware/dependency resolves the bearer session (retaining legacy query-token compatibility), then the returned dependency checks the authenticated user's action/tab grant.
 
 ### Parameters
 | Parameter | Type | Description |
@@ -27,18 +27,16 @@ Factory function that returns a FastAPI `Depends` dependency callable. Validates
 ### Returns
 | Type | Description |
 |------|-------------|
-| `callable` | A `checker` function with signature `(token: str = Query("")) -> User`. |
+| `callable` | A dependency that receives the authenticated user from `get_current_user` and returns it when authorized. |
 
 ### Raises
 - `HTTPException 401` — if the token is invalid or not provided.
 - `HTTPException 403` — if the user's `allowed_actions` does not include the required action.
 
 ### Flow
-1. `checker` reads the `token` query parameter.
-2. Looks up the user via `svc.get_user_by_token(token)`.
-3. If no user, raises 401.
-4. If the required action is not in `user.allowed_actions`, raises 403.
-5. Returns the user object.
+1. The shared auth guard resolves the request session.
+2. Checks the required action against the user's grants (administrators use the full-access override).
+3. Returns the authenticated user or raises a structured 401/403 response.
 
 ### Dependencies
 - `src.services.get_user_by_token()`
@@ -48,7 +46,7 @@ Factory function that returns a FastAPI `Depends` dependency callable. Validates
 ## Endpoint: `GET /dashboard`
 
 ### Purpose
-Returns the AIOps dashboard data including active alerts, timeline events, grid state, all monitored locations, and the current set of investigating sites.
+Requires the AIOps RCA page and Active Board tab. Returns dashboard alerts, timeline events, grid, locations, and investigation state filtered to the caller's allowed site types. Administrators receive the full site set.
 
 ### Parameters
 None.
@@ -74,7 +72,7 @@ None.
 ## Endpoint: `POST /analyze`
 
 ### Purpose
-Performs a full RCA analysis cycle: clusters alerts by site, identifies fleet outages, calculates root cause per site with contextual weather/cloud/BGP data, and generates chronic insights.
+Requires the AIOps RCA page, Active Board tab, and `Action: Run RCA Analysis`. Performs a full RCA analysis cycle on the caller's permitted alert/site data, identifies fleet outages, and calculates root cause with weather/cloud/BGP context. Chronic insights are returned only to users with access to all site types.
 
 ### Parameters
 None.
@@ -91,13 +89,13 @@ None.
 ```
 
 ### Flow
-1. Retrieves active alerts, events, and grid data from the dashboard.
+1. Retrieves active alerts, events, and grid data, then filters them to the caller's site-type scope.
 2. Instantiates `EnterpriseAIOpsEngine`.
 3. Calls `engine.analyze_and_cluster(alerts)` to group alerts by site.
 4. Calls `engine.identify_fleet_outages(clustered)` to detect fleet-wide communication/power failures.
 5. Queries active `CloudOutage`, `RegionalHazard`, and `BgpAnomaly` records.
 6. Iterates over each clustered site, calling `engine.calculate_root_cause()` with contextual data.
-7. Calls `engine.generate_chronic_insights()` for 60-day trend analysis.
+7. Calls `engine.generate_chronic_insights()` for 60-day trend analysis only when the caller has access to all site types.
 8. Returns all results.
 
 ### Dependencies
@@ -111,7 +109,7 @@ None.
 ## Endpoint: `POST /acknowledge`
 
 ### Purpose
-Acknowledges a set of alerts by their IDs, removing them from the active alert board. Triggers a WebSocket broadcast to notify all connected clients.
+Requires the AIOps RCA page, Active Board tab, and `Action: Acknowledge RCA Alerts`. Acknowledges a set of alerts by their IDs using the authenticated user's name, verifies access to all affected sites, and schedules a WebSocket update.
 
 ### Parameters
 | Parameter | Type | Description |
@@ -124,8 +122,9 @@ Acknowledges a set of alerts by their IDs, removing them from the active alert b
 ```
 
 ### Flow
-1. Delegates to `svc.acknowledge_cluster(alert_ids)`.
-2. Broadcasts `{"type": "RCA_UPDATE"}` via WebSocket `manager.broadcast_json()` using `BackgroundTasks`.
+1. Calls `svc.ensure_user_can_access_alerts(user, alert_ids)` and returns a site-scope 403 if needed.
+2. Delegates to `svc.acknowledge_cluster(alert_ids, username=user.username)`.
+3. Schedules `{"type": "RCA_UPDATE"}` through FastAPI `BackgroundTasks`.
 
 ### Dependencies
 - `src.services.acknowledge_cluster()`
@@ -136,7 +135,7 @@ Acknowledges a set of alerts by their IDs, removing them from the active alert b
 ## Endpoint: `POST /dispatch`
 
 ### Purpose
-Sets the dispatch status for a set of alerts. Requires `Action: Dispatch RCA Tickets` permission. Triggers WebSocket broadcast.
+Requires the AIOps RCA page, Active Board tab, and `Action: Dispatch RCA Tickets`. Sets the dispatch status for a set of accessible alerts and triggers a WebSocket update.
 
 ### Parameters
 | Parameter | Type | Description |
@@ -154,7 +153,7 @@ Sets the dispatch status for a set of alerts. Requires `Action: Dispatch RCA Tic
 
 ### Flow
 1. Guarded by `Depends(require_action("Action: Dispatch RCA Tickets"))`.
-2. Delegates to `svc.set_cluster_dispatch(alert_ids, is_dispatched)`.
+2. Verifies access to every alert's site, then calls `svc.set_cluster_dispatch(alert_ids, is_dispatched, dispatched_by=user.username)`.
 3. Broadcasts RCA_UPDATE via WebSocket.
 
 ### Dependencies
@@ -167,7 +166,7 @@ Sets the dispatch status for a set of alerts. Requires `Action: Dispatch RCA Tic
 ## Endpoint: `POST /site-maintenance`
 
 ### Purpose
-Sets or clears maintenance mode for a monitored site, with optional ETR (Estimated Time to Resolve) and reason. Requires `Action: Manage Site Maintenance` permission. Tracks `status_modified_by` and `status_modified_at`.
+Sets or clears maintenance mode for an accessible monitored site, with optional ETR (Estimated Time to Resolve) and reason. Requires the AIOps RCA page, Active Board tab, and `Action: Manage Site Maintenance`. Tracks `status_modified_by` and `status_modified_at`.
 
 ### Parameters
 | Parameter | Type | Description |
@@ -192,7 +191,7 @@ Sets or clears maintenance mode for a monitored site, with optional ETR (Estimat
 - `HTTPException 403` — missing `Action: Manage Site Maintenance`.
 
 ### Flow
-1. Guarded by `Depends(require_action("Action: Manage Site Maintenance"))`.
+1. Requires the Active Board tab and `Action: Manage Site Maintenance`, then validates site-type access.
 2. Parses `etr` from ISO 8601 string to `datetime` if provided.
 3. Delegates to `svc.set_site_maintenance(site_name, is_maint, etr_date, reason, modified_by=user.username)`.
 4. Broadcasts RCA_UPDATE via WebSocket.
@@ -207,11 +206,13 @@ Sets or clears maintenance mode for a monitored site, with optional ETR (Estimat
 ## Endpoint: `POST /investigate`
 
 ### Purpose
-Locks or unlocks a site for investigation by adding/removing it from the in-memory `INVESTIGATING_SITES` set. Requires `Action: Dispatch RCA Tickets` permission.
+Locks or unlocks an accessible site for investigation by adding/removing it from the in-memory `INVESTIGATING_SITES` set. Requires the AIOps RCA page, the Active Board tab, and `Action: Dispatch RCA Tickets`.
 
 ### Parameters
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
+JSON body:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
 | `site` | `str` | `""` | Site name to toggle investigation state for. |
 | `is_investigating` | `bool` | `False` | Whether to lock or unlock investigation. |
 
@@ -221,9 +222,10 @@ Locks or unlocks a site for investigation by adding/removing it from the in-memo
 ```
 
 ### Flow
-1. Guarded by `Depends(require_action("Action: Dispatch RCA Tickets"))`.
-2. If `is_investigating`, adds site to set; otherwise discards.
-3. Broadcasts `{"type": "RCA_UPDATE"}` via WebSocket.
+1. Reads `site` and `is_investigating` from the JSON body.
+2. Requires the Active Board tab and `Action: Dispatch RCA Tickets`, then validates site-type access.
+3. If `is_investigating`, adds the site to the set; otherwise discards it.
+4. Schedules `{"type": "RCA_UPDATE"}` through FastAPI `BackgroundTasks` for WebSocket broadcast.
 
 ### Dependencies
 - `src.api.main.manager`
@@ -234,16 +236,18 @@ Locks or unlocks a site for investigation by adding/removing it from the in-memo
 ## Endpoint: `POST /generate-ticket`
 
 ### Purpose
-Generates a formatted RCA ticket text string for a given site, priority, patient zero, and root cause description.
+Generates formatted RCA ticket text for an accessible site. Requires the AIOps RCA page, Active Board tab, and `Action: Dispatch RCA Tickets`.
 
 ### Parameters
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
+JSON body:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
 | `site` | `str` | `""` | Site name. |
 | `priority` | `str` | `"P3"` | Priority level (P1-P5). |
 | `patient_zero` | `str` | `""` | Patient-zero device/node name. |
 | `root_cause` | `str` | `""` | Root cause description. |
-| `cluster` | `dict` | `{}` | Cluster data (alert details, event_type, node info). |
+| `cluster` | `dict` | `{}` | Cluster data (alert details, event type, node info). |
 
 ### Returns
 ```json
@@ -268,7 +272,7 @@ Delegates to `svc.generate_rca_ticket_text(site, cluster, priority, patient_zero
 ## Endpoint: `POST /send-ticket`
 
 ### Purpose
-Sends a formatted RCA ticket via email. Requires `Action: Dispatch RCA Tickets` permission. Marks alerts as dispatched on success.
+Sends a formatted RCA ticket via email. Requires the AIOps RCA page, Active Board tab, and `Action: Dispatch RCA Tickets`, and validates the site and any alert IDs against the caller's site scope.
 
 ### Parameters
 | Parameter | Type | Default | Description |
@@ -291,9 +295,9 @@ Sends a formatted RCA ticket via email. Requires `Action: Dispatch RCA Tickets` 
 
 ### Flow
 1. Guarded by `Depends(require_action("Action: Dispatch RCA Tickets"))`.
-2. Constructs email body with prefix "Automated Comms Outage\n*** MANUAL TICKET ***".
+2. Constructs the email body with `*** MANUAL TICKET ***`, the target SLA, and the supplied ticket text.
 3. Calls `send_alert_email()` from `src.utils.mailer` with plain text format.
-4. If `alert_ids` provided, marks them as dispatched via `svc.set_cluster_dispatch()`.
+4. If `alert_ids` are provided, marks them as dispatched via `svc.set_cluster_dispatch()` regardless of the mailer's returned success value.
 5. Broadcasts RCA_UPDATE via WebSocket.
 
 ### Dependencies
@@ -307,7 +311,7 @@ Sends a formatted RCA ticket via email. Requires `Action: Dispatch RCA Tickets` 
 ## Endpoint: `GET /sitrep`
 
 ### Purpose
-Returns a global situational report (SITREP) generated from the current system configuration and AIOps data.
+Requires the AIOps RCA page, Global Correlation tab, `Action: Generate Reports`, and access to all site types. Returns a global SITREP generated from current configuration and AIOps data.
 
 ### Parameters
 None.
@@ -329,7 +333,7 @@ None.
 ## Endpoint: `POST /sitrep`
 
 ### Purpose
-Performs actions related to the situational report: refreshing the rolling summary, generating scoring rationale, or running a security audit.
+Requires the AIOps RCA page and Global Correlation tab. Each action has its own action permission; scoring rationale and security audit also require access to all site types.
 
 ### Parameters
 | Parameter | Type | Default | Description |
@@ -360,7 +364,7 @@ Varies by action:
 ## Endpoint: `POST /clear-events`
 
 ### Purpose
-Clears all timeline events from the AIOps dashboard.
+Clears all timeline events from the AIOps dashboard. Requires the AIOps RCA page, Danger Zone tab, and `Action: Clear AIOps Data`.
 
 ### Parameters
 None.
@@ -378,7 +382,7 @@ None.
 ## Endpoint: `POST /nuke-alerts`
 
 ### Purpose
-Deletes all active (non-acknowledged) alerts from the system.
+Deletes all SolarWinds alert records. Requires the AIOps RCA page, Danger Zone tab, and `Action: Clear AIOps Data`.
 
 ### Parameters
 None.
@@ -396,13 +400,13 @@ None.
 ## Endpoint: `POST /resolve-alert`
 
 ### Purpose
-Resolves a specific alert by alert ID or by node name.
+Resolves a specific alert selected by `alert_id`. The optional `node_name` appears in the operator timeline message; it is not used to look up the alert. Requires the AIOps RCA page, Active Board tab, and `Action: Acknowledge RCA Alerts`, and verifies site scope.
 
 ### Parameters
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `alert_id` | `int` | `0` | ID of the alert to resolve. |
-| `node_name` | `str` | `""` | Node name to resolve alerts for. |
+| `node_name` | `str` | `""` | Node name included in the operator timeline message. |
 
 ### Returns
 ```json
@@ -411,14 +415,3 @@ Resolves a specific alert by alert ID or by node name.
 
 ### Dependencies
 - `src.services.resolve_alert()`
-## Current Source Corrections
-
-The router prefix is `/api/v1/rca`. Its local `require_action(action)` wrapper delegates to `require_authorized_action(action)`; it does not independently parse query tokens.
-
-- `set_investigate(background_tasks, data=Body(...), ...)` broadcasts updates through FastAPI background tasks.
-- `acknowledge` passes `user.username` to the service layer.
-- `dispatch` passes `user.username` as `dispatched_by`.
-- `send_ticket` builds a body beginning with `*** MANUAL TICKET ***` and includes the target SLA before ticket details.
-- `generate_ticket` requires a JSON body containing `site`, `priority`, `patient_zero`, `root_cause`, and `cluster`.
-- `resolve_alert` accepts `alert_id: int = 0` and `node_name: str = ""`.
-- `sitrep` returns `{"report": ...}` from the reduced SystemConfig context.

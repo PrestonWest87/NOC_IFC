@@ -26,9 +26,9 @@ The `services.py` module is the central Data Access Layer (DAL) for the NOC Inte
 ## Utility Classes
 
 ### `TTLCache`
-A decorator class that implements a time-to-live (TTL) cache to replace Streamlit's `@st.cache_data`.
+A decorator class that provides a bounded, process-local time-to-live (TTL) cache for service reads.
 
-**Purpose:** Decorator that caches function return values with a configurable TTL and max entry count.
+**Purpose:** Small process-local decorator cache used by service read paths. It does not depend on Streamlit.
 
 **Constructor Parameters:**
 - `ttl` (int) -- Time-to-live in seconds (default: 300)

@@ -4,7 +4,7 @@
 
 ## Purpose
 
-NPM package manifest for the React/TypeScript frontend. Declares project metadata, dependency versions, and build/development scripts. Consumed by `npm ci` (Docker build) and `npm install` (local development).
+NPM package manifest for the React/TypeScript frontend. Declares project metadata, dependency ranges, and build/development scripts. `npm ci` uses the committed lockfile for Docker and local installs.
 
 ## Metadata
 
@@ -12,7 +12,7 @@ NPM package manifest for the React/TypeScript frontend. Declares project metadat
 |-------|-------|-------------|
 | `name` | `noc-fusion-frontend` | Package name. Not published to any registry — marked `"private": true`. |
 | `private` | `true` | Prevents accidental publication to the npm registry. |
-| `version` | `2.0.0` | Semantic version. Version 2 corresponds to the decoupled architecture (architecture/monolith-to-decoupled branch). |
+| `version` | `2.0.0` | Private package metadata version; it does not identify a Git branch or deployed release. |
 | `type` | `module` | Treats all `.js`/`.ts` files as ES modules by default. Enables `import`/`export` syntax without `.mjs` extensions. |
 
 ## Scripts
@@ -20,7 +20,7 @@ NPM package manifest for the React/TypeScript frontend. Declares project metadat
 | Script | Command | Description |
 |--------|---------|-------------|
 | `dev` | `vite` | Starts the Vite development server with hot-module replacement on port 5173 (or as configured in `vite.config.ts`). |
-| `build` | `tsc -b && vite build` | **Production build pipeline.** First runs TypeScript's build mode (`tsc -b`) for type-checking and declaration generation (despite `noEmit: true` in tsconfig), then runs Vite's production bundler. Fails if type errors exist. |
+| `build` | `tsc -b && vite build` | **Production build pipeline.** TypeScript build mode checks the source first; `noEmit: true` prevents JavaScript/declaration output, then Vite creates the production bundle. Fails if type errors exist. |
 | `preview` | `vite preview` | Starts a local static file server to preview the production build output (`dist/`). Useful for verifying the built bundle before deployment. |
 
 ## Dependencies (Production)
@@ -41,7 +41,7 @@ NPM package manifest for the React/TypeScript frontend. Declares project metadat
 | `react` | `^18.3.1` | Core React library — component model, hooks, fiber reconciler. |
 | `react-dom` | `^18.3.1` | React DOM renderer — `createRoot`, hydration, event handling. |
 | `@vis.gl/react-maplibre` | `^8.1.3` | MapLibre-only React map wrapper; replaces the dual Mapbox/MapLibre wrapper. |
-| `react-router-dom` | `^7.18.4` | Patched client-side routing — `<BrowserRouter>`, `<Routes>`, `<Route>`, `<Link>`. |
+| `react-router-dom` | `^7.18.4` | Client-side routing — this app uses `<HashRouter>`, `<Routes>`, `<Route>`, and `<Link>`. |
 | `recharts` | `^3.8.1` | Declarative charting library for React. Used for analytics charts and dashboards. |
 | `zustand` | `^4.5.0` | Lightweight state management — stores for UI state, WebSocket data, and dashboard state. |
 
@@ -75,7 +75,7 @@ NPM package manifest for the React/TypeScript frontend. Declares project metadat
 
 ```bash
 # Local development
-cd web && npm install && npm run dev
+cd web && npm ci && npm run dev
 
 # Production build
 cd web && npm run build

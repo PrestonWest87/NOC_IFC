@@ -2,8 +2,6 @@
 
 Enterprise-grade React single-page application for the Network Operations Center Intelligence Fusion Platform. Provides real-time dashboards, threat telemetry, geospatial visualization, AIOps correlation, keyword analysis, and shift management.
 
-Branch: `architecture/monolith-to-decoupled`
-
 ---
 
 ## Table of Contents
@@ -27,18 +25,19 @@ Branch: `architecture/monolith-to-decoupled`
 
 | Library | Version | Purpose |
 |---------|---------|---------|
-| React | 18.3.x | UI framework |
-| TypeScript | 5.5.x | Static typing |
-| Vite | 5.4.x | Build tool & dev server |
-| React Router | 7.15.x | Client-side routing (`HashRouter`) |
-| TanStack Query | 5.100.x | Server-state management, caching, polling |
-| Zustand | 4.5.x | Lightweight client-state store |
-| Axios | 1.7.x | HTTP client |
-| MapLibre GL | 4.7.x | Vector map rendering |
-| @vis.gl/react-maplibre | 8.1.x | MapLibre-only React bindings |
-| deck.gl | 9.0.x | Geospatial data overlays |
-| Recharts | 3.8.x | Charting library |
-| Lucide React | 1.16.x | Icon set |
+| React | 18.3.1 | UI framework |
+| TypeScript | 5.9.3 | Static typing |
+| Vite | 7.3.6 | Build tool & dev server |
+| React Router | 7.18.4 | Client-side routing (`HashRouter`) |
+| TanStack Query | 5.100.11 | Server-state management, caching, polling |
+| Zustand | 4.5.7 | Lightweight client-state store |
+| Axios | 1.20.0 | HTTP client |
+| MapLibre GL | 6.11.2 | Vector map rendering |
+| @vis.gl/react-maplibre | 8.1.3 | MapLibre-only React bindings |
+| `@deck.gl/core`, `@deck.gl/layers`, `@deck.gl/react`, `@deck.gl/widgets` | 9.3.2 | Geospatial data overlays and widgets |
+| Recharts | 3.8.1 | Charting library |
+| Lucide React | 1.16.0 | Icon set |
+| `@vitejs/plugin-react` | 5.2.0 | React Fast Refresh and JSX integration |
 
 **Runtime config**: Vite dev server proxies `/api` and `/ws` to the FastAPI backend at `VITE_API_URL` (default `http://localhost:8101`).
 
@@ -50,46 +49,18 @@ Branch: `architecture/monolith-to-decoupled`
 web/
 ├── index.html
 ├── package.json
-├── vite.config.ts              # Vite config: proxy, HMR, allowedHosts
+├── vite.config.ts              # Proxy, HMR, MapLibre assets, Firefox compatibility
 ├── tsconfig.json
 └── src/
-    ├── main.tsx                # ReactDOM entry, CSS imports, initTheme()
-    ├── App.tsx                 # QueryClientProvider, HashRouter, AuthProvider, routes
-     ├── pages/                  # Page components (route targets)
-     │   ├── LoginPage.tsx
-     │   ├── ForgotPasswordPage.tsx
-     │   ├── ResetPasswordPage.tsx
-     │   ├── VerifyRecoveryEmailPage.tsx
-     │   ├── DashboardPage.tsx
-    │   ├── ThreatTelemetryPage.tsx
-    │   ├── RegionalGridPage.tsx
-    │   ├── ThreatHuntingPage.tsx
-    │   ├── AiopsRcaPage.tsx
-     │   ├── ShiftLogbookPage.tsx
-     │   ├── ReportingPage.tsx
-     │   ├── KeywordAnalysisPage.tsx
-     │   └── SettingsPage.tsx
-    ├── components/             # Shared UI components
-    │   ├── Layout.tsx          # Sidebar nav, user info, logout
-    │   ├── AIOpsMap.tsx        # Map visualization
-    │   ├── MapContainer.tsx    # Fullscreen-capable map wrapper
-     │   ├── ThemeSelector.tsx   # Theme picker with 6 presets
-     │   ├── UsersRolesTab.tsx   # Searchable account directory and reviewer queues
-     │   ├── ApplicationSettingsTab.tsx # Risk controls and dynamic schedules
-    ├── hooks/
-    │   └── useAIOpsWebSocket.ts  # WebSocket real-time hook
-    ├── utils/
-    │   ├── api.ts              # Axios instance, interceptors
-    │   ├── AuthContext.tsx      # Auth provider, login/logout, permissions
-    │   ├── routeConfig.ts      # Route ↔ permission mappings
-    │   └── timezone.ts         # America/Chicago formatters
-    ├── store/
-    │   └── useAppStore.ts      # Zustand global state
-    ├── styles/
-    │   ├── theme.css           # Base CSS custom properties (:root)
-    │   └── components.css      # Component-level styles
-    └── themes/
-        └── themes.css          # Theme overrides (data-theme selectors)
+    ├── main.tsx                 # ReactDOM entry, global CSS, theme initialization
+    ├── App.tsx                  # QueryClientProvider, HashRouter, auth, and routes
+    ├── pages/                   # 14 routed page components
+    ├── components/              # Layout, maps, account, application settings, and shared UI
+    ├── hooks/                   # AIOps WebSocket hook
+    ├── utils/                   # API client, auth, routes/permissions, timezone, notifications
+    ├── store/                   # Zustand application state
+    ├── styles/                  # Base and component CSS
+    └── themes/                  # Theme overrides
 ```
 
 ---
@@ -98,7 +69,7 @@ web/
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20.19+ or 22.12+ (the production/dev Docker image uses Node 22)
 - npm or equivalent package manager
 - Backend API running on port 8101
 
@@ -106,11 +77,11 @@ web/
 
 ```bash
 cd web
-npm install
+npm ci
 npm run dev        # Starts Vite on http://0.0.0.0:5173
 ```
 
-The Vite dev server (`vite.config.ts:16-26`) proxies:
+The Vite dev server proxies:
 - `/api/*` → `http://localhost:8101/api/*`
 - `/ws` → `ws://localhost:8101/ws`
 
@@ -120,7 +91,7 @@ The Vite dev server (`vite.config.ts:16-26`) proxies:
 |----------|---------|-------------|
 | `VITE_API_URL` | `http://localhost:8101` | Backend API base URL (used in proxy config) |
 
-> **Note**: `VITE_API_URL` is consumed at build time by `vite.config.ts:4`. The Axios client (`utils/api.ts:4`) uses a relative base URL `/api/v1`, relying on the Vite proxy in dev and nginx routing in production.
+> **Note**: `VITE_API_URL` configures the Vite proxy. The Axios client uses the relative base URL `/api/v1`, relying on the Vite proxy in development and nginx routing in production.
 
 ---
 
@@ -148,11 +119,11 @@ Defined in `src/utils/routeConfig.ts` and wired in `src/App.tsx`:
 
 ### Permission Model
 
-`PAGE_PERMISSION_MAP` (`routeConfig.ts:1-10`) maps URL paths to permission strings. `PAGE_ROUTE_MAP` (`routeConfig.ts:12-14`) is the reverse mapping (permission → route).
+`PAGE_PERMISSION_MAP` in `web/src/utils/routeConfig.ts` maps URL paths to permission strings. `PAGE_ROUTE_MAP` is the reverse mapping (permission → route).
 
 ### ProtectedRoute Guard
 
-`App.tsx:18-29` — `ProtectedRoute` wraps all authenticated pages:
+`ProtectedRoute` in `web/src/App.tsx` wraps all authenticated pages:
 
 1. If no `user` in `AuthContext`, redirects to `/login`.
 2. If the route has a required permission (via `PAGE_PERMISSION_MAP`), checks the user's page grants.
@@ -163,7 +134,7 @@ API endpoints independently enforce page, tab, action, and site-type permissions
 
 ### HashRouter
 
-The app uses `HashRouter` (`App.tsx:49`), so all routes are hash-based (`/#/threat-telemetry`). This avoids server-side routing configuration and works with the nginx static file server in production.
+The app uses `HashRouter`, so all routes are hash-based (`/#/threat-telemetry`). This avoids server-side routing configuration and works with the nginx static file server in production.
 
 ---
 
@@ -190,7 +161,7 @@ Four-tab layout:
 
 Key behaviors:
 - **Auto-rotation**: Cycles between Operational Dashboard tabs on a timer.
-- **Brief generation**: Triggers `POST /reporting/generate-unified-brief`, then polls `GET /brief-generation-status/{id}` for progress. The `brief_gen_id` persists in `sessionStorage` across tab switches.
+- **Brief generation**: Triggers `POST /dashboard/generate-unified-brief`, then polls `GET /dashboard/brief-generation-status?generation_id=...` for progress. The generation ID persists in `sessionStorage` across SPA navigation.
 - **Scoring overrides**: Forms for global/internal CIS scoring with manual/hybrid/auto modes and C/I/L override columns.
 - **Broadcast**: Email button calls `POST /email/broadcast-brief` to distribute the generated brief.
 
@@ -203,7 +174,7 @@ Four-section layout:
 | **RSS Articles** | `GET /threat/articles` | Pagination, category filter, keyword search |
 | **CVEs** | `GET /threat/cves` | Table with CISA KEV status badges |
 | **Cloud Outages** | `GET /threat/cloud-outages` | Filterable outage table |
-| **Crime Incidents** | `GET /threat/crimes` | Map visualization with incident markers |
+| **Crime Incidents** | `GET /threat/crime-incidents` | Map visualization with incident markers |
 
 Manual sync buttons trigger `POST /threat/sync-*` endpoints to force data refresh.
 
@@ -315,7 +286,7 @@ Full-height sidebar navigation:
 
 ### AIOpsMap (`src/components/AIOpsMap.tsx`)
 
-Map visualization component used by `RegionalGridPage` and `AiopsRcaPage`. Renders MapLibre GL map with overlay layers, site markers, and hazard polygons.
+Reusable MapLibre/DeckGL map component. The current routed pages compose their maps directly and do not import `AIOpsMap`; keep this reference in sync if a page begins using the helper.
 
 ### MapContainer (`src/components/MapContainer.tsx`)
 
@@ -400,7 +371,7 @@ interface AuthContextType {
 - **401 handling**: Axios interceptor clears the session and redirects to `#/login` on 401 responses.
 - **403 handling**: Keeps the session active and displays an accessible permission-specific notice.
 
-**User interface** (`AuthContext.tsx:4-15`):
+**User interface** (`web/src/utils/AuthContext.tsx`):
 
 ```typescript
 interface User {
@@ -462,10 +433,10 @@ const api = axios.create({
 });
 ```
 
-**Request interceptor** (`api.ts:7-13`):
+**Request interceptor** (`web/src/utils/api.ts`):
 - Attaches `Authorization: Bearer <token>` from `sessionStorage` to every request.
 
-**Response interceptor** (`api.ts:15-25`):
+**Response interceptor** (`web/src/utils/api.ts`):
 - On 401: clears `noc_token` and `noc_user` from `sessionStorage`, redirects to `#/login`.
 - On 403: retains the session and emits an accessible permission notice with the missing grant.
 - All other errors propagate normally.
@@ -603,7 +574,7 @@ All timestamps are displayed in **America/Chicago** timezone. The module provide
 
 ### UTC Handling
 
-The `ensureUtcDate()` helper (`timezone.ts:21-29`) addresses a critical issue: naive datetime strings from SQLite (e.g., `"2026-06-30T22:35:00"`) lack timezone indicators. Without the `Z` suffix, JavaScript would interpret them as local system time rather than UTC.
+The `ensureUtcDate()` helper in `web/src/utils/timezone.ts` addresses naive datetime strings from SQLite (for example, timestamps without a timezone indicator) by treating them as UTC rather than local system time.
 
 The function appends `Z` to any datetime string that lacks a timezone marker (`Z` or `±HH:MM` offset), forcing UTC interpretation before converting to America/Chicago for display.
 
@@ -617,7 +588,7 @@ The function appends `Z` to any datetime string that lacks a timezone marker (`Z
 cd web && npm run dev    # Vite dev server with HMR on port 5173
 ```
 
-HMR is enabled by default. File watcher uses polling (`vite.config.ts:20-22`) for Docker volume mount compatibility.
+HMR is enabled by default. The file watcher uses polling for Docker volume-mount compatibility, configured in `web/vite.config.ts`.
 
 ### Production Build
 
@@ -650,6 +621,8 @@ The `web` container mounts the `web/` source directory, so changes to frontend f
 | `server.proxy["/ws"]` | `ws://...` | Proxy WebSocket to backend |
 | `watch.usePolling` | `true` | Polling-based file watching (Docker) |
 | `watch.interval` | 500ms | Poll interval |
+
+The `maplibre-assets` Vite plugin emits and serves MapLibre's worker and shared module, removes a Firefox-only legacy CSS selector, and protects MapLibre's selection reset from an undefined inline value. The dependency optimizer uses standard WebGL renderer information in Firefox instead of querying the deprecated unmasked-renderer extension. See [`reference/config/vite_config.md`](reference/config/vite_config.md) for implementation details.
 
 ### Scripts
 

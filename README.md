@@ -224,7 +224,9 @@ The worker runs scheduled jobs without requiring an analyst to trigger each coll
 | CISA KEV sync | Every 7 hours |
 | Global Threat Brief | Daily at 02:00 |
 | Daily email brief | 07:00 Central time |
+| Daily Fusion report | Daily at 06:00 Central time |
 | ML retraining | Sunday at 02:00 |
+| Encrypted full-database backup | Sunday at 00:00 Central time; retains the latest three scheduled packages |
 
 The scheduler prevents the same job from overlapping with itself and limits concurrent scheduled work. External errors are logged and do not intentionally stop the scheduler loop.
 
@@ -318,6 +320,7 @@ The detailed documentation is organized under [`docs/`](./docs/):
 | Use the workspace | [User Guide](./docs/USER_GUIDE.md) |
 | Review REST endpoints | [API Reference](./docs/API.md) |
 | Understand data storage | [Database Schema](./docs/DATABASE_SCHEMA.md) |
+| Check migration compatibility for older SQLite databases | [Migration Compatibility](./docs/MIGRATION_COMPATIBILITY.md) |
 | Understand scheduled work | [Scheduler](./docs/SCHEDULER.md) |
 | Change frequencies and settings | [Operations Reference](./docs/OPERATIONS_REFERENCE.md) |
 | Diagnose problems | [Troubleshooting](./docs/TROUBLESHOOTING.md) |
@@ -328,10 +331,6 @@ The detailed documentation is organized under [`docs/`](./docs/):
 | Review changes | [Changelog](./CHANGELOG.md) |
 
 `docs/` is the only documentation root. The `docs/reference/` tree contains detailed module, service, worker, frontend, and configuration references.
-
-## Current Operational Note
-
-The Elastic cache route currently has a naming mismatch between the API route and the worker export. The application documents this limitation in [API.md](./docs/API.md) and [Troubleshooting](./docs/TROUBLESHOOTING.md); the rest of the Elastic worker remains active and should not be removed.
 
 ## AI-Generated Project Disclaimer
 

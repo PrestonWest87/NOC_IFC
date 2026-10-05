@@ -3,7 +3,9 @@
 > **Source of truth:** `src/models/schema.py` (SQLAlchemy declarative models)
 > **Engine:** SQLite via `DATABASE_URL`
 > **Driver:** SQLAlchemy 2.x with `NullPool`
-> **Last verified:** 2026-10-02
+> **Last verified:** 2026-10-05
+
+The mapped table names, column names, SQLAlchemy types, and nullability in this reference are checked against the model metadata by `tests/test_documentation_contracts.py`.
 
 ---
 
@@ -21,7 +23,9 @@
 
 ## 1. Entity-Relationship Overview
 
-Core legacy relationships are logical; account recovery and scheduler tables now use explicit foreign keys. The diagram below also shows the primary logical relationships.
+Most operational relationships are logical rather than enforced foreign keys. The account-session, recovery-request/token, and account-audit tables declare SQLAlchemy foreign keys to users or recovery requests; `scheduler_job_config` and legacy name-based relationships do not.
+
+The legacy ER diagram is conceptual: its `(FK→)` labels do not distinguish enforced constraints from logical joins. In particular, `users.role`, `user_weather_prefs.username`, and `extracted_iocs.article_id` are not SQL-enforced foreign keys; Section 6 lists the actual constraints.
 
 ```
 ┌─────────────────────┐       ┌─────────────────────┐
@@ -29,7 +33,7 @@ Core legacy relationships are logical; account recovery and scheduler tables now
 │─────────────────────│       │─────────────────────│
 │ id            (PK)  │       │ id            (PK)  │
 │ username      (UQ)  │◄─ ─ ─ │ name          (UQ)  │
-│ role          (FK→) │       │ allowed_pages (JSON)│
+│ role (logical)      │       │ allowed_pages (JSON)│
 │ session_token       │       │ allowed_actions     │
 │ full_name           │       │ allowed_site_types  │
 │ account_type        │       └─────────────────────┘
@@ -46,7 +50,7 @@ Core legacy relationships are logical; account recovery and scheduler tables now
          │                    │       prefs           │
          │                    │─────────────────────│
          │                    │ id            (PK)  │
-         │                    │ username  (FK→users) │
+          │                    │ username (logical)   │
          │                    │ alert_type           │
          │                    └─────────────────────┘
          │
@@ -61,7 +65,7 @@ Core legacy relationships are logical; account recovery and scheduler tables now
 ┌─────────────────────┐       ┌─────────────────────┐
 │     articles         │       │   extracted_iocs     │
 │─────────────────────│       │─────────────────────│
-│ id            (PK)  │◄─ ─ ─ │ article_id    (FK→) │
+│ id            (PK)  │◄─ ─ ─ │ article_id (logical)│
 │ title               │       │ indicator_type       │
 │ link          (UQ)  │       │ indicator_value      │
 │ summary             │       │ context              │
@@ -217,19 +221,22 @@ Core legacy relationships are logical; account recovery and scheduler tables now
 
 ## 2. Complete Table Reference
 
+Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revision `20261002_0002` adds `registration_invites.revoked_at`. Other migration-only compatibility columns are described in Section 3.
+
 ### 2.1 `users` — User Accounts
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `username` | String | NO | — | YES (unique) | UNIQUE |
-| `password_hash` | String | NO | — | — | bcrypt hash |
-| `role` | String | NO | `"analyst"` | YES | FK-like → `roles.name` |
+| `username` | String | YES | — | YES (unique) | UNIQUE |
+| `password_hash` | String | YES | — | — | bcrypt hash |
+| `role` | String | YES | `"analyst"` | YES | Logical role name → `roles.name`; no SQL foreign key |
 | `session_token` | String | YES | NULL | YES | Session tracking |
 | `full_name` | String | YES | NULL | — | Display name |
 | `job_title` | String | YES | NULL | — | Role description |
 | `contact_info` | String | YES | NULL | — | Email/phone |
-| `default_shift` | String | NO | `"No Shift"` | — | Shift assignment |
+| `default_shift` | String | YES | `"No Shift"` | — | Shift assignment |
+| `theme` | String | YES | `"standard"` | — | User-selected UI theme |
 | `account_type` | String(20) | NO | `individual` | YES | `individual` or `display` |
 | `email` | String(254) | YES | NULL | — | Optional; required for invitation-created individual accounts |
 | `email_normalized` | String(254) | YES | NULL | Unique | Case-folded address; unique when present |
@@ -244,37 +251,37 @@ Core legacy relationships are logical; account recovery and scheduler tables now
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `name` | String | NO | — | YES (unique) | UNIQUE |
-| `allowed_pages` | JSON | NO | — | — | Array of page names |
-| `allowed_actions` | JSON | NO | `list` | — | Array of action strings |
-| `allowed_site_types` | JSON | NO | `list` | — | Array of site type strings |
+| `name` | String | YES | — | YES (unique) | UNIQUE |
+| `allowed_pages` | JSON | YES | — | — | Array of page names |
+| `allowed_actions` | JSON | YES | `list` | — | Array of action strings |
+| `allowed_site_types` | JSON | YES | `list` | — | Array of site type strings |
 
 ### 2.3 `saved_reports` — Report Library
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `title` | String | NO | — | YES | — |
-| `author` | String | NO | — | — | username string |
-| `content` | Text | NO | — | — | Full report body |
-| `created_at` | DateTime | NO | `utcnow` | YES | — |
+| `title` | String | YES | — | YES | — |
+| `author` | String | YES | — | — | username string |
+| `content` | Text | YES | — | — | Full report body |
+| `created_at` | DateTime | YES | `utcnow` | YES | — |
 
 ### 2.4 `feed_sources` — RSS Feed Registry
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `url` | String | NO | — | YES (unique) | UNIQUE |
-| `name` | String | NO | — | — | Human-readable name |
-| `is_active` | Boolean | NO | `True` | — | Enable/disable toggle |
+| `url` | String | YES | — | YES (unique) | UNIQUE |
+| `name` | String | YES | — | — | Human-readable name |
+| `is_active` | Boolean | YES | `True` | — | Enable/disable toggle |
 
 ### 2.5 `keywords` — Scoring Keyword Dictionary
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `word` | String | NO | — | YES (unique) | UNIQUE |
-| `weight` | Integer | NO | `10` | — | 0–100 scoring weight |
+| `word` | String | YES | — | YES (unique) | UNIQUE |
+| `weight` | Integer | YES | `10` | — | 0–100 scoring weight |
 
 > **Critical:** 70 keywords are seeded at init. `rescore_all_articles()` runs after every seed to rescale `articles.score`.
 
@@ -283,41 +290,48 @@ Core legacy relationships are logical; account recovery and scheduler tables now
 | Column | Type | Nullable | Default | Index |
 |---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK |
-| `llm_endpoint` | String | NO | `"https://api.openai.com/v1"` | — |
-| `llm_api_key` | String | NO | `""` | — |
-| `llm_model_name` | String | NO | `"gpt-4o-mini"` | — |
-| `is_active` | Boolean | NO | `False` | — |
-| `tech_stack` | Text | NO | `"SolarWinds, Cisco SD-WAN, Microsoft Office, Verizon, Cisco"` | — |
-| `monitored_asns` | String | NO | `"AS701, AS7922, AS3356"` | — |
+| `llm_endpoint` | String | YES | `"https://api.openai.com/v1"` | — |
+| `llm_api_key` | String | YES | `""` | — |
+| `llm_model_name` | String | YES | `"gpt-4o-mini"` | — |
+| `is_active` | Boolean | YES | `False` | — |
+| `tech_stack` | Text | YES | `"SolarWinds, Cisco SD-WAN, Microsoft Office, Verizon, Cisco"` | — |
+| `monitored_asns` | String | YES | `"AS701, AS7922, AS3356"` | — |
 | `rolling_summary` | Text | YES | NULL | — |
 | `rolling_summary_time` | DateTime | YES | NULL | — |
 | `smtp_server` | String | YES | NULL | — |
-| `smtp_port` | Integer | NO | `587` | — |
+| `smtp_port` | Integer | YES | `587` | — |
 | `smtp_username` | String | YES | NULL | — |
 | `smtp_password` | String | YES | NULL | — |
 | `smtp_sender` | String | YES | NULL | — |
 | `smtp_recipient` | String | YES | NULL | — |
-| `smtp_enabled` | Boolean | NO | `False` | — |
-| `baseline_override_cyber` | Float | NO | `0.0` | — |
-| `baseline_override_phys` | Float | NO | `0.0` | — |
+| `smtp_enabled` | Boolean | YES | `False` | — |
+| `baseline_override_cyber` | Float | YES | `0.0` | — |
+| `baseline_override_phys` | Float | YES | `0.0` | — |
 | `unified_brief` | Text | YES | NULL | — |
 | `unified_brief_time` | DateTime | YES | NULL | — |
+| `global_brief` | Text | YES | NULL | — |
+| `global_brief_time` | DateTime | YES | NULL | — |
+| `internal_brief` | Text | YES | NULL | — |
+| `internal_brief_time` | DateTime | YES | NULL | — |
 | `last_global_risk` | String | YES | NULL | — |
 | `last_internal_risk` | String | YES | NULL | — |
 | `last_risk_alert_time` | DateTime | YES | NULL | — |
-| `sys_countermeasures` | Integer | NO | `3` | — |
-| `net_countermeasures` | Integer | NO | `3` | — |
-| `scoring_mode` | String | NO | `"auto"` | — |
-| `cyber_criticality_override` | Integer | NO | `0` | — |
-| `cyber_lethality_override` | Integer | NO | `0` | — |
-| `physical_criticality_override` | Integer | NO | `0` | — |
-| `physical_lethality_override` | Integer | NO | `0` | — |
-| `internal_criticality_override` | Integer | NO | `0` | — |
-| `internal_lethality_override` | Integer | NO | `0` | — |
-| `global_risk_offset` | Integer | NO | `0` | — |
-| `internal_risk_offset` | Integer | NO | `0` | — |
-| `alerted_eq_ids` | Text | NO | `"[]"` | — |
-| `llm_context_window` | Integer | NO | `128000` | — |
+| `sys_countermeasures` | Integer | YES | `3` | — |
+| `net_countermeasures` | Integer | YES | `3` | — |
+| `scoring_mode` | String | YES | `"auto"` | — |
+| `cyber_criticality_override` | Integer | YES | `0` | — |
+| `cyber_lethality_override` | Integer | YES | `0` | — |
+| `physical_criticality_override` | Integer | YES | `0` | — |
+| `physical_lethality_override` | Integer | YES | `0` | — |
+| `internal_criticality_override` | Integer | YES | `0` | — |
+| `internal_lethality_override` | Integer | YES | `0` | — |
+| `global_risk_offset` | Integer | YES | `0` | — |
+| `internal_risk_offset` | Integer | YES | `0` | — |
+| `alerted_eq_ids` | Text | YES | `"[]"` | — |
+| `alerted_wildfire_ids` | Text | YES | `"[]"` | — |
+| `wildfire_proximity_state` | Text | YES | `"{}"` | — |
+| `llm_context_window` | Integer | YES | `128000` | — |
+| `public_app_url` | String | YES | `"http://localhost:8501"` | — |
 | `failed_login_alert_enabled` | Boolean | NO | `False` | — |
 | `failed_login_alert_recipients` | Text | NO | `""` | — |
 | `failed_login_alert_threshold` | Integer | NO | `5` | — |
@@ -327,28 +341,28 @@ Core legacy relationships are logical; account recovery and scheduler tables now
 | `scheduler_revision` | Integer | NO | `0` | — | Incremented when a scheduler setting changes |
 | `scheduler_applied_revision` | Integer | NO | `0` | — | Latest revision loaded by the scheduler worker |
 
-> **Singleton pattern:** Only one row exists. Inserted by `init_db()` if absent.
+> **Application convention:** Bootstrap inserts one `SystemConfig` row when the table is empty and application code normally reads the first row. The schema does not enforce singleton cardinality.
 
 ### 2.7 `shift_logs` — Shift Logbook
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `analyst` | String | NO | — | YES | username string |
-| `author_role` | String | NO | — | YES | role string |
-| `shift_date` | DateTime | NO | `utcnow` | YES | Date of shift |
-| `shift_period` | String | NO | — | — | e.g. "Day", "Swing", "Night" |
-| `content` | Text | NO | — | — | Log body |
-| `created_at` | DateTime | NO | `utcnow` | — | Creation timestamp |
-| `is_deleted` | Boolean | NO | `False` | YES | Soft delete flag |
+| `analyst` | String | YES | — | YES | username string |
+| `author_role` | String | YES | — | YES | role string |
+| `shift_date` | DateTime | YES | `utcnow` | YES | Date of shift |
+| `shift_period` | String | YES | — | — | e.g. "Day", "Swing", "Night" |
+| `content` | Text | YES | — | — | Log body |
+| `created_at` | DateTime | YES | `utcnow` | — | Creation timestamp |
+| `is_deleted` | Boolean | YES | `False` | YES | Soft delete flag |
 
 ### 2.8 `software_assets` — Software Asset Inventory
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `name` | String | NO | — | YES | Software name |
-| `last_updated` | DateTime | NO | `utcnow` | — | Last CSV import |
+| `name` | String | YES | — | YES | Software name |
+| `last_updated` | DateTime | YES | `utcnow` | — | Last CSV import |
 
 ### 2.9 `hardware_assets` — Hardware Asset Inventory (24 columns)
 
@@ -377,19 +391,19 @@ Core legacy relationships are logical; account recovery and scheduler tables now
 | `malware_count` | Integer | YES | `0` | — |
 | `raw_risk_score` | Float | YES | `0.0` | — |
 | `risk_score` | Float | YES | `0.0` | — |
-| `last_updated` | DateTime | NO | `utcnow` | — |
+| `last_updated` | DateTime | YES | `utcnow` | — |
 
 ### 2.10 `internal_risk_snapshots` — Internal Risk Time Series
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `timestamp` | DateTime | NO | `utcnow` | — | Snapshot time |
-| `score` | Float | NO | — | — | Composite risk score |
-| `risk_level` | String | NO | — | — | GREEN/BLUE/YELLOW/ORANGE/RED |
-| `total_assets` | Integer | NO | — | — | Asset count at snapshot |
-| `total_osint_hits` | Integer | NO | — | — | OSINT match count |
-| `critical_osint_hits` | Integer | NO | — | — | Critical OSINT count |
+| `timestamp` | DateTime | YES | `utcnow` | — | Snapshot time |
+| `score` | Float | YES | — | — | Composite risk score |
+| `risk_level` | String | YES | — | — | GREEN/BLUE/YELLOW/ORANGE/RED |
+| `total_assets` | Integer | YES | — | — | Asset count at snapshot |
+| `total_osint_hits` | Integer | YES | — | — | OSINT match count |
+| `critical_osint_hits` | Integer | YES | — | — | Critical OSINT count |
 | `hw_data_json` | Text | YES | NULL | — | Serialized HW data |
 | `sw_data_json` | Text | YES | NULL | — | Serialized SW data |
 
@@ -398,54 +412,60 @@ Core legacy relationships are logical; account recovery and scheduler tables now
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `title` | String | NO | — | — | Headline |
-| `link` | String | NO | — | YES (unique) | UNIQUE — dedup key |
-| `summary` | Text | NO | — | — | Article summary |
-| `published_date` | DateTime | NO | `utcnow` | YES | Feed pub date |
-| `source` | String | NO | — | YES | Feed name |
-| `score` | Float | NO | `0.0` | YES | Keyword-weighted score |
-| `category` | String | NO | `"General"` | YES | Categorized label |
+| `title` | String | YES | — | — | Headline |
+| `link` | String | YES | — | YES (unique) | UNIQUE — dedup key |
+| `summary` | Text | YES | — | — | Article summary |
+| `published_date` | DateTime | YES | `utcnow` | YES | Feed pub date |
+| `source` | String | YES | — | YES | Feed name |
+| `score` | Float | YES | `0.0` | YES | Keyword-weighted score |
+| `category` | String | YES | `"General"` | YES | Categorized label |
 | `keywords_found` | JSON | YES | NULL | — | Matched keyword list |
-| `is_bubbled` | Boolean | NO | `False` | — | Surface to dashboard |
+| `is_bubbled` | Boolean | YES | `False` | — | Surface to dashboard |
 | `story_group` | String | YES | NULL | — | Cluster/grouping ID |
-| `human_feedback` | Integer | NO | `0` | — | Analyst vote (+1/-1) |
+| `human_feedback` | Integer | YES | `0` | — | ML label: `1` dismiss/noise, `2` keep/important; `0` neutral |
 | `ai_bluf` | Text | YES | NULL | — | AI-generated BLUF |
-| `is_pinned` | Boolean | NO | `False` | YES | Prevents auto-purge |
+| `is_pinned` | Boolean | YES | `False` | YES | Prevents auto-purge |
+| `full_content` | Text | YES | NULL | — | Extracted article content |
+| `ingested_at` | DateTime | YES | `utcnow` | YES | Ingestion timestamp |
+| `enrichment_status` | String | YES | `"pending"` | YES | Enrichment state |
+| `enrichment_attempts` | Integer | YES | `0` | — | Number of extraction attempts |
+| `last_enrichment_error` | Text | YES | NULL | — | Latest extraction failure |
+| `last_enriched_at` | DateTime | YES | NULL | — | Successful extraction time |
 
 ### 2.12 `extracted_iocs` — Indicators of Compromise
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `article_id` | Integer | NO | — | YES | Logical FK → `articles.id` |
-| `indicator_type` | String | NO | — | YES | IP/Domain/Hash/URL/CVE |
-| `indicator_value` | String | NO | — | YES | The IOC string |
+| `article_id` | Integer | YES | — | YES | Logical reference to `articles.id`; no SQL foreign key |
+| `indicator_type` | String | YES | — | YES | IP/Domain/Hash/URL/CVE |
+| `indicator_value` | String | YES | — | YES | The IOC string |
 | `context` | Text | YES | NULL | — | Surrounding text |
-| `detected_at` | DateTime | NO | `utcnow` | YES | Extraction timestamp |
+| `detected_at` | DateTime | YES | `utcnow` | YES | Extraction timestamp |
 
 ### 2.13 `cve_items` — CISA KEV Catalog
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `cve_id` | String | NO | — | YES (unique) | UNIQUE |
-| `vendor` | String | NO | — | YES | — |
-| `product` | String | NO | — | YES | — |
-| `vulnerability_name` | String | NO | — | — | — |
-| `date_added` | DateTime | NO | — | YES | CISA date added |
-| `description` | Text | NO | — | — | — |
-| `required_action` | Text | NO | — | — | — |
-| `due_date` | String | NO | — | — | Remediation deadline |
+| `cve_id` | String | YES | — | YES (unique) | UNIQUE |
+| `vendor` | String | YES | — | YES | — |
+| `product` | String | YES | — | YES | — |
+| `vulnerability_name` | String | YES | — | — | — |
+| `date_added` | DateTime | YES | — | YES | CISA date added |
+| `description` | Text | YES | — | — | — |
+| `required_action` | Text | YES | — | — | — |
+| `due_date` | String | YES | — | — | Remediation deadline |
 
 ### 2.14 `elastic_events` — SIEM Telemetry Cache
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | **String** | NO | — | PK | **String PK** (not Integer) |
-| `timestamp` | DateTime | NO | — | YES | Event time |
-| `index_name` | String | NO | — | — | ES index |
-| `severity` | String | NO | — | YES | Critical/High/Medium/Low |
-| `message` | String | NO | — | — | Event message |
+| `timestamp` | DateTime | YES | — | YES | Event time |
+| `index_name` | String | YES | — | — | ES index |
+| `severity` | String | YES | — | YES | Critical/High/Medium/Low |
+| `message` | String | YES | — | — | Event message |
 | `source_ip` | String | YES | NULL | — | Source IP |
 | `event_category` | String | YES | NULL | — | Event type |
 
@@ -454,96 +474,96 @@ Core legacy relationships are logical; account recovery and scheduler tables now
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `report_date` | DateTime | NO | — | YES (unique) | UNIQUE — one per day |
-| `content` | Text | NO | — | — | Full briefing text |
-| `created_at` | DateTime | NO | `utcnow` | — | Generation time |
+| `report_date` | DateTime | YES | — | YES (unique) | UNIQUE — one per day |
+| `content` | Text | YES | — | — | Full briefing text |
+| `created_at` | DateTime | YES | `utcnow` | — | Generation time |
 
 ### 2.16 `daily_threat_scores` — Threat Score Time Series
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `record_date` | DateTime | NO | — | YES (unique) | UNIQUE — one per day |
-| `cyber_points` | Float | NO | `0.0` | — | Daily cyber score |
-| `physical_points` | Float | NO | `0.0` | — | Daily physical score |
-| `cyber_baseline` | Float | NO | `0.0` | — | Baseline reference |
-| `physical_baseline` | Float | NO | `0.0` | — | Baseline reference |
+| `record_date` | DateTime | YES | — | YES (unique) | UNIQUE — one per day |
+| `cyber_points` | Float | YES | `0.0` | — | Daily cyber score |
+| `physical_points` | Float | YES | `0.0` | — | Daily physical score |
+| `cyber_baseline` | Float | YES | `0.0` | — | Baseline reference |
+| `physical_baseline` | Float | YES | `0.0` | — | Baseline reference |
 
 ### 2.17 `regional_hazards` — SPC/NWS Hazard Feed
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `hazard_id` | String | NO | — | YES (unique) | UNIQUE — source ID |
-| `hazard_type` | String | NO | — | — | Tornado/Flood/etc |
-| `severity` | String | NO | — | — | — |
-| `title` | String | NO | — | — | — |
-| `description` | Text | NO | — | — | — |
-| `location` | String | NO | — | — | Free-text location |
-| `updated_at` | DateTime | NO | — | YES | Feed update time |
+| `hazard_id` | String | YES | — | YES (unique) | UNIQUE — source ID |
+| `hazard_type` | String | YES | — | — | Tornado/Flood/etc |
+| `severity` | String | YES | — | — | — |
+| `title` | String | YES | — | — | — |
+| `description` | Text | YES | — | — | — |
+| `location` | String | YES | — | — | Free-text location |
+| `updated_at` | DateTime | YES | — | YES | Feed update time |
 
 ### 2.18 `regional_outages` — Regional Utility Outages
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `outage_type` | String | NO | — | YES | Power/Telecom/etc |
-| `provider` | String | NO | — | — | Utility name |
-| `description` | Text | NO | — | — | — |
-| `affected_area` | String | NO | — | — | Free-text |
+| `outage_type` | String | YES | — | YES | Power/Telecom/etc |
+| `provider` | String | YES | — | — | Utility name |
+| `description` | Text | YES | — | — | — |
+| `affected_area` | String | YES | — | — | Free-text |
 | `lat` | Float | YES | NULL | — | — |
 | `lon` | Float | YES | NULL | — | — |
-| `radius_km` | Float | NO | `10.0` | — | Impact radius |
-| `detected_at` | DateTime | NO | `utcnow` | — | — |
-| `is_resolved` | Boolean | NO | `False` | YES | — |
+| `radius_km` | Float | YES | `10.0` | — | Impact radius |
+| `detected_at` | DateTime | YES | `utcnow` | — | — |
+| `is_resolved` | Boolean | YES | `False` | YES | — |
 
 ### 2.19 `cloud_outages` — Cloud Provider Status
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `provider` | String | NO | — | YES | AWS/Azure/GCP/etc |
-| `service` | String | NO | — | — | Service name |
-| `title` | String | NO | — | — | — |
-| `description` | Text | NO | — | — | — |
-| `link` | String | NO | — | — | Status page URL |
-| `is_resolved` | Boolean | NO | `False` | YES | — |
-| `updated_at` | DateTime | NO | — | YES | — |
+| `provider` | String | YES | — | YES | AWS/Azure/GCP/etc |
+| `service` | String | YES | — | — | Service name |
+| `title` | String | YES | — | — | — |
+| `description` | Text | YES | — | — | — |
+| `link` | String | YES | — | — | Status page URL |
+| `is_resolved` | Boolean | YES | `False` | YES | — |
+| `updated_at` | DateTime | YES | — | YES | — |
 
 ### 2.20 `bgp_anomalies` — BGP Hijack/Downtime Events
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `asn` | String | NO | — | YES | Autonomous system # |
-| `event_type` | String | NO | — | — | Hijack/Outage/etc |
-| `description` | Text | NO | — | — | — |
-| `detected_at` | DateTime | NO | `utcnow` | — | — |
-| `is_resolved` | Boolean | NO | `False` | YES | — |
+| `asn` | String | YES | — | YES | Autonomous system # |
+| `event_type` | String | YES | — | — | Hijack/Outage/etc |
+| `description` | Text | YES | — | — | — |
+| `detected_at` | DateTime | YES | `utcnow` | — | — |
+| `is_resolved` | Boolean | YES | `False` | YES | — |
 
-### 2.21 `solarwinds_alerts` — NMS Alert Pipeline (25 columns)
+### 2.21 `solarwinds_alerts` — NMS Alert Pipeline (23 columns)
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `event_type` | String | NO | — | YES | Alert type |
-| `severity` | String | NO | — | — | P1–P5 / Critical |
-| `node_name` | String | NO | — | YES | NMS node name |
-| `ip_address` | String | NO | — | — | Node IP |
-| `status` | String | NO | — | YES | Active/Resolved |
-| `sw_timestamp` | String | NO | — | — | SolarWinds time (string) |
-| `details` | Text | NO | — | — | Alert body |
-| `node_link` | String | NO | — | — | NMS console URL |
+| `event_type` | String | YES | — | YES | Alert type |
+| `severity` | String | YES | — | — | P1–P5 / Critical |
+| `node_name` | String | YES | — | YES | NMS node name |
+| `ip_address` | String | YES | — | — | Node IP |
+| `status` | String | YES | — | YES | Active/Resolved |
+| `sw_timestamp` | String | YES | — | — | SolarWinds time (string) |
+| `details` | Text | YES | — | — | Alert body |
+| `node_link` | String | YES | — | — | NMS console URL |
 | `raw_payload` | JSON | YES | NULL | — | Full webhook JSON |
 | `mapped_location` | String | YES | NULL | YES | → `monitored_locations.name` |
-| `received_at` | DateTime | NO | `utcnow` | YES | Ingestion time |
+| `received_at` | DateTime | YES | `utcnow` | YES | Ingestion time |
 | `resolved_at` | DateTime | YES | NULL | YES | Resolution time |
-| `is_dispatched` | Boolean | NO | `False` | YES | RCA ticket created |
-| `is_ticketed` | Boolean | NO | `False` | YES | Email ticket sent |
-| `is_correlated` | Boolean | NO | `False` | YES | AIOps engine matched |
+| `is_dispatched` | Boolean | YES | `False` | YES | RCA ticket created |
+| `is_ticketed` | Boolean | YES | `False` | YES | Email ticket sent |
+| `is_correlated` | Boolean | YES | `False` | YES | AIOps engine matched |
 | `ai_root_cause` | Text | YES | NULL | — | AI-generated RCA |
-| `device_type` | String | NO | `"Unknown"` | YES | Router/Switch/etc |
-| `event_category` | String | NO | `"Unknown"` | — | Category bucket |
+| `device_type` | String | YES | `"Unknown"` | YES | Router/Switch/etc |
+| `event_category` | String | YES | `"Unknown"` | — | Category bucket |
 | `acknowledged_by` | String | YES | NULL | — | User who acknowledged |
 | `acknowledged_at` | DateTime | YES | NULL | — | — |
 | `dispatched_by` | String | YES | NULL | — | User who dispatched |
@@ -554,26 +574,26 @@ Core legacy relationships are logical; account recovery and scheduler tables now
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `timestamp` | DateTime | NO | `utcnow` | YES | — |
-| `source` | String | NO | — | YES | Origin system |
-| `event_type` | String | NO | — | YES | Event classification |
-| `message` | String | NO | — | — | Human-readable message |
+| `timestamp` | DateTime | YES | `utcnow` | YES | — |
+| `source` | String | YES | — | YES | Origin system |
+| `event_type` | String | YES | — | YES | Event classification |
+| `message` | String | YES | — | — | Human-readable message |
 | `site_name` | String(255) | YES | NULL | YES | Structured site scope for AIOps event filtering |
 
-### 2.23 `monitored_locations` — Facility/Site Registry (19 columns)
+### 2.23 `monitored_locations` — Facility/Site Registry (18 columns)
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `name` | String | NO | — | YES (unique) | UNIQUE — site identifier |
-| `lat` | Float | NO | — | — | Latitude |
-| `lon` | Float | NO | — | — | Longitude |
-| `loc_type` | String | NO | `"General"` | YES | Site type |
-| `district` | String | NO | `"Central"` | YES | Operational district |
-| `priority` | String | NO | `"P3-Moderate"` | YES | P1-Critical … P5-Planning |
-| `current_spc_risk` | String | NO | `"None"` | — | SPC outlook risk |
-| `last_updated` | DateTime | NO | `utcnow` | — | — |
-| `under_maintenance` | Boolean | NO | `False` | — | Maintenance flag |
+| `name` | String | YES | — | YES (unique) | UNIQUE — site identifier |
+| `lat` | Float | YES | — | — | Latitude |
+| `lon` | Float | YES | — | — | Longitude |
+| `loc_type` | String | YES | `"General"` | YES | Site type |
+| `district` | String | YES | `"Central"` | YES | Operational district |
+| `priority` | String | YES | `"P3-Moderate"` | YES | P1-Critical … P5-Planning |
+| `current_spc_risk` | String | YES | `"None"` | — | SPC outlook risk |
+| `last_updated` | DateTime | YES | `utcnow` | — | — |
+| `under_maintenance` | Boolean | YES | `False` | — | Maintenance flag |
 | `maintenance_etr` | DateTime | YES | NULL | — | Estimated time to restore |
 | `maintenance_reason` | Text | YES | NULL | — | — |
 | `last_auto_ticket` | DateTime | YES | NULL | — | Last auto-generated ticket |
@@ -588,40 +608,40 @@ Core legacy relationships are logical; account recovery and scheduler tables now
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | **String** | NO | — | PK | **String PK** (external ID) |
-| `category` | String | NO | — | — | Crime type |
-| `raw_title` | String | NO | — | — | Original incident title |
-| `timestamp` | DateTime | NO | — | YES | Incident time |
-| `distance_miles` | Float | NO | — | — | Distance from HQ |
-| `severity` | String | NO | — | — | — |
-| `lat` | Float | NO | — | — | — |
-| `lon` | Float | NO | — | — | — |
-| `is_alert_dispatched` | Boolean | NO | `False` | YES | Alert sent |
+| `category` | String | YES | — | — | Crime type |
+| `raw_title` | String | YES | — | — | Original incident title |
+| `timestamp` | DateTime | YES | — | YES | Incident time |
+| `distance_miles` | Float | YES | — | — | Distance from HQ |
+| `severity` | String | YES | — | — | — |
+| `lat` | Float | YES | — | — | — |
+| `lon` | Float | YES | — | — | — |
+| `is_alert_dispatched` | Boolean | YES | `False` | YES | Alert sent |
 
 ### 2.25 `geojson_cache` — GeoJSON Layer Cache
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `feed_name` | **String** | NO | — | PK | **String PK** — no Integer id |
-| `data` | JSON | NO | — | — | GeoJSON FeatureCollection |
-| `updated_at` | DateTime | NO | `utcnow` | — | — |
+| `data` | JSON | YES | — | — | GeoJSON FeatureCollection |
+| `updated_at` | DateTime | YES | `utcnow` | — | — |
 
 ### 2.26 `node_aliases` — Node Name → Site Mapping
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `node_pattern` | String | NO | — | YES | Regex/glob pattern |
-| `mapped_location_name` | String | NO | — | — | → `monitored_locations.name` |
-| `confidence_score` | Float | NO | `0.0` | — | Mapping confidence |
-| `is_verified` | Boolean | NO | `False` | — | Manual verification |
+| `node_pattern` | String | YES | — | YES | Regex/glob pattern |
+| `mapped_location_name` | String | YES | — | — | Logical reference to `monitored_locations.name` |
+| `confidence_score` | Float | YES | `0.0` | — | Mapping confidence |
+| `is_verified` | Boolean | YES | `False` | — | Manual verification |
 
 ### 2.27 `user_weather_prefs` — User Weather Alert Preferences
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | PK | PRIMARY KEY |
-| `username` | String | NO | — | YES | → `users.username` |
-| `alert_type` | String | NO | — | — | Weather alert type |
+| `username` | String | YES | — | YES | Logical reference to `users.username` |
+| `alert_type` | String | YES | — | — | Weather alert type |
 
 ### 2.28 `failed_login_attempts` — Short-Lived Authentication Alert Evidence
 
@@ -636,29 +656,112 @@ Core legacy relationships are logical; account recovery and scheduler tables now
 
 Stores one opaque session token and creation timestamp per browser/device. Sessions are deleted on logout, reset, role change, or administrator revocation; durable sign-in/activity timestamps live on `users`.
 
+| Column | Type | Nullable | Default | Index / constraint |
+|---|---|---|---|---|
+| `id` | Integer | NO | autoincrement | Primary key |
+| `user_id` | Integer | NO | — | Index; FK to `users.id` |
+| `token` | String | NO | — | Unique index |
+| `created_at` | DateTime | NO | `utcnow` | — |
+
 ### 2.30 `registration_invites` — Email-Bound Individual Invitations
 
 Stores a hashed single-use token, required invitation email and normalized email, assigned role, creator, expiry, use time, and nullable `revoked_at`. Legacy invitations without email are invalidated during migration. A restore marks pending links revoked without deleting invitation history.
+
+| Column | Type | Nullable | Default | Index / constraint |
+|---|---|---|---|---|
+| `id` | Integer | NO | autoincrement | Primary key |
+| `username` | String | NO | — | Index |
+| `role` | String | NO | `analyst` | — |
+| `token_hash` | String | NO | — | Unique index |
+| `created_by` | String | NO | — | — |
+| `created_at` | DateTime | NO | `utcnow` | — |
+| `expires_at` | DateTime | NO | — | Index |
+| `used_at` | DateTime | YES | NULL | — |
+| `revoked_at` | DateTime | YES | NULL | Added by revision `20261002_0002` |
+| `email` | String(254) | NO | — | — |
+| `email_normalized` | String(254) | NO | — | Index |
+| `account_type` | String(20) | NO | `individual` | — |
 
 ### 2.31 `email_change_requests` — Approved Recovery-Email Changes
 
 Stores the requested address, normalized address, review status/reviewer/reason, and a hashed verification token. The current approved address is unchanged until approval and mailbox verification complete.
 
+| Column | Type | Nullable | Default | Index / constraint |
+|---|---|---|---|---|
+| `id` | Integer | NO | autoincrement | Primary key |
+| `user_id` | Integer | NO | — | Index; FK to `users.id` |
+| `requested_email` | String(254) | NO | — | — |
+| `requested_email_normalized` | String(254) | NO | — | Index |
+| `status` | String(32) | NO | `pending_review` | Index |
+| `requested_at` | DateTime | NO | `utcnow` | Index |
+| `reviewed_by_id` | Integer | YES | NULL | FK to `users.id` |
+| `reviewed_at` | DateTime | YES | NULL | — |
+| `decision_reason` | Text | YES | NULL | — |
+| `verification_token_hash` | String(64) | YES | NULL | Unique index |
+| `verification_expires_at` | DateTime | YES | NULL | — |
+| `verified_at` | DateTime | YES | NULL | — |
+
 ### 2.32 `password_reset_requests` — Administrator-Reviewed Recovery Requests
 
 Stores a matched user (when found), a hashed submitted identifier, requester IP, request status, reviewer, and decision reason. Unmatched requests support rate limiting but are excluded from the administrator review queue.
+
+| Column | Type | Nullable | Default | Index / constraint |
+|---|---|---|---|---|
+| `id` | Integer | NO | autoincrement | Primary key |
+| `user_id` | Integer | YES | NULL | Index; FK to `users.id` |
+| `identifier_hash` | String(64) | NO | — | Index |
+| `requester_ip` | String(64) | YES | NULL | Index |
+| `status` | String(32) | NO | `pending_review` | Index |
+| `requested_at` | DateTime | NO | `utcnow` | Index |
+| `reviewed_by_id` | Integer | YES | NULL | FK to `users.id` |
+| `reviewed_at` | DateTime | YES | NULL | — |
+| `decision_reason` | Text | YES | NULL | — |
+| `reset_email_sent_at` | DateTime | YES | NULL | — |
 
 ### 2.33 `password_reset_tokens` — Single-Use Password Reset Links
 
 Stores only a hash of the random reset token, its approved request/user, creation time, expiration, and use time. Raw reset tokens are sent only by email after approval.
 
+| Column | Type | Nullable | Default | Index / constraint |
+|---|---|---|---|---|
+| `id` | Integer | NO | autoincrement | Primary key |
+| `request_id` | Integer | NO | — | Index; FK to `password_reset_requests.id` |
+| `user_id` | Integer | NO | — | Index; FK to `users.id` |
+| `token_hash` | String(64) | NO | — | Unique index |
+| `created_at` | DateTime | NO | `utcnow` | — |
+| `expires_at` | DateTime | NO | — | Index |
+| `used_at` | DateTime | YES | NULL | — |
+
 ### 2.34 `account_audit_events` — Account and Security Audit Trail
 
 Stores actor, affected account, event type, structured details, and timestamp for account creation, review decisions, role/status changes, recovery, and session revocation.
 
+| Column | Type | Nullable | Default | Index / constraint |
+|---|---|---|---|---|
+| `id` | Integer | NO | autoincrement | Primary key |
+| `actor_user_id` | Integer | YES | NULL | Index; FK to `users.id` |
+| `subject_user_id` | Integer | YES | NULL | Index; FK to `users.id` |
+| `event_type` | String(64) | NO | — | Index |
+| `event_detail` | JSON | NO | `dict` | — |
+| `created_at` | DateTime | NO | `utcnow` | Index |
+
 ### 2.35 `scheduler_job_config` — Persisted Job Schedules
 
 Stores the registered job key, validated interval/daily/weekly schedule fields, enabled state, timezone, updater, and timestamp. `system_config.scheduler_revision` notifies the worker to reload schedules.
+
+| Column | Type | Nullable | Default | Index / constraint |
+|---|---|---|---|---|
+| `id` | Integer | NO | autoincrement | Primary key |
+| `job_key` | String(80) | NO | — | Unique index |
+| `schedule_type` | String(16) | NO | `interval` | — |
+| `every_value` | Integer | YES | NULL | — |
+| `unit` | String(16) | YES | NULL | — |
+| `run_at` | String(5) | YES | NULL | — |
+| `weekday` | String(12) | YES | NULL | — |
+| `timezone` | String(64) | NO | `America/Chicago` | — |
+| `enabled` | Boolean | NO | `True` | — |
+| `updated_by` | String(128) | YES | NULL | — |
+| `updated_at` | DateTime | NO | `utcnow` | — |
 
 ---
 
@@ -666,7 +769,7 @@ Stores the registered job key, validated interval/daily/weekly schedule fields, 
 
 Schema changes use Alembic revisions under `migrations/`. `alembic_version` stores the last successfully applied revision. Every API, worker, and webhook startup checks the recorded revision under a shared SQLite migration lock; it applies only revisions newer than the database and performs no schema DDL when the database is current.
 
-The first revision adopts legacy databases without dropping tables or user data. It uses the frozen `migrations/schema_v1.py` snapshot to create missing tables, adds only missing legacy columns, applies one-time backfills, and validates unique normalized-email data before adding its index. Migration errors stop startup; operators should resolve the reported issue rather than manually editing the revision table.
+The first revision adopts legacy databases without dropping or renaming tables or columns. It uses the frozen `migrations/schema_v1.py` snapshot to create missing tables, adds absent columns from an explicit historical compatibility map, applies one-time backfills, and validates the final baseline column set and normalized-email uniqueness before recording success. It supports empty databases, the pre-Alembic application schema, and known partial upgrades. An unknown older table shape or duplicate normalized email values stops startup; the failure does not advance `alembic_version`, and existing records remain in place. See [Migration Compatibility](MIGRATION_COMPATIBILITY.md) for limits, backfills, and recovery.
 
 ### Adding a schema or data migration
 
@@ -698,6 +801,8 @@ conn.execute(text(
 
 ### Index Summary by Table
 
+Entries may group independent indexes for brevity; a grouped row does not imply a composite index. Primary-key indexes are omitted unless their non-integer type is a design note.
+
 | Table | Column(s) | Index Type | Purpose |
 |---|---|---|---|
 | `users` | `username` | UNIQUE | Login lookup |
@@ -706,10 +811,17 @@ conn.execute(text(
 | `users` | `email_normalized` | UNIQUE | Case-folded email lookup and uniqueness when present |
 | `users` | `account_type`, `is_active` | B-tree | Account directory filtering and active-account checks |
 | `users` | `last_login_at`, `last_activity_at` | B-tree | Recent access reporting |
+| `user_sessions` | `user_id` | B-tree | Sessions by account |
+| `user_sessions` | `token` | UNIQUE | Session lookup |
+| `failed_login_attempts` | `attempted_at` | B-tree | Failed-login threshold and expiry queries |
+| `registration_invites` | `username`, `token_hash`, `expires_at`, `email_normalized` | B-tree/UNIQUE | Pending invite lookup, token validation, and normalized email lookup |
 | `email_change_requests` | `user_id`, `status` | B-tree | Pending recovery-email review lookup |
+| `email_change_requests` | `requested_email_normalized`, `requested_at` | B-tree | Email collision and review/retention queries |
 | `email_change_requests` | `verification_token_hash` | UNIQUE | One-time email verification lookup |
-| `password_reset_requests` | `requester_ip`, `requested_at` | B-tree | Recovery-request rate limiting |
+| `password_reset_requests` | `user_id`, `identifier_hash`, `requester_ip`, `status`, `requested_at` | B-tree | Recovery queue, identifier matching, rate limiting, and retention |
+| `password_reset_tokens` | `request_id`, `user_id`, `expires_at` | B-tree | Tokens by request/user and expiration |
 | `password_reset_tokens` | `token_hash` | UNIQUE | One-time reset-token lookup |
+| `account_audit_events` | `actor_user_id`, `subject_user_id`, `event_type`, `created_at` | B-tree | Account audit filtering and chronology |
 | `scheduler_job_config` | `job_key` | UNIQUE | Runtime schedule configuration lookup |
 | `roles` | `name` | UNIQUE | Role lookup |
 | `articles` | `link` | UNIQUE | Dedup on ingest |
@@ -718,6 +830,7 @@ conn.execute(text(
 | `articles` | `score` | B-tree | Top-N scoring |
 | `articles` | `category` | B-tree | Category filtering |
 | `articles` | `is_pinned` | B-tree | Pinned filter |
+| `articles` | `ingested_at`, `enrichment_status` | B-tree | Ingestion/enrichment queue filtering |
 | `extracted_iocs` | `article_id` | B-tree | Orphan cleanup join |
 | `extracted_iocs` | `indicator_type` | B-tree | Type filtering |
 | `extracted_iocs` | `indicator_value` | B-tree | IOC search |
@@ -771,6 +884,8 @@ conn.execute(text(
 | `timeline_events` | `timestamp` | B-tree | Time-range |
 | `timeline_events` | `source` | B-tree | Source filtering |
 | `timeline_events` | `event_type` | B-tree | Type filtering |
+| `timeline_events` | `site_name` | B-tree | Site-scope filtering |
+| `node_aliases` | `node_pattern` | B-tree | Node-pattern lookup |
 
 ### SQLite PRAGMA Optimizations
 
@@ -847,17 +962,21 @@ Creates a single default `SystemConfig` row if none exists.
 
 ## 6. Key Design Decisions
 
-### No Formal Foreign Key Constraints
+### Declared Foreign Key Constraints
 
-The schema deliberately avoids SQLAlchemy `ForeignKey` declarations and SQLite `PRAGMA foreign_keys`. Reasons:
+The schema declares foreign keys for independently revocable sessions, account-recovery requests/tokens, and account-audit actor/subject references:
 
-- **Simplicity for SQLite:** FK enforcement adds locking overhead on SQLite's single-writer model.
-- **Flexibility for logical joins:** Many relationships are by name string (`node_name` → `monitored_locations.name`), not integer ID, making formal FKs impractical.
-- **Orphan cleanup via scheduler:** The hourly `db_maintenance` job runs `DELETE FROM extracted_iocs WHERE article_id NOT IN (SELECT id FROM articles)` to handle orphaned rows.
+- `user_sessions.user_id` → `users.id`.
+- `email_change_requests.user_id` and `reviewed_by_id` → `users.id`.
+- `password_reset_requests.user_id` and `reviewed_by_id` → `users.id`.
+- `password_reset_tokens.request_id` → `password_reset_requests.id`; `user_id` → `users.id`.
+- `account_audit_events.actor_user_id` and `subject_user_id` → `users.id`.
+
+The SQLite connection setup does not enable `PRAGMA foreign_keys`, so applications must not assume SQLite is enforcing those declarations at runtime. Other relationships—including `users.role`, `user_weather_prefs.username`, `extracted_iocs.article_id`, and site/name mappings—are logical joins without declared foreign keys. Hourly maintenance removes orphaned IOC rows.
 
 ### JSON Columns for Flexible Data
 
-Used in three tables:
+Used in four tables:
 
 | Table | Column | Contents |
 |---|---|---|
@@ -888,7 +1007,7 @@ Two tables use String PKs instead of autoincrement Integer:
 
 ### Singleton Pattern — `system_config`
 
-Only one row is ever inserted. The entire application reads/writes this single row for all configuration state. This avoids a key-value table but limits the schema to a fixed set of configuration parameters.
+Bootstrap creates one default `SystemConfig` row when the table is empty, and the application normally reads/writes the first row. The schema does not enforce a singleton constraint, so database tooling should not add duplicate rows.
 
 ### Soft Delete — `shift_logs`
 
@@ -902,9 +1021,9 @@ All timestamps are stored as UTC `datetime` objects. The frontend converts to `A
 
 ## 7. Data Retention Policies
 
-All retention is enforced by the **hourly `db_maintenance` scheduler job** (`src/scheduler.py:db_maintenance`) and individual worker purge functions.
+Centralized retention is enforced by the hourly **`database_maintenance` scheduler job**, which runs `run_database_maintenance()` in `src/scheduler.py`; individual workers also have ingest-time purge functions.
 
-### Centralized Maintenance (`db_maintenance` — runs every 60 min)
+### Centralized Maintenance (`database_maintenance` — runs every 60 min)
 
 | Table | Retention Rule | SQL Logic |
 |---|---|---|
@@ -915,7 +1034,7 @@ All retention is enforced by the **hourly `db_maintenance` scheduler job** (`src
 | `regional_outages` | **> 12 hours:** delete | `WHERE detected_at < now()-12h` |
 | `bgp_anomalies` | **> 12 hours:** delete | `WHERE detected_at < now()-12h` |
 | `cve_items` | **> 7 days:** delete | `WHERE date_added < now()-7d` |
-| `cloud_outages` | **All resolved > 24 hours:** delete | `WHERE updated_at < now()-24h` |
+| `cloud_outages` | **Resolved > 24 hours:** delete | `WHERE is_resolved=True AND updated_at < now()-24h` |
 | `cloud_outages` | **Unresolved > 14 days:** delete | `WHERE is_resolved=False AND updated_at < now()-14d` |
 | `crime_incidents` | **> 7 days:** delete | `WHERE timestamp < now()-7d` |
 | `extracted_iocs` | **Orphaned (no parent article):** delete | `WHERE article_id NOT IN (SELECT id FROM articles)` |
@@ -923,12 +1042,15 @@ All retention is enforced by the **hourly `db_maintenance` scheduler job** (`src
 | `timeline_events` | **> 90 days:** delete | `WHERE timestamp < now()-90d` |
 | `elastic_events` | **> 72 hours:** delete | `WHERE timestamp < now()-72h` |
 | `failed_login_attempts` | **> 24 hours:** delete | `WHERE attempted_at < now()-24h` |
+| `password_reset_tokens` | Expired/used tokens older than 30 days | `expires_at < now() OR used_at IS NOT NULL`, and `created_at < now()-30d` |
+| `password_reset_requests` | Pending > 30 days becomes expired; terminal/unmatched rows > 90 days are deleted | Status and `requested_at` filters |
+| `email_change_requests` | Expired verification requests become expired; terminal rows > 90 days are deleted | Verification expiry and status/`requested_at` filters |
 
 ### Worker-Specific Purge
 
 | Worker | Table | Retention Rule |
 |---|---|---|
-| `cloud_worker` | `cloud_outages` | Resolved > 3 days (additional purge on ingest) |
+| `cloud_worker` | `cloud_outages` | Resolved > 3 days (additional ingest-time purge; centralized maintenance removes resolved rows after 24 hours) |
 | `crime_worker` | `crime_incidents` | > 7 days (purge on ingest) |
 | `elastic_worker` | `elastic_events` | > 72 hours (`purge_stale_elastic_data(72)`) |
 
@@ -945,11 +1067,13 @@ All retention is enforced by the **hourly `db_maintenance` scheduler job** (`src
 | `shift_logs` | Soft-deleted via `is_deleted` — retained indefinitely |
 | `software_assets` | Persistent inventory — replaced on CSV import |
 | `hardware_assets` | Persistent inventory — replaced on CSV import |
-| `internal_risk_snapshots` | Historical time series — 90-day retention |
 | `daily_briefings` | Historical — one per day, retained |
 | `daily_threat_scores` | Historical time series — no purge |
 | `monitored_locations` | Persistent site registry |
 | `node_aliases` | Persistent mapping table |
 | `user_weather_prefs` | Persistent user preferences |
-| `timeline_events` | 90-day retention |
+| `user_sessions` | Removed by logout/reset/role or administrator revocation; no age-based purge |
+| `registration_invites` | Expired, used, and revoked invitation records are retained for history |
+| `account_audit_events` | Security audit history is retained |
+| `scheduler_job_config` | Persisted schedule rows are retained |
 | `geojson_cache` | Overwritten on each fetch, not purged |

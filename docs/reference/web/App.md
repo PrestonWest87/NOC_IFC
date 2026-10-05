@@ -21,6 +21,9 @@ Uses `Suspense` around lazy page imports. The fallback is `Loading NOC workspace
 |---|---|---|
 | `/login` | `LoginPage` | Public |
 | `/register` | `RegistrationPage` | Public invitation flow |
+| `/forgot-password` | `ForgotPasswordPage` | Public, generic recovery request |
+| `/reset-password` | `ResetPasswordPage` | Public, single-use reset token required |
+| `/verify-email` | `VerifyRecoveryEmailPage` | Public, approved verification token required |
 | `/` | `DashboardPage` | `Global Dashboards` |
 | `/threat-telemetry` | `ThreatTelemetryPage` | `Threat Telemetry` |
 | `/regional-grid` | `RegionalGridPage` | `Regional Grid` |

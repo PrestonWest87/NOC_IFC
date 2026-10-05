@@ -15,7 +15,7 @@ Single-stage Python production image used by the `api`, `worker`, and `webhook` 
 | `RUN` | `apt-get update && apt-get install -y gosu && rm -rf /var/lib/apt/lists/*` | Installs `gosu` to drop container privileges. Runtime packages use prebuilt wheels, so a compiler and PostgreSQL client libraries are not installed. |
 | `COPY` | `requirements.txt requirements.lock ./` | Copies direct requirements and the resolved Python lock before source to leverage Docker layer caching. |
 | `RUN` | `pip install --disable-pip-version-check --require-hashes -r requirements.lock` with a BuildKit pip-cache mount | Installs pinned runtime packages with artifact hashes while reusing downloaded wheels across rebuilds. The cache mount is not stored in the image. |
-| `COPY` | `. .` | Copies the project source while `.dockerignore` excludes local data, documentation, dependencies, and generated `src/ml_model.pkl` weights. |
+| `COPY` | `. .` | Copies the project source while `.dockerignore` excludes local data/backups/models, documentation, dependencies, and the legacy generated `src/ml_model.pkl` artifact. Production model weights persist under `/app/data/models/` on the shared data volume and are not baked into the image. |
 | `ENV` | `PYTHONPATH=/app` | Ensures Python can resolve imports from `/app` as the root package directory. Required for `from src.api.main import app` to work at runtime. |
 
 ## Dependencies

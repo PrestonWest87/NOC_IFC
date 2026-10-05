@@ -214,7 +214,7 @@ Full administrative CRUD for system configuration.
 | `nuke_tables(table_list)` | **Destructive** — truncates specified tables. Requires confirmation token. |
 | `nuke_crime_data()` | Clears all crime incident data. Separate from general nuke for safety. |
 | `nuke_weather_data()` | Clears all weather/hazard data. Separate from general nuke for safety. |
-| `deduplicate_articles()` | Removes duplicate articles by content hash. Runs as part of the DB maintenance scheduler job (60 min interval). |
+| `deduplicate_articles()` | Removes same-link and similar-title duplicates from the last 24 hours using bucketed RapidFuzz comparisons. Runs after RSS ingestion, not as part of hourly retention maintenance. |
 
 ---
 

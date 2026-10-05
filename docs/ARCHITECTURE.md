@@ -97,7 +97,7 @@ Risk overrides and editable scheduler schedules are under Settings > Application
 
 ## Database Lifecycle
 
-`init_db()` applies pending Alembic revisions under a shared SQLite migration lock before it configures SQLite pragmas or seeds data. The database's `alembic_version` table records the last successful revision; startup at the current revision performs no schema DDL. The initial adoption revision handles a fresh database or upgrades missing legacy objects and one-time backfills. Migration errors abort startup. Conditional bootstrap seeds preserve operator-edited feeds, keyword weights, and custom role grants. Set `RESCORE_ON_STARTUP=true` only when an explicit full-corpus rescore is acceptable.
+`init_db()` applies pending Alembic revisions under a shared SQLite migration lock before it configures SQLite pragmas or seeds data. The database's `alembic_version` table records the last successful revision; startup at the current revision performs no schema DDL. The initial adoption revision creates a fresh baseline or additively adopts known pre-Alembic schemas. It preserves existing rows, applies explicit one-time backfills, and fails closed when required legacy columns are missing from the compatibility map or normalized emails conflict. Migration errors abort startup; see [Migration Compatibility](MIGRATION_COMPATIBILITY.md) before upgrading an older database. Conditional bootstrap seeds preserve operator-edited feeds, keyword weights, and custom role grants. Set `RESCORE_ON_STARTUP=true` only when an explicit full-corpus rescore is acceptable.
 
 After migrations, SQLite startup enables WAL. Each NullPool connection receives `synchronous=NORMAL`, memory temp storage, a 16 MB cache, a 64 MB mmap, and a 30-second connection timeout.
 
