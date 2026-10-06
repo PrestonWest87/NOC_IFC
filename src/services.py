@@ -899,6 +899,7 @@ def get_user_by_token(token):
             db.commit()
 
         u = to_dotdict(user)
+        _attach_recovery_email_state(u, user, db)
         perms = get_role_permissions(u.role or "analyst", db=db)
         u.allowed_pages = perms["allowed_pages"]
         u.allowed_actions = perms["allowed_actions"]
