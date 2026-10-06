@@ -2,7 +2,7 @@
 
 ## Current behavior
 
-The packaged migration head is `20261005_0003`. The API, worker, and webhook run pending Alembic revisions under a shared file lock before serving requests or starting jobs. A database already at head receives no schema DDL. A migration error stops startup; the application does not mark the failed revision as complete.
+The packaged migration head is `20261005_0004`. The API, worker, and webhook run pending Alembic revisions under a shared file lock before serving requests or starting jobs. A database already at head receives no schema DDL. A migration error stops startup; the application does not mark the failed revision as complete.
 
 The initial adoption revision (`20261002_0001`) was designed for:
 
@@ -10,16 +10,17 @@ The initial adoption revision (`20261002_0001`) was designed for:
 - A pre-Alembic application database: keep existing tables and rows, create missing baseline tables, add the historical columns in the revision's explicit compatibility map, add missing indexes, and run the listed one-time data conversions.
 - A partially applied adoption: inspect objects and add only absent known objects so the revision can be retried.
 
-Revision `20261002_0002` adds nullable `registration_invites.revoked_at` only when that column is absent. Revision `20261005_0003` adds non-null, false-default `solarwinds_alerts.needs_dispatch` only when absent, preserving all existing alert rows. None of the upgrade revisions drops or renames tables or columns.
+Revision `20261002_0002` adds nullable `registration_invites.revoked_at` only when that column is absent. Revision `20261005_0003` adds non-null, false-default `solarwinds_alerts.needs_dispatch` only when absent, preserving all existing alert rows. Revision `20261005_0004` backfills `timeline_events.site_name` only for legacy Webhook/Alert rows whose generated alert format ends with an exact monitored-location name; unrecognized or ambiguous messages remain unscoped. None of the upgrade revisions drops or renames tables or columns.
 
-## Data changes during adoption
+## One-time data changes across revisions
 
-The baseline revision performs these intentional backfills:
+The packaged revisions perform these intentional backfills:
 
 - Fill missing user `created_at` timestamps with the migration time.
 - Fill missing `last_login_at` from a user's latest existing session, and fill missing `last_activity_at` from `last_login_at` when available.
 - Mark old registration invitations with no email as used so they cannot be registered from.
 - Convert numeric monitored-location priorities to the current `P1-Critical` through `P5-Planning` labels.
+- Backfill legacy webhook alert site names only when the generated message format and exact monitored-location suffix are both recognized (revision `20261005_0004`).
 
 These updates do not remove existing rows. The legacy permission-catalog conversion runs separately during conditional bootstrap and is version-gated so operator-edited grants are not repeatedly rewritten.
 
@@ -31,4 +32,4 @@ Before upgrading production, create and verify an encrypted full backup. Do not 
 
 ## Verification coverage
 
-During implementation, local regression checks covered a populated pre-Alembic schema upgraded through all current revisions, preservation of user/article/site/invitation/alert records, the false default for `needs_dispatch`, known partial-column upgrades, fail-closed handling of an unsupported older schema, duplicate-email failure, concurrent startup, and a no-work startup at head. The test suite is intentionally maintained locally and is not included in the Git repository.
+During implementation, local regression checks covered a populated pre-Alembic schema upgraded through all current revisions, preservation of user/article/site/invitation/alert records, the false default for `needs_dispatch`, scoped webhook-event backfill and rejection of unknown/unstructured sites, known partial-column upgrades, fail-closed handling of an unsupported older schema, duplicate-email failure, concurrent startup, and a no-work startup at head. The test suite is intentionally maintained locally and is not included in the Git repository.
