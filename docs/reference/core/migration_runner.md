@@ -10,4 +10,4 @@
 - Passes one connection to Alembic. Waiting processes acquire the lock and re-check the database revision after the prior process finishes.
 - Errors propagate to `init_db()` and prevent the affected API, worker, or webhook process from starting its work.
 
-The migration head is `20261005_0003`. The legacy adoption and failure guarantees are detailed in [Migration Compatibility](../../MIGRATION_COMPATIBILITY.md). Do not stamp `alembic_version` manually; restore a verified backup for rollback.
+The migration head is `20261005_0004`. The legacy adoption and failure guarantees are detailed in [Migration Compatibility](../../MIGRATION_COMPATIBILITY.md). Do not stamp `alembic_version` manually; restore a verified backup for rollback.
