@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import api, { getApiErrorMessage } from "../utils/api";
+import { signalAuthUserRefresh, useAuth } from "../utils/AuthContext";
 
 export function VerifyRecoveryEmailPage() {
   const [params] = useSearchParams();
   const token = params.get("token") || "";
+  const { refreshUser } = useAuth();
   const [message, setMessage] = useState("Verifying your recovery email...");
   const [error, setError] = useState("");
 
@@ -15,12 +17,16 @@ export function VerifyRecoveryEmailPage() {
       return;
     }
     api.get("/auth/verify-recovery-email", { params: { token } })
-      .then(response => setMessage(response.data.message || "Recovery email verified."))
+      .then(async response => {
+        signalAuthUserRefresh();
+        await refreshUser();
+        setMessage(response.data.message || "Recovery email verified.");
+      })
       .catch(reason => {
         setMessage("");
         setError(getApiErrorMessage(reason, "This verification link is invalid or expired."));
       });
-  }, [token]);
+  }, [token, refreshUser]);
 
   return (
     <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "var(--bg-primary)", color: "var(--text-primary)", padding: "1rem" }}>

@@ -48,6 +48,20 @@ async def broadcaster():
                 continue
             alerts, events, grid = await asyncio.to_thread(svc.get_aiops_dashboard_data)
             locations = await asyncio.to_thread(svc.get_cached_locations)
+            non_admin_scopes = sorted({
+                tuple(sorted(svc.get_allowed_site_names_for_user(user, locations=locations)))
+                for user in tuple(manager.connection_users.values())
+                if user
+                and _has_aiops_websocket_access(user)
+                and str(getattr(user, "role", "") or "").casefold() not in {"admin", "administrator"}
+            })
+            scoped_events = {}
+            if non_admin_scopes:
+                event_lists = await asyncio.gather(*(
+                    asyncio.to_thread(svc.get_aiops_timeline_events, site_names)
+                    for site_names in non_admin_scopes
+                ))
+                scoped_events = dict(zip(non_admin_scopes, event_lists))
             payload = {
                 "type": "dashboard_update",
                 "alerts": alerts,
@@ -59,6 +73,10 @@ async def broadcaster():
             def filter_for_user(message, user):
                 if not user or not _has_aiops_websocket_access(user):
                     return None
+                is_admin = str(getattr(user, "role", "") or "").casefold() in {"admin", "administrator"}
+                if not is_admin:
+                    scope = tuple(sorted(svc.get_allowed_site_names_for_user(user, locations=locations)))
+                    message = {**message, "events": scoped_events.get(scope, [])}
                 return svc.filter_aiops_payload_for_user(message, user, locations=locations)
 
             await manager.broadcast_json(payload, transform=filter_for_user)

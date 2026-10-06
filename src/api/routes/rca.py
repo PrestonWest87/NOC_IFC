@@ -24,12 +24,15 @@ def require_action(action: str):
 @router.get("/dashboard", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board"))])
 def rca_dashboard(user=Depends(get_current_user)):
     logger.debug("GET /rca/dashboard")
-    alerts, events, grid = svc.get_aiops_dashboard_data()
     locs = svc.get_cached_locations()
+    is_admin = str(user.role or "").casefold() in {"admin", "administrator"}
+    allowed_sites = svc.get_allowed_site_names_for_user(user, locations=locs)
+    alerts, events, grid = svc.get_aiops_dashboard_data(
+        allowed_site_names=None if is_admin else allowed_sites
+    )
     payload = svc.filter_aiops_payload_for_user(
         {"alerts": alerts, "events": events, "grid": grid}, user, locations=locs
     )
-    allowed_sites = svc.get_allowed_site_names_for_user(user)
     
     # Send the investigating states down to all users
     return {
@@ -38,12 +41,10 @@ def rca_dashboard(user=Depends(get_current_user)):
         "grid": payload["grid"],
         "locations": [
             location for location in locs
-            if str(user.role or "").casefold() in {"admin", "administrator"}
-            or location.get("name") in allowed_sites
+            if is_admin or location.get("name") in allowed_sites
         ],
         "investigating_sites": [site for site in INVESTIGATING_SITES if site in allowed_sites]
-            if str(user.role or "").casefold() not in {"admin", "administrator"}
-            else list(INVESTIGATING_SITES),
+            if not is_admin else list(INVESTIGATING_SITES),
     }
 
 # --- NEW: Dedicated endpoint to lock/unlock investigations globally ---
@@ -100,9 +101,14 @@ def analyze(user=Depends(get_current_user)):
     logger.info("POST /rca/analyze: starting root cause analysis")
     from src.models.schema import CloudOutage, RegionalHazard, BgpAnomaly
     from src.core.db import SessionLocal
-    alerts, events, grid = svc.get_aiops_dashboard_data()
+    locations = svc.get_cached_locations()
+    allowed_sites = svc.get_allowed_site_names_for_user(user, locations=locations)
+    is_admin = str(user.role or "").casefold() in {"admin", "administrator"}
+    alerts, events, grid = svc.get_aiops_dashboard_data(
+        allowed_site_names=None if is_admin else allowed_sites
+    )
     payload = svc.filter_aiops_payload_for_user(
-        {"alerts": alerts, "events": events, "grid": grid}, user
+        {"alerts": alerts, "events": events, "grid": grid}, user, locations=locations
     )
     alerts, events, grid = payload["alerts"], payload["events"], payload["grid"]
     engine = EnterpriseAIOpsEngine()
