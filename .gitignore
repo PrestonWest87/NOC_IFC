@@ -30,3 +30,6 @@ Thumbs.db
 web/node_modules/
 web/dist/
 *.tsbuildinfo
+
+# Automated test suites are maintained locally and intentionally not tracked.
+**/tests/

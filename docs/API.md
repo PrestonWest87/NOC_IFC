@@ -3,7 +3,7 @@
 Base URL: `http://localhost:8101/api/v1`
 WebSocket: `ws://localhost:8101/ws`
 
-This inventory is checked against the FastAPI OpenAPI path/method set by `tests/test_documentation_contracts.py`.
+This operation inventory was verified against the FastAPI OpenAPI path/method set; the running application's OpenAPI schema remains the source of truth.
 
 ## Authentication
 
@@ -102,7 +102,7 @@ User-management routes require the Settings page, Users & Roles tab, and `Action
 - `GET /user-admin/email-change-requests` and `POST /user-admin/email-change-requests/{request_id}/decision` — decision body `{approve, reason}`.
 - `GET /user-admin/role-definitions`, `POST /user-admin/roles`, and `PUT /user-admin/roles/{name}` — require role-management permission.
 
-Non-administrator role editors cannot grant pages, actions, or site types that their own role does not have and cannot assign the built-in administrator role.
+Non-administrator role editors cannot grant pages, actions, or site types that their own role does not have and cannot assign the built-in administrator role. When updating a legacy role, existing site types that have left the live catalog can be retained or removed; new site-type grants must be current.
 
 ## Dashboard Endpoints (/dashboard)
 

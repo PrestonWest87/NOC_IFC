@@ -79,7 +79,7 @@ Add `httpx` to test-only requirements because the API tests use FastAPI's `TestC
 
 ### Preserve production integrations
 
-- **Elasticsearch:** Keep `elasticsearch` in normal requirements and preserve the current client/import behavior. Production uses the integration. Tests can leave `ELASTIC_URL` blank or mock the client; `tests/test_elastic_integration.py` covers both without a live service.
+- **Elasticsearch:** Keep `elasticsearch` in normal requirements and preserve the current client/import behavior. Production uses the integration. Local verification can leave `ELASTIC_URL` blank or mock the client; no live service is required.
 - **ML:** Keep `scikit-learn` and `joblib` in normal requirements and retain scheduled model training and scoring, even though retraining is infrequent.
 - **Pandas:** Removed after the active regional, AIOps, settings, and training paths were converted to record lists, dictionaries, and `Counter`. ML training remains enabled through scikit-learn/joblib.
 - Keep other active packages, including SQLAlchemy, FastAPI, `python-multipart`, Uvicorn, `pydantic-settings`, `python-dotenv`, bcrypt, Shapely, trafilatura, feedparser, schedule, requests, and aiohttp.

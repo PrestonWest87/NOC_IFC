@@ -28,8 +28,8 @@ Status: Complete
 ## Documentation and Legacy-Schema Follow-up — 2026-10-05
 
 - Audited the current root guides, configuration references, API inventory, frontend route/component references, model schema, scheduler catalog, backup/restore workflow, and migration guidance against the checked-in source.
-- Added a migration-compatibility guide and regression coverage for upgrading a populated frozen pre-Alembic schema through revision `20261002_0002`, preserving user/article/site/invitation rows, and failing closed on an unsupported older schema without deleting its existing row or recording migration success.
-- Added documentation contract checks for every OpenAPI operation, all 35 mapped tables/columns/nullability, `.env.example` coverage, all registry jobs, reference pages for routed API/frontend modules, and local Markdown links.
+- Added a migration-compatibility guide and local regression coverage for upgrading a populated frozen pre-Alembic schema through revision `20261002_0002`, preserving user/article/site/invitation rows, and failing closed on an unsupported older schema without deleting its existing row or recording migration success.
+- Added local documentation contract checks for every OpenAPI operation, all 35 mapped tables/columns/nullability, `.env.example` coverage, all registry jobs, reference pages for routed API/frontend modules, and local Markdown links. The test files are excluded from version control by user request.
 - Corrected cloud-outage retention so resolved records older than 24 hours and unresolved records older than 14 days follow the documented policy; added a focused scheduler test.
 
 ## AIOps Dispatch Workflow Follow-up — 2026-10-05

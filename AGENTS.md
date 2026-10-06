@@ -6,6 +6,8 @@ Enterprise intelligence HUD for Network Operations Centers. Ingests RSS feeds, w
 
 The application rewrite is on `architecture/monolith-to-decoupled` — a decoupled FastAPI + React SPA. For the current implementation, the user has directed that all changes be made on `main`, then synchronized to `architecture/monolith-to-decoupled` after verification.
 
+Automated tests under `tests/` are local-only and intentionally excluded from version control by user request. Do not stage or re-add test files unless asked.
+
 ## Completed Implementation Plan — User, Permissions, and Application Settings
 
 **Implementation branch:** `main` (user-directed). `origin/main` was pulled before work began and was already up to date. Keep this checklist current as work progresses. After implementation and verification, merge/synchronize `main` into `architecture/monolith-to-decoupled` and verify both branches contain the same intended changes. Do not force-push.
@@ -210,7 +212,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 - `Tab: Settings -> Internal Assets`
 - `Tab: Settings -> Application Settings`
 - `Tab: Dashboards -> Unified Brief`
-- `src/core/permissions.py` is the canonical backend/role-editor catalog; frontend route/tab/action references must match it (checked by `test_frontend_permission_keys_exist_in_canonical_catalog`).
+- `src/core/permissions.py` is the canonical backend/role-editor catalog; frontend route/tab/action references must match its keys and descriptions.
 
 ### Frontend Routes
 

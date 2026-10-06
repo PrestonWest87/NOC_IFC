@@ -31,10 +31,4 @@ Before upgrading production, create and verify an encrypted full backup. Do not 
 
 ## Verification coverage
 
-`tests/test_database_migrations.py` covers a populated pre-Alembic schema upgraded through all current revisions, preservation of existing user/article/site/invitation/alert records, false-default backfill for `needs_dispatch`, known partial-column upgrades, failure on an unsupported older schema without losing its row or recording success, duplicate-email failure, concurrent first startup, and no schema/data work on a second startup at head.
-
-Run the focused suite with:
-
-```bash
-DATABASE_URL=sqlite:// python -m unittest tests.test_database_migrations -v
-```
+During implementation, local regression checks covered a populated pre-Alembic schema upgraded through all current revisions, preservation of user/article/site/invitation/alert records, the false default for `needs_dispatch`, known partial-column upgrades, fail-closed handling of an unsupported older schema, duplicate-email failure, concurrent startup, and a no-work startup at head. The test suite is intentionally maintained locally and is not included in the Git repository.
