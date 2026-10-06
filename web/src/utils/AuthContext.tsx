@@ -33,6 +33,17 @@ interface AuthContextType {
   refreshUser: () => Promise<void>;
 }
 
+const AUTH_USER_REFRESH_STORAGE_KEY = "noc-auth-user-refresh";
+
+export function signalAuthUserRefresh() {
+  try {
+    // Notify other same-origin tabs without sharing session credentials.
+    window.localStorage.setItem(AUTH_USER_REFRESH_STORAGE_KEY, `${Date.now()}-${Math.random()}`);
+  } catch {
+    // The current tab still refreshes directly when storage is unavailable.
+  }
+}
+
 const AuthContext = createContext<AuthContextType>(null!);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -77,9 +88,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setToken("");
     };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === AUTH_USER_REFRESH_STORAGE_KEY) void refreshUser();
+    };
     window.addEventListener("noc:unauthorized", handleUnauthorized);
+    window.addEventListener("storage", handleStorage);
     refreshUser();
-    return () => window.removeEventListener("noc:unauthorized", handleUnauthorized);
+    return () => {
+      window.removeEventListener("noc:unauthorized", handleUnauthorized);
+      window.removeEventListener("storage", handleStorage);
+    };
   }, [refreshUser]);
 
   const logout = useCallback(() => {

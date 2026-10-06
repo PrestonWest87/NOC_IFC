@@ -3765,15 +3765,32 @@ def get_elastic_events(hours_back=24, page=1, page_size=100):
 # 7. AIOps RCA (Root Cause Analysis)
 # ==========================================
 
-def get_aiops_dashboard_data():
+def _query_aiops_timeline_events(db, allowed_site_names=None):
+    query = db.query(TimelineEvent)
+    if allowed_site_names is not None:
+        allowed_names = {str(name) for name in allowed_site_names if name}
+        if not allowed_names:
+            return []
+        query = query.filter(TimelineEvent.site_name.in_(allowed_names))
+    events = query.order_by(TimelineEvent.timestamp.desc()).limit(50).all()
+    # Sanitize event messages at the data layer (not in UI loops).
+    for event in events:
+        event.message = sanitize_text(event.message)
+    return to_dotdict_list(events)
+
+
+def get_aiops_timeline_events(allowed_site_names=None):
+    """Return the latest timeline events, optionally scoped before the limit."""
+    with SessionLocal() as db:
+        return _query_aiops_timeline_events(db, allowed_site_names)
+
+
+def get_aiops_dashboard_data(allowed_site_names=None):
     with SessionLocal() as db:
         alerts = db.query(SolarWindsAlert).filter(SolarWindsAlert.status != 'Resolved', SolarWindsAlert.is_correlated == False).all()
-        events = db.query(TimelineEvent).order_by(TimelineEvent.timestamp.desc()).limit(50).all()
+        events = _query_aiops_timeline_events(db, allowed_site_names)
         grid = db.query(RegionalOutage).filter_by(is_resolved=False).all()
-        # Sanitize event messages at the data layer (not in UI loops)
-        for e in events:
-            e.message = sanitize_text(e.message)
-        return to_dotdict_list(alerts), to_dotdict_list(events), to_dotdict_list(grid)
+        return to_dotdict_list(alerts), events, to_dotdict_list(grid)
 
 
 def get_allowed_site_names(allowed_site_types):
@@ -3787,8 +3804,17 @@ def get_allowed_site_names(allowed_site_types):
     return {str(name) for (name,) in rows if name}
 
 
-def get_allowed_site_names_for_user(user):
-    if str(getattr(user, "role", "") or "").casefold() in {"admin", "administrator"}:
+def get_allowed_site_names_for_user(user, locations=None):
+    is_admin = str(getattr(user, "role", "") or "").casefold() in {"admin", "administrator"}
+    if locations is not None:
+        allowed_types = set(getattr(user, "allowed_site_types", []) or [])
+        return {
+            str(location.get("name"))
+            for location in locations
+            if location.get("name")
+            and (is_admin or location.get("loc_type") in allowed_types)
+        }
+    if is_admin:
         with SessionLocal() as db:
             return {str(name) for (name,) in db.query(MonitoredLocation.name).all() if name}
     return get_allowed_site_names(getattr(user, "allowed_site_types", []))
@@ -3829,13 +3855,8 @@ def filter_aiops_payload_for_user(payload, user, locations=None):
     if role in {"admin", "administrator"}:
         return payload
 
-    allowed_types = set(getattr(user, "allowed_site_types", []) or [])
     locations = locations if locations is not None else get_cached_locations()
-    allowed_names = {
-        str(location.get("name"))
-        for location in locations
-        if location.get("name") and location.get("loc_type") in allowed_types
-    }
+    allowed_names = get_allowed_site_names_for_user(user, locations=locations)
     if not allowed_names:
         return {
             **payload,

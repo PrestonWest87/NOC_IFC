@@ -17,8 +17,12 @@ router = APIRouter(prefix="/api/v1/aiops", tags=["aiops"], dependencies=[Depends
 @router.get("/dashboard", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board"))])
 def get_dashboard(user=Depends(get_current_user)):
     logger.debug("GET /aiops/dashboard")
-    alerts, events, grid = svc.get_aiops_dashboard_data()
     locations = svc.get_cached_locations()
+    is_admin = str(user.role or "").casefold() in {"admin", "administrator"}
+    allowed_sites = svc.get_allowed_site_names_for_user(user, locations=locations)
+    alerts, events, grid = svc.get_aiops_dashboard_data(
+        allowed_site_names=None if is_admin else allowed_sites
+    )
     payload = svc.filter_aiops_payload_for_user(
         {"alerts": alerts, "events": events, "grid": grid}, user, locations=locations
     )
