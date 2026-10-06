@@ -4055,20 +4055,31 @@ def update_role(name, allowed_pages, allowed_actions, allowed_site_types=None):
     allowed_actions = list(dict.fromkeys(allowed_actions or []))
     allowed_site_types = list(dict.fromkeys(allowed_site_types or []))
     valid_permissions = set(PAGE_KEYS) | set(ACTION_KEYS) | set(TAB_KEYS)
-    if set(allowed_pages) - set(PAGE_KEYS):
-        raise ValueError("Role contains an unknown page permission.")
-    if set(allowed_actions) - valid_permissions:
-        raise ValueError("Role contains an unknown action or tab permission.")
-    if set(allowed_site_types) - set(get_all_site_types()):
-        raise ValueError("Role contains an unknown site type.")
+    valid_site_types = set(get_all_site_types())
     with SessionLocal() as db:
         role = db.query(Role).filter(Role.name == name).first()
-        if role:
-            role.allowed_pages, role.allowed_actions, role.allowed_site_types = allowed_pages, allowed_actions, allowed_site_types
-            db.commit()
-            get_all_roles.clear()
-            return True
-        return False
+        if not role:
+            return False
+
+        # Existing roles may contain grants from site types or permission names
+        # removed from the current catalog. Let administrators retain or remove
+        # those legacy grants while rejecting newly submitted unknown values.
+        existing_pages = set(role.allowed_pages or [])
+        existing_actions = set(role.allowed_actions or [])
+        existing_site_types = set(role.allowed_site_types or [])
+        if set(allowed_pages) - set(PAGE_KEYS) - existing_pages:
+            raise ValueError("Role contains an unknown page permission.")
+        if set(allowed_actions) - valid_permissions - existing_actions:
+            raise ValueError("Role contains an unknown action or tab permission.")
+        if set(allowed_site_types) - valid_site_types - existing_site_types:
+            raise ValueError("Role contains an unknown site type.")
+
+        role.allowed_pages = allowed_pages
+        role.allowed_actions = allowed_actions
+        role.allowed_site_types = allowed_site_types
+        db.commit()
+    get_all_roles.clear()
+    return True
 
 def create_user(username, password, role, full_name=""):
     create_display_account(username, password, role, full_name)

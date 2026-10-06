@@ -16,7 +16,7 @@ All routes use the Settings page and Users & Roles tab. Endpoints additionally r
 | `POST /api/v1/user-admin/invitations/{invite_id}/resend` | `Manage Users` | Creates/queues a replacement invitation link for a pending invitation. |
 | `DELETE /api/v1/user-admin/invitations/{invite_id}` | `Manage Users` | Revokes a pending invitation and retains its audit history. |
 | `POST /api/v1/user-admin/roles` | `Manage Roles` | Creates a role from page, action, and site-type grant arrays. |
-| `PUT /api/v1/user-admin/roles/{name}` | `Manage Roles` | Updates grants; built-in administrator role cannot be edited. |
+| `PUT /api/v1/user-admin/roles/{name}` | `Manage Roles` | Updates grants; built-in administrator role cannot be edited. Previously assigned legacy site types may be retained or removed, but newly added site types must exist in the current catalog. |
 
 ## Account maintenance
 

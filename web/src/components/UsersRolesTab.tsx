@@ -266,7 +266,14 @@ export function UsersRolesTab({ user }: { user: { id?: number; role?: string; al
     return { ...role, [key]: selected.includes(value) ? selected.filter(item => item !== value) : [...selected, value] };
   };
   const permissionDraft = roleDraft || newRole;
-  const updatePermissionDraft = (next: RoleRecord) => roleDraft ? setRoleDraft(next) : setNewRole(next);
+  const updatePermissionDraft = (next: RoleRecord) => {
+    if (roleDraft) {
+      updateRoleMutation.reset();
+      setRoleDraft(next);
+    } else {
+      setNewRole(next);
+    }
+  };
   const tabEntries = catalog ? Object.entries(catalog.tabs).map(([group, items]) => ({
     group,
     label: TAB_GROUP_LABELS[group] || group,
@@ -300,7 +307,13 @@ export function UsersRolesTab({ user }: { user: { id?: number; role?: string; al
     group,
     items.filter(item => matchesPermission(item.key, item.key.replace(/^Action: /, ""), item.description)),
   ] as [string, Catalog["actions"]]).filter(([, items]) => items.length > 0);
-  const visibleSiteTypes = availableSites.filter(site => matchesPermission(site));
+  const siteTypeOptions = Array.from(new Set([...availableSites, ...permissionDraft.allowed_site_types])).map(site => ({
+    site,
+    description: availableSites.includes(site)
+      ? ""
+      : "Legacy site type no longer in the current catalog. Uncheck it to remove this grant.",
+  }));
+  const visibleSiteTypes = siteTypeOptions.filter(({ site, description }) => matchesPermission(site, site, description));
   const visiblePermissionCount = {
     pages: visiblePages.length,
     tabs: visibleTabGroups.reduce((sum, group) => sum + group.items.length, 0),
@@ -492,6 +505,7 @@ export function UsersRolesTab({ user }: { user: { id?: number; role?: string; al
               Role to edit
               <select id="role-to-edit" value={editRole} onChange={event => {
                 const name = event.target.value;
+                updateRoleMutation.reset();
                 setEditRole(name);
                 setPermissionSection("pages");
                 setPermissionSearch("");
@@ -513,6 +527,7 @@ export function UsersRolesTab({ user }: { user: { id?: number; role?: string; al
               <input id="role-name" disabled={!!roleDraft} maxLength={64} placeholder="e.g. regional-operator" value={permissionDraft.name} onChange={event => updatePermissionDraft({ ...permissionDraft, name: event.target.value })} style={input} />
             </label>
             <button type="button" style={{ ...button("var(--bg-card)"), border: "1px solid var(--border-primary)", color: "var(--text-primary)", justifyContent: "center" }} onClick={() => {
+              updateRoleMutation.reset();
               setEditRole("");
               setRoleDraft(null);
               setNewRole({ name: "", allowed_pages: [], allowed_actions: [], allowed_site_types: [] });
@@ -575,10 +590,10 @@ export function UsersRolesTab({ user }: { user: { id?: number; role?: string; al
                 </fieldset>)}
 
                 {permissionSection === "siteTypes" && <>
-                  <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.74rem" }}>Site types scope the facility data available to this role.</p>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.55rem" }}>
-                    {visibleSiteTypes.map(site => renderPermission("allowed_site_types", site, site))}
-                  </div>
+                   <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.74rem" }}>Site types scope the facility data available to this role. Legacy grants remain visible so they can be removed.</p>
+                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.55rem" }}>
+                     {visibleSiteTypes.map(({ site, description }) => renderPermission("allowed_site_types", site, site, description))}
+                   </div>
                 </>}
 
                 {visiblePermissionCount === 0 && <p role="status" style={{ margin: 0, padding: "1rem", textAlign: "center", color: "var(--text-muted)", border: "1px dashed var(--border-primary)", borderRadius: "var(--radius-sm)" }}>No permissions match this filter.</p>}
@@ -588,9 +603,13 @@ export function UsersRolesTab({ user }: { user: { id?: number; role?: string; al
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem", flexWrap: "wrap", padding: "0.85rem 1.25rem", borderTop: "1px solid var(--border-primary)", background: "var(--bg-tertiary)" }}>
             <span style={{ color: "var(--text-muted)", fontSize: "0.72rem" }}>Changes affect all accounts assigned to this role.</span>
-            <button type="button" disabled={createRoleMutation.isPending || updateRoleMutation.isPending || !permissionDraft.name.trim()} style={button("var(--accent-green)")} onClick={() => roleDraft ? updateRoleMutation.mutate(permissionDraft) : createRoleMutation.mutate(permissionDraft)}>
-              <Save size={14} /> {createRoleMutation.isPending || updateRoleMutation.isPending ? "Saving..." : roleDraft ? "Save permission changes" : "Create role"}
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", flexWrap: "wrap" }}>
+              {roleDraft && updateRoleMutation.isSuccess && <span role="status" aria-live="polite" style={{ color: "var(--accent-green)", fontSize: "0.75rem" }}>Permissions saved for {roleDraft.name}.</span>}
+              {roleDraft && updateRoleMutation.isError && <span role="alert" style={{ color: "var(--accent-red)", fontSize: "0.75rem" }}>{getApiErrorMessage(updateRoleMutation.error, "Unable to save role permissions.")}</span>}
+              <button type="button" disabled={createRoleMutation.isPending || updateRoleMutation.isPending || !permissionDraft.name.trim()} style={button("var(--accent-green)")} onClick={() => roleDraft ? updateRoleMutation.mutate(permissionDraft) : createRoleMutation.mutate(permissionDraft)}>
+                <Save size={14} /> {createRoleMutation.isPending || updateRoleMutation.isPending ? "Saving..." : roleDraft ? "Save permission changes" : "Create role"}
+              </button>
+            </div>
           </div>
         </>}
       </section>}

@@ -5,7 +5,7 @@
 > **Driver:** SQLAlchemy 2.x with `NullPool`
 > **Last verified:** 2026-10-05
 
-The mapped table names, column names, SQLAlchemy types, and nullability in this reference are checked against the model metadata by `tests/test_documentation_contracts.py`.
+The mapped table names, column names, SQLAlchemy types, and nullability in this reference reflect the model metadata in `src/models/schema.py`.
 
 ---
 
