@@ -10,6 +10,9 @@ import os
 import hashlib
 import secrets
 import math
+from shapely.affinity import scale as scale_geometry
+from shapely.geometry import Point, mapping, shape
+from shapely.ops import transform, unary_union
 from urllib.parse import quote, urlparse
 import ipaddress
 from datetime import datetime, timedelta
@@ -411,7 +414,6 @@ def get_nws_forecast(lat, lon):
 
 
 def get_filtered_notification_alerts(username, ar_data, oos_data, locs):
-    from shapely.geometry import Point, shape
     """
     Retrieves weather alerts based on user preferences.
     - Arkansas Alerts: Returns ALL alerts matching preferences.
@@ -3012,9 +3014,6 @@ def _haversine_miles(lon1, lat1, lon2, lat2):
 
 def _shape_site_distances_miles(geo_shape, site_coordinates):
     """Measure distances from a lon/lat geometry to site points in miles."""
-    from shapely.geometry import Point
-    from shapely.ops import transform
-
     if geo_shape.is_empty:
         return [float("inf")] * len(site_coordinates)
     _, min_lat, _, max_lat = geo_shape.bounds
@@ -3032,8 +3031,6 @@ def _shape_site_distances_miles(geo_shape, site_coordinates):
 
 def _wildfire_within_one_mile(fire, perimeter, site_coordinates):
     """Check the perimeter edge, or incident point when no perimeter exists."""
-    from shapely.geometry import shape
-
     geometry = perimeter.get("geometry") if perimeter else None
     if geometry:
         try:
@@ -3053,9 +3050,6 @@ def _wildfire_within_one_mile(fire, perimeter, site_coordinates):
 def get_active_wildfires():
     """Fetch current wildfire incidents and perimeters from the WFCA fire map."""
     try:
-        from shapely.geometry import Point, mapping, shape
-        from shapely.ops import unary_union
-
         # Keep the WFCA request small while covering Arkansas and the nearby
         # operational area; apply the exact county buffer to features below.
         counties = get_regional_counties_mapping()
@@ -3442,7 +3436,6 @@ def _hazard_line_color(fill):
 
 
 def process_nws_alerts(data, selected_events, is_oos=False):
-    from shapely.geometry import shape
     map_diagnostics = []
     warn_geo = {"type": "FeatureCollection", "features": []}
     watch_geo = {"type": "FeatureCollection", "features": []}
@@ -3573,7 +3566,6 @@ def _mapping_value(row, *keys, default=None):
 
 def calculate_site_intersections(map_rows, master_polygons):
     from math import isfinite
-    from shapely.geometry import Point
 
     toggled_affected_sites, master_affected_sites = [], []
     if not map_rows or not master_polygons:
@@ -5243,8 +5235,6 @@ def nuke_weather_data():
 @TTLCache(ttl=120, max_entries=4)
 def _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, selected_events_tuple, map_rows):
     """Heavy Math Engine: Parses JSON, builds Shapely objects, and calculates all intersections ONCE."""
-    from shapely.affinity import scale as scale_geometry
-    from shapely.geometry import Point, shape
     from datetime import datetime
     
     master_polygons = []
