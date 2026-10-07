@@ -9,6 +9,7 @@ import json
 import os
 import hashlib
 import secrets
+import math
 from urllib.parse import quote, urlparse
 import ipaddress
 from datetime import datetime, timedelta
@@ -2922,140 +2923,403 @@ def set_user_weather_prefs(username, alerts):
             db.add(UserWeatherPreference(username=username, alert_type=alert))
         db.commit()
 
-@TTLCache(ttl=900, max_entries=1)
-def get_active_wildfires():
+WFCA_WFS_URL = "https://prod-geoserver-lb.wfca.com/geoserver/wfs"
+WFCA_WILDFIRE_BBOX = "-95.6,32.1,-88.6,37.4,EPSG:4326"
+WFCA_WFS_PAGE_SIZE = 2000
+
+
+def _fetch_wfca_wfs_features(layer_name):
+    """Fetch all features for a regional WFCA GeoServer WFS layer."""
+    features = []
+    offset = 0
+    while True:
+        params = {
+            "service": "WFS",
+            "version": "2.0.0",
+            "request": "GetFeature",
+            "typeNames": layer_name,
+            "outputFormat": "application/json",
+            "srsName": "EPSG:4326",
+            "bbox": WFCA_WILDFIRE_BBOX,
+            "count": WFCA_WFS_PAGE_SIZE,
+            # WFCA's WFS layers do not have a database primary key exposed for
+            # natural-order paging; use a public attribute for stable offsets.
+            "sortBy": (
+                "objectid A" if layer_name.endswith("Incidents")
+                else "irwinid A" if layer_name.endswith("Footprints")
+                else "attr_irwinid A"
+            ),
+            "startIndex": offset,
+        }
+        response = requests.get(WFCA_WFS_URL, params=params, timeout=20)
+        response.raise_for_status()
+        payload = response.json()
+        page = payload.get("features") if isinstance(payload, dict) else None
+        if not isinstance(page, list):
+            raise ValueError(f"WFCA WFS returned an invalid FeatureCollection for {layer_name}")
+        features.extend(page)
+
+        try:
+            matched = int(payload.get("numberMatched"))
+        except (TypeError, ValueError):
+            matched = None
+        if not page or (matched is not None and len(features) >= matched):
+            break
+        if matched is None and len(page) < WFCA_WFS_PAGE_SIZE:
+            break
+        offset += len(page)
+    return features
+
+
+def _normalize_fire_id(value):
+    return str(value or "").strip().strip("{}").casefold()
+
+
+def _fire_number(value, default=None):
     try:
-        from shapely.geometry import Point, shape
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return number if math.isfinite(number) else default
+
+
+def _get_wildfire_site_coordinates():
+    """Load monitored-site coordinates for filtering distant small fires."""
+    try:
+        with SessionLocal() as db:
+            rows = db.query(MonitoredLocation.lat, MonitoredLocation.lon).filter(
+                MonitoredLocation.lat.isnot(None), MonitoredLocation.lon.isnot(None)
+            ).all()
+        return [
+            (lon, lat)
+            for lat_value, lon_value in rows
+            if (lat := _fire_number(lat_value)) is not None
+            and (lon := _fire_number(lon_value)) is not None
+        ]
+    except Exception:
+        logger.warning("Unable to load monitored-site coordinates for wildfire filtering", exc_info=True)
+        return None
+
+
+def _haversine_miles(lon1, lat1, lon2, lat2):
+    earth_radius_miles = 3958.7613
+    lat1_r, lat2_r = math.radians(lat1), math.radians(lat2)
+    dlat = lat2_r - lat1_r
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1_r) * math.cos(lat2_r) * math.sin(dlon / 2) ** 2
+    return earth_radius_miles * 2 * math.asin(min(1.0, math.sqrt(a)))
+
+
+def _shape_site_distances_miles(geo_shape, site_coordinates):
+    """Measure distances from a lon/lat geometry to site points in miles."""
+    from shapely.geometry import Point
+    from shapely.ops import transform
+
+    if geo_shape.is_empty:
+        return [float("inf")] * len(site_coordinates)
+    _, min_lat, _, max_lat = geo_shape.bounds
+    reference_lat = (min_lat + max_lat) / 2
+    miles_per_longitude_degree = 69.172 * math.cos(math.radians(reference_lat))
+    projected_shape = transform(
+        lambda lon, lat, z=None: (lon * miles_per_longitude_degree, lat * 69.0),
+        geo_shape,
+    )
+    return [
+        projected_shape.distance(Point(lon * miles_per_longitude_degree, lat * 69.0))
+        for lon, lat in site_coordinates
+    ]
+
+
+def _wildfire_within_one_mile(fire, perimeter, site_coordinates):
+    """Check the perimeter edge, or incident point when no perimeter exists."""
+    from shapely.geometry import shape
+
+    geometry = perimeter.get("geometry") if perimeter else None
+    if geometry:
+        try:
+            fire_shape = shape(geometry)
+            if not fire_shape.is_empty:
+                return any(distance <= 1.0 for distance in _shape_site_distances_miles(fire_shape, site_coordinates))
+        except Exception:
+            logger.warning("Unable to measure WFCA perimeter distance for %s", fire.get("name"), exc_info=True)
+
+    return any(
+        _haversine_miles(fire["lon"], fire["lat"], lon, lat) <= 1.0
+        for lon, lat in site_coordinates
+    )
+
+
+@TTLCache(ttl=300, max_entries=1)
+def get_active_wildfires():
+    """Fetch current wildfire incidents and perimeters from the WFCA fire map."""
+    try:
+        from shapely.geometry import Point, mapping, shape
         from shapely.ops import unary_union
 
-        url = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Incident_Locations/FeatureServer/0/query"
-        states = "('US-AR', 'US-MO', 'US-TN', 'US-MS', 'US-LA', 'US-TX', 'US-OK')"
-        cutoff_epoch = int((datetime.utcnow() - timedelta(days=7)).timestamp() * 1000)
-        params = {
-            # The source contains historical rows with null close dates, so
-            # apply the recency window in Python after retrieving active rows.
-            # Nearby states are retained because incidents within 50 miles of
-            # the Arkansas border may still affect Arkansas operations.
-            "where": f"POOState IN {states} AND IncidentTypeCategory = 'WF' AND FireOutDateTime IS NULL AND (PercentContained < 100 OR PercentContained IS NULL)",
-            "outFields": "IncidentName,IncidentSize,PercentContained,POOState,IncidentTypeCategory,FireDiscoveryDateTime,FireOutDateTime,FireCause,POOCounty,IRWINID,UniqueFireIdentifier",
-            "f": "geojson", "returnGeometry": "true", "resultRecordCount": 2000,
-        }
-        active_fires = []
-        # Use the actual Arkansas county boundary rather than a large regional
-        # rectangle. Buffering by 0.75 degrees is approximately 50 miles.
+        # Keep the WFCA request small while covering Arkansas and the nearby
+        # operational area; apply the exact county buffer to features below.
         counties = get_regional_counties_mapping()
-        arkansas = unary_union([
+        arkansas_counties = [
             shape(info["geometry"])
             for info in counties.values()
-            if info.get("state_fips") == "05"
-        ]).buffer(0.75)
-        offset = 0
-        while True:
-            page_params = {**params, "resultOffset": offset}
-            resp = requests.get(url, params=page_params, timeout=10)
-            if resp.status_code != 200:
-                return []
-            features = resp.json().get("features", [])
-            for f in features:
-                props, geom = f.get("properties", {}), f.get("geometry", {})
-                if not geom or "coordinates" not in geom: continue
-                lon, lat = geom["coordinates"][:2]
-                if not arkansas.covers(Point(lon, lat)): continue
-                started = props.get("FireDiscoveryDateTime")
-                if started is not None and started < cutoff_epoch: continue
-                inc_name = str(props.get("IncidentName", "Unnamed")).upper()
-                contained_val = 0 if props.get("PercentContained") is None else props.get("PercentContained")
-                size = props.get("IncidentSize", 0)
-                if props.get("IncidentTypeCategory", "") != "WF": continue
-                if " RX" in inc_name or inc_name.startswith("RX ") or "PRESCRIBED" in inc_name: continue
-                if contained_val >= 100 or not size or size <= 0.1: continue
-                active_fires.append({
-                    "name": props.get("IncidentName", "Unnamed"), "state": props.get("POOState", "Unknown").replace("US-", ""),
-                    "acres": round(size, 2), "contained": contained_val, "lon": lon, "lat": lat,
-                    "started": started, "cause": props.get("FireCause"),
-                    "county": props.get("POOCounty"), "irwin_id": props.get("IRWINID"),
-                    "unique_id": props.get("UniqueFireIdentifier"), "color": [220, 20, 60, 230]
-                })
-            if len(features) < 2000:
-                break
-            offset += len(features)
+            if info.get("state_fips") == "05" and info.get("geometry")
+        ]
+        if not arkansas_counties:
+            raise ValueError("Arkansas county boundaries are unavailable")
+        arkansas = unary_union(arkansas_counties).buffer(0.75)
 
-        # The incident-location layer only supplies a point. Join the current
-        # interagency perimeter polygons so the map shows the reported fire
-        # footprint whenever one is available.
-        perimeter_url = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Interagency_Perimeters_YearToDate/FeatureServer/0/query"
-        perimeter_params = {
-            # attr_IsValid appears in the source table export but is not an
-            # exposed/queryable field on the live FeatureServer view.
-            "where": "poly_FeatureCategory = 'Wildfire Daily Fire Perimeter' AND poly_DeleteThis = 'No' AND poly_FeatureAccess = 'Public' AND poly_FeatureStatus = 'Approved' AND poly_IsVisible = 'Yes' AND attr_IncidentTypeCategory = 'WF' AND attr_FireOutDateTime IS NULL",
-            "outFields": "poly_IncidentName,poly_FeatureCategory,poly_DeleteThis,poly_FeatureAccess,poly_FeatureStatus,poly_IsVisible,poly_GISAcres,poly_DateCurrent,poly_PolygonDateTime,poly_IRWINID,attr_PercentContained,attr_FireDiscoveryDateTime,attr_FireCause,attr_FireOutDateTime,attr_IncidentTypeCategory,attr_POOState,attr_POOCounty,poly_MapMethod",
-            "f": "geojson", "returnGeometry": "true", "resultRecordCount": 1000,
-            # Limit the large year-to-date layer to Arkansas and its border
-            # region at the service, then apply the precise county buffer below.
-            "geometry": "-95.5,32.3,-88.7,37.2",
-            "geometryType": "esriGeometryEnvelope", "inSR": 4326,
-            "spatialRel": "esriSpatialRelIntersects",
-        }
-        perimeters_by_name = {}
-        current_perimeters = []
+        incident_features = _fetch_wfca_wfs_features("WFCA:WFIGS_Incidents")
+        active_fires = []
+        active_fires_by_id = {}
+        for feature in incident_features:
+            if not isinstance(feature, dict):
+                continue
+            props = feature.get("properties") or {}
+            if str(props.get("incidenttypecategory") or "").upper() != "WF":
+                continue
+            if str(props.get("stale_flag") or "").casefold() in {"true", "1", "yes"}:
+                continue
+
+            contained = _fire_number(props.get("percentcontained"))
+            if contained is not None and contained >= 100:
+                continue
+
+            geometry = feature.get("geometry") or {}
+            coordinates = geometry.get("coordinates") or []
+            if len(coordinates) >= 2:
+                lon, lat = coordinates[:2]
+            else:
+                lon = props.get("initiallongitude")
+                lat = props.get("initiallatitude")
+            lon, lat = _fire_number(lon), _fire_number(lat)
+            if lon is None or lat is None:
+                continue
+            fire_point = Point(lon, lat)
+            if not arkansas.covers(fire_point):
+                continue
+
+            acres = _fire_number(props.get("wfca_reportedacres"))
+            if acres is None or acres <= 0:
+                acres = _fire_number(props.get("discoveryacres"), 0)
+            incident_id = props.get("irwinid")
+            unique_id = props.get("uniquefireidentifier")
+            state = str(props.get("poostate") or "Unknown")
+            if state.startswith("US-"):
+                state = state[3:]
+            fire = {
+                "name": props.get("incidentname") or "Unnamed",
+                "state": state,
+                "acres": round(acres or 0, 2),
+                "contained": contained,
+                "lon": lon,
+                "lat": lat,
+                "started": props.get("firediscoverydatetime"),
+                "updated": props.get("modifiedondatetime_dt"),
+                "cause": props.get("firecause"),
+                "county": props.get("poocounty"),
+                "irwin_id": incident_id,
+                "unique_id": unique_id,
+                "source": "WFCA",
+                "color": [220, 20, 60, 230],
+            }
+            active_fires.append(fire)
+            normalized_id = _normalize_fire_id(incident_id)
+            if normalized_id:
+                active_fires_by_id[normalized_id] = fire
+
+        perimeters_by_id = {}
         try:
-            perimeter_offset = 0
-            while True:
-                perimeter_page = {**perimeter_params, "resultOffset": perimeter_offset}
-                perimeter_resp = requests.get(perimeter_url, params=perimeter_page, timeout=15)
-                if perimeter_resp.status_code != 200:
-                    break
-                perimeter_features = perimeter_resp.json().get("features", [])
-                for feature in perimeter_features:
-                    geometry = feature.get("geometry")
-                    props = feature.get("properties", {})
-                    name = str(props.get("poly_IncidentName") or "").strip().upper()
-                    if not name or not geometry:
-                        continue
-                    polygon = shape(geometry)
-                    if not polygon.intersects(arkansas):
-                        continue
-                    # Prefer the most recently updated polygon for duplicate
-                    # perimeter records belonging to the same incident.
-                    current = perimeters_by_name.get(name)
-                    current_date = props.get("poly_DateCurrent") or props.get("poly_PolygonDateTime") or 0
-                    if current_date and current_date < cutoff_epoch:
-                        continue
-                    if current and current["updated"] >= current_date:
-                        continue
-                    perimeters_by_name[name] = {
-                        "geometry": geometry,
-                        "name": props.get("poly_IncidentName"),
-                        "irwin_id": props.get("poly_IRWINID"),
-                        "acres": props.get("poly_GISAcres"),
-                        "updated": current_date,
-                        "map_method": props.get("poly_MapMethod"),
-                        "contained": props.get("attr_PercentContained"),
-                        "started": props.get("attr_FireDiscoveryDateTime"),
-                        "cause": props.get("attr_FireCause"),
-                        "state": props.get("attr_POOState"),
-                        "county": props.get("attr_POOCounty"),
-                    }
-                if len(perimeter_features) < 1000:
-                    break
-                perimeter_offset += len(perimeter_features)
-            current_perimeters = [
-                {**perimeter, "name": name, "perimeter_updated": perimeter["updated"]}
-                for name, perimeter in perimeters_by_name.items()
-            ]
+            perimeter_features = _fetch_wfca_wfs_features("WFCA:WFIGS_Perimeters")
         except Exception:
-            logger.warning("Unable to retrieve current NIFC fire perimeters", exc_info=True)
+            logger.warning("Unable to retrieve WFCA fire perimeters; using incident points", exc_info=True)
+            perimeter_features = []
 
-        for fire in active_fires:
-            perimeter = perimeters_by_name.get(str(fire["name"]).strip().upper())
-            if perimeter:
-                fire["perimeter"] = perimeter["geometry"]
-                fire["perimeter_acres"] = perimeter["acres"]
-                fire["perimeter_updated"] = perimeter["updated"]
-                fire["map_method"] = perimeter["map_method"]
-                fire["cause"] = perimeter["cause"]
-        return {"incidents": active_fires, "perimeters": current_perimeters}
-    except: return []
+        for feature in perimeter_features:
+            if not isinstance(feature, dict):
+                continue
+            props = feature.get("properties") or {}
+            normalized_id = _normalize_fire_id(props.get("attr_irwinid"))
+            fire = active_fires_by_id.get(normalized_id)
+            geometry = feature.get("geometry")
+            if not fire or not geometry:
+                continue
+            try:
+                fire_perimeter = shape(geometry)
+                if fire_perimeter.is_empty or not fire_perimeter.intersects(arkansas):
+                    continue
+            except Exception:
+                logger.warning("Skipping invalid WFCA perimeter for %s", fire["name"], exc_info=True)
+                continue
+
+            current = perimeters_by_id.setdefault(normalized_id, {
+                "fire": fire,
+                "geometries": [],
+                "updated": None,
+            })
+            current["geometries"].append(fire_perimeter)
+            perimeter_updated = props.get("poly_datecurrent") or props.get("attr_modifiedondatetime_dt")
+            if perimeter_updated and (current["updated"] is None or str(perimeter_updated) > str(current["updated"])):
+                current["updated"] = perimeter_updated
+
+        current_perimeters = []
+        for current in perimeters_by_id.values():
+            fire = current["fire"]
+            try:
+                perimeter_geometry = mapping(unary_union(current["geometries"]))
+                # Convert Shapely's tuple coordinates to plain JSON lists for the API.
+                perimeter_geometry = json.loads(json.dumps(perimeter_geometry))
+            except Exception:
+                logger.warning("Unable to combine WFCA perimeters for %s", fire["name"], exc_info=True)
+                continue
+            current_perimeters.append({
+                "geometry": perimeter_geometry,
+                "name": fire["name"],
+                "irwin_id": fire["irwin_id"],
+                "acres": fire["acres"],
+                "perimeter_updated": current["updated"],
+                "map_method": "WFCA Fire Map",
+                "contained": fire["contained"],
+                "started": fire["started"],
+                "cause": fire["cause"],
+                "state": fire["state"],
+                "county": fire["county"],
+                "source": "WFCA",
+            })
+
+        # WFCA's recent FIRMS satellite footprints provide polygon geometry
+        # when an active incident has no reported WFIGS perimeter. Keep them
+        # separate from official perimeters so alert distances remain based on
+        # reported perimeters or incident locations.
+        footprints_by_id = {}
+        try:
+            footprint_features = (
+                _fetch_wfca_wfs_features("WFCA:FIRMS_Footprints") if active_fires else []
+            )
+        except Exception:
+            logger.warning("Unable to retrieve WFCA satellite footprints", exc_info=True)
+            footprint_features = []
+
+        for feature in footprint_features:
+            if not isinstance(feature, dict):
+                continue
+            props = feature.get("properties") or {}
+            normalized_id = _normalize_fire_id(props.get("irwinid"))
+            fire = active_fires_by_id.get(normalized_id)
+            if not fire or normalized_id in perimeters_by_id:
+                continue
+            age_bucket = str(props.get("age_bucket") or "").casefold()
+            hours_since = _fire_number(props.get("hours_since"))
+            if age_bucket not in {"newest", "recent"} or (hours_since is not None and hours_since > 48):
+                continue
+            geometry = feature.get("geometry")
+            if not geometry:
+                continue
+            try:
+                footprint = shape(geometry)
+                if footprint.is_empty or not footprint.intersects(arkansas):
+                    continue
+            except Exception:
+                logger.warning("Skipping invalid WFCA satellite footprint for %s", fire["name"], exc_info=True)
+                continue
+
+            current = footprints_by_id.setdefault(normalized_id, {
+                "fire": fire,
+                "geometries": [],
+                "area_acres": 0.0,
+                "detection_count": 0,
+                "sensors": set(),
+                "updated_epoch": None,
+                "wfca_updated": None,
+            })
+            current["geometries"].append(footprint)
+            area_acres = _fire_number(props.get("area_acres"), 0)
+            current["area_acres"] = max(current["area_acres"], area_acres or 0)
+            current["detection_count"] += int(_fire_number(props.get("detection_count"), 0) or 0)
+            sensor = props.get("sensor")
+            if sensor:
+                current["sensors"].add(str(sensor))
+            updated_epoch = _fire_number(props.get("latest_acq_epoch"))
+            if updated_epoch is not None and (
+                current["updated_epoch"] is None or updated_epoch > current["updated_epoch"]
+            ):
+                current["updated_epoch"] = updated_epoch
+            wfca_updated = props.get("wfca_timestamp")
+            if wfca_updated and (
+                current["wfca_updated"] is None or str(wfca_updated) > str(current["wfca_updated"])
+            ):
+                current["wfca_updated"] = wfca_updated
+
+        current_footprints = []
+        for current in footprints_by_id.values():
+            fire = current["fire"]
+            try:
+                footprint_geometry = mapping(unary_union(current["geometries"]))
+                footprint_geometry = json.loads(json.dumps(footprint_geometry))
+            except Exception:
+                logger.warning("Unable to combine WFCA footprints for %s", fire["name"], exc_info=True)
+                continue
+            updated = current["wfca_updated"]
+            if current["updated_epoch"] is not None:
+                try:
+                    updated = datetime.fromtimestamp(
+                        current["updated_epoch"], ZoneInfo("UTC")
+                    ).isoformat()
+                except (OSError, OverflowError, ValueError):
+                    pass
+            current_footprints.append({
+                "geometry": footprint_geometry,
+                "name": fire["name"],
+                "irwin_id": fire["irwin_id"],
+                "area_acres": round(current["area_acres"], 1),
+                "detection_count": current["detection_count"],
+                "sensors": sorted(current["sensors"]),
+                "updated": updated,
+                "source": "WFCA FIRMS satellite footprint",
+            })
+
+        # Suppress <=1-acre incidents that are not within one mile of any
+        # monitored site. Keep their matching perimeter lists in sync so the
+        # map, site-risk calculations, and alert worker all use the same set.
+        site_coordinates = (
+            _get_wildfire_site_coordinates()
+            if any(fire["acres"] <= 1 for fire in active_fires)
+            else []
+        )
+        if site_coordinates:
+            perimeters_by_fire_id = {
+                _normalize_fire_id(perimeter.get("irwin_id")): perimeter
+                for perimeter in current_perimeters
+                if perimeter.get("irwin_id")
+            }
+            retained_fires = []
+            retained_fire_ids = set()
+            for fire in active_fires:
+                fire_id = _normalize_fire_id(fire.get("irwin_id"))
+                if fire["acres"] <= 1 and not _wildfire_within_one_mile(
+                    fire, perimeters_by_fire_id.get(fire_id), site_coordinates
+                ):
+                    continue
+                retained_fires.append(fire)
+                if fire_id:
+                    retained_fire_ids.add(fire_id)
+            active_fires = retained_fires
+            current_perimeters = [
+                perimeter for perimeter in current_perimeters
+                if _normalize_fire_id(perimeter.get("irwin_id")) in retained_fire_ids
+            ]
+            current_footprints = [
+                footprint for footprint in current_footprints
+                if _normalize_fire_id(footprint.get("irwin_id")) in retained_fire_ids
+            ]
+
+        return {
+            "incidents": active_fires,
+            "perimeters": current_perimeters,
+            "footprints": current_footprints,
+        }
+    except Exception:
+        logger.warning("Unable to retrieve current WFCA wildfire data", exc_info=True)
+        return []
 
 def dispatch_perimeter_crime_alerts():
     """Checks for un-dispatched high severity crimes within 0.4 miles and sends an SMS-friendly alert."""
@@ -4979,6 +5243,7 @@ def nuke_weather_data():
 @TTLCache(ttl=120, max_entries=4)
 def _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, selected_events_tuple, map_rows):
     """Heavy Math Engine: Parses JSON, builds Shapely objects, and calculates all intersections ONCE."""
+    from shapely.affinity import scale as scale_geometry
     from shapely.geometry import Point, shape
     from datetime import datetime
     
@@ -5041,12 +5306,30 @@ def _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_d
             master_polygons.append({"event": f"Wildfire Risk: {info['event']}", "shape": shape(geom), "severity": "High"})
         except: pass
 
-    # 4. Process Active Wildfires
-    nifc_data = get_active_wildfires()
-    if nifc_data:
-        for row in nifc_data:
+    # 4. Process active WFCA wildfire incidents, preferring their perimeter
+    # geometry and falling back to a small incident-point area when needed.
+    wfca_data = get_active_wildfires()
+    if isinstance(wfca_data, dict):
+        perimeter_shapes = {
+            _normalize_fire_id(perimeter.get("irwin_id")): perimeter.get("geometry")
+            for perimeter in wfca_data.get("perimeters", [])
+            if perimeter.get("irwin_id") and perimeter.get("geometry")
+        }
+        for row in wfca_data.get("incidents", []):
             try:
-                fire_poly = Point(row['lon'], row['lat']).buffer(0.03)
+                perimeter = perimeter_shapes.get(_normalize_fire_id(row.get("irwin_id")))
+                if perimeter:
+                    fire_poly = shape(perimeter)
+                elif row.get("acres", 0) <= 1:
+                    lon, lat = float(row["lon"]), float(row["lat"])
+                    lon_radius = 1.0 / (69.172 * math.cos(math.radians(lat)))
+                    lat_radius = 1.0 / 69.0
+                    fire_poly = scale_geometry(
+                        Point(lon, lat).buffer(1.0),
+                        xfact=lon_radius, yfact=lat_radius, origin=(lon, lat),
+                    )
+                else:
+                    fire_poly = Point(row["lon"], row["lat"]).buffer(0.03)
                 master_polygons.append({"event": f"Active Wildfire: {row['name']}", "shape": fire_poly, "severity": "High"})
             except: pass
 
@@ -5098,7 +5381,7 @@ def _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_d
         "ar_warn": ar_warn, "ar_watch": ar_watch,
         "oos_warn": oos_warn, "oos_watch": oos_watch,
         "ar_fire_geo": ar_fire_geo,
-        "nifc_data": nifc_data,
+        "wfca_data": wfca_data,
         "eq_data": eq_data,
         "master_affected_sites": master_affected_sites,
         "map_diagnostics": map_diagnostics

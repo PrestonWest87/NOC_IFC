@@ -119,7 +119,8 @@ Six tabs for geospatial situational awareness:
 
 #### Geospatial Overlay
 - **Map**: Deck.gl interactive map with MapLibre dark basemap
-- **Layers**: Toggle SPC convective outlooks, NWS warnings/watches, active wildfires, red flag warnings
+- **Layers**: Toggle SPC convective outlooks, NWS warnings/watches, WFCA active wildfires, and red flag warnings. WFCA reported perimeters and estimated satellite footprints are drawn as polygons when available; otherwise the incident is shown as a point.
+- **Wildfire filtering**: Fires at or below one acre are shown and alerted only when within one mile of a monitored site; fire tooltips include source update time
 - **Site Overlays**: NOC facility markers with alert status indicators
 - **PDS Detection**: Particularly Dangerous Situation alerts highlighted
 - **Controls**: Layer toggles in right sidebar

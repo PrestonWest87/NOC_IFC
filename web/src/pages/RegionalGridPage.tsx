@@ -282,8 +282,8 @@ export function RegionalGridPage() {
   const { data: wildfires = [] } = useQuery({
     queryKey: ["regional-wildfires"],
     queryFn: () => api.get("/regional/wildfires").then(r => r.data),
-    refetchInterval: 900000,
-    staleTime: 600000,
+    refetchInterval: 300000,
+    staleTime: 120000,
     refetchOnWindowFocus: false,
     enabled: activeTab === "geospatial",
   });
@@ -427,12 +427,35 @@ export function RegionalGridPage() {
     const payload = wildfires as any;
     const incidents = Array.isArray(payload) ? payload : payload?.incidents || [];
     const perimeters = Array.isArray(payload) ? [] : payload?.perimeters || [];
-    const pointFires = perimeters.length ? [] : incidents.filter((f: any) => f.lon != null && f.lat != null);
+    const footprints = Array.isArray(payload) ? [] : payload?.footprints || [];
+    const perimeterIds = new Set(perimeters
+      .map((fire: any) => String(fire.irwin_id || "").trim().replace(/[{}]/g, "").toLowerCase())
+      .filter(Boolean));
+    const footprintIds = new Set(footprints
+      .map((fire: any) => String(fire.irwin_id || "").trim().replace(/[{}]/g, "").toLowerCase())
+      .filter(Boolean));
+    const pointFires = incidents.filter((fire: any) => {
+      if (fire.lon == null || fire.lat == null) return false;
+      const id = String(fire.irwin_id || "").trim().replace(/[{}]/g, "").toLowerCase();
+      return !id || (!perimeterIds.has(id) && !footprintIds.has(id));
+    });
     const perimeterFeatures = perimeters.filter((f: any) => f.geometry).map((f: any) => ({
       type: "Feature", geometry: f.geometry,
-      properties: { name: f.name, acres: f.acres, contained: f.contained, started: f.started, perimeter_updated: f.perimeter_updated, map_method: f.map_method },
+      properties: {
+        name: f.name, irwin_id: f.irwin_id, acres: f.acres, contained: f.contained,
+        started: f.started, perimeter_updated: f.perimeter_updated, map_method: f.map_method,
+        source: f.source,
+      },
     }));
-    return { pointFires, perimeterFeatures };
+    const footprintFeatures = footprints.filter((f: any) => f.geometry).map((f: any) => ({
+      type: "Feature", geometry: f.geometry,
+      properties: {
+        name: f.name, irwin_id: f.irwin_id, area_acres: f.area_acres,
+        detection_count: f.detection_count, sensors: f.sensors, updated: f.updated,
+        source: f.source,
+      },
+    }));
+    return { pointFires, perimeterFeatures, footprintFeatures };
   }, [wildfires]);
 
   const facilityData = useMemo(() => mapDf.map((l: any) => ({
@@ -516,10 +539,21 @@ export function RegionalGridPage() {
     }
 
     if (mapToggles.active_wildfires) {
-      const { pointFires, perimeterFeatures } = wildfireData;
-      // The current perimeter feed is authoritative. Use incident points as
-      // a fallback only when no approved perimeter was returned.
-      if (pointFires.length || perimeterFeatures.length) {
+      const { pointFires, perimeterFeatures, footprintFeatures } = wildfireData;
+      if (pointFires.length || perimeterFeatures.length || footprintFeatures.length) {
+        // Satellite footprints are an estimated fallback. Keep official
+        // reported perimeters visually distinct and draw them above footprints.
+        if (footprintFeatures.length) {
+          layers.push(new GeoJsonLayer({
+            id: "wildfire-footprints",
+            data: { type: "FeatureCollection", features: footprintFeatures } as any,
+            pickable: true, stroked: true, filled: true,
+            getFillColor: [255, 167, 38, 65] as [number, number, number, number],
+            getLineColor: [255, 183, 77, 230] as [number, number, number, number],
+            getLineDashArray: [4, 2],
+            lineWidthMinPixels: 2,
+          }));
+        }
         if (perimeterFeatures.length) {
           layers.push(new GeoJsonLayer({
             id: "wildfire-perimeters",
@@ -793,7 +827,7 @@ function GeospatialTab({
     { key: "oos", label: "Out-of-State" },
   ];
   const fireToggle = [
-    { key: "active_wildfires", label: "Active Wildfires (NIFC)" },
+    { key: "active_wildfires", label: "Active Wildfires (WFCA)" },
     { key: "earthquakes", label: "Earthquakes (USGS)" },
   ];
 
@@ -832,18 +866,30 @@ function GeospatialTab({
         if (!alerts.includes(label)) alerts.push(`SPC: ${label}`);
       } else if (layerId === "wildfires" || layerId?.startsWith("wildfires")) {
         extraInfo = [
-          plainText(d.name), `Acres: ${Math.round(d.acres).toLocaleString()}`, `Contained: ${plainText(d.contained)}%`,
-          `Started: ${formatFireDate(d.started)}`, d.county ? `County: ${plainText(d.county)}` : "",
+          plainText(d.name), `Acres: ${Math.round(d.acres).toLocaleString()}`,
+          `Contained: ${d.contained != null ? plainText(d.contained) + "%" : "Unknown"}`,
+          `Started: ${formatFireDate(d.started)}`, `Last updated: ${formatFireDate(d.updated)}`,
+          d.county ? `County: ${plainText(d.county)}` : "",
           d.cause ? `Cause: ${plainText(d.cause)}` : "",
+        ].filter(Boolean);
+      } else if (layerId === "wildfire-footprints" || layerId?.startsWith("wildfire-footprints")) {
+        const p = d.properties || {};
+        extraInfo = [
+          plainText(p.name),
+          `Estimated satellite footprint: ${p.area_acres != null ? Math.round(Number(p.area_acres)).toLocaleString() : "Unknown"} acres`,
+          p.detection_count != null ? `Detections: ${plainText(p.detection_count)}` : "",
+          p.sensors?.length ? `Sensors: ${plainText(p.sensors.join(", "))}` : "",
+          `Last updated: ${formatFireDate(p.updated)}`,
+          "Source: WFCA FIRMS satellite data",
         ].filter(Boolean);
       } else if (layerId === "wildfire-perimeters" || layerId?.startsWith("wildfire-perimeters")) {
         const p = d.properties || {};
         extraInfo = [
           plainText(p.name),
-          `Mapped acres: ${p.acres ? Math.round(Number(p.acres)).toLocaleString() : "Unknown"}`,
+          `Reported acres: ${p.acres != null ? Math.round(Number(p.acres)).toLocaleString() : "Unknown"}`,
           `Contained: ${p.contained != null ? plainText(p.contained) + "%" : "Unknown"}`,
           `Started: ${formatFireDate(p.started)}`,
-          `Perimeter update: ${formatFireDate(p.perimeter_updated)}`,
+          `Last updated: ${formatFireDate(p.perimeter_updated)}`,
           p.map_method ? `Map method: ${plainText(p.map_method)}` : "",
         ].filter(Boolean);
       } else if (layerId === "earthquakes" || layerId?.startsWith("earthquakes")) {
@@ -919,7 +965,10 @@ function GeospatialTab({
           {(mapToggles.active_wildfires || mapToggles.earthquakes) && (
             <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", marginTop: "0.5rem", padding: "0.5rem", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)" }}>
               <div style={{ fontWeight: 600, marginBottom: "0.3rem", color: "var(--text-muted)", fontSize: "0.72rem" }}>Fire Desk Legend:</div>
-              {mapToggles.active_wildfires && <div>🔥 Active Wildfire (Scales by Acreage)</div>}
+              {mapToggles.active_wildfires && <>
+                <div>🔥 Active Wildfires (WFCA)</div>
+                <div>🟠 Dashed outlines are estimated satellite footprints; solid red outlines are reported perimeters.</div>
+              </>}
               {mapToggles.earthquakes && <div>📊 Earthquake (Blue: M2-3, Yellow: M3-4, Orange: M4-5, Red: M5+)</div>}
             </div>
           )}

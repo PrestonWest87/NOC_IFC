@@ -41,7 +41,7 @@ def geojson():
 
 @router.get("/wildfires", dependencies=[Depends(require_action("Tab: Regional Grid -> Geospatial Map"))])
 def wildfires():
-    """Return active NIFC incidents independently of the heavier weather feeds."""
+    """Return active WFCA wildfire incidents and perimeters."""
     logger.debug("GET /wildfires")
     return svc.get_active_wildfires()
 

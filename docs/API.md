@@ -246,7 +246,7 @@ Returns all cached GeoJSON layers: spc_day1-3, nws_ar, nws_oos, usgs_ar, usgs_oo
 
 ### GET /regional/wildfires
 
-Returns active NIFC incidents for the Geospatial Overlay, independently of the regional weather-feed response.
+Returns active wildfire incidents, reported perimeters, and recent FIRMS satellite-footprint polygons from the [WFCA Fire Map](https://wfca.com/fire-map/arkansas) GeoServer, independently of the regional weather-feed response. Satellite footprints are estimated detection areas, not reported fire perimeters. Data is limited to non-stale wildfires in Arkansas and the surrounding 50-mile operating area; prescribed fires are excluded. Fires at or below one acre are omitted from the map when more than one mile from every monitored site, and proximity alerts for those small fires are sent only to sites within one mile. The service refreshes its in-memory cache every five minutes.
 
 ### POST /regional/compile-map
 The heavy computation endpoint. Body keys: `toggles`, `selected_events`, and `map_df`. The server uses its coherent cached hazard snapshot; legacy raw feed keys remain accepted for compatibility.
