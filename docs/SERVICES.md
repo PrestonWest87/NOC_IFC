@@ -151,7 +151,7 @@ Persists a point-in-time risk snapshot to the database. Used for historical tren
 | `get_infrastructure_analytics()` | Builds JSON-ready risk distributions and matrices from site/hazard record lists. |
 | `_precompute_geo_matrix()` | Parses weather/fire/earthquake GeoJSON, builds Shapely polygons, and computes affected-site intersections. Cached in memory. |
 | `_hazard_color(severity)` | Maps hazard severity to a display color (green/yellow/orange/red). |
-| `get_active_wildfires()` | Fetches and filters active wildfire perimeters from NIFC. Returns GeoJSON polygons with fire size and containment data. |
+| `get_active_wildfires()` | Fetches non-stale WFCA wildfire incidents, reported perimeters, and recent satellite-footprint polygons; filters out distant fires at or below one acre. |
 
 ### IOC / Hunting
 

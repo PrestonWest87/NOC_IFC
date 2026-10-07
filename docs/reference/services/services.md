@@ -736,17 +736,17 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ---
 
-### `get_active_wildfires() -> list[dict]`
+### `get_active_wildfires() -> dict | list`
 
-**Purpose:** Fetches active wildfires from WFIGS ArcGIS REST API (7-day window, regional states).
+**Purpose:** Fetches current wildfire incidents and perimeter geometry from the WFCA Fire Map GeoServer WFS.
 
-**Returns:** `list[dict]` -- Wildfire records with name, state, acres, contained, lat, lon, color.
+**Returns:** `dict` -- `{"incidents": [...], "perimeters": [...], "footprints": [...]}` with WFCA wildfire detail, reported GeoJSON perimeters, and estimated satellite-footprint GeoJSON. Returns `[]` if the incident feed is unavailable; perimeter or footprint feed failures leave the other available layers usable.
 
-**Raises:** Returns empty list on any error (silently caught).
+**Raises:** Feed errors are logged and handled without raising to API callers.
 
-**Dependencies:** `requests`, `TTLCache(ttl=900, max_entries=1)`
+**Dependencies:** WFCA GeoServer WFS (`WFCA:WFIGS_Incidents`, `WFCA:WFIGS_Perimeters`, and `WFCA:FIRMS_Footprints`), `requests`, `shapely`, `TTLCache(ttl=300, max_entries=1)`
 
-**Flow:** Queries WFIGS API for wildfires in AR, MO, TN, MS, LA, TX, OK with `PercentContained < 100` or NULL, discovered in last 7 days. Filters out RX/prescribed fires and low-size/old fires.
+**Flow:** Queries the WFCA-hosted layers within the Arkansas operating-area bounds, then applies the county-boundary buffer. Filters to non-stale `WF` incidents that are not fully contained, joins reported perimeter features and recent FIRMS footprints by IRWIN ID, and unions geometry fragments per incident. FIRMS footprints are estimated thermal-detection areas and are not presented as reported perimeters. Prescribed fires and incidents outside the operating area are excluded. Fires at or below one acre are omitted from the map when farther than one mile from every monitored site; the proximity worker alerts on such fires only for sites within one mile. The frontend polls every five minutes.
 
 ---
 
@@ -1393,7 +1393,7 @@ A utility class extending `dict` to allow dot-notation attribute access.
 - `selected_events_tuple` (tuple) -- Selected event types
 - `map_rows` (list[dict]) -- Site records
 
-**Returns:** `dict` -- spc_micro, ar_warn, ar_watch, oos_warn, oos_watch, ar_fire_geo, nifc_data, eq_data, master_affected_sites, map_diagnostics.
+**Returns:** `dict` -- spc_micro, ar_warn, ar_watch, oos_warn, oos_watch, ar_fire_geo, wfca_data, eq_data, master_affected_sites, map_diagnostics.
 
 **Dependencies:** `shapely`, `process_nws_alerts`, `get_regional_counties_mapping`, `get_active_wildfires`, `calculate_site_intersections`, `TTLCache(ttl=120)`
 
@@ -1401,7 +1401,7 @@ A utility class extending `dict` to allow dot-notation attribute access.
 1. Processes SPC data with color mapping
 2. Processes NWS warnings/watches via `process_nws_alerts`
 3. Processes fire weather risk using county FIPS matching
-4. Processes active wildfires from WFIGS
+4. Processes active WFCA wildfires, using perimeter geometry when available and incident points otherwise
 5. Processes USGS earthquakes
 6. Executes `calculate_site_intersections` once for all master polygons
 
