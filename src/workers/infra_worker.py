@@ -4,6 +4,7 @@ import math
 import json
 import logging
 import concurrent.futures
+from shapely.geometry import shape
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from src.core.db import SessionLocal
@@ -250,7 +251,6 @@ def check_earthquake_proximity(equake_data, distance_miles=50):
 def check_wildfire_proximity(distance_miles=5):
     """Email NOC_NOTIFY_EMAIL when an active WFCA fire reaches a site."""
     import os
-    from shapely.geometry import shape
     from src.services import get_active_wildfires, _haversine_miles, _shape_site_distances_miles
     from src.utils.mailer import send_alert_email
 
