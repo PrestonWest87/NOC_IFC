@@ -4213,6 +4213,38 @@ def resolve_alert(alert_id, node_name):
             ))
             db.commit()
 
+
+def resolve_site_alerts(site_name, modified_by="unknown"):
+    """Resolve every unresolved SolarWinds alert at a site and record the operator action."""
+    with SessionLocal() as db:
+        location = db.query(MonitoredLocation).filter_by(name=site_name).first()
+        if not location:
+            return None
+
+        active_alerts = db.query(SolarWindsAlert).filter(
+            SolarWindsAlert.mapped_location == site_name,
+            SolarWindsAlert.status != "Resolved",
+        ).all()
+        if not active_alerts:
+            return 0
+
+        now_utc = datetime.utcnow()
+        for alert in active_alerts:
+            alert.status = "Resolved"
+            alert.resolved_at = now_utc
+            alert.needs_dispatch = False
+
+        location.status_modified_by = modified_by
+        location.status_modified_at = now_utc
+        db.add(TimelineEvent(
+            source="User",
+            event_type="Resolution",
+            message=f"[OK] {modified_by} marked {site_name} Up and resolved {len(active_alerts)} active alert(s)",
+            site_name=site_name,
+        ))
+        db.commit()
+        return len(active_alerts)
+
 def acknowledge_cluster(alert_ids, username="unknown"):
     with SessionLocal() as db:
         now_utc = datetime.utcnow()

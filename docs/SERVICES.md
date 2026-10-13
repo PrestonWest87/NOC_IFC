@@ -167,6 +167,7 @@ Persists a point-in-time risk snapshot to the database. Used for historical tren
 |---|---|
 | `get_aiops_dashboard_data()` | Returns unacknowledged active alerts, timeline events, and active grid outages for the AIOps board. |
 | `get_aiops_active_issue_counts(allowed_site_names)` | Counts all unresolved alerts per site, including acknowledged alerts, for map health. |
+| `resolve_site_alerts(site_name, modified_by)` | Resolves every active site alert and records the operator's Mark Site Up action. |
 | `acknowledge_cluster(cluster_id, user)` | Marks an alert cluster as acknowledged by an operator. Records `status_modified_by` and `status_modified_at`. |
 | `generate_global_sitrep()` | Produces a global situation report from all active alert clusters. Uses LLM for narrative generation with structured data injection. |
 | `generate_rca_ticket_text(cluster_data)` | Ported from main branch. Generates dynamic RCA dispatch ticket text with domain-aware formatting, compact alerts, district line, and trigger time. |

@@ -77,14 +77,14 @@ None (uses `useAuth` for user context).
   - Site scatter points color-coded as Up/Clear (green), Down/Action Required (red), Needs Dispatch (bright silver/white), Investigating (amber), or Ticket Dispatched (purple); Under Maintenance is a thicker blue outline.
   - Operational health is green when no unresolved site alerts remain, including when maintenance or workflow labels remain. Acknowledged unresolved alerts still count as active issues.
   - Co-located sites are spread around their shared coordinates in a compact ring, with spokes and a center marker preserving the actual location. Down sites do not use the former red pulse overlay.
-  - Click handler opens a site dialog showing derived Up/Clear or Down/Action Required health and workflow choices for Down / Action Required, Investigating, Needs Dispatch, Ticket Dispatched, and Under Maintenance. Dispatch workflow choices are disabled without active alerts; ETR, maintenance notes, and a dedicated Clear Maintenance action are available to authorized users.
+  - Click handler opens a site dialog showing derived Up/Clear or Down/Action Required health, a Mark Site Up / Resolve Alerts action, and workflow choices. Dispatch workflow choices are disabled without active alerts; ETR, maintenance notes, and a dedicated Clear Maintenance action are available to authorized users.
 - Event Log sidebar (timestamped event messages)
 - Global Fleet Event banner (when fleet outages detected)
 - Incident correlation cards per site showing:
   - Priority, site name, alert count
   - Root cause text with patient zero
   - Maintenance banner (when site is under maintenance)
-  - Action buttons: Ticket Dispatched checkbox, Draft & Dispatch Ticket, Acknowledge, Maintenance Controls
+  - Action buttons: Ticket Dispatched checkbox, Draft & Dispatch Ticket, Acknowledge, Mark Site Up, Maintenance Controls
   - Expanded ticket textarea with dispatch button
   - Expanded maintenance form (status, ETR, reason, save)
 

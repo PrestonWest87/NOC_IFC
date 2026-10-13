@@ -234,6 +234,9 @@ Three tabs for root cause analysis and response:
 - **Fleet Detection**: Identifies massive carrier/infrastructure outages
 
 #### Site Maintenance & Dispatch
+- **Mark Site Up**: From the map's site dialog, resolve all unresolved alerts for a site and restore green operational health
+  - Requires `Action: Acknowledge RCA Alerts` and access to the site's type
+  - Maintenance remains visible separately; this action does not clear maintenance
 - **Maintenance Form**: Set sites into maintenance mode with ETR and reason, or clear maintenance from the site dialog even when no incident is active
   - Requires `Action: Manage Site Maintenance`
   - The maintenance-expiry scheduler clears expired ETRs; an authorized operator can also clear maintenance at any time

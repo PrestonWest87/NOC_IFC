@@ -323,3 +323,23 @@ def resolve_alert(alert_id: int = 0, node_name: str = "", user=Depends(get_curre
         raise HTTPException(status_code=403, detail={"code": "site_scope_denied", "message": str(exc)}) from exc
     svc.resolve_alert(alert_id, node_name)
     return {"status": "ok"}
+
+
+@router.post("/resolve-site", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board"))])
+def resolve_site(background_tasks: BackgroundTasks, data: dict = Body(...), user=Depends(require_action("Action: Acknowledge RCA Alerts"))):
+    site_name = str(data.get("site_name") or "").strip()
+    if not site_name:
+        raise HTTPException(status_code=422, detail="site_name is required.")
+    if not svc.user_can_access_site(user, site_name):
+        raise HTTPException(status_code=403, detail={
+            "code": "site_scope_denied", "message": "This site is outside your permitted site types."
+        })
+
+    resolved_alerts = svc.resolve_site_alerts(site_name, modified_by=user.username)
+    if resolved_alerts is None:
+        raise HTTPException(status_code=404, detail="Site not found.")
+
+    INVESTIGATING_SITES.discard(site_name)
+    from src.api.main import manager
+    background_tasks.add_task(manager.broadcast_json, {"type": "RCA_UPDATE"})
+    return {"status": "ok", "resolved_alerts": resolved_alerts}

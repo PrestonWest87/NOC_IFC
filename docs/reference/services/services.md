@@ -982,6 +982,16 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ---
 
+### `resolve_site_alerts(site_name: str, modified_by: str = "unknown") -> int | None`
+
+**Purpose:** Marks every unresolved SolarWinds alert at a monitored site Resolved, including acknowledged alerts. Clears Needs Dispatch, records the operator and resolution time, and adds a timeline event.
+
+**Returns:** Number of resolved alerts; `None` when the site does not exist.
+
+**Dependencies:** `MonitoredLocation`, `SolarWindsAlert`, `TimelineEvent`, `SessionLocal`
+
+---
+
 ### `acknowledge_cluster(alert_ids: list[int])`
 
 **Purpose:** Marks a batch of alerts as correlated (acknowledged).

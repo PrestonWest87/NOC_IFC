@@ -377,6 +377,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 ### AIOps RCA Page
 - Site type filtering via `user.allowed_site_types`
 - Map health colors reflect unresolved alert state: green when no unresolved issues remain, including acknowledged alerts; Down / Action Required is the initial active-alert state; Needs Dispatch is an explicit persisted workflow selection. Maintenance is a thicker blue outline/annotation and does not mask active alert colors; co-located sites use compact offsets and connector spokes without red alert pulses.
+- Authorized users can manually mark a site Up, which resolves all unresolved site alerts and clears stale Needs Dispatch state; maintenance metadata remains separate.
 - Window-fill fullscreen (CSS fixed positioning)
 - Auto-clear investigating transition guard
 - Maintenance can be cleared from the site dialog with no active incident; the clear removes stale ETR/reason data. Existing ETR expiry remains active.
