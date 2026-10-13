@@ -212,7 +212,7 @@ Core AIOps correlation and incident response board:
 |---------|-------------|
 | **Active Alerts Board** | Filterable by `user.allowed_site_types`; color-coded by status |
 | **Global Correlation** | Scatterplot visualization of cross-domain alert correlation |
-| **Site Dialog** | Shows unresolved-alert health and offers Down / Action Required, Investigating, Needs Dispatch, Ticket Dispatched, and Under Maintenance workflow choices; maintenance exposes ETR, notes, and a dedicated clear action |
+| **Site Dialog** | Shows unresolved-alert health and offers Mark Site Up / Resolve Alerts, workflow choices, and maintenance controls; maintenance exposes ETR, notes, and a dedicated clear action |
 | **Status Tracking** | Operational map health plus independent investigating, needs-dispatch, dispatched, and maintenance annotations |
 | **Fullscreen Mode** | CSS fixed-position fullscreen (not Fullscreen API) |
 

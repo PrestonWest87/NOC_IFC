@@ -334,6 +334,9 @@ Requires `Tab: Settings -> Danger Zone` and `Action: Clear AIOps Data`. Deletes 
 ### POST /rca/resolve-alert?alert_id=&node_name=
 Requires the Active Board tab and `Action: Acknowledge RCA Alerts`; verifies access to the alert's site. `alert_id` selects the record to resolve; optional `node_name` is included in the operator timeline message.
 
+### POST /rca/resolve-site
+Requires the Active Board tab and `Action: Acknowledge RCA Alerts`. Body: `{site_name}`; verifies site scope, resolves every unresolved alert at the site, records the operator action, clears stale Needs Dispatch state, and broadcasts an AIOps update.
+
 ## AIOps Endpoints (/aiops)
 
 Every route requires the `AIOps RCA` page permission.

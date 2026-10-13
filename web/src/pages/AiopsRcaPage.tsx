@@ -221,6 +221,24 @@ export function AiopsRcaPage() {
     },
   });
 
+  const resolveSiteMutation = useMutation({
+    mutationFn: (site: string) =>
+      api.post("/rca/resolve-site", { site_name: site }).then((r) => r.data),
+    onSuccess: (_result, site) => {
+      queryClient.setQueryData(["rca-dashboard"], (current: any) => {
+        if (!current) return current;
+        return {
+          ...current,
+          alerts: (current.alerts ?? []).filter((alert: any) => alert.mapped_location !== site),
+          active_issue_counts: { ...(current.active_issue_counts ?? {}), [site]: 0 },
+          investigating_sites: (current.investigating_sites ?? []).filter((name: string) => name !== site),
+        };
+      });
+      queryClient.invalidateQueries({ queryKey: ["rca-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["rca-analyze"] });
+    },
+  });
+
   const maintMutation = useMutation({
     mutationFn: (params: { site_name: string; is_maint: boolean; etr: string; reason: string }) =>
       api.post("/rca/site-maintenance", params).then((r) => r.data),
@@ -426,6 +444,17 @@ export function AiopsRcaPage() {
   const [dialogEtr, setDialogEtr] = useState("");
   const [dialogReason, setDialogReason] = useState("");
   const [dialogError, setDialogError] = useState("");
+
+  const handleMarkSiteUp = useCallback(async () => {
+    if (!siteDialog) return;
+    setDialogError("");
+    try {
+      await resolveSiteMutation.mutateAsync(siteDialog.name);
+      setSiteDialog(null);
+    } catch (error: any) {
+      setDialogError(error?.response?.data?.detail || "Unable to mark site Up. Please retry.");
+    }
+  }, [siteDialog, resolveSiteMutation]);
 
   const openSiteDialog = useCallback((site: any) => {
     const actualPosition = site.anchor_position ?? site.position;
@@ -924,6 +953,15 @@ export function AiopsRcaPage() {
                       <div style={{ marginBottom: "0.4rem", fontWeight: 600 }}>
                         {siteDialog.alert_count > 0 ? "Down / Action Required" : "Up / Clear"}
                       </div>
+                      {canAcknowledge && siteDialog.alert_count > 0 && (
+                        <button
+                          onClick={handleMarkSiteUp}
+                          disabled={resolveSiteMutation.isPending}
+                          style={{ background: "var(--accent-green)", color: "#fff", border: "none", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.55rem", fontSize: "0.75rem", cursor: "pointer", fontWeight: 600, marginBottom: "0.55rem", opacity: resolveSiteMutation.isPending ? 0.6 : 1 }}
+                        >
+                          {resolveSiteMutation.isPending ? "Resolving alerts..." : `Mark Site Up / Resolve Alerts (${siteDialog.alert_count})`}
+                        </button>
+                      )}
                       <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Workflow Status</div>
                       {SITE_WORKFLOW_STATUS_ORDER
                         .filter((status) => status === "maintenance" ? canManageMaint : canDispatch)
@@ -1007,7 +1045,7 @@ export function AiopsRcaPage() {
                         Cancel
                       </button>
                       <button onClick={handleSaveSiteDialog}
-                        disabled={investigateMutation.isPending || maintMutation.isPending || dispatchMutation.isPending}
+                        disabled={investigateMutation.isPending || maintMutation.isPending || dispatchMutation.isPending || resolveSiteMutation.isPending}
                         style={{ background: "var(--accent-blue)", color: "#fff", border: "none", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer", fontWeight: 600 }}>
                         {investigateMutation.isPending || maintMutation.isPending || dispatchMutation.isPending ? "Saving..." : "Save Changes"}
                       </button>

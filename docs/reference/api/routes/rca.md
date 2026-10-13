@@ -446,3 +446,38 @@ Resolves a specific alert selected by `alert_id`. The optional `node_name` appea
 
 ### Dependencies
 - `src.services.resolve_alert()`
+
+---
+
+## Endpoint: `POST /resolve-site`
+
+### Purpose
+Manually marks a site Up by resolving all of its unresolved SolarWinds alerts, including acknowledged alerts. Requires the AIOps RCA page, Active Board tab, `Action: Acknowledge RCA Alerts`, and site-type access. Maintenance remains a separate site annotation.
+
+### Parameters
+JSON body:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `site_name` | `str` | yes | Monitored site whose active alerts should be resolved. |
+
+### Returns
+```json
+{ "status": "ok", "resolved_alerts": 2 }
+```
+
+### Raises
+- `HTTPException 403` — missing permission or site access.
+- `HTTPException 404` — monitored site not found.
+- `HTTPException 422` — site name is missing.
+
+### Flow
+1. Requires the Active Board tab and `Action: Acknowledge RCA Alerts`.
+2. Validates the caller's site-type access.
+3. Resolves every unresolved alert at the site, clears Needs Dispatch state, records operator/time, and adds a resolution timeline event.
+4. Clears the in-memory investigating state and broadcasts RCA_UPDATE.
+
+### Dependencies
+- `src.services.resolve_site_alerts()`
+- `require_action()`
+- `src.api.main.manager`
