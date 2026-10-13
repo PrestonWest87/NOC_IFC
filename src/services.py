@@ -338,19 +338,34 @@ def save_shift_log(analyst, role, shift_period, content, custom_date=None):
         return True
 
 def set_site_maintenance(site_name, is_maint, etr_date, reason, modified_by=None):
-    from src.database import SessionLocal, MonitoredLocation
+    from src.database import MonitoredLocation
     from datetime import datetime
+    if not isinstance(is_maint, bool):
+        raise ValueError("is_maint must be a boolean.")
+
     with SessionLocal() as db:
         loc = db.query(MonitoredLocation).filter_by(name=site_name).first()
-        if loc:
-            loc.under_maintenance = is_maint
+        if not loc:
+            return False
+
+        now_utc = datetime.utcnow()
+        loc.under_maintenance = is_maint
+        if is_maint:
+            if isinstance(etr_date, datetime):
+                etr_date = etr_date.date()
             loc.maintenance_etr = datetime.combine(etr_date, datetime.min.time()) if etr_date else None
-            loc.maintenance_reason = reason
-            if modified_by:
-                loc.status_modified_by = modified_by
-                loc.status_modified_at = datetime.utcnow()
-            db.commit()
+            loc.maintenance_reason = str(reason or "").strip() or None
+        else:
+            # A clear is authoritative even if a stale client submits the
+            # previous maintenance details in the same request.
+            loc.maintenance_etr = None
+            loc.maintenance_reason = None
+        if modified_by:
+            loc.status_modified_by = modified_by
+            loc.status_modified_at = now_utc
+        db.commit()
     get_cached_locations.clear()
+    return True
 
 
 def auto_clear_expired_maintenance():
@@ -4050,6 +4065,32 @@ def get_aiops_dashboard_data(allowed_site_names=None):
         return to_dotdict_list(alerts), events, to_dotdict_list(grid)
 
 
+def get_aiops_active_issue_counts(allowed_site_names=None):
+    """Count unresolved alerts per site, including acknowledged alerts.
+
+    Acknowledgement and dispatch are workflow states, not recovery signals; map
+    health remains active until the underlying alert is resolved.
+    """
+    with SessionLocal() as db:
+        query = db.query(
+            SolarWindsAlert.mapped_location,
+            func.count(SolarWindsAlert.id),
+        ).filter(
+            SolarWindsAlert.status != "Resolved",
+            SolarWindsAlert.mapped_location.isnot(None),
+        )
+        if allowed_site_names is not None:
+            allowed_site_names = set(allowed_site_names)
+            if not allowed_site_names:
+                return {}
+            query = query.filter(SolarWindsAlert.mapped_location.in_(allowed_site_names))
+        return {
+            str(site_name): int(count)
+            for site_name, count in query.group_by(SolarWindsAlert.mapped_location).all()
+            if site_name
+        }
+
+
 def get_allowed_site_names(allowed_site_types):
     allowed_types = set(allowed_site_types or [])
     if not allowed_types:
@@ -4121,6 +4162,7 @@ def filter_aiops_payload_for_user(payload, user, locations=None):
             "events": [],
             "grid": [],
             "alert_count": 0,
+            "active_issue_counts": {},
         }
 
     alerts = [
@@ -4137,7 +4179,19 @@ def filter_aiops_payload_for_user(payload, user, locations=None):
         row for row in payload.get("grid", [])
         if any(name.casefold() in str(row.get("affected_area", "")).casefold() for name in allowed_names)
     ]
-    return {**payload, "alerts": alerts, "events": events, "grid": grid, "alert_count": len(alerts)}
+    active_issue_counts = {
+        site_name: count
+        for site_name, count in (payload.get("active_issue_counts") or {}).items()
+        if site_name in allowed_names
+    }
+    return {
+        **payload,
+        "alerts": alerts,
+        "events": events,
+        "grid": grid,
+        "alert_count": len(alerts),
+        "active_issue_counts": active_issue_counts,
+    }
 
 def clear_timeline_events():
     with SessionLocal() as db: db.query(TimelineEvent).delete(); db.commit()

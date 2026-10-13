@@ -8,7 +8,7 @@ Intervals below are the values in the scheduler source, not historical product t
 
 | Job | Schedule | Function | Inputs and outputs |
 |---|---|---|---|
-| Tiered escalation | Every 1 minute | `job_tiered_alert_escalation` | Active `SolarWindsAlert`, weather/cloud/BGP context; sends ticket/notify/on-page mail and marks alerts |
+| Tiered escalation | Every 1 minute | `job_tiered_alert_escalation` | Active `SolarWindsAlert`, weather/cloud/BGP context; site-level tickets, independently tracked node pages, and cooldown-aware retries |
 | RSS capture | Every 5 minutes | `fetch_feeds` | Active `FeedSource`; writes scored `Article` and `ExtractedIOC` rows |
 | Article enrichment | Every 3 minutes | `enrich_pending_articles` | Pending high-score articles; writes full content or failure state |
 | Maintenance expiry | Every 5 minutes | `job_clear_expired_maintenance` | Site ETR state; clears expired maintenance and broadcasts `RCA_UPDATE` |

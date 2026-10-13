@@ -48,20 +48,22 @@ personnel.
 
 ## Alert Processing Flow (per site)
 
-1. **Skip** if site has no undispatched alerts.
-2. **Site-level onpage mute** — skip if an escalation ticket was sent for this
-   site within the last hour.
-3. **Sort** undispatched alerts by `received_at` (oldest first).
-4. **Root cause** — run `EnterpriseAIOpsEngine` (7-stage correlation) across all
-   alerts at the site.
-5. **Tier extraction** — pull priority from `raw_payload` fields:
+1. Load unresolved alerts received in the last 12 hours and group them by site.
+2. Keep automatic ticket eligibility separate from page eligibility. A successfully
+   ticketed P1 can still retry a page that failed; a successful page is not repeated
+   during the same unresolved node incident.
+3. Extract priority from `raw_payload` fields:
    `Normalized_Alert_Level` → `Custom_Properties_Universal`.
-6. **Cascade detection** — scan sibling alerts for a higher-priority tier. If
-   found, cascade flag is set, wait time becomes 0, dispatch labels include
-   `"CASCADE"`.
-7. **Node flapping cooldown** — suppress repeated dispatches for the same node:
-   P1 = 1 hour, P2–P5 = 5 hours.
-8. **Wait time exceeded?** — if yes, dispatch.
+4. Apply node cooldown to the same node only: P1 = 1 hour, P2–P5 = 5 hours.
+   A suppressed node remains pending and does not consume unrelated site alerts.
+5. Detect a higher-priority sibling tier. A cascade forces its wait to 0 and labels
+   the site dispatch as a cascade.
+6. Apply the one-hour after-hours site cooldown to routine site tickets/pages. P1
+   tickets bypass the site cooldown; an eligible P1 page also bypasses it when the
+   active node incident has not already been paged.
+7. Send one site-level ticket for the eligible site cluster. Mark alerts ticketed
+   only after the ticket email succeeds. Record page delivery independently on the
+   active node incident.
 
 ---
 
@@ -101,10 +103,17 @@ alert carries a higher-priority tier. If so:
 
 ## Site Mute Logic
 
-If a site received an escalation ticket within the **last hour**, all new alerts
-at that site are suppressed. Suppressed alerts are marked as ticketed without
-dispatching a new email. This prevents duplicate tickets during flapping or
-rapid re-alerting.
+After a successful page, `MonitoredLocation.last_escalation_ticket` anchors a
+one-hour after-hours site cooldown. Routine new site alerts remain unresolved and
+un-ticketed during that window; they are eligible for the next site-level ticket
+after cooldown. P1-high and P1-low incidents can create a new site-level ticket
+during the cooldown. They can also page during the cooldown if that active node
+incident has not already been paged. Successful per-node page delivery is recorded
+in `SolarWindsAlert.onpage_sent_at`; a resolution ends that active incident's page
+deduplication scope.
+
+Maintenance status is not an escalation filter. Maintenance does not prevent alert
+ingestion, site ticket creation, or an otherwise eligible page.
 
 ---
 

@@ -259,6 +259,7 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `event_category` | `String` | `"Unknown"` | — | Event category classification |
 | `acknowledged_by`, `acknowledged_at` | String, DateTime | `nullable` | — | Acknowledgment actor and time |
 | `dispatched_by`, `dispatched_at` | String, DateTime | `nullable` | — | Dispatch actor and time |
+| `onpage_sent_at` | `DateTime` | `nullable` | — | Successful on-page delivery for the active node incident; migration `20261013_0005` |
 
 ---
 
@@ -280,7 +281,7 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `maintenance_etr` | `DateTime` | `nullable` | — | Estimated time of maintenance resolution |
 | `maintenance_reason` | `Text` | `nullable` | — | Reason for maintenance |
 | `last_auto_ticket` | `DateTime` | `nullable` | — | Last automatic ticket timestamp |
-| `last_escalation_ticket` | `DateTime` | `nullable` | — | Last escalation ticket (used for site mute) |
+| `last_escalation_ticket` | `DateTime` | `nullable` | — | Last successful escalation page; one-hour site cooldown anchor |
 | `last_auto_dispatch` | `DateTime` | `nullable` | — | Last automatic dispatch timestamp |
 | `last_escalation_dispatch` | `DateTime` | `nullable` | — | Last escalation dispatch timestamp |
 | `status_modified_by` | `String` | `nullable` | — | Username who last modified site status |

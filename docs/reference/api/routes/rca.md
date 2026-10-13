@@ -46,7 +46,7 @@ Wrapper around `src.api.auth_guard.require_action`. The shared request middlewar
 ## Endpoint: `GET /dashboard`
 
 ### Purpose
-Requires the AIOps RCA page and Active Board tab. Returns dashboard alerts, timeline events, grid, locations, and investigation state filtered to the caller's allowed site types. Administrators receive the full site set.
+Requires the AIOps RCA page and Active Board tab. Returns dashboard alerts, timeline events, grid, locations, investigation state, and per-site unresolved-alert counts filtered to the caller's allowed site types. The counts include acknowledged alerts; administrators receive the full site set.
 
 ### Parameters
 None.
@@ -57,6 +57,7 @@ None.
   "alerts": [...],
   "events": [...],
   "grid": [...],
+  "active_issue_counts": {"SiteName": 2},
   "locations": [...],
   "investigating_sites": ["SiteName", ...]
 }
@@ -64,6 +65,7 @@ None.
 
 ### Dependencies
 - `src.services.get_aiops_dashboard_data()`
+- `src.services.get_aiops_active_issue_counts()`
 - `src.services.get_cached_locations()`
 - Module-level `INVESTIGATING_SITES` set
 
@@ -166,7 +168,7 @@ Requires the AIOps RCA page, Active Board tab, and `Action: Dispatch RCA Tickets
 ## Endpoint: `POST /site-maintenance`
 
 ### Purpose
-Sets or clears maintenance mode for an accessible monitored site, with optional ETR (Estimated Time to Resolve) and reason. Requires the AIOps RCA page, Active Board tab, and `Action: Manage Site Maintenance`. Tracks `status_modified_by` and `status_modified_at`.
+Sets or clears maintenance mode for an accessible monitored site, with optional ETR (Estimated Time to Resolve) and reason. Requires the AIOps RCA page, Active Board tab, and `Action: Manage Site Maintenance`. `is_maint` must be an explicit boolean. Clearing always removes the stored ETR and reason. Tracks `status_modified_by` and `status_modified_at`.
 
 ### Parameters
 | Parameter | Type | Description |
@@ -176,8 +178,8 @@ Sets or clears maintenance mode for an accessible monitored site, with optional 
 #### Body Fields
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `site_name` | `str` | `""` | Name of the monitored site. |
-| `is_maint` | `bool` | `False` | Whether to enable or disable maintenance. |
+| `site_name` | `str` | required | Name of the monitored site. |
+| `is_maint` | `bool` | required | Whether to enable or disable maintenance. |
 | `etr` | `str` | `None` | ISO 8601 ETR datetime string. |
 | `reason` | `str` | `""` | Maintenance reason. |
 
@@ -189,11 +191,13 @@ Sets or clears maintenance mode for an accessible monitored site, with optional 
 ### Raises
 - `HTTPException 401` — not authenticated.
 - `HTTPException 403` — missing `Action: Manage Site Maintenance`.
+- `HTTPException 404` — monitored site not found.
+- `HTTPException 422` — missing/invalid site name, boolean, or ETR date.
 
 ### Flow
 1. Requires the Active Board tab and `Action: Manage Site Maintenance`, then validates site-type access.
-2. Parses `etr` from ISO 8601 string to `datetime` if provided.
-3. Delegates to `svc.set_site_maintenance(site_name, is_maint, etr_date, reason, modified_by=user.username)`.
+2. Parses `etr` as an ISO date when enabling maintenance; ignores stale ETR/reason values when clearing.
+3. Delegates to `svc.set_site_maintenance(site_name, is_maint, etr_date, reason, modified_by=user.username)` and returns 404 for an unknown site.
 4. Broadcasts RCA_UPDATE via WebSocket.
 
 ### Dependencies
@@ -324,7 +328,7 @@ Sends a formatted RCA ticket via email. Requires the AIOps RCA page, Active Boar
 1. Guarded by `Depends(require_action("Action: Dispatch RCA Tickets"))`.
 2. Constructs the email body with `*** MANUAL TICKET ***`, the target SLA, and the supplied ticket text.
 3. Calls `send_alert_email()` from `src.utils.mailer` with plain text format.
-4. If `alert_ids` are provided, marks them as dispatched via `svc.set_cluster_dispatch()` regardless of the mailer's returned success value.
+4. If `alert_ids` are provided, marks them as dispatched via `svc.set_cluster_dispatch()` only when the mailer reports successful delivery.
 5. Broadcasts RCA_UPDATE via WebSocket.
 
 ### Dependencies

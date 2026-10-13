@@ -376,10 +376,10 @@ The complete environment template and source mapping are maintained in [`.env.ex
 
 ### AIOps RCA Page
 - Site type filtering via `user.allowed_site_types`
-- Map status colors: Up/Clear, Down/Action Required, Needs Dispatch, Investigating, Ticket Dispatched, and Under Maintenance. Down / Action Required is the initial active-alert state; Needs Dispatch is an explicit persisted workflow selection. Maintenance and completed dispatch take precedence over investigation.
+- Map health colors reflect unresolved alert state: green when no unresolved issues remain, including acknowledged alerts; Down / Action Required is the initial active-alert state; Needs Dispatch is an explicit persisted workflow selection. Maintenance is a thicker blue outline/annotation and does not mask active alert colors; co-located sites use compact offsets and connector spokes without red alert pulses.
 - Window-fill fullscreen (CSS fixed positioning)
 - Auto-clear investigating transition guard
-- Maintenance is sticky (must be manually cleared)
+- Maintenance can be cleared from the site dialog with no active incident; the clear removes stale ETR/reason data. Existing ETR expiry remains active.
 - Save-site race condition fixed (sequential mutations)
 - UTC date rollover maintenance wipe fixed
 
@@ -391,9 +391,9 @@ The complete environment template and source mapping are maintained in [`.env.ex
 - 1-min loop, P1-P5 SLA, business hours (M-F 0600-2000 Central)
 - Dual SLA dictionaries (day shift vs after hours)
 - On-call paging (NOC / ITNETWORK based on device type)
-- Flapping detection via node cooldown
+- Same-node flapping protection; a suppressed node does not consume unrelated site alerts
 - Cascade detection (sibling alert priority escalation)
-- Site-level mute (1h cooldown from last escalation)
+- Routine one-hour after-hours site cooldown leaves suppressed alerts pending; eligible P1 site tickets/pages can bypass it, with page delivery deduplicated per active node incident
 
 ### Correlation Engine
 - 7-domain ontology, patient-zero tier scoring

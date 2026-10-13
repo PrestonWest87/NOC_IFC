@@ -429,6 +429,7 @@ class SolarWindsAlert(Base):
     acknowledged_at = Column(DateTime, nullable=True)
     dispatched_by = Column(String, nullable=True)
     dispatched_at = Column(DateTime, nullable=True)
+    onpage_sent_at = Column(DateTime, nullable=True)
 
 
 class TimelineEvent(Base):

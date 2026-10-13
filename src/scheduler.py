@@ -30,7 +30,7 @@ def _patched_pool_init(self, *a, **kw):
     self.connection_pool_kw.setdefault("maxsize", 3)
 urllib3.PoolManager.__init__ = _patched_pool_init
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import text, or_
+from sqlalchemy import and_, or_, text
 from datetime import datetime, timedelta
 
 from src.database import (
@@ -547,7 +547,7 @@ def job_clear_expired_maintenance():
 # 3. TIERED ALERT ESCALATION (24/7 RCA Ticketing)
 # =====================================================================
 
-def job_tiered_alert_escalation():
+def job_tiered_alert_escalation(now_utc=None):
     """
     Comprehensive 24/7 Tiered Alert & RCA Ticketing Manager.
     - DAY SHIFT (0600-2000 M-F): Sends ONLY Remedyforce tickets. P1s are immediate, P2-P5 delay 10 mins.
@@ -563,18 +563,20 @@ def job_tiered_alert_escalation():
     import re
     import os
 
-    now_utc = datetime.utcnow()
+    now_utc = now_utc or datetime.utcnow()
     local_tz = ZoneInfo("America/Chicago")
 
     def is_business_hours(dt_utc):
-        if not dt_utc: return False
-        dt_local = dt_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(local_tz)
+        if not dt_utc:
+            return False
+        if dt_utc.tzinfo is None:
+            dt_utc = dt_utc.replace(tzinfo=ZoneInfo("UTC"))
+        dt_local = dt_utc.astimezone(local_tz)
         return (0 <= dt_local.weekday() <= 4) and (6 <= dt_local.hour < 20)
 
     log("[SYSTEM] 24/7 RCA Ticketing & Escalation Manager Active...", "SYSTEM", logging.DEBUG)
     cutoff_time = now_utc - timedelta(hours=12)
 
-    # --- 1. EMAIL DISPATCH DESTINATIONS (Strict .env Pull) ---
     TICKET_EMAIL = os.environ.get("REMEDYFORCE_TICKET_EMAIL")
     NOTIFY_EMAIL = os.environ.get("NOC_NOTIFY_EMAIL")
     NOC_ONPAGE_EMAIL = os.environ.get("NOC_ONPAGE_EMAIL")
@@ -589,228 +591,309 @@ def job_tiered_alert_escalation():
         log("[ERROR] REMEDYFORCE_TICKET_EMAIL missing from environment. Aborting run.", "SYSTEM")
         return
 
-    # --- 2. DUAL SLA DICTIONARIES ---
     AFTER_HOURS_RULES = {
-        "p1-high": {"wait": 0,   "sla": "1 Hour",   "weight": 70, "requires_onpage": True,  "cooldown": 1},
-        "p1-low":  {"wait": 45,  "sla": "4 Hours",  "weight": 60, "requires_onpage": True,  "cooldown": 1},
-        "p2-high": {"wait": 30,  "sla": "2.5 Hours","weight": 50, "requires_onpage": False, "cooldown": 5},
-        "p2-low":  {"wait": 45,  "sla": "4 Hours",  "weight": 40, "requires_onpage": False, "cooldown": 5},
-        "p3":      {"wait": 45,  "sla": "8 Hours",  "weight": 30, "requires_onpage": False, "cooldown": 5},
-        "p4":      {"wait": 60,  "sla": "24 Hours", "weight": 20, "requires_onpage": False, "cooldown": 5},
-        "p5":      {"wait": 120, "sla": "72 Hours", "weight": 10, "requires_onpage": False, "cooldown": 5}
+        "p1-high": {"wait": 0, "sla": "1 Hour", "weight": 70, "requires_onpage": True, "cooldown": 1},
+        "p1-low": {"wait": 45, "sla": "4 Hours", "weight": 60, "requires_onpage": True, "cooldown": 1},
+        "p2-high": {"wait": 30, "sla": "2.5 Hours", "weight": 50, "requires_onpage": False, "cooldown": 5},
+        "p2-low": {"wait": 45, "sla": "4 Hours", "weight": 40, "requires_onpage": False, "cooldown": 5},
+        "p3": {"wait": 45, "sla": "8 Hours", "weight": 30, "requires_onpage": False, "cooldown": 5},
+        "p4": {"wait": 60, "sla": "24 Hours", "weight": 20, "requires_onpage": False, "cooldown": 5},
+        "p5": {"wait": 120, "sla": "72 Hours", "weight": 10, "requires_onpage": False, "cooldown": 5},
     }
-
     DAY_SHIFT_RULES = {
-        "p1-high": {"wait": 0,  "sla": "1 Hour",   "weight": 70, "requires_onpage": False, "cooldown": 1},
-        "p1-low":  {"wait": 0,  "sla": "4 Hours",  "weight": 60, "requires_onpage": False, "cooldown": 1},
-        "p2-high": {"wait": 10, "sla": "2.5 Hours","weight": 50, "requires_onpage": False, "cooldown": 5},
-        "p2-low":  {"wait": 10, "sla": "4 Hours",  "weight": 40, "requires_onpage": False, "cooldown": 5},
-        "p3":      {"wait": 10, "sla": "8 Hours",  "weight": 30, "requires_onpage": False, "cooldown": 5},
-        "p4":      {"wait": 10, "sla": "24 Hours", "weight": 20, "requires_onpage": False, "cooldown": 5},
-        "p5":      {"wait": 10, "sla": "72 Hours", "weight": 10, "requires_onpage": False, "cooldown": 5}
+        "p1-high": {"wait": 0, "sla": "1 Hour", "weight": 70, "requires_onpage": False, "cooldown": 1},
+        "p1-low": {"wait": 0, "sla": "4 Hours", "weight": 60, "requires_onpage": False, "cooldown": 1},
+        "p2-high": {"wait": 10, "sla": "2.5 Hours", "weight": 50, "requires_onpage": False, "cooldown": 5},
+        "p2-low": {"wait": 10, "sla": "4 Hours", "weight": 40, "requires_onpage": False, "cooldown": 5},
+        "p3": {"wait": 10, "sla": "8 Hours", "weight": 30, "requires_onpage": False, "cooldown": 5},
+        "p4": {"wait": 10, "sla": "24 Hours", "weight": 20, "requires_onpage": False, "cooldown": 5},
+        "p5": {"wait": 10, "sla": "72 Hours", "weight": 10, "requires_onpage": False, "cooldown": 5},
     }
 
-    # --- 3. DATA ACQUISITION & CLUSTERING ---
-    with SessionLocal() as db:
-        raw_alerts = db.query(SolarWindsAlert).filter(
-            SolarWindsAlert.status != 'Resolved',
-            SolarWindsAlert.received_at >= cutoff_time
-        ).all()
+    def get_tier(alert):
+        payload = alert.raw_payload if isinstance(alert.raw_payload, dict) else {}
+        custom_properties = payload.get("Custom_Properties_Universal") or {}
+        raw_level = str(
+            payload.get("Normalized_Alert_Level")
+            or custom_properties.get("Alert_Level")
+            or ""
+        ).strip().lower()
 
-        active_alerts = raw_alerts
+        for tier in ("p1-high", "p1-low", "p2-high", "p2-low"):
+            if tier in raw_level:
+                return tier
+        match = re.search(r"\d+", raw_level)
+        if match:
+            level_num = int(match.group())
+            if level_num == 1:
+                return "p1-low" if "low" in raw_level else "p1-high"
+            if level_num == 2:
+                return "p2-low" if "low" in raw_level else "p2-high"
+            if level_num in {3, 4, 5}:
+                return f"p{level_num}"
+        return "unknown"
+
+    def is_node_on_cooldown(db, alert, cooldown_hours):
+        if not alert.node_name:
+            return False
+        cooldown_cutoff = now_utc - timedelta(hours=cooldown_hours)
+        query = db.query(SolarWindsAlert.id).filter(
+            SolarWindsAlert.id != alert.id,
+            SolarWindsAlert.node_name == alert.node_name,
+            or_(SolarWindsAlert.is_ticketed.is_(True), SolarWindsAlert.is_dispatched.is_(True)),
+            or_(
+                and_(SolarWindsAlert.is_dispatched.is_(True), SolarWindsAlert.dispatched_at >= cooldown_cutoff),
+                and_(SolarWindsAlert.is_ticketed.is_(True), SolarWindsAlert.received_at >= cooldown_cutoff),
+            ),
+        )
+        if alert.mapped_location:
+            query = query.filter(SolarWindsAlert.mapped_location == alert.mapped_location)
+        return query.first() is not None
+
+    def node_already_paged(db, site, alert):
+        if not alert.node_name:
+            return bool(alert.onpage_sent_at)
+        return db.query(SolarWindsAlert.id).filter(
+            SolarWindsAlert.node_name == alert.node_name,
+            SolarWindsAlert.mapped_location == site,
+            SolarWindsAlert.status != "Resolved",
+            SolarWindsAlert.onpage_sent_at.isnot(None),
+        ).first() is not None
+
+    def mark_node_paged(db, site, alert):
+        if not alert.node_name:
+            alert.onpage_sent_at = now_utc
+            return
+        db.query(SolarWindsAlert).filter(
+            SolarWindsAlert.node_name == alert.node_name,
+            SolarWindsAlert.mapped_location == site,
+            SolarWindsAlert.status != "Resolved",
+        ).update(
+            {SolarWindsAlert.onpage_sent_at: now_utc},
+            synchronize_session="fetch",
+        )
+
+    def select_target(candidates):
+        if not candidates:
+            return None, "unknown", False
+        ordered = sorted(candidates, key=lambda alert: alert.received_at or now_utc)
+        target = ordered[0]
+        target_tier = get_tier(target)
+        target_rules = DAY_SHIFT_RULES if is_business_hours(target.received_at) else AFTER_HOURS_RULES
+        target_weight = target_rules.get(target_tier, {"weight": -1})["weight"]
+        initial_weight = target_weight
+        is_cascade = False
+        for alert in ordered[1:]:
+            tier = get_tier(alert)
+            rules = DAY_SHIFT_RULES if is_business_hours(alert.received_at) else AFTER_HOURS_RULES
+            weight = rules.get(tier, {"weight": -1})["weight"]
+            if weight > target_weight:
+                target = alert
+                target_tier = tier
+                target_weight = weight
+                is_cascade = weight > initial_weight
+        return target, target_tier, is_cascade
+
+    def is_due(alert, tier, is_cascade):
+        alert_is_day = is_business_hours(alert.received_at)
+        if tier == "unknown":
+            wait_minutes = 10 if alert_is_day else 30
+        else:
+            rules = DAY_SHIFT_RULES if alert_is_day else AFTER_HOURS_RULES
+            wait_minutes = rules[tier]["wait"]
+        if is_cascade:
+            wait_minutes = 0
+        return now_utc - (alert.received_at or now_utc) >= timedelta(minutes=wait_minutes)
+
+    with SessionLocal() as db:
+        active_alerts = db.query(SolarWindsAlert).filter(
+            SolarWindsAlert.status != "Resolved",
+            SolarWindsAlert.received_at >= cutoff_time,
+        ).all()
         if not active_alerts:
             return
 
         active_weather = db.query(RegionalHazard).all()
         active_clouds = db.query(CloudOutage).filter_by(is_resolved=False).all()
         active_bgp = db.query(BgpAnomaly).filter_by(is_resolved=False).all()
-
         ai_engine = EnterpriseAIOpsEngine(db)
         incidents = ai_engine.analyze_and_cluster(active_alerts)
 
-        def is_node_on_cooldown(node_name, cooldown_hours):
-            cooldown_cutoff = now_utc - timedelta(hours=cooldown_hours)
-            return db.query(SolarWindsAlert).filter(
-                SolarWindsAlert.node_name == node_name,
-                SolarWindsAlert.is_ticketed == True,
-                SolarWindsAlert.received_at >= cooldown_cutoff
-            ).first() is not None
-
-        def get_tier(alert):
-            p = alert.raw_payload if isinstance(alert.raw_payload, dict) else {}
-            cp = p.get('Custom_Properties_Universal') or {}
-            raw_level = str(p.get('Normalized_Alert_Level') or cp.get('Alert_Level') or '').strip().lower()
-
-            if "p1-high" in raw_level: return "p1-high"
-            if "p1-low" in raw_level: return "p1-low"
-            if "p2-high" in raw_level: return "p2-high"
-            if "p2-low" in raw_level: return "p2-low"
-
-            match = re.search(r'\d+', raw_level)
-            if match:
-                level_num = int(match.group())
-                if level_num == 1: return "p1-low" if "low" in raw_level else "p1-high"
-                elif level_num == 2: return "p2-low" if "low" in raw_level else "p2-high"
-                elif level_num == 3: return "p3"
-                elif level_num == 4: return "p4"
-                elif level_num == 5: return "p5"
-            return "unknown"
-
-        # --- 4. SITE EVALUATION LOOP ---
         for site, data in incidents.items():
-            alerts = data.get('alerts', [])
-            undispatched_alerts = [a for a in alerts if not a.is_ticketed]
-
-            if not undispatched_alerts:
-                continue
-
+            alerts = data.get("alerts", [])
             loc = db.query(MonitoredLocation).filter_by(name=site).first()
 
-            # Site-level onpage mute
-            alert_is_day = is_business_hours(undispatched_alerts[0].received_at)
-            if not alert_is_day and loc and getattr(loc, 'last_escalation_ticket', None):
-                time_since_onpage = now_utc - loc.last_escalation_ticket
-                if time_since_onpage < timedelta(hours=1):
-                    log(f"[SITE MUTED] Suppressed alerts for {site}. Site recently ONPAGED.", "SYSTEM")
-                    for a in undispatched_alerts: a.is_ticketed = True
-                    db.commit()
+            # Routine site tickets are coalesced; same-node flaps remain
+            # suppressed without consuming unrelated alerts at the site.
+            ticket_candidates = []
+            for alert in alerts:
+                if alert.is_ticketed or alert.is_dispatched:
                     continue
+                tier = get_tier(alert)
+                rules = DAY_SHIFT_RULES if is_business_hours(alert.received_at) else AFTER_HOURS_RULES
+                if is_node_on_cooldown(db, alert, rules.get(tier, {"cooldown": 5})["cooldown"]):
+                    log(
+                        f"[NODE FLAPPING] Retaining {alert.node_name} alert at {site}; same-node cooldown is active.",
+                        "SYSTEM",
+                    )
+                    continue
+                ticket_candidates.append(alert)
 
-            undispatched_alerts.sort(key=lambda a: a.received_at)
+            # Ticket and page delivery are independent. This permits a page
+            # retry after a successful ticket without re-creating that ticket.
+            page_candidates = []
+            for alert in alerts:
+                alert_is_day = is_business_hours(alert.received_at)
+                rules = DAY_SHIFT_RULES if alert_is_day else AFTER_HOURS_RULES
+                tier = get_tier(alert)
+                tier_rules = rules.get(tier)
+                if not tier_rules or not tier_rules["requires_onpage"]:
+                    continue
+                if node_already_paged(db, site, alert):
+                    continue
+                if not alert.is_ticketed and is_node_on_cooldown(db, alert, tier_rules["cooldown"]):
+                    continue
+                page_candidates.append(alert)
 
-            cause, score, rca_priority, _, _, p0_name, _ = ai_engine.calculate_root_cause(
+            ticket_target, ticket_tier, ticket_cascade = select_target(ticket_candidates)
+            page_target, page_tier, page_cascade = select_target(page_candidates)
+            ticket_due = bool(ticket_target and is_due(ticket_target, ticket_tier, ticket_cascade))
+            page_due = bool(page_target and is_due(page_target, page_tier, page_cascade))
+            if not ticket_due and not page_due:
+                continue
+
+            site_muted = bool(
+                loc
+                and loc.last_escalation_ticket
+                and now_utc - loc.last_escalation_ticket < timedelta(hours=1)
+            )
+            if ticket_due:
+                ticket_is_day = is_business_hours(ticket_target.received_at)
+                if (
+                    site_muted
+                    and not ticket_is_day
+                    and ticket_tier not in {"p1-high", "p1-low"}
+                ):
+                    log(f"[SITE MUTED] Retaining routine alerts for {site}; site cooldown is active.", "SYSTEM")
+                    ticket_due = False
+
+            if page_due and is_business_hours(page_target.received_at):
+                page_due = False
+            if not ticket_due and not page_due:
+                continue
+
+            cause, _, _, _, _, p0_name, _ = ai_engine.calculate_root_cause(
                 site, data, active_weather, active_clouds, active_bgp
             )
 
-            target_alert = undispatched_alerts[0]
-            alert_is_day = is_business_hours(target_alert.received_at)
-            ACTIVE_RULES = DAY_SHIFT_RULES if alert_is_day else AFTER_HOURS_RULES
-
-            target_tier = get_tier(target_alert)
-            is_cascade = False
-            base_weight = ACTIVE_RULES.get(target_tier, {"weight": -1})["weight"]
-
-            for a in undispatched_alerts[1:]:
-                a_tier = get_tier(a)
-                a_weight = ACTIVE_RULES.get(a_tier, {"weight": -1})["weight"]
-                if a_weight > base_weight:
-                    target_alert = a
-                    target_tier = a_tier
-                    is_cascade = True
-                    log(f"[CASCADE DETECTED] {site} escalated to {target_tier.upper()}", "SYSTEM")
-                    break
-
-            duration_active = now_utc - target_alert.received_at
-            if target_tier == "unknown":
-                unknown_wait = 10 if alert_is_day else 30
-                if duration_active >= timedelta(minutes=unknown_wait):
-                    if not is_node_on_cooldown(target_alert.node_name, cooldown_hours=5):
-                        log(f"[DISPATCHING] Unknown priority alert for {site}", "SYSTEM")
-                        t_body = "*** REQUIRES MANAGEMENT DIRECTION ***\n"
-                        t_body += f"Unmapped Priority: {target_alert.event_type}\n\n"
-                        t_body += generate_rca_ticket_text(site, data, "UNKNOWN", p0_name or "Unknown", cause)
-
-                        t_ok, _ = send_alert_email(f"UNDOCUMENTED ALERT: {target_alert.node_name}", t_body, TICKET_EMAIL, is_html=False)
-
-                        n_ok = False
-                        if not alert_is_day and NOTIFY_EMAIL:
-                            n_ok, _ = send_alert_email(f"UNDOCUMENTED ALERT (NOTIFY): {target_alert.node_name}", t_body, NOTIFY_EMAIL, is_html=False)
-
-                        if t_ok or n_ok:
-                            for a in undispatched_alerts: a.is_ticketed = True
-                            db.commit()
-                continue
-
-            rules = ACTIVE_RULES[target_tier]
-            p = target_alert.raw_payload if isinstance(target_alert.raw_payload, dict) else {}
-            cp = p.get('Custom_Properties_Universal') or {}
-
-            db_loc_type = getattr(loc, 'loc_type', '').lower() if loc else ''
-            cp_loc_type = str(cp.get('Location_Type') or cp.get('LocationType') or '').lower()
-            district = str(cp.get('District') or data.get('site_metadata', {}).get('district') or 'Unknown')
-
-            is_swf_device = "swf" in target_alert.node_name.lower() or any(x in db_loc_type or x in cp_loc_type for x in ["fiber hut", "fiber cabinet"])
-
-            wait_minutes = rules["wait"]
-            is_onpage = rules.get("requires_onpage", False)
-
-            if is_cascade:
-                wait_minutes = 0
-
-            # --- 7. DISPATCH EVALUATION ---
-            if duration_active >= timedelta(minutes=wait_minutes):
-
-                if is_node_on_cooldown(target_alert.node_name, rules["cooldown"]):
-                    log(f"[NODE FLAPPING] Muted cluster for {site} (Node {target_alert.node_name} on cooldown).", "SYSTEM")
-                    for a in undispatched_alerts: a.is_ticketed = True
-                    db.commit()
-                    continue
-
-                shift_prefix = "DAY-SHIFT" if alert_is_day else "AFTER-HOURS"
-                prefix = f"{shift_prefix} SITE ESCALATION / CASCADE" if is_cascade else f"{shift_prefix} TICKET"
-
-                base_body = f"Target SLA: {rules['sla']}\n"
-                if target_tier == "p2-high" and not alert_is_day:
-                    base_body += "Requirement: Positive Handoff (No ONPAGE)\n"
-                base_body += "\n" + generate_rca_ticket_text(site, data, target_tier.upper(), p0_name or "Unknown", cause)
-
-                dispatch_success = False
-
-                ticket_body = f"*** {prefix} ***\n" + base_body
-                log(f"[DISPATCH] Sending ticket email for {site} to {TICKET_EMAIL}", "SYSTEM", logging.DEBUG)
-                t_success, t_msg = send_alert_email(
-                    f"{'CASCADE ' if is_cascade else ''}TICKET: {target_tier.upper()} Incident at {site}",
-                    ticket_body, recipient_override=TICKET_EMAIL, is_html=False
+            def dispatch_details(target_alert, target_tier, is_cascade):
+                alert_is_day = is_business_hours(target_alert.received_at)
+                rules = (DAY_SHIFT_RULES if alert_is_day else AFTER_HOURS_RULES).get(target_tier, {})
+                payload = target_alert.raw_payload if isinstance(target_alert.raw_payload, dict) else {}
+                custom_properties = payload.get("Custom_Properties_Universal") or {}
+                db_loc_type = getattr(loc, "loc_type", "").lower() if loc else ""
+                cp_loc_type = str(
+                    custom_properties.get("Location_Type")
+                    or custom_properties.get("LocationType")
+                    or ""
+                ).lower()
+                is_swf_device = "swf" in (target_alert.node_name or "").lower() or any(
+                    marker in db_loc_type or marker in cp_loc_type
+                    for marker in ("fiber hut", "fiber cabinet")
                 )
-                if t_success:
-                    log(f"[TICKET OK] Ticket sent for {site}", "SYSTEM", logging.DEBUG)
-                    dispatch_success = True
+                prefix = (
+                    f"{'DAY-SHIFT' if alert_is_day else 'AFTER-HOURS'} SITE ESCALATION / CASCADE"
+                    if is_cascade
+                    else f"{'DAY-SHIFT' if alert_is_day else 'AFTER-HOURS'} TICKET"
+                )
+                body = f"Target SLA: {rules.get('sla', 'N/A')}\n"
+                if target_tier == "p2-high" and not alert_is_day:
+                    body += "Requirement: Positive Handoff (No ONPAGE)\n"
+                body += "\n" + generate_rca_ticket_text(
+                    site, data, target_tier.upper(), p0_name or "Unknown", cause
+                )
+                return alert_is_day, is_swf_device, prefix, body
+
+            ticket_sent = False
+            if ticket_due:
+                ticket_is_day, _, ticket_prefix, ticket_body = dispatch_details(
+                    ticket_target, ticket_tier, ticket_cascade
+                )
+                if ticket_tier == "unknown":
+                    ticket_body = (
+                        "*** REQUIRES MANAGEMENT DIRECTION ***\n"
+                        f"Unmapped Priority: {ticket_target.event_type}\n\n"
+                        + ticket_body
+                    )
+                    subject = f"UNDOCUMENTED ALERT: {ticket_target.node_name}"
                 else:
-                    log(f"[TICKET FAILED] SMTP Error for {site}: {t_msg}", "SYSTEM")
+                    ticket_body = f"*** {ticket_prefix} ***\n" + ticket_body
+                    subject = f"{'CASCADE ' if ticket_cascade else ''}TICKET: {ticket_tier.upper()} Incident at {site}"
 
-                if not alert_is_day:
+                log(f"[DISPATCH] Sending site ticket for {site} to {TICKET_EMAIL}", "SYSTEM", logging.DEBUG)
+                ticket_sent, ticket_message = send_alert_email(
+                    subject,
+                    ticket_body,
+                    recipient_override=TICKET_EMAIL,
+                    is_html=False,
+                )
+                if ticket_sent:
+                    log(f"[TICKET OK] Site ticket sent for {site}", "SYSTEM", logging.DEBUG)
+                    # This email is the site ticket and contains the active
+                    # site cluster. Only a successful ticket consumes it.
+                    for alert in alerts:
+                        alert.is_ticketed = True
+                else:
+                    log(f"[TICKET FAILED] SMTP Error for {site}: {ticket_message}", "SYSTEM")
 
-                    if NOTIFY_EMAIL:
-                        log(f"[DISPATCH] Sending NOC notification for {site} to {NOTIFY_EMAIL}", "SYSTEM", logging.DEBUG)
-                        n_success, n_msg = send_alert_email(
-                            f"NOC NOTIFICATION {'(CASCADE) ' if is_cascade else ''}: {target_tier.upper()} Incident at {site}",
-                            f"*** NOC NOTIFICATION {'ESCALATION ' if is_cascade else ''}***\n" + base_body,
-                            recipient_override=NOTIFY_EMAIL, is_html=False
-                        )
-                        if n_success:
-                            log(f"[NOTIFY OK] Notification sent for {site}", "SYSTEM", logging.DEBUG)
-                            dispatch_success = True
-                        else:
-                            log(f"[NOTIFY FAILED] SMTP Error for {site}: {n_msg}", "SYSTEM")
+                if ticket_sent and not ticket_is_day and NOTIFY_EMAIL:
+                    notify_subject = (
+                        f"UNDOCUMENTED ALERT (NOTIFY): {ticket_target.node_name}"
+                        if ticket_tier == "unknown"
+                        else f"NOC NOTIFICATION {'(CASCADE) ' if ticket_cascade else ''}: {ticket_tier.upper()} Incident at {site}"
+                    )
+                    notify_success, notify_message = send_alert_email(
+                        notify_subject,
+                        f"*** NOC NOTIFICATION {'ESCALATION ' if ticket_cascade else ''}***\n" + ticket_body,
+                        recipient_override=NOTIFY_EMAIL,
+                        is_html=False,
+                    )
+                    if not notify_success:
+                        log(f"[NOTIFY FAILED] SMTP Error for {site}: {notify_message}", "SYSTEM")
 
-                    if is_onpage:
-                        if is_swf_device:
-                            target_onpage_email = NOC_ONPAGE_EMAIL
-                            onpage_title = "NOC"
-                        else:
-                            target_onpage_email = ITNETWORK_ONPAGE_EMAIL
-                            onpage_title = "ITNETWORK"
+            page_sent = False
+            if page_due:
+                _, is_swf_device, _, page_body = dispatch_details(
+                    page_target, page_tier, page_cascade
+                )
+                if is_swf_device:
+                    target_onpage_email = NOC_ONPAGE_EMAIL
+                    onpage_title = "NOC"
+                else:
+                    target_onpage_email = ITNETWORK_ONPAGE_EMAIL
+                    onpage_title = "ITNETWORK"
 
-                        if target_onpage_email:
-                            log(f"[DISPATCH] Sending {onpage_title} ONPAGE for {site} to {target_onpage_email}", "SYSTEM", logging.DEBUG)
-                            o_success, o_msg = send_alert_email(
-                                f"URGENT {onpage_title} ONPAGE {'CASCADE ' if is_cascade else ''}: {target_tier.upper()} Incident at {site}",
-                                f"*** URGENT {onpage_title} ONPAGE {'ESCALATION ' if is_cascade else ''}***\n" + base_body,
-                                recipient_override=target_onpage_email, is_html=False
-                            )
-                            if o_success:
-                                log(f"[ONPAGE OK] {onpage_title} onpage sent for {site}", "SYSTEM", logging.DEBUG)
-                                dispatch_success = True
-                                if loc: loc.last_escalation_ticket = now_utc
-                            else:
-                                log(f"[{onpage_title} ONPAGE FAILED] SMTP Error for {site}: {o_msg}", "SYSTEM")
-                        else:
-                            log(f"[SKIP] {onpage_title} ONPAGE email not configured for {site}", "SYSTEM")
+                if target_onpage_email:
+                    page_sent, page_message = send_alert_email(
+                        f"URGENT {onpage_title} ONPAGE {'CASCADE ' if page_cascade else ''}: {page_tier.upper()} Incident at {site}",
+                        f"*** URGENT {onpage_title} ONPAGE {'ESCALATION ' if page_cascade else ''}***\n" + page_body,
+                        recipient_override=target_onpage_email,
+                        is_html=False,
+                    )
+                    if page_sent:
+                        log(f"[ONPAGE OK] {onpage_title} onpage sent for {site}", "SYSTEM", logging.DEBUG)
+                        mark_node_paged(db, site, page_target)
+                        if loc:
+                            # Legacy field name retained; this timestamp is
+                            # the successful site-level on-page cooldown anchor.
+                            loc.last_escalation_ticket = now_utc
+                    else:
+                        log(f"[{onpage_title} ONPAGE FAILED] SMTP Error for {site}: {page_message}", "SYSTEM")
+                else:
+                    log(f"[SKIP] {onpage_title} ONPAGE email not configured for {site}", "SYSTEM")
 
-                if dispatch_success:
-                    log(f"[SUCCESS] Fully Ticketed {target_tier.upper()} cluster for {site}", "SYSTEM", logging.DEBUG)
-                    for a in undispatched_alerts: a.is_ticketed = True
-                    db.commit()
+            if ticket_sent or page_sent:
+                db.commit()
 
     gc.collect()
 

@@ -85,10 +85,10 @@ The 24/7 escalation loop:
 2. Requires `REMEDYFORCE_TICKET_EMAIL`.
 3. Loads unresolved alerts from the last 12 hours plus weather/cloud/BGP context.
 4. Clusters alerts with `EnterpriseAIOpsEngine`.
-5. Chooses the oldest undispatched alert, then promotes to a higher-weight sibling tier when a cascade exists.
-6. Applies wait windows, node cooldown, site mute, and SWF/ITNETWORK routing.
-7. Sends ticket, notification, and optional on-page email.
-8. Marks the cluster ticketed only when at least one dispatch succeeds.
+5. Chooses an eligible site-ticket target and an independent unpaged node target.
+6. Applies wait windows, same-node cooldown, the routine site mute, and the P1 cooldown exception.
+7. Sends a site ticket and optional notification; pages are deduplicated per active node incident.
+8. Marks site alerts ticketed only after ticket-email success and records page delivery separately.
 
 See `docs/ESCALATION.md` for the exact SLA dictionaries and destinations.
 
