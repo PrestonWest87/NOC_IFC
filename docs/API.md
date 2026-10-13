@@ -292,7 +292,7 @@ Generates an AI triage summary from up to 50 bounded, flat SIEM events. Requires
 Every route requires the `AIOps RCA` page permission. Endpoints additionally require the tab and action grants listed below; site-scoped operations validate the caller's site-type access.
 
 ### GET /rca/dashboard
-Requires the Active Board tab. Returns alerts, events, grid, locations, and site-scoped investigation state.
+Requires the Active Board tab. Returns alerts, events, grid, locations, site-scoped investigation state, and per-site unresolved-alert counts. The health counts include acknowledged alerts so the map does not show a still-unresolved outage as clear.
 
 ### POST /rca/investigate
 Requires: `Tab: AIOps RCA -> Active Board` and `Action: Dispatch RCA Tickets`.
@@ -311,13 +311,13 @@ Body: `[alert_id, ...]`. Requires `Tab: AIOps RCA -> Active Board` and `Action: 
 Requires `Tab: AIOps RCA -> Active Board` and `Action: Dispatch RCA Tickets`. Body: `{alert_ids, is_dispatched}`; the server checks that all affected alerts are in the caller's site scope.
 
 ### POST /rca/site-maintenance
-Requires `Tab: AIOps RCA -> Active Board` and `Action: Manage Site Maintenance`. Body: `{site_name, is_maint, etr, reason}`; the server checks site scope.
+Requires `Tab: AIOps RCA -> Active Board` and `Action: Manage Site Maintenance`. Body: `{site_name, is_maint, etr, reason}` with an explicit boolean `is_maint`; the server checks site scope. Clearing maintenance also clears the stored ETR and reason.
 
 ### POST /rca/generate-ticket
 Requires the Active Board tab and `Action: Dispatch RCA Tickets`. Body: `{site, priority, patient_zero, root_cause, cluster}`. Returns generated ticket text after site-scope validation.
 
 ### POST /rca/send-ticket
-Requires the Active Board tab and `Action: Dispatch RCA Tickets`. Body: `{site, ticket_text, recipient, alert_ids, priority, district, sla}`; validates site and alert scope before sending.
+Requires the Active Board tab and `Action: Dispatch RCA Tickets`. Body: `{site, ticket_text, recipient, alert_ids, priority, district, sla}`; validates site and alert scope before sending. The site is marked dispatched only after successful email delivery.
 
 ### GET /rca/sitrep
 Requires the Global Correlation tab, report-generation action, and access to all site types. Returns the current generated global SITREP.

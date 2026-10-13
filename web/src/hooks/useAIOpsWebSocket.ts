@@ -72,13 +72,14 @@ export function useAIOpsWebSocket() {
              queryClient.setQueryData(["rca-dashboard"], (current: any) => {
                // The push payload does not contain locations. Do not create a
                // partial query result before the page's initial GET completes.
-               if (!current) return current;
-               return {
-                 ...current,
-               alerts: payload.alerts ?? current?.alerts ?? [],
-               events: payload.events ?? current?.events ?? [],
-               grid: payload.grid ?? current?.grid ?? [],
-               };
+                if (!current) return current;
+                return {
+                  ...current,
+                  alerts: payload.alerts ?? current?.alerts ?? [],
+                  events: payload.events ?? current?.events ?? [],
+                  grid: payload.grid ?? current?.grid ?? [],
+                  active_issue_counts: payload.active_issue_counts ?? current?.active_issue_counts ?? {},
+                };
              });
            }
 

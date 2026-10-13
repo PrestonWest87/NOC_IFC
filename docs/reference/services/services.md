@@ -250,9 +250,9 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ---
 
-### `set_site_maintenance(site_name: str, is_maint: bool, etr_date, reason: str)`
+### `set_site_maintenance(site_name: str, is_maint: bool, etr_date, reason: str) -> bool`
 
-**Purpose:** Sets maintenance mode on a monitored location.
+**Purpose:** Sets or clears maintenance mode on a monitored location. Clearing removes stale ETR/reason values and returns false when the site does not exist.
 
 **Parameters:**
 - `site_name` (str) -- Name of the site
@@ -260,7 +260,9 @@ A utility class extending `dict` to allow dot-notation attribute access.
 - `etr_date` (date | None) -- Estimated time of restoration
 - `reason` (str) -- Maintenance reason
 
-**Flow:** Queries location by name, updates maintenance fields, clears cached locations.
+**Flow:** Queries location by name, updates maintenance fields, records the modifying user/time, commits, and clears cached locations. A clear always nulls ETR and reason even if supplied by a stale client.
+
+**Returns:** `True` when the site was updated; `False` when the site does not exist. Invalid `is_maint` values raise `ValueError`.
 
 **Dependencies:** `MonitoredLocation`, `SessionLocal`
 
@@ -937,6 +939,18 @@ A utility class extending `dict` to allow dot-notation attribute access.
 **Returns:** `tuple[list[DotDict], list[DotDict], list[DotDict]]` -- `(alerts, events, grid_outages)`
 
 **Dependencies:** `SolarWindsAlert`, `TimelineEvent`, `RegionalOutage`, `SessionLocal`
+
+---
+
+### `get_aiops_active_issue_counts(allowed_site_names: set[str] | None = None) -> dict[str, int]`
+
+**Purpose:** Counts unresolved SolarWinds alerts per mapped site for operational map health. Acknowledged/correlated alerts remain counted until resolved.
+
+**Parameters:** `allowed_site_names` optionally limits counts to the caller's site scope; an empty set returns no counts.
+
+**Returns:** A site-name-to-unresolved-alert-count mapping.
+
+**Dependencies:** `SolarWindsAlert`, `SessionLocal`
 
 ---
 

@@ -14,6 +14,7 @@ export interface DashboardPayload {
   events?: unknown[];
   grid?: unknown[];
   alert_count?: number;
+  active_issue_counts?: Record<string, number>;
   site?: string;
   is_investigating?: boolean;
 }

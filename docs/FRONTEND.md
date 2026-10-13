@@ -212,15 +212,16 @@ Core AIOps correlation and incident response board:
 |---------|-------------|
 | **Active Alerts Board** | Filterable by `user.allowed_site_types`; color-coded by status |
 | **Global Correlation** | Scatterplot visualization of cross-domain alert correlation |
-| **Site Dialog** | Shows derived up/down health and offers Down / Action Required, Investigating, Needs Dispatch, Ticket Dispatched, and Under Maintenance workflow choices; maintenance exposes ETR and notes |
-| **Status Tracking** | Up/down health plus investigating, needs-dispatch, dispatched, and maintenance map states |
+| **Site Dialog** | Shows unresolved-alert health and offers Down / Action Required, Investigating, Needs Dispatch, Ticket Dispatched, and Under Maintenance workflow choices; maintenance exposes ETR, notes, and a dedicated clear action |
+| **Status Tracking** | Operational map health plus independent investigating, needs-dispatch, dispatched, and maintenance annotations |
 | **Fullscreen Mode** | CSS fixed-position fullscreen (not Fullscreen API) |
 
 Map status colors and precedence:
-- **Up / Clear** is green; **Down / Action Required** is red.
+- **Up / Clear** is green whenever the site has no unresolved alerts; **Down / Action Required** is red when an active issue has no later workflow state. Acknowledged alerts remain operational issues until resolved.
 - **Needs Dispatch** is bright silver/white after an operator selects it for active alerts; ordinary down alerts remain red until that workflow state is selected.
 - **Investigating** is amber; **Ticket Dispatched** is purple and takes precedence over an investigation marker after the dispatch write completes.
-- **Under Maintenance** is blue and takes precedence over the alert workflow colors; maintenance remains sticky until manually cleared.
+- **Under Maintenance** is shown as a thicker blue marker outline and status annotation; it does not mask green health or active alert colors. Authorized users can clear it from the site dialog even with no active incident. Existing ETR expiry remains available.
+- Co-located sites use a compact, stable radial spread with connector spokes and a center point; down markers no longer have a red pulse glow.
 - Dispatch coloring aggregates all current site alerts: a site is dispatched only when every active alert is marked dispatched.
 - Investigating is auto-cleared when a site's active alert count transitions from greater than zero to zero.
 

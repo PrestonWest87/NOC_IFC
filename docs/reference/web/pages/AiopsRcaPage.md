@@ -74,10 +74,10 @@ None (uses `useAuth` for user context).
 **Tab 0 — Active Board:**
 - Live polling toggle (10s interval for dashboard, 60s for analysis)
 - deck.gl map with:
-  - Site scatter points color-coded as Up/Clear (green), Down/Action Required (red), Needs Dispatch (bright silver/white), Investigating (amber), Ticket Dispatched (purple), or Under Maintenance (blue).
-  - Status precedence is maintenance, fully dispatched, investigating, selected needs-dispatch, down/action-required, then up/clear. Needs Dispatch is stored on active alert rows; new alerts remain Down / Action Required until selected.
-  - Alert pulse layer for sites requiring action
-  - Click handler opens a site dialog showing derived Up/Clear or Down/Action Required health and workflow choices for Down / Action Required, Investigating, Needs Dispatch, Ticket Dispatched, and Under Maintenance. Dispatch workflow choices are disabled without active alerts; ETR and maintenance notes appear for Under Maintenance.
+  - Site scatter points color-coded as Up/Clear (green), Down/Action Required (red), Needs Dispatch (bright silver/white), Investigating (amber), or Ticket Dispatched (purple); Under Maintenance is a thicker blue outline.
+  - Operational health is green when no unresolved site alerts remain, including when maintenance or workflow labels remain. Acknowledged unresolved alerts still count as active issues.
+  - Co-located sites are spread around their shared coordinates in a compact ring, with spokes and a center marker preserving the actual location. Down sites do not use the former red pulse overlay.
+  - Click handler opens a site dialog showing derived Up/Clear or Down/Action Required health and workflow choices for Down / Action Required, Investigating, Needs Dispatch, Ticket Dispatched, and Under Maintenance. Dispatch workflow choices are disabled without active alerts; ETR, maintenance notes, and a dedicated Clear Maintenance action are available to authorized users.
 - Event Log sidebar (timestamped event messages)
 - Global Fleet Event banner (when fleet outages detected)
 - Incident correlation cards per site showing:
@@ -103,7 +103,7 @@ None (uses `useAuth` for user context).
 - Empty state when correlation hasn't been run
 
 #### Derived Data
-- `sites`: Memoized mapping of locations with alert counts, dispatch, and maintenance status.
+- `sites`: Memoized mapping of locations with unresolved-alert counts (including acknowledged alerts), dispatch, and maintenance status.
 - `incidentSites`: Unique set of site names from clustered analysis, root cause, and alerts.
 - `getRc(site)`: Parses root cause data (array or object format) into structured object with cause, score, priority, evidenceLog, blastRadius, patientZero, cascadeStr.
 - `getClusterAlerts(site)`: Returns alerts for a site from clustered data or filtered alerts.
@@ -120,8 +120,8 @@ None (uses `useAuth` for user context).
 - `handleRunDeepAnalysis()`: Triggers analysis refetch and sets state flag.
 - `handleRunGlobalCorrelation()`: Triggers sitrep fetch and stores report.
 - `saveMaint(site)`: Saves maintenance form data via mutation.
-- `mapTooltip(info)`: Shows the map status, operational up/down state, alert count, dispatch state, investigation state, and maintenance state for the hovered site. Dynamic site names are HTML-escaped.
-- `mapLayers`: Memoized deck.gl layers (sites + alert pulses) with color/size logic.
+- `mapTooltip(info)`: Shows the map status, operational up/down state, unresolved alert count, dispatch state, investigation state, and maintenance state for the hovered site. Dynamic site names are HTML-escaped.
+- `mapLayers`: Memoized deck.gl layers for site statuses and co-location guides, with maintenance-band and alert-status styling.
 - `renderChronicTable(data, caption)`: Renders a generic tabular display for chronic insights.
 
 #### Permission Enforcement

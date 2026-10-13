@@ -33,12 +33,16 @@ def rca_dashboard(user=Depends(get_current_user)):
     payload = svc.filter_aiops_payload_for_user(
         {"alerts": alerts, "events": events, "grid": grid}, user, locations=locs
     )
+    active_issue_counts = svc.get_aiops_active_issue_counts(
+        allowed_site_names=None if is_admin else allowed_sites
+    )
     
     # Send the investigating states down to all users
     return {
         "alerts": payload["alerts"],
         "events": payload["events"],
         "grid": payload["grid"],
+        "active_issue_counts": active_issue_counts,
         "locations": [
             location for location in locs
             if is_admin or location.get("name") in allowed_sites
@@ -171,9 +175,14 @@ def dispatch(background_tasks: BackgroundTasks, data: dict = Body(...), user=Dep
 # UPDATE: Add BackgroundTasks to force live-sync on Maintenance 
 @router.post("/site-maintenance", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board"))])
 def site_maintenance(background_tasks: BackgroundTasks, data: dict = Body(...), user=Depends(require_action("Action: Manage Site Maintenance"))):
-    from datetime import datetime
-    site_name = data.get("site_name", "")
-    is_maint = data.get("is_maint", False)
+    from datetime import date
+    site_name = str(data.get("site_name") or "").strip()
+    if not site_name:
+        raise HTTPException(status_code=422, detail="site_name is required.")
+    if "is_maint" not in data or not isinstance(data.get("is_maint"), bool):
+        raise HTTPException(status_code=422, detail="is_maint must be a boolean.")
+
+    is_maint = data["is_maint"]
     etr = data.get("etr")
     reason = data.get("reason", "")
     if not svc.user_can_access_site(user, site_name):
@@ -181,8 +190,19 @@ def site_maintenance(background_tasks: BackgroundTasks, data: dict = Body(...), 
             "code": "site_scope_denied", "message": "This site is outside your permitted site types."
         })
     
-    etr_date = datetime.fromisoformat(etr) if etr else None
-    svc.set_site_maintenance(site_name, is_maint, etr_date, reason, modified_by=user.username)
+    try:
+        etr_date = date.fromisoformat(etr) if is_maint and etr else None
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="etr must be an ISO date.") from exc
+    updated = svc.set_site_maintenance(
+        site_name,
+        is_maint,
+        etr_date,
+        reason if is_maint else "",
+        modified_by=user.username,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Site not found.")
     
     from src.api.main import manager
     background_tasks.add_task(manager.broadcast_json, {"type": "RCA_UPDATE"})
@@ -229,7 +249,7 @@ def send_ticket(background_tasks: BackgroundTasks, data: dict = Body(...), user=
         recipient_override=recipient,
         is_html=False
     )
-    if alert_ids:
+    if success and alert_ids:
         svc.set_cluster_dispatch(alert_ids, True, dispatched_by=user.username)
     from src.api.main import manager
     background_tasks.add_task(manager.broadcast_json, {"type": "RCA_UPDATE"})

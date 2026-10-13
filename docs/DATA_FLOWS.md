@@ -870,14 +870,15 @@ correlation chain, and dispatches RCA tickets with dual-SLA escalation logic.
 │  │  └──────────────────────────────────────────────────────────────┘ │  │
 │  │                                                                    │  │
 │  │  Dispatch Flow:                                                   │  │
-│  │  1. Sort undispatched alerts by received_at                      │  │
-│  │  2. Determine highest-weight tier (cascade detection)            │  │
-│  │  3. Check node cooldown (flapping detection)                     │  │
-│  │  4. Check site-level onpage mute (1h after last onpage)         │  │
-│  │  5. Wait period elapsed?                                         │  │
-│  │  6. Day shift:  → Remedyforce ticket email only                  │  │
-│  │     After hours: → Ticket + NOC Notification + On-Page           │  │
-│  │  7. Mark all cluster alerts as is_ticketed=True                  │  │
+│  │  1. Separate pending site-ticket work from page retries           │  │
+│  │  2. Apply same-node cooldown without consuming sibling alerts     │  │
+│  │  3. Determine highest-weight tier and cascade wait                │  │
+│  │  4. Routine site cooldown: retain lower tiers as pending           │  │
+│  │     P1 ticket/page exceptions bypass cooldown as eligible         │  │
+│  │  5. Day shift:  → Remedyforce ticket email only                   │  │
+│  │     After hours: → Ticket + NOC Notification + eligible On-Page   │  │
+│  │  6. Mark site cluster ticketed only after ticket email succeeds   │  │
+│  │     Persist page delivery per active node incident                │  │
 │  └────────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
@@ -906,13 +907,15 @@ Cooldown hours:
   P2-Hi through P5: 5 hours
 ```
 
-When a node is on cooldown, the entire cluster is muted and all alerts marked as ticketed.
+When a node is on cooldown, only that node's pending ticket work is suppressed. Its alert
+remains pending, and unrelated nodes at the site remain eligible for the site-level ticket.
 
 ### Site-Level On-Page Mute
 
-After an on-page is dispatched for a site, no further on-pages are sent for that site
-for 1 hour (`loc.last_escalation_ticket`). The cluster is still ticketed, but the
-on-page step is suppressed.
+After an on-page is dispatched, the site has a one-hour after-hours cooldown
+(`loc.last_escalation_ticket`) for routine incidents. P1-high/P1-low can bypass it;
+the page is sent only once per unresolved node incident (`onpage_sent_at`). Routine
+alerts remain pending while muted instead of being marked ticketed without delivery.
 
 ---
 

@@ -47,6 +47,7 @@ async def broadcaster():
                 await asyncio.sleep(10)
                 continue
             alerts, events, grid = await asyncio.to_thread(svc.get_aiops_dashboard_data)
+            active_issue_counts = await asyncio.to_thread(svc.get_aiops_active_issue_counts)
             locations = await asyncio.to_thread(svc.get_cached_locations)
             non_admin_scopes = sorted({
                 tuple(sorted(svc.get_allowed_site_names_for_user(user, locations=locations)))
@@ -67,6 +68,7 @@ async def broadcaster():
                 "alerts": alerts,
                 "events": events,
                 "grid": grid,
+                "active_issue_counts": active_issue_counts,
                 "alert_count": len(alerts),
             }
 

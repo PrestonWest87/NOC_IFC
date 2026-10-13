@@ -234,9 +234,9 @@ Three tabs for root cause analysis and response:
 - **Fleet Detection**: Identifies massive carrier/infrastructure outages
 
 #### Site Maintenance & Dispatch
-- **Maintenance Form**: Set sites into maintenance mode with ETR and reason
+- **Maintenance Form**: Set sites into maintenance mode with ETR and reason, or clear maintenance from the site dialog even when no incident is active
   - Requires `Action: Manage Site Maintenance`
-  - Auto-clears expired ETRs during RCA analysis
+  - The maintenance-expiry scheduler clears expired ETRs; an authorized operator can also clear maintenance at any time
   - Tracks who modified status and when
 - **Dispatch Controls**: Generate and send ticket emails
   - Requires `Action: Dispatch RCA Tickets`

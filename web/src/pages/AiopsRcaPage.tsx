@@ -7,7 +7,7 @@ import { formatTimeInChicago, chicagoDateString, formatEtrDate } from "../utils/
 import { MapContainer } from "../components/MapContainer";
 import { MarkdownContent } from "../components/MarkdownContent";
 import DeckGL from "@deck.gl/react";
-import { ScatterplotLayer } from "@deck.gl/layers";
+import { LineLayer, ScatterplotLayer } from "@deck.gl/layers";
 import { Map } from "@vis.gl/react-maplibre";
 import type { MapViewState } from "@deck.gl/core";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -33,7 +33,7 @@ const SITE_MAP_STATUS: Record<SiteMapStatus, { label: string; color: SiteMapColo
 };
 
 const SITE_MAP_STATUS_ORDER: SiteMapStatus[] = [
-  "up", "actionRequired", "needsDispatch", "investigating", "dispatched", "maintenance",
+  "up", "actionRequired", "needsDispatch", "investigating", "dispatched",
 ];
 const SITE_WORKFLOW_STATUS_ORDER: SiteWorkflowStatus[] = [
   "actionRequired", "investigating", "needsDispatch", "dispatched", "maintenance",
@@ -250,11 +250,12 @@ export function AiopsRcaPage() {
   const saveMaint = useCallback(
     (site: string) => {
       const f = maintForm[site] || { status: "No Maintenance", etr: "", reason: "" };
+      const isMaint = f.status === "Active Maintenance";
       maintMutation.mutate({
         site_name: site,
-        is_maint: f.status === "Active Maintenance",
-        etr: f.etr,
-        reason: f.reason,
+        is_maint: isMaint,
+        etr: isMaint ? f.etr : "",
+        reason: isMaint ? f.reason : "",
       });
     },
     [maintForm, maintMutation]
@@ -262,6 +263,7 @@ export function AiopsRcaPage() {
 
   const locations = dashboard?.locations ?? [];
   const alerts: any[] = dashboard?.alerts ?? [];
+  const activeIssueCounts: Record<string, number> = dashboard?.active_issue_counts ?? {};
   const events = dashboard?.events ?? [];
   const clustered = analysis?.clustered ?? {};
   const fleetOutages = analysis?.fleet_outages ?? [];
@@ -286,12 +288,13 @@ export function AiopsRcaPage() {
     () => {
       const mapped = (filteredLocations ?? []).map((l: any) => {
         const siteAlerts = alerts.filter((a: any) => a.mapped_location === l.name);
+        const activeIssueCount = Number(activeIssueCounts[l.name] ?? siteAlerts.length);
         return {
           name: l.name,
           lat: l.lat,
           lon: l.lon,
           loc_type: l.loc_type,
-          alert_count: siteAlerts.length,
+          alert_count: activeIssueCount,
           is_dispatched: siteAlerts.length > 0 && siteAlerts.every((a: any) => Boolean(a.is_dispatched)),
           needs_dispatch: siteAlerts.some((a: any) => Boolean(a.needs_dispatch)),
           under_maintenance: l.under_maintenance ?? false,
@@ -303,7 +306,7 @@ export function AiopsRcaPage() {
       });
       return mapped;
     },
-    [filteredLocations, alerts]
+    [filteredLocations, alerts, activeIssueCounts]
   );
 
   const incidentSites = useMemo(() => {
@@ -425,8 +428,9 @@ export function AiopsRcaPage() {
   const [dialogError, setDialogError] = useState("");
 
   const openSiteDialog = useCallback((site: any) => {
-    const lat = site.position ? site.position[1] : site.lat;
-    const lon = site.position ? site.position[0] : site.lon;
+    const actualPosition = site.anchor_position ?? site.position;
+    const lat = actualPosition ? actualPosition[1] : site.lat;
+    const lon = actualPosition ? actualPosition[0] : site.lon;
     setSiteDialog({ ...site, lat, lon });
     const hasActiveAlerts = Number(site.alert_count) > 0;
     const workflowStatus: SiteWorkflowStatus | null = site.under_maintenance
@@ -559,7 +563,7 @@ export function AiopsRcaPage() {
           `<b>${escapeTooltipHtml(d.name)}</b>`,
           `<br/><b>Map Status:</b> ${escapeTooltipHtml(d.status_text)}`,
           `<br/><b>Operational:</b> ${alertCount > 0 ? "Down / Action Required" : "Up / Clear"}`,
-          `<br/><b>Alerts:</b> ${alertCount}`,
+          `<br/><b>Unresolved alerts:</b> ${alertCount}`,
           `<br/><b>Dispatch:</b> ${dispatchStatus}`,
           `<br/><b>Investigation:</b> ${d.is_investigating ? "Investigating" : "Not Investigating"}`,
           `<br/><b>Maintenance:</b> ${d.under_maintenance ? "Under Maintenance" : "Not in Maintenance"}`,
@@ -571,87 +575,126 @@ export function AiopsRcaPage() {
   }, []);
 
   const mapLayers = useMemo(() => {
-    const seenCoords: Record<string, number> = {};
+    const coordinateGroups = new globalThis.Map<string, any[]>();
+    const offsetPositions = new globalThis.Map<string, [number, number]>();
+    const coLocationLinks: any[] = [];
+    const coLocationAnchors: any[] = [];
     const pts: any[] = [];
-    const pulseData: any[] = [];
+
+    for (const site of sites) {
+      if (site.lat == null || site.lon == null || site.lat === "" || site.lon === "") {
+        continue;
+      }
+      const lat = Number(site.lat);
+      const lon = Number(site.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        continue;
+      }
+      const coordinateKey = `${lat.toFixed(6)}_${lon.toFixed(6)}`;
+      const group = coordinateGroups.get(coordinateKey) ?? [];
+      group.push({ ...site, lat, lon });
+      coordinateGroups.set(coordinateKey, group);
+    }
+
+    for (const group of coordinateGroups.values()) {
+      if (group.length === 1) {
+        offsetPositions.set(group[0].name, [group[0].lon, group[0].lat]);
+        continue;
+      }
+
+      const ordered = [...group].sort((left, right) =>
+        String(left.name).localeCompare(String(right.name))
+      );
+      const anchorLat = ordered.reduce((sum, site) => sum + site.lat, 0) / ordered.length;
+      const anchorLon = ordered.reduce((sum, site) => sum + site.lon, 0) / ordered.length;
+      const anchorPosition: [number, number] = [anchorLon, anchorLat];
+      const radiusMeters = Math.min(750, 225 * Math.sqrt(ordered.length));
+      const longitudeScale = Math.max(Math.cos((anchorLat * Math.PI) / 180), 0.2);
+      coLocationAnchors.push({ position: anchorPosition });
+
+      ordered.forEach((site, index) => {
+        const angle = -Math.PI / 2 + (2 * Math.PI * index) / ordered.length;
+        const offsetLat = (radiusMeters * Math.sin(angle)) / 111_320;
+        const offsetLon = (radiusMeters * Math.cos(angle)) / (111_320 * longitudeScale);
+        const position: [number, number] = [site.lon + offsetLon, site.lat + offsetLat];
+        offsetPositions.set(site.name, position);
+        coLocationLinks.push({ source: anchorPosition, target: position });
+      });
+    }
 
     for (const s of sites) {
       const isDown = s.alert_count > 0;
-      const isUnderMaintenance = s.under_maintenance;
       const isDispatched = s.is_dispatched;
       const isInvestigating = investigatingSites.has(s.name);
       const needsDispatch = s.needs_dispatch;
 
       let statusKey: SiteMapStatus;
-      let showPulse: boolean;
       let radius: number;
 
-      if (isUnderMaintenance) {
-        statusKey = "maintenance";
-        showPulse = false;
-        radius = 2500;
-      } else if (isDown && isDispatched) {
+      if (!isDown) {
+        // Maintenance and workflow labels are annotations. Operational health
+        // is green as soon as no unresolved issue remains at the site.
+        statusKey = "up";
+        radius = 2000;
+      } else if (isDispatched) {
         // Dispatch completion supersedes investigation on the map, even if the
         // investigation marker is still set.
         statusKey = "dispatched";
-        showPulse = false;
         radius = 3000;
-      } else if (isDown && isInvestigating) {
+      } else if (isInvestigating) {
         statusKey = "investigating";
-        showPulse = false;
         radius = 3500;
-      } else if (isDown && needsDispatch) {
+      } else if (needsDispatch) {
         statusKey = "needsDispatch";
-        showPulse = true;
-        radius = 4000;
-      } else if (isDown) {
-        statusKey = "actionRequired";
-        showPulse = true;
         radius = 4000;
       } else {
-        statusKey = "up";
-        showPulse = false;
-        radius = 2000;
+        statusKey = "actionRequired";
+        radius = 4000;
       }
       const { color, label: statusText } = SITE_MAP_STATUS[statusKey];
 
-      const coordKey = `${s.lat}_${s.lon}`;
-      if (seenCoords[coordKey] !== undefined) {
-        seenCoords[coordKey] += 1;
-        const offset = seenCoords[coordKey];
-        pts.push({
-          name: s.name, position: [s.lon + 0.012 * offset, s.lat + 0.012 * offset] as [number, number],
-          color, alert_count: s.alert_count, under_maintenance: s.under_maintenance,
-          status_key: statusKey,
-          is_dispatched: s.is_dispatched, needs_dispatch: s.needs_dispatch,
-          is_investigating: isInvestigating, maintenance_etr: s.maintenance_etr,
-          maintenance_reason: s.maintenance_reason,
-          status_modified_by: s.status_modified_by, status_modified_at: s.status_modified_at,
-          status_text: statusText, radius,
-        });
-      } else {
-        seenCoords[coordKey] = 0;
-        pts.push({
-          name: s.name, position: [s.lon, s.lat] as [number, number],
-          color, alert_count: s.alert_count, under_maintenance: s.under_maintenance,
-          status_key: statusKey,
-          is_dispatched: s.is_dispatched, needs_dispatch: s.needs_dispatch,
-          is_investigating: isInvestigating, maintenance_etr: s.maintenance_etr,
-          maintenance_reason: s.maintenance_reason,
-          status_modified_by: s.status_modified_by, status_modified_at: s.status_modified_at,
-          status_text: statusText, radius,
-        });
-      }
-
-      if (showPulse) {
-        pulseData.push({ position: [s.lon, s.lat] as [number, number], radius: 12000 });
-      }
+      pts.push({
+        name: s.name,
+        position: offsetPositions.get(s.name) ?? [s.lon, s.lat],
+        anchor_position:
+          s.lat != null && s.lon != null && s.lat !== "" && s.lon !== ""
+            ? [Number(s.lon), Number(s.lat)]
+            : undefined,
+        color,
+        alert_count: s.alert_count,
+        under_maintenance: s.under_maintenance,
+        status_key: statusKey,
+        is_dispatched: s.is_dispatched,
+        needs_dispatch: s.needs_dispatch,
+        is_investigating: isInvestigating,
+        maintenance_etr: s.maintenance_etr,
+        maintenance_reason: s.maintenance_reason,
+        status_modified_by: s.status_modified_by,
+        status_modified_at: s.status_modified_at,
+        status_text: statusText,
+        radius,
+      });
     }
 
     const okPts = pts.filter((d) => d.status_key === "up");
     const alertPts = pts.filter((d) => d.status_key !== "up");
 
-    const baseLayers: any[] = [
+    const baseLayers: any[] = [];
+    if (coLocationLinks.length > 0) {
+      baseLayers.push(new LineLayer({
+        id: "site-colocation-links",
+        data: coLocationLinks,
+        getSourcePosition: (d: any) => d.source,
+        getTargetPosition: (d: any) => d.target,
+        getColor: [148, 163, 184, 150],
+        getWidth: 1,
+        widthUnits: "pixels",
+        widthMinPixels: 1,
+        pickable: false,
+      }));
+    }
+
+    baseLayers.push(
       new ScatterplotLayer({
         id: "sites-ok",
         data: okPts,
@@ -662,8 +705,11 @@ export function AiopsRcaPage() {
         radiusMaxPixels: 15,
         pickable: true,
         stroked: true,
-        getLineColor: [255, 255, 255, 255],
+        getLineColor: (d: any) => d.under_maintenance ? [59, 130, 246, 255] : [255, 255, 255, 255],
+        getLineWidth: (d: any) => d.under_maintenance ? 4 : 1,
+        lineWidthUnits: "pixels",
         lineWidthMinPixels: 1,
+        lineWidthMaxPixels: 4,
       }),
       new ScatterplotLayer({
         id: "sites-alert",
@@ -675,23 +721,27 @@ export function AiopsRcaPage() {
         radiusMaxPixels: 15,
         pickable: true,
         stroked: true,
-        getLineColor: [255, 255, 255, 200],
-        lineWidthMinPixels: 2,
+        getLineColor: (d: any) => d.under_maintenance ? [59, 130, 246, 255] : [255, 255, 255, 200],
+        getLineWidth: (d: any) => d.under_maintenance ? 4 : 2,
+        lineWidthUnits: "pixels",
+        lineWidthMinPixels: 1,
+        lineWidthMaxPixels: 4,
       }),
-    ];
+    );
 
-    if (pulseData.length > 0) {
-      baseLayers.push(
-        new ScatterplotLayer({
-          id: "alert-pulses",
-          data: pulseData,
-          getPosition: (d: any) => d.position,
-          getFillColor: [239, 68, 68, 40],
-          getRadius: (d: any) => d.radius,
-          radiusMaxPixels: 45,
-          pickable: false,
-        })
-      );
+    if (coLocationAnchors.length > 0) {
+      baseLayers.push(new ScatterplotLayer({
+        id: "site-colocation-anchors",
+        data: coLocationAnchors,
+        getPosition: (d: any) => d.position,
+        getRadius: 60,
+        getFillColor: [15, 23, 42, 235],
+        getLineColor: [226, 232, 240, 255],
+        radiusMinPixels: 3,
+        radiusMaxPixels: 4,
+        stroked: true,
+        pickable: false,
+      }));
     }
 
     return baseLayers;
@@ -840,6 +890,16 @@ export function AiopsRcaPage() {
                     </span>
                   );
                 })}
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", whiteSpace: "nowrap" }}>
+                  <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: "50%", background: "transparent", border: "2px solid #3b82f6", boxSizing: "border-box" }} />
+                  Under Maintenance
+                </span>
+                <span title="Markers connected to a shared point have identical site coordinates." style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", whiteSpace: "nowrap" }}>
+                  <span aria-hidden="true" style={{ width: 10, height: 2, background: "#94a3b8", position: "relative" }}>
+                    <span style={{ position: "absolute", width: 4, height: 4, borderRadius: "50%", background: "#e2e8f0", left: 3, top: -1 }} />
+                  </span>
+                  Co-located sites
+                </span>
               </div>
               {siteDialog && (
                 <div role="presentation" style={{
@@ -920,6 +980,28 @@ export function AiopsRcaPage() {
 
                     {dialogError && <div role="alert" style={{ color: "var(--accent-red)", marginBottom: "0.5rem" }}>{dialogError}</div>}
                     <div style={{ display: "flex", gap: "0.4rem", justifyContent: "flex-end", borderTop: "1px solid var(--border-primary)", paddingTop: "0.4rem" }}>
+                      {canManageMaint && siteDialog.under_maintenance && (
+                        <button
+                          onClick={async () => {
+                            setDialogError("");
+                            try {
+                              await maintMutation.mutateAsync({
+                                site_name: siteDialog.name,
+                                is_maint: false,
+                                etr: "",
+                                reason: "",
+                              });
+                              setSiteDialog(null);
+                            } catch (error: any) {
+                              setDialogError(error?.response?.data?.detail || "Unable to clear maintenance. Please retry.");
+                            }
+                          }}
+                          disabled={maintMutation.isPending}
+                          style={{ background: "var(--accent-orange)", color: "#fff", border: "none", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer", fontWeight: 600, opacity: maintMutation.isPending ? 0.6 : 1 }}
+                        >
+                          {maintMutation.isPending ? "Clearing..." : "Clear Maintenance"}
+                        </button>
+                      )}
                       <button onClick={() => setSiteDialog(null)}
                         style={{ background: "var(--bg-tertiary)", color: "var(--text-secondary)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.3rem 0.7rem", fontSize: "0.78rem", cursor: "pointer" }}>
                         Cancel
@@ -1236,7 +1318,7 @@ export function AiopsRcaPage() {
                               const cluster = clustered[site] ?? {};
                               const district = cluster.site_metadata?.district ?? "Unknown";
                               const priority = rc?.priority ?? "P3";
-                              await api.post("/rca/send-ticket", {
+                              const response = await api.post("/rca/send-ticket", {
                                 site,
                                 priority,
                                 district,
@@ -1244,6 +1326,9 @@ export function AiopsRcaPage() {
                                 recipient: "remedyforceworkflow@aecc.com, noc@aecc.com",
                                 alert_ids: alertIds,
                               });
+                              if (response.data?.status !== "ok") {
+                                throw new Error(response.data?.message || "Ticket delivery failed.");
+                              }
                               updateDispatchStatus(alertIds, true);
                               queryClient.invalidateQueries({ queryKey: ["rca-analyze"] });
                             } catch (err) {

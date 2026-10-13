@@ -143,11 +143,10 @@ Normalizes whitespace and hyphens to underscores, maps `PRIMARY_INTERNET` to the
    - INTERNET/COMMS_EQUIPMENT: transport outage or congestion
    - SCADA/RTU: isolated OT telemetry failure
    - Other: generalized infrastructure degradation
-8. Checks maintenance mode: auto-clears expired ETR
-9. Geospatial weather correlation: calculates haversine distance to hazard epicenters
-10. Applies alert level override (Level 1 = +50 policy override)
-11. Maps max_alert_level to P1-P5 priority with SLA times
-12. Returns cause, capped score (max 100), priority string, evidence log, blast radius, patient zero, cascade delay
+8. Geospatial weather correlation: calculates haversine distance to hazard epicenters
+9. Applies alert level override (Level 1 = +50 policy override)
+10. Maps max_alert_level to P1-P5 priority with SLA times
+11. Returns cause, capped score (max 100), priority string, evidence log, blast radius, patient zero, cascade delay
 
 ---
 

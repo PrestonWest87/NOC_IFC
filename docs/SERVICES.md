@@ -165,12 +165,13 @@ Persists a point-in-time risk snapshot to the database. Used for historical tren
 
 | Function | Description |
 |---|---|
-| `get_aiops_dashboard_data()` | Returns the full AIOps board state: active clusters, site statuses, maintenance windows, and correlation metadata. |
+| `get_aiops_dashboard_data()` | Returns unacknowledged active alerts, timeline events, and active grid outages for the AIOps board. |
+| `get_aiops_active_issue_counts(allowed_site_names)` | Counts all unresolved alerts per site, including acknowledged alerts, for map health. |
 | `acknowledge_cluster(cluster_id, user)` | Marks an alert cluster as acknowledged by an operator. Records `status_modified_by` and `status_modified_at`. |
 | `generate_global_sitrep()` | Produces a global situation report from all active alert clusters. Uses LLM for narrative generation with structured data injection. |
 | `generate_rca_ticket_text(cluster_data)` | Ported from main branch. Generates dynamic RCA dispatch ticket text with domain-aware formatting, compact alerts, district line, and trigger time. |
 | `set_cluster_dispatch(cluster_id, user)` | Transitions cluster to DISPATCHED status. Records operator identity and timestamp. |
-| `set_site_maintenance(site_name, user, reason)` | Toggles maintenance mode for a site. Maintenance is **sticky** — must be manually cleared, not auto-removed. |
+| `set_site_maintenance(site_name, is_maint, etr_date, reason, modified_by)` | Sets or clears site maintenance. Clearing nulls ETR/reason; the separate ETR-expiry scheduler remains active. |
 
 ### Reporting
 

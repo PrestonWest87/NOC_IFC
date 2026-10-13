@@ -382,13 +382,14 @@ Schedule library fires
         ├─ 3d. Detect cascading alerts
         │      └─ Higher-priority sibling alerts at same site
         │
-        ├─ 3e. Check node cooldown (flapping detection)
-        │      └─ Skip if same node alerted within cooldown window
+        ├─ 3e. Apply same-node cooldown to ticket candidates
+        │      └─ Keep the suppressed node pending; do not mute sibling devices
         │
-        ├─ 3f. Check site-level on-page mute
-        │      └─ 1-hour cooldown per site; skip paging if muted
+        ├─ 3f. Apply one-hour after-hours site cooldown to routine dispatches
+        │      ├─ Routine alerts remain pending and un-ticketed
+        │      └─ P1 ticket/page can bypass; page only if active node incident is unpaged
         │
-        ├─ 3g. Dispatch ticket email
+        ├─ 3g. Dispatch one site-level ticket email
         │      └─ To: REMEDYFORCE_TICKET_EMAIL
         │      └─ Body: RCA ticket text (compact alerts, district line, trigger time)
         │
@@ -396,10 +397,10 @@ Schedule library fires
         │      ├─ Send NOC notification email
         │      └─ Page on-call personnel
         │
-        └─ 3i. Mark alerts
-               ├─ Update SolarWindsAlert.is_ticketed = True
-               └─ Update MonitoredLocation tracking fields
-                  (status_modified_by, status_modified_at)
+        └─ 3i. Persist delivery outcomes
+               ├─ Mark site-cluster alerts ticketed only after ticket success
+               ├─ Record page delivery per active node incident
+               └─ Update site cooldown only after page success
 ```
 
 #### Outputs
@@ -649,7 +650,7 @@ User clicks "Dispatch Ticket"
 User clicks "Set Maintenance"
   │
   ├─ 1. POST /rca/site-maintenance
-  │     └─ Body: location_id, under_maintenance, etr, reason
+  │     └─ Body: site_name, is_maint, etr, reason
   │
   ├─ 2. set_site_maintenance()
   │     ├─ Toggle MonitoredLocation.under_maintenance
@@ -661,7 +662,7 @@ User clicks "Set Maintenance"
   └─ 4. Frontend receives WebSocket event → refreshes cluster view
 ```
 
-**Note:** Maintenance is sticky — it persists until manually cleared. The auto-clear escalation guard does not affect maintenance status.
+**Note:** Maintenance can be cleared from the site dialog even when no incident is active. Clearing nulls the ETR and reason; the existing ETR-expiry job remains available. Maintenance does not gate alert ingestion or escalation. The map's operational fill is green when no unresolved issues remain, while a blue outline preserves the maintenance annotation.
 
 ---
 
