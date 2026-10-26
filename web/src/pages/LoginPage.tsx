@@ -5,6 +5,7 @@ import { useAuth } from "../utils/AuthContext";
 import { PAGE_ROUTE_MAP } from "../utils/routeConfig";
 import { getApiErrorMessage } from "../utils/api";
 
+/** Authenticate the operator and route to the first workspace allowed by their page grants. */
 export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();

@@ -1,3 +1,5 @@
+"""Generate and archive the previous Central-time day's Daily Fusion report."""
+
 import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -11,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def run_daily_report():
+    """Generate and archive the prior Central-time day unless its report already exists."""
     logger.info("06:00 AM trigger hit! Initiating Daily Fusion Report synthesis...")
     session = SessionLocal()
     try:

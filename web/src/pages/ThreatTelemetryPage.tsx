@@ -216,6 +216,7 @@ function Pagination({
   );
 }
 
+/** Render RSS triage, KEVs, cloud status, and perimeter-crime workflows. */
 export function ThreatTelemetryPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();

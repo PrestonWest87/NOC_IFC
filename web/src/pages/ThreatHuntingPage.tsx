@@ -163,6 +163,7 @@ function Badge({ label }: { label: string }) {
   );
 }
 
+/** Render IOC pivots, article hunts, cached Elastic events, and bounded SIEM triage. */
 export function ThreatHuntingPage() {
   const { user } = useAuth();
   const allowedHuntTabs = getAllowedTabs(user?.allowed_actions, "threatHunting");

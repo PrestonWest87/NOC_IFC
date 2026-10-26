@@ -34,6 +34,7 @@ const queryClient = new QueryClient({
   },
 });
 
+/** Catch render failures at the page boundary and offer a full-workspace reload. */
 class PageErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
 
@@ -61,6 +62,7 @@ class PageErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
   }
 }
 
+/** Preserve an authenticated session while showing an access-denied page for missing grants. */
 function ProtectedRoute({ children, path }: { children: React.ReactNode; path?: string }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
@@ -81,6 +83,7 @@ function ProtectedRoute({ children, path }: { children: React.ReactNode; path?: 
   return <Layout>{children}</Layout>;
 }
 
+/** Present structured 403 permission feedback without clearing authentication state. */
 function PermissionNoticeHost() {
   const [message, setMessage] = useState("");
   useEffect(() => {
@@ -102,6 +105,7 @@ function PermissionNoticeHost() {
   );
 }
 
+/** Register public recovery routes and lazy-loaded page-protected workspaces. */
 function AppRoutes() {
   return (
     <Suspense fallback={<div style={{ padding: "2rem", color: "var(--text-primary)" }}>Loading NOC workspace...</div>}>
@@ -125,11 +129,13 @@ function AppRoutes() {
   );
 }
 
+/** Mount the AIOps socket hook for the lifetime of the SPA. */
 function RealtimeBridge() {
   useAIOpsWebSocket();
   return null;
 }
 
+/** Compose the router, auth, query, theme, realtime, and error-boundary providers. */
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>

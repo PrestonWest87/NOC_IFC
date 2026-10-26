@@ -5,6 +5,7 @@ import { Map } from "@vis.gl/react-maplibre";
 import type { MapViewState } from "@deck.gl/core";
 import "maplibre-gl/dist/maplibre-gl.css";
 
+/** Site fields consumed by this standalone AIOps map helper. */
 interface Site {
   name: string;
   lat: number;
@@ -12,6 +13,7 @@ interface Site {
   alert_count: number;
 }
 
+/** Data and optional view configuration for the AIOps map helper. */
 interface AIOpsMapProps {
   sites: Site[];
   viewState?: MapViewState;
@@ -28,6 +30,7 @@ const INITIAL_VIEW: MapViewState = {
 
 const DARK_MATTER = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 
+/** Render supplied sites with deck.gl overlays and a selected-site popup. */
 export function AIOpsMap({ sites, viewState = INITIAL_VIEW, height = "100%", tabKey }: AIOpsMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [fs, setFs] = useState(false);

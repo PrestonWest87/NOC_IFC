@@ -1,3 +1,5 @@
+"""Query Elasticsearch safely and maintain the bounded local high-severity event cache."""
+
 import logging
 import re
 from copy import deepcopy
@@ -63,6 +65,7 @@ def _get_client():
 
 
 def sync_elastic_telemetry(hours_back=24):
+    """Query recent high-severity events with bounded scroll pages and upsert the local cache."""
     if not isinstance(hours_back, int) or isinstance(hours_back, bool) or hours_back < 1:
         raise ValueError("hours_back must be a positive integer")
 
@@ -213,6 +216,7 @@ def sync_elastic_telemetry(hours_back=24):
 
 
 def execute_live_query(index_pattern="*", query_body=None, size=100):
+    """Execute a bounded live Elastic query for analyst inspection."""
     if not isinstance(index_pattern, str) or not index_pattern or not re.fullmatch(r"[A-Za-z0-9_.*?,:-]+", index_pattern):
         return {"error": "Invalid Elasticsearch index pattern."}
     if not isinstance(size, int) or isinstance(size, bool) or size < 1 or size > ELASTIC_MAX_RESULTS:
@@ -242,6 +246,7 @@ def execute_live_query(index_pattern="*", query_body=None, size=100):
 
 
 def purge_stale_elastic_data(hours_to_keep=72):
+    """Delete cached Elastic events older than the configured local-retention window."""
     with SessionLocal() as db:
         cutoff = datetime.utcnow() - timedelta(hours=hours_to_keep)
         db.query(ElasticEvent).filter(ElasticEvent.timestamp < cutoff).delete()

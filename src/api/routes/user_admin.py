@@ -1,3 +1,10 @@
+"""User, role, invitation, and administrator-reviewed recovery operations.
+
+The router requires Settings page and Users & Roles tab access. Each handler
+adds its management/review grant; delegated role assignment and target-account
+checks are enforced again in this module and the service layer.
+"""
+
 import logging
 from typing import Literal
 
@@ -20,6 +27,7 @@ router = APIRouter(
 
 
 class DisplayAccountRequest(BaseModel):
+    """Validated credentials/profile for an administrator-created display account."""
     username: str = Field(min_length=3, max_length=64)
     password: str = Field(min_length=12, max_length=256)
     role: str = Field(min_length=1, max_length=64)
@@ -27,6 +35,7 @@ class DisplayAccountRequest(BaseModel):
 
 
 class IndividualInviteRequest(BaseModel):
+    """Email-bound individual invitation fields and bounded expiration override."""
     username: str = Field(min_length=3, max_length=64)
     email: str = Field(min_length=3, max_length=254)
     role: str = Field(min_length=1, max_length=64)
@@ -35,33 +44,40 @@ class IndividualInviteRequest(BaseModel):
 
 
 class RoleRequest(BaseModel):
+    """Target role name for a user-role assignment."""
     role: str = Field(min_length=1, max_length=64)
 
 
 class StatusRequest(BaseModel):
+    """Account active-state update requested by a user manager."""
     is_active: bool
 
 
 class UserIdentityRequest(BaseModel):
+    """Editable display identity fields for an account profile."""
     full_name: str = Field(default="", max_length=200)
     job_title: str = Field(default="", max_length=200)
     contact_info: str = Field(default="", max_length=500)
 
 
 class AccountTypeRequest(BaseModel):
+    """Allowed account classification for an individual/display transition."""
     account_type: Literal["individual", "display"]
 
 
 class DecisionRequest(BaseModel):
+    """Approve/deny choice and audit reason for reviewed recovery requests."""
     approve: bool
     reason: str = Field(default="", max_length=1000)
 
 
 class AdministratorResetRequest(BaseModel):
+    """Replacement password for an authorized assisted account reset."""
     new_password: str = Field(min_length=12, max_length=256)
 
 
 class RoleDefinitionRequest(BaseModel):
+    """Role name plus explicit page, action/tab, and site-type grant arrays."""
     name: str = Field(min_length=1, max_length=64)
     allowed_pages: list[str] = Field(default_factory=list)
     allowed_actions: list[str] = Field(default_factory=list)
@@ -69,6 +85,7 @@ class RoleDefinitionRequest(BaseModel):
 
 
 def _send_email(subject: str, body: str, recipient: str, is_html: bool = False):
+    """Send one user-admin notification and log delivery failure without leaking its body."""
     from src.utils.mailer import send_alert_email
 
     success, message = send_alert_email(
@@ -79,11 +96,13 @@ def _send_email(subject: str, body: str, recipient: str, is_html: bool = False):
 
 
 def _app_url():
+    """Resolve invitation links from saved application settings, falling back to runtime config."""
     config = svc.get_cached_config() or {}
     return str(config.get("public_app_url") or settings.public_app_url).rstrip("/")
 
 
 def _ensure_assignable_role(role: str, user):
+    """Prevent delegated managers from assigning admin or elevated user-admin roles."""
     if role.casefold() in {"admin", "administrator"} and not is_admin(user):
         raise HTTPException(
             status_code=403,
@@ -114,6 +133,7 @@ def _ensure_assignable_role(role: str, user):
 
 
 def _ensure_manageable_target(target, actor):
+    """Restrict delegated account changes to targets without administrator/reviewer authority."""
     if is_admin(actor):
         return
     elevated = {
@@ -129,6 +149,7 @@ def _ensure_manageable_target(target, actor):
 
 
 def _validate_role_delegation(data: RoleDefinitionRequest, actor):
+    """Require every delegated page, action/tab, and site-type grant to be held by the editor."""
     if is_admin(actor):
         return
     if not set(data.allowed_pages).issubset(set(actor.allowed_pages or [])):
@@ -150,11 +171,13 @@ def _validate_role_delegation(data: RoleDefinitionRequest, actor):
 
 @router.get("/users", dependencies=[Depends(require_action("Action: Manage Users"))])
 def list_users():
+    """Return the account directory for authorized user managers."""
     return svc.get_user_directory()
 
 
 @router.get("/roles", dependencies=[Depends(require_action("Action: Manage Users"))])
 def list_assignable_roles(user=Depends(get_current_user)):
+    """Return role choices while hiding administrator/elevated-review roles from delegates."""
     roles = svc.get_all_roles()
     if is_admin(user):
         return roles
@@ -171,6 +194,7 @@ def list_assignable_roles(user=Depends(get_current_user)):
 
 @router.get("/role-definitions", dependencies=[Depends(require_action("Action: Manage Roles"))])
 def list_role_definitions(user=Depends(get_current_user)):
+    """Return editable role definitions, excluding administrator roles for delegates."""
     roles = svc.get_all_roles()
     if is_admin(user):
         return roles
@@ -179,11 +203,13 @@ def list_role_definitions(user=Depends(get_current_user)):
 
 @router.get("/site-types", dependencies=[Depends(require_action("Action: Manage Roles"))])
 def list_role_site_types():
+    """Return live site-type choices used by role grant editors."""
     return svc.get_all_site_types()
 
 
 @router.post("/display-accounts", dependencies=[Depends(require_action("Action: Manage Users"))])
 def create_display_account(data: DisplayAccountRequest, user=Depends(get_current_user)):
+    """Create an email-optional display account after validating its assignable role."""
     _ensure_assignable_role(data.role, user)
     try:
         user_id = svc.create_display_account(
@@ -200,6 +226,7 @@ def invite_individual(
     background_tasks: BackgroundTasks,
     user=Depends(get_current_user),
 ):
+    """Create an email-bound individual invitation and queue its registration link."""
     _ensure_assignable_role(data.role, user)
     try:
         raw_token, expires_at = svc.create_registration_invite(
@@ -235,11 +262,13 @@ def invite_individual(
 
 @router.get("/invitations", dependencies=[Depends(require_action("Action: Manage Users"))])
 def list_invitations():
+    """Return pending individual invitations without exposing stored token hashes."""
     return svc.get_pending_registration_invites()
 
 
 @router.post("/invitations/{invite_id}/resend", dependencies=[Depends(require_action("Action: Manage Users"))])
 def resend_invitation(invite_id: int, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
+    """Issue and email a replacement token for a still-pending invitation."""
     invite = next((item for item in svc.get_pending_registration_invites() if item["id"] == invite_id), None)
     if not invite:
         raise HTTPException(status_code=404, detail="Pending invitation not found.")
@@ -262,6 +291,7 @@ def resend_invitation(invite_id: int, background_tasks: BackgroundTasks, user=De
 
 @router.delete("/invitations/{invite_id}", dependencies=[Depends(require_action("Action: Manage Users"))])
 def revoke_invitation(invite_id: int, user=Depends(get_current_user)):
+    """Revoke a pending invitation while retaining its audit record."""
     if not svc.revoke_registration_invite(invite_id, actor_user_id=user.id):
         raise HTTPException(status_code=404, detail="Pending invitation not found.")
     return {"status": "revoked"}
@@ -269,6 +299,7 @@ def revoke_invitation(invite_id: int, user=Depends(get_current_user)):
 
 @router.put("/users/{username}/role", dependencies=[Depends(require_action("Action: Manage Users"))])
 def change_user_role(username: str, data: RoleRequest, actor=Depends(get_current_user)):
+    """Change an assignable user's role after target checks; the service revokes existing sessions."""
     _ensure_assignable_role(data.role, actor)
     with svc.SessionLocal() as db:
         target = db.query(svc.User).filter_by(username=username).first()
@@ -285,6 +316,7 @@ def change_user_role(username: str, data: RoleRequest, actor=Depends(get_current
 
 @router.patch("/users/{username}/status", dependencies=[Depends(require_action("Action: Manage Users"))])
 def set_user_status(username: str, data: StatusRequest, actor=Depends(get_current_user)):
+    """Disable or reactivate a manageable account and persist the acting administrator."""
     with svc.SessionLocal() as db:
         target = db.query(svc.User).filter_by(username=username).first()
         if not target:
@@ -297,6 +329,7 @@ def set_user_status(username: str, data: StatusRequest, actor=Depends(get_curren
 
 @router.put("/users/{username}/profile", dependencies=[Depends(require_action("Action: Manage Users"))])
 def update_user_identity(username: str, data: UserIdentityRequest, actor=Depends(get_current_user)):
+    """Update a manageable user's display identity fields."""
     with svc.SessionLocal() as db:
         target = db.query(svc.User).filter_by(username=username).first()
         if not target:
@@ -311,6 +344,7 @@ def update_user_identity(username: str, data: UserIdentityRequest, actor=Depends
 
 @router.patch("/users/{username}/account-type", dependencies=[Depends(require_action("Action: Manage Users"))])
 def set_account_type(username: str, data: AccountTypeRequest, actor=Depends(get_current_user)):
+    """Change a manageable account between individual and display under service-level constraints."""
     with svc.SessionLocal() as db:
         target = db.query(svc.User).filter_by(username=username).first()
         if not target:
@@ -323,6 +357,7 @@ def set_account_type(username: str, data: AccountTypeRequest, actor=Depends(get_
 
 @router.post("/users/{username}/revoke-sessions", dependencies=[Depends(require_action("Action: Manage Users"))])
 def revoke_sessions(username: str, actor=Depends(get_current_user)):
+    """Revoke every active session for a manageable account."""
     with svc.SessionLocal() as db:
         target = db.query(svc.User).filter_by(username=username).first()
         if not target:
@@ -335,6 +370,11 @@ def revoke_sessions(username: str, actor=Depends(get_current_user)):
 
 @router.post("/users/{username}/administrator-reset", dependencies=[Depends(require_action("Action: Manage Users"))])
 def administrator_reset(username: str, data: AdministratorResetRequest, actor=Depends(get_current_user)):
+    """Perform assisted recovery only for display accounts or by a built-in administrator.
+
+    Delegated managers cannot bypass reviewed reset for individual accounts or
+    the reviewed flow for an individual with a verified recovery address.
+    """
     with svc.SessionLocal() as db:
         target = db.query(svc.User).filter_by(username=username).first()
         if not target:
@@ -365,6 +405,7 @@ def administrator_reset(username: str, data: AdministratorResetRequest, actor=De
 
 @router.get("/recovery-requests", dependencies=[Depends(require_action("Action: Review Account Recovery Requests"))])
 def list_recovery_requests():
+    """Return pending password-reset requests to authorized recovery reviewers."""
     return svc.list_password_reset_requests()
 
 
@@ -375,6 +416,7 @@ def decide_recovery_request(
     background_tasks: BackgroundTasks,
     reviewer=Depends(get_current_user),
 ):
+    """Record a reviewer decision and email a single-use reset link only on approval."""
     try:
         result = svc.review_password_reset_request(
             request_id, reviewer.id, data.approve, data.reason
@@ -404,6 +446,7 @@ def decide_recovery_request(
 
 @router.get("/email-change-requests", dependencies=[Depends(require_action("Action: Approve Recovery Email Changes"))])
 def list_recovery_email_requests():
+    """Return recovery-email changes awaiting review."""
     return svc.list_email_change_requests()
 
 
@@ -414,6 +457,7 @@ def decide_recovery_email_request(
     background_tasks: BackgroundTasks,
     reviewer=Depends(get_current_user),
 ):
+    """Record the review decision and queue mailbox verification for an approved address."""
     try:
         result = svc.review_email_change_request(
             request_id, reviewer.id, data.approve, data.reason
@@ -439,6 +483,7 @@ def decide_recovery_email_request(
 
 @router.post("/roles", dependencies=[Depends(require_action("Action: Manage Roles"))])
 def create_role(data: RoleDefinitionRequest, actor=Depends(get_current_user)):
+    """Create a role after enforcing the editor's grant-delegation boundary."""
     _validate_role_delegation(data, actor)
     try:
         created = svc.create_role(
@@ -453,6 +498,7 @@ def create_role(data: RoleDefinitionRequest, actor=Depends(get_current_user)):
 
 @router.put("/roles/{name}", dependencies=[Depends(require_action("Action: Manage Roles"))])
 def update_role(name: str, data: RoleDefinitionRequest, actor=Depends(get_current_user)):
+    """Update a custom role's grants; built-in administrator grants are immutable here."""
     if name.casefold() in {"admin", "administrator"}:
         raise HTTPException(status_code=400, detail="The built-in administrator role cannot be edited.")
     if name != data.name:

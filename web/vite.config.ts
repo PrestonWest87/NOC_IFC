@@ -1,3 +1,4 @@
+/** Vite build/dev configuration plus local MapLibre and Firefox compatibility patches. */
 import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +14,7 @@ const maplibreUserSelectRestore = /(\w+)\.docStyle\[\1\.selectProp\]=\1\.userSel
 const lumaExtensionRequest = "getWebGLExtension(gl, 'WEBGL_debug_renderer_info', extensions);";
 const lumaExtensionRead = "const ext = extensions.WEBGL_debug_renderer_info;";
 
+/** Avoid assigning an undefined user-select value when MapLibre restores drag selection. */
 function patchMaplibreUserSelect(source: string): string {
   const patched = source.replace(maplibreUserSelectRestore, "$1.docStyle[$1.selectProp]=$1.userSelect??\"\"");
   if (patched === source) {
@@ -21,6 +23,7 @@ function patchMaplibreUserSelect(source: string): string {
   return patched;
 }
 
+/** Skip Firefox's deprecated unmasked-renderer extension while preserving other browsers. */
 function patchLumaRendererInfo(source: string): string {
   if (!source.includes(lumaExtensionRequest) || !source.includes(lumaExtensionRead)) {
     throw new Error("luma.gl renderer detection changed; review the Firefox WebGL compatibility fix.");
@@ -34,6 +37,7 @@ function patchLumaRendererInfo(source: string): string {
     .replace(lumaExtensionRead, "const ext = isFirefox ? undefined : extensions.WEBGL_debug_renderer_info;");
 }
 
+/** Apply the dependency-optimizer patch to MapLibre and luma.gl source modules. */
 function browserCompatibilityOptimizer() {
   return {
     name: "browser-compatibility-optimizer",
@@ -50,6 +54,7 @@ function browserCompatibilityOptimizer() {
   };
 }
 
+/** Apply the renderer-info compatibility transform during normal Vite transforms. */
 function lumaFirefoxRendererInfo(): Plugin {
   return {
     name: "luma-firefox-renderer-info",
@@ -62,6 +67,7 @@ function lumaFirefoxRendererInfo(): Plugin {
   };
 }
 
+/** Serve MapLibre worker assets in dev and emit the fixed sibling files in production. */
 function maplibreAssets(): Plugin {
   const assets = maplibreWorkerFiles.map((fileName) => ({
     fileName,

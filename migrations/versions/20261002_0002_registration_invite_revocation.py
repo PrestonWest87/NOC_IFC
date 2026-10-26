@@ -15,10 +15,12 @@ depends_on = None
 
 
 def upgrade():
+    """Add nullable invitation revocation state only when absent."""
     if "revoked_at" not in {column["name"] for column in inspect(op.get_bind()).get_columns("registration_invites")}:
         op.add_column("registration_invites", Column("revoked_at", DateTime(), nullable=True))
 
 
 def downgrade():
+    """Remove the nullable revocation column when present."""
     if "revoked_at" in {column["name"] for column in inspect(op.get_bind()).get_columns("registration_invites")}:
         op.drop_column("registration_invites", "revoked_at")

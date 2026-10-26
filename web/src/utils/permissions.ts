@@ -1,3 +1,4 @@
+/** Mirror backend tab grant keys to each React workspace's internal tab value. */
 export const TAB_PERMISSION_MAP: Record<string, Record<string, string>> = {
   dashboard: {
     "Tab: Dashboards -> Operational": "0",
@@ -52,24 +53,29 @@ export const TAB_PERMISSION_MAP: Record<string, Record<string, string>> = {
   keywordAnalysis: {},
 };
 
+/** Minimal user fields consumed by frontend page/tab visibility checks. */
 export interface PermissionUser {
   role?: string;
   allowed_pages?: string[];
   allowed_actions?: string[];
 }
 
+/** Match the backend administrator role-name override. */
 export function isAdministrator(user: PermissionUser | null | undefined): boolean {
   return ["admin", "administrator"].includes(String(user?.role || "").toLowerCase());
 }
 
+/** Return whether the user has a page grant or the administrator override. */
 export function hasPagePermission(user: PermissionUser | null | undefined, page: string): boolean {
   return isAdministrator(user) || Boolean(user?.allowed_pages?.includes(page));
 }
 
+/** Return whether the user has an action/tab grant or the administrator override. */
 export function hasActionPermission(user: PermissionUser | null | undefined, action: string): boolean {
   return isAdministrator(user) || Boolean(user?.allowed_actions?.includes(action));
 }
 
+/** Map granted tab strings to the component keys for one workspace. */
 export function getAllowedTabs(
   allowedActions: string[] | undefined,
   pageKey: keyof typeof TAB_PERMISSION_MAP

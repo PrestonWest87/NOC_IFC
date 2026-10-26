@@ -18,6 +18,7 @@ _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 @contextmanager
 def _migration_lock(engine: Engine):
+    """Serialize migration runs by database-file lock, with a thread lock for memory DBs."""
     database_path = engine.url.database
     if not database_path or database_path == ":memory:":
         with _memory_lock:
@@ -46,7 +47,7 @@ def _migration_lock(engine: Engine):
 
 
 def run_migrations(engine: Engine) -> None:
-    """Upgrade to the latest packaged revision, or perform a version-only no-op."""
+    """Upgrade to the packaged Alembic head under a cross-process SQLite lock."""
     if engine.dialect.name != "sqlite":
         raise RuntimeError("Only SQLite databases are supported; configure DATABASE_URL with a sqlite:/// URL.")
 

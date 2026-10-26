@@ -1,3 +1,9 @@
+"""SQLAlchemy mappings for operational, identity, authorization, and recovery state.
+
+These models are the runtime schema contract; versioned migrations, including
+the frozen first-revision snapshot, define how persisted databases evolve.
+"""
+
 from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, JSON, ForeignKey, Index, text
 from sqlalchemy.orm import declarative_base
 from datetime import datetime
@@ -6,6 +12,7 @@ Base = declarative_base()
 
 
 class User(Base):
+    """Account profile, role reference, recovery mailbox, and durable access history."""
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
@@ -49,6 +56,7 @@ class FailedLoginAttempt(Base):
 
 
 class RegistrationInvite(Base):
+    """Email-bound individual invitation with hashed single-use token and revocation state."""
     __tablename__ = "registration_invites"
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, nullable=False, index=True)
@@ -65,6 +73,7 @@ class RegistrationInvite(Base):
 
 
 class EmailChangeRequest(Base):
+    """Reviewer decision and mailbox-verification lifecycle for a recovery-email change."""
     __tablename__ = "email_change_requests"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
@@ -81,6 +90,7 @@ class EmailChangeRequest(Base):
 
 
 class PasswordResetRequest(Base):
+    """Public reset request evidence and administrator decision history."""
     __tablename__ = "password_reset_requests"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
@@ -95,6 +105,7 @@ class PasswordResetRequest(Base):
 
 
 class PasswordResetToken(Base):
+    """Hashed expiring reset capability issued only after reviewer approval."""
     __tablename__ = "password_reset_tokens"
     id = Column(Integer, primary_key=True, index=True)
     request_id = Column(Integer, ForeignKey("password_reset_requests.id"), nullable=False, index=True)
@@ -106,6 +117,7 @@ class PasswordResetToken(Base):
 
 
 class AccountAuditEvent(Base):
+    """Append-only actor/subject event detail for account and recovery actions."""
     __tablename__ = "account_audit_events"
     id = Column(Integer, primary_key=True, index=True)
     actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
@@ -116,6 +128,7 @@ class AccountAuditEvent(Base):
 
 
 class SchedulerJobConfig(Base):
+    """Persisted validated schedule override and editor metadata for one registry job."""
     __tablename__ = "scheduler_job_config"
     id = Column(Integer, primary_key=True, index=True)
     job_key = Column(String(80), nullable=False, unique=True, index=True)
@@ -131,6 +144,7 @@ class SchedulerJobConfig(Base):
 
 
 class Role(Base):
+    """Named page, tab/action, and site-type grants used by role resolution."""
     __tablename__ = "roles"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
@@ -140,6 +154,7 @@ class Role(Base):
 
 
 class SavedReport(Base):
+    """User-saved custom report available through the shared reporting library."""
     __tablename__ = "saved_reports"
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, index=True)
@@ -149,6 +164,7 @@ class SavedReport(Base):
 
 
 class FeedSource(Base):
+    """RSS/Atom source configuration and active-ingestion flag."""
     __tablename__ = "feed_sources"
     id = Column(Integer, primary_key=True, index=True)
     url = Column(String, unique=True, index=True)
@@ -157,6 +173,7 @@ class FeedSource(Base):
 
 
 class Keyword(Base):
+    """Persisted article-scoring keyword and its bounded weight."""
     __tablename__ = "keywords"
     id = Column(Integer, primary_key=True, index=True)
     word = Column(String, unique=True, index=True)
@@ -164,6 +181,7 @@ class Keyword(Base):
 
 
 class SystemConfig(Base):
+    """Singleton application settings, scoring state, saved briefs, and scheduler revisions."""
     __tablename__ = "system_config"
     id = Column(Integer, primary_key=True, index=True)
     llm_endpoint = Column(String, default="https://api.openai.com/v1")
@@ -220,6 +238,7 @@ class SystemConfig(Base):
 
 
 class ShiftLogEntry(Base):
+    """Shift note with author/role, time scope, and soft-delete state."""
     __tablename__ = "shift_logs"
     id = Column(Integer, primary_key=True, index=True)
     analyst = Column(String, index=True)
@@ -232,6 +251,7 @@ class ShiftLogEntry(Base):
 
 
 class SoftwareAsset(Base):
+    """Software inventory entry used by internal asset-risk matching."""
     __tablename__ = "software_assets"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
@@ -239,6 +259,7 @@ class SoftwareAsset(Base):
 
 
 class HardwareAsset(Base):
+    """Hardware inventory and vulnerability summary used by internal risk analysis."""
     __tablename__ = "hardware_assets"
     id = Column(Integer, primary_key=True, index=True)
     ip_address = Column(String, nullable=False, index=True)
@@ -267,6 +288,7 @@ class HardwareAsset(Base):
 
 
 class InternalRiskSnapshot(Base):
+    """Point-in-time internal CIS result with serialized hardware/software matches."""
     __tablename__ = "internal_risk_snapshots"
     id = Column(Integer, primary_key=True, index=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
@@ -280,6 +302,7 @@ class InternalRiskSnapshot(Base):
 
 
 class Article(Base):
+    """Ingested/scored intelligence article, analyst feedback, enrichment, and pin state."""
     __tablename__ = "articles"
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String)
@@ -304,6 +327,7 @@ class Article(Base):
 
 
 class ExtractedIOC(Base):
+    """Indicator and contextual match extracted from a source article."""
     __tablename__ = "extracted_iocs"
     id = Column(Integer, primary_key=True, index=True)
     article_id = Column(Integer, index=True)
@@ -314,6 +338,7 @@ class ExtractedIOC(Base):
 
 
 class CveItem(Base):
+    """CISA Known Exploited Vulnerability catalog item."""
     __tablename__ = "cve_items"
     id = Column(Integer, primary_key=True, index=True)
     cve_id = Column(String, unique=True, index=True)
@@ -327,6 +352,7 @@ class CveItem(Base):
 
 
 class ElasticEvent(Base):
+    """Normalized high-severity event imported into the local Elastic cache."""
     __tablename__ = 'elastic_events'
     id = Column(String, primary_key=True)
     timestamp = Column(DateTime, index=True)
@@ -338,6 +364,7 @@ class ElasticEvent(Base):
 
 
 class DailyBriefing(Base):
+    """Archived Daily Fusion report keyed by its report date."""
     __tablename__ = "daily_briefings"
     id = Column(Integer, primary_key=True, index=True)
     report_date = Column(DateTime, unique=True, index=True)
@@ -346,6 +373,7 @@ class DailyBriefing(Base):
 
 
 class DailyThreatScore(Base):
+    """Daily external cyber/physical score and displayed baseline values."""
     __tablename__ = "daily_threat_scores"
     id = Column(Integer, primary_key=True, index=True)
     record_date = Column(DateTime, unique=True, index=True)
@@ -356,6 +384,7 @@ class DailyThreatScore(Base):
 
 
 class RegionalHazard(Base):
+    """Normalized regional weather, earthquake, or wildfire hazard metadata."""
     __tablename__ = "regional_hazards"
     id = Column(Integer, primary_key=True, index=True)
     hazard_id = Column(String, unique=True, index=True)
@@ -368,6 +397,7 @@ class RegionalHazard(Base):
 
 
 class RegionalOutage(Base):
+    """Provider-reported regional power or connectivity outage record."""
     __tablename__ = "regional_outages"
     id = Column(Integer, primary_key=True, index=True)
     outage_type = Column(String, index=True)
@@ -382,6 +412,7 @@ class RegionalOutage(Base):
 
 
 class CloudOutage(Base):
+    """Provider status incident with active/resolved lifecycle state."""
     __tablename__ = "cloud_outages"
     id = Column(Integer, primary_key=True, index=True)
     provider = Column(String, index=True)
@@ -394,6 +425,7 @@ class CloudOutage(Base):
 
 
 class BgpAnomaly(Base):
+    """RIPE/route-visibility anomaly with resolution state."""
     __tablename__ = "bgp_anomalies"
     id = Column(Integer, primary_key=True, index=True)
     asn = Column(String, index=True)
@@ -404,6 +436,7 @@ class BgpAnomaly(Base):
 
 
 class SolarWindsAlert(Base):
+    """Normalized SolarWinds event and persisted acknowledgement/dispatch workflow."""
     __tablename__ = "solarwinds_alerts"
     id = Column(Integer, primary_key=True, index=True)
     event_type = Column(String, index=True)
@@ -433,6 +466,7 @@ class SolarWindsAlert(Base):
 
 
 class TimelineEvent(Base):
+    """Operational timeline event with optional site scope."""
     __tablename__ = "timeline_events"
     id = Column(Integer, primary_key=True, index=True)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
@@ -443,6 +477,7 @@ class TimelineEvent(Base):
 
 
 class MonitoredLocation(Base):
+    """Monitored facility coordinates, site type, maintenance, and escalation metadata."""
     __tablename__ = "monitored_locations"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
@@ -465,6 +500,7 @@ class MonitoredLocation(Base):
 
 
 class CrimeIncident(Base):
+    """Geocoded Little Rock CAD incident with proximity-notification state."""
     __tablename__ = "crime_incidents"
     id = Column(String, primary_key=True, index=True)
     category = Column(String)
@@ -478,6 +514,7 @@ class CrimeIncident(Base):
 
 
 class GeoJsonCache(Base):
+    """Cached provider GeoJSON layer and its last-refresh timestamp."""
     __tablename__ = "geojson_cache"
     feed_name = Column(String, primary_key=True, index=True)
     data = Column(JSON)
@@ -485,6 +522,7 @@ class GeoJsonCache(Base):
 
 
 class NodeAlias(Base):
+    """Operator mapping from a node-name pattern to a monitored location."""
     __tablename__ = "node_aliases"
     id = Column(Integer, primary_key=True, index=True)
     node_pattern = Column(String, index=True)
@@ -494,6 +532,7 @@ class NodeAlias(Base):
 
 
 class UserWeatherPreference(Base):
+    """Per-user NWS alert-type selection for Regional Grid notifications."""
     __tablename__ = "user_weather_prefs"
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, index=True)

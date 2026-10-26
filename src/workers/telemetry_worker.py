@@ -1,3 +1,5 @@
+"""Fetch ORNL power, RIPE routing, and IODA outage telemetry concurrently."""
+
 import requests
 import urllib3.util.connection as urllib3_cn
 urllib3_cn.HAS_IPV6 = False
@@ -25,6 +27,7 @@ HEADERS = {
 
 
 def fetch_ornl_odin_power():
+    """Fetch ORNL ODIN county outage data and replace the provider's local outage rows."""
     with SessionLocal() as session:
         try:
             url = "https://ornl.opendatasoft.com/api/explore/v2.1/catalog/datasets/odin-real-time-outages-county/records?limit=100&refine=state%3AArkansas"
@@ -56,6 +59,7 @@ def fetch_ornl_odin_power():
 
 
 def fetch_bgp_anomalies():
+    """Refresh RIPE routing visibility for configured ASNs and persist anomaly records."""
     with SessionLocal() as session:
         try:
             config = session.query(SystemConfig).first()
@@ -90,6 +94,7 @@ def fetch_bgp_anomalies():
 
 
 def fetch_ioda_isp_outages():
+    """Fetch IODA ISP outage alerts and replace the provider's local outage rows."""
     with SessionLocal() as session:
         try:
             now_epoch = int(time.time())
@@ -135,6 +140,7 @@ def fetch_ioda_isp_outages():
 
 
 def run_telemetry_sync():
+    """Run ORNL, RIPE, and IODA provider refreshes concurrently."""
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         futures = [
             executor.submit(fetch_ornl_odin_power),

@@ -1,3 +1,5 @@
+"""Combine persisted keyword weights with an optional reloadable ML scorer."""
+
 import os
 import logging
 import joblib
@@ -8,7 +10,10 @@ from src.models.schema import Keyword
 logger = logging.getLogger(__name__)
 
 class HybridScorer:
+    """Score article text from a database keyword snapshot plus an optional ML model."""
+
     def __init__(self, model_path=None):
+        """Load the persisted model when present and snapshot configured keyword weights."""
         if model_path is None:
             model_path = str(ml_model_path())
         self.model_path = model_path
@@ -26,6 +31,7 @@ class HybridScorer:
             logger.info("HybridScorer: loaded %d keywords from database", len(self.keywords))
 
     def score(self, text: str):
+        """Return a capped score and reasons after keyword scoring and ML adjustments."""
         text_lower = text.lower()
         reasons = []
 
@@ -67,6 +73,7 @@ class HybridScorer:
 _SCORER_INSTANCE = None
 
 def get_scorer():
+    """Return the lazily initialized process-local scorer singleton."""
     global _SCORER_INSTANCE
     if _SCORER_INSTANCE is None:
         logger.info("get_scorer: creating new HybridScorer instance")
@@ -74,6 +81,7 @@ def get_scorer():
     return _SCORER_INSTANCE
 
 def force_reload_scorer():
+    """Replace the process-local scorer so model/keyword changes take effect."""
     global _SCORER_INSTANCE
     logger.info("force_reload_scorer: reloading scorer with fresh model and keywords")
     _SCORER_INSTANCE = HybridScorer()

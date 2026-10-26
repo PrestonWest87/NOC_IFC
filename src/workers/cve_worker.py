@@ -1,3 +1,5 @@
+"""Synchronize newly listed CISA Known Exploited Vulnerabilities records."""
+
 import requests
 from datetime import datetime
 from src.core.db import SessionLocal
@@ -7,6 +9,7 @@ CISA_KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_v
 
 
 def fetch_cisa_kev():
+    """Fetch the CISA KEV catalog and batch-insert CVE IDs not already stored."""
     import logging
     logger = logging.getLogger(__name__)
     logger.debug("Fetching latest CISA KEV catalog...")

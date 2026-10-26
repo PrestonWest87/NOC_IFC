@@ -1,3 +1,9 @@
+"""Load environment-backed runtime settings shared by API, worker, and webhook.
+
+Only fields declared on `Settings` are Pydantic-managed here; selected legacy
+values are read directly from the environment by their owning modules.
+"""
+
 import sys
 import os
 import logging
@@ -9,6 +15,7 @@ load_dotenv()
 
 
 class Settings(BaseSettings):
+    """Pydantic-managed environment settings shared by backend processes."""
     database_url: str = "sqlite:////app/data/noc_fusion.db"
     demo_seed_data: bool = False
     log_level: str = "INFO"
@@ -38,6 +45,7 @@ class Settings(BaseSettings):
     backup_max_bytes: int = Field(default=10737418240, gt=0, le=107374182400)
 
     class Config:
+        """Load the local dotenv file and ignore unrelated environment names."""
         env_file = ".env"
         extra = "ignore"
 
@@ -57,6 +65,7 @@ RISK_ALERT_RECIPIENTS = settings.risk_alert_recipients
 
 
 def setup_logging(level=None):
+    """Configure process-wide stdout logging using the explicit level or `LOG_LEVEL`."""
     if level is None:
         level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
         level = getattr(logging, level_name, logging.WARNING)

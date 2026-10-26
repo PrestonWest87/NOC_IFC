@@ -1,3 +1,5 @@
+"""Expose the canonical page, tab, and action schema to authenticated role editors."""
+
 from fastapi import APIRouter, Depends
 
 from src.api.auth_guard import get_current_user

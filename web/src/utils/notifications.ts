@@ -1,5 +1,6 @@
 const seenIds = new Set<string>();
 
+/** Show one browser notification per incident ID and release its dedupe key after an hour. */
 export function triggerCriticalNotification(
   id: string | number,
   title: string,

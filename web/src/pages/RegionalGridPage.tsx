@@ -226,6 +226,7 @@ function buildFeatureIndex(processedGeo: any, mapToggles?: Record<string, boolea
   return idx;
 }
 
+/** Render the Regional Grid views and consume the backend's positional map-compile payload. */
 export function RegionalGridPage() {
   const { user } = useAuth();
   const allowedRegionTabs = getAllowedTabs(user?.allowed_actions, "regionalGrid");

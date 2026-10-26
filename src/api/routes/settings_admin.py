@@ -1,3 +1,9 @@
+"""Administrator-only compatibility, destructive, and full-backup endpoints.
+
+This legacy router deliberately retains the administrator-role guard; delegated
+user, application-setting, and scheduler operations use separate routers.
+"""
+
 import logging
 import os
 import tempfile
@@ -15,6 +21,7 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends
 
 
 def _send_invitation_email(recipient: str, username: str, role: str, link: str, expires_at: str):
+    """Deliver a compatibility-route invite without logging its registration token."""
     from src.utils.mailer import send_alert_email
 
     success, message = send_alert_email(
@@ -30,6 +37,7 @@ def _send_invitation_email(recipient: str, username: str, role: str, link: str, 
 
 @router.get("/lists")
 def admin_lists():
+    """Return settings lists with only the legacy user fields exposed."""
     logger.debug("GET /admin/lists")
     kws, feeds, users_data = svc.get_admin_lists()
     safe_users = [
@@ -41,6 +49,7 @@ def admin_lists():
 
 @router.post("/keywords/bulk")
 def add_keywords(raw_text: str = ""):
+    """Parse and add a newline-delimited keyword/weight list."""
     logger.info("POST /admin/keywords/bulk text_length=%d", len(raw_text) if raw_text else 0)
     svc.add_bulk_keywords(raw_text)
     return {"status": "ok"}
@@ -48,6 +57,7 @@ def add_keywords(raw_text: str = ""):
 
 @router.post("/feeds/bulk")
 def add_feeds(raw_text: str = ""):
+    """Parse and add a newline-delimited RSS feed list."""
     logger.info("POST /admin/feeds/bulk text_length=%d", len(raw_text) if raw_text else 0)
     svc.add_bulk_feeds(raw_text)
     return {"status": "ok"}
@@ -55,6 +65,7 @@ def add_feeds(raw_text: str = ""):
 
 @router.patch("/keywords/{keyword_id}")
 def patch_keyword(keyword_id: int, data: dict[str, Any] = Body({})):
+    """Update a keyword only for an integer weight in the range 1–100."""
     weight = data.get("weight")
     if weight is None or not isinstance(weight, int) or weight < 1 or weight > 100:
         raise HTTPException(400, "weight must be an integer between 1 and 100")
@@ -68,6 +79,7 @@ def patch_keyword(keyword_id: int, data: dict[str, Any] = Body({})):
 
 @router.delete("/keywords/{keyword_id}")
 def delete_keyword(keyword_id: int):
+    """Delete one keyword through the service model allowlist."""
     logger.info("DELETE /admin/keywords/%d", keyword_id)
     svc.delete_record("Keyword", keyword_id)
     return {"status": "ok"}
@@ -75,6 +87,7 @@ def delete_keyword(keyword_id: int):
 
 @router.delete("/feeds/{feed_id}")
 def delete_feed(feed_id: int):
+    """Delete one feed through the service model allowlist."""
     logger.info("DELETE /admin/feeds/%d", feed_id)
     svc.delete_record("FeedSource", feed_id)
     return {"status": "ok"}
@@ -82,6 +95,7 @@ def delete_feed(feed_id: int):
 
 @router.get("/ml-counts")
 def ml_counts():
+    """Return the positive/negative article-label counts used by model training."""
     logger.debug("GET /admin/ml-counts")
     pos, neg, total = svc.get_ml_counts()
     return {"positive": pos, "negative": neg, "total": total}
@@ -89,6 +103,7 @@ def ml_counts():
 
 @router.post("/config")
 def save_config(data: dict[str, Any] = Body({})):
+    """Save only service-allowlisted editable configuration fields."""
     logger.info("POST /admin/config keys=%s", list(data.keys()))
     try:
         svc.save_global_config(data, allow_system_fields=False)
@@ -99,6 +114,7 @@ def save_config(data: dict[str, Any] = Body({})):
 
 @router.post("/assets/software")
 def upload_software_assets(csv_body: str = Body(..., embed=True)):
+    """Replace the software asset inventory from validated CSV text."""
     logger.info("POST /admin/assets/software body_length=%d", len(csv_body) if csv_body else 0)
     success, msg = svc.import_software_assets_csv(csv_body)
     logger.info("POST /admin/assets/software result: success=%s msg=%s", success, msg)
@@ -107,6 +123,7 @@ def upload_software_assets(csv_body: str = Body(..., embed=True)):
 
 @router.post("/assets/hardware")
 def upload_hardware_assets(csv_body: str = Body(..., embed=True)):
+    """Replace the hardware asset inventory from validated CSV text."""
     logger.info("POST /admin/assets/hardware body_length=%d", len(csv_body) if csv_body else 0)
     success, msg = svc.import_hardware_assets_csv(csv_body)
     logger.info("POST /admin/assets/hardware result: success=%s msg=%s", success, msg)
@@ -115,12 +132,14 @@ def upload_hardware_assets(csv_body: str = Body(..., embed=True)):
 
 @router.get("/roles")
 def roles():
+    """Return role rows for the administrator-only legacy editor."""
     logger.debug("GET /admin/roles")
     return svc.get_all_roles()
 
 
 @router.post("/roles")
 def create_role(data: dict[str, Any] = Body({})):
+    """Create a role using service-level permission-key and site-type validation."""
     logger.info("POST /admin/roles name=%s", data.get("name"))
     try:
         created = svc.create_role(
@@ -141,6 +160,7 @@ def update_role(
     name: str,
     data: dict[str, Any] = Body({}),
 ):
+    """Update grants on a custom role; built-in administrator roles are immutable."""
     logger.info("PUT /admin/roles/%s", name)
     if name.casefold() in {"admin", "administrator"}:
         raise HTTPException(status_code=400, detail="The built-in administrator role cannot be edited.")
@@ -160,6 +180,7 @@ def update_role(
 
 @router.post("/users")
 def create_user(data: dict[str, Any] = Body({}), user=Depends(require_admin)):
+    """Create a compatibility display account without an invitation email."""
     logger.info("POST /admin/users username=%s role=%s", data.get("username"), data.get("role"))
     try:
         user_id = svc.create_display_account(
@@ -176,6 +197,7 @@ def create_user(data: dict[str, Any] = Body({}), user=Depends(require_admin)):
 
 @router.post("/registration-invites")
 def create_registration_invite(background_tasks: BackgroundTasks, data: dict[str, Any] = Body({}), user=Depends(require_admin)):
+    """Create an email-bound invitation and queue its registration link."""
     try:
         raw_token, expires_at = svc.create_registration_invite(
             username=str(data.get("username", "")),
@@ -209,6 +231,7 @@ def create_registration_invite(background_tasks: BackgroundTasks, data: dict[str
 
 @router.put("/users/{username}/role")
 def update_user_role(username: str, data: dict[str, Any] = Body({}), user=Depends(require_admin)):
+    """Change the target user's role and let the service revoke existing sessions."""
     logger.info("PUT /admin/users/%s/role new_role=%s", username, data.get("role"))
     try:
         updated = svc.update_user_role(username, data.get("role", ""), actor_user_id=user.id)
@@ -221,6 +244,7 @@ def update_user_role(username: str, data: dict[str, Any] = Body({}), user=Depend
 
 @router.post("/users/{username}/reset-password")
 def reset_password(username: str, data: dict[str, Any] = Body({}), user=Depends(require_admin)):
+    """Perform an administrator-assisted password reset and audit the acting admin."""
     logger.info("POST /admin/users/%s/reset-password", username)
     try:
         updated = svc.force_reset_pwd(username, data.get("new_password", ""), actor_user_id=user.id)
@@ -233,12 +257,14 @@ def reset_password(username: str, data: dict[str, Any] = Body({}), user=Depends(
 
 @router.get("/location")
 def get_locations():
+    """Return the full monitored-location list to an administrator."""
     logger.debug("GET /admin/location")
     return svc.get_cached_locations()
 
 
 @router.post("/location/import")
 def import_locations(data: list[dict] = Body([]), mode: str = Query("add")):
+    """Import locations in add/upsert/replace mode and invalidate the location cache."""
     if mode not in ("add", "upsert", "replace"):
         raise HTTPException(400, "mode must be 'add', 'upsert', or 'replace'")
     logger.info("POST /admin/location/import mode=%s count=%d", mode, len(data))
@@ -249,6 +275,7 @@ def import_locations(data: list[dict] = Body([]), mode: str = Query("add")):
 
 @router.put("/location")
 def update_locations(data: list[dict] = Body([])):
+    """Apply administrator-edited location rows and invalidate the location cache."""
     logger.info("PUT /admin/location count=%d", len(data))
     svc.update_locations(data)
     svc.get_cached_locations.clear()
@@ -257,12 +284,14 @@ def update_locations(data: list[dict] = Body([])):
 
 @router.get("/backup")
 def backup():
+    """Export the legacy partial four-collection settings backup, not a full SQLite snapshot."""
     logger.info("GET /admin/backup")
     return svc.get_backup_data()
 
 
 @router.get("/backups/status")
 def full_backup_status():
+    """Return backup readiness and limits without exposing encryption key material."""
     from src.core import backup_manager
 
     return {
@@ -274,6 +303,7 @@ def full_backup_status():
 
 @router.get("/backups")
 def list_full_backups():
+    """List recognized encrypted full-backup package metadata."""
     from src.core.backup_manager import list_backups
 
     return {"backups": list_backups()}
@@ -281,6 +311,7 @@ def list_full_backups():
 
 @router.post("/backups")
 def create_full_backup(user=Depends(require_admin)):
+    """Create a manual encrypted online SQLite/model snapshot for the signed-in admin."""
     from src.core.backup_manager import BackupError, create_backup
 
     try:
@@ -291,6 +322,7 @@ def create_full_backup(user=Depends(require_admin)):
 
 @router.get("/backups/{backup_id}/download")
 def download_full_backup(backup_id: str, request: Request):
+    """Stream one encrypted package with no-store headers and clear the scoped cookie."""
     from src.core.backup_manager import BackupError, get_backup_path
 
     try:
@@ -314,6 +346,7 @@ def download_full_backup(backup_id: str, request: Request):
 
 @router.post("/backups/{backup_id}/download-link")
 def create_full_backup_download_link(backup_id: str, request: Request, response: Response):
+    """Issue a 60-second path-scoped cookie so the browser can stream a large package."""
     from src.core.backup_manager import BackupError, get_backup_path
     from src.api.auth_guard import token_from_request
 
@@ -339,6 +372,7 @@ def create_full_backup_download_link(backup_id: str, request: Request, response:
 
 @router.delete("/backups/{backup_id}")
 def delete_full_backup(backup_id: str):
+    """Delete a manual or pre-restore package; scheduled retention files are protected."""
     from src.core.backup_manager import BackupError, delete_backup
 
     try:
@@ -350,6 +384,7 @@ def delete_full_backup(backup_id: str):
 
 @router.get("/backups/staged")
 def list_staged_full_backups():
+    """List staged encrypted packages awaiting restore or removal."""
     from src.core.backup_manager import list_staged_backups
 
     return {"backups": list_staged_backups()}
@@ -357,6 +392,7 @@ def list_staged_full_backups():
 
 @router.post("/backups/staged")
 def stage_full_backup(file: UploadFile = File(...)):
+    """Stream, authenticate, and validate an upload before adding it to restore staging."""
     from src.core.backup_manager import BackupError, stage_uploaded_backup
 
     try:
@@ -369,6 +405,7 @@ def stage_full_backup(file: UploadFile = File(...)):
 
 @router.delete("/backups/staged/{stage_id}")
 def delete_staged_full_backup(stage_id: str):
+    """Remove one staged package after validating its opaque stage identifier."""
     from src.core.backup_manager import BackupError, delete_staged_backup
 
     try:
@@ -380,6 +417,7 @@ def delete_staged_full_backup(stage_id: str):
 
 @router.post("/backups/staged/{stage_id}/restore", status_code=202)
 async def restore_from_staged_backup(stage_id: str, user=Depends(require_admin)):
+    """Start a coordinated restore, close WebSockets, and return a progress capability ID."""
     from src.core import restore_control
     from src.core.backup_manager import BackupError
     from src.core.ui_restore import launch_staged_restore, prepare_staged_restore
@@ -408,6 +446,7 @@ async def restore_from_staged_backup(stage_id: str, user=Depends(require_admin))
 
 @router.post("/restore")
 def restore(data: dict[str, Any] = Body({})):
+    """Import the legacy partial settings backup into existing application tables."""
     logger.info("POST /admin/restore keys=%s", list(data.keys()))
     svc.restore_backup_data(data)
     return {"status": "ok"}
@@ -415,12 +454,14 @@ def restore(data: dict[str, Any] = Body({})):
 
 @router.get("/export-all")
 def export_all():
+    """Export the service allowlist of ORM models; this is not a complete database backup."""
     logger.info("GET /admin/export-all")
     return svc.export_all_tables()
 
 
 @router.post("/import-all")
 def import_all(data: dict[str, Any] = Body({})):
+    """Import supported model rows, replacing by default or merging when requested."""
     logger.info("POST /admin/import-all merge=%s", data.get("_merge", False))
     merge = data.pop("_merge", False)
     counts = svc.import_all_tables(data, merge=merge)
@@ -430,6 +471,7 @@ def import_all(data: dict[str, Any] = Body({})):
 
 @router.post("/upload-db")
 async def upload_db(file: UploadFile = File(...)):
+    """Import rows from a `.db` upload into the active database; this does not replace the file."""
     logger.info("POST /admin/upload-db filename=%s", file.filename)
     if not file.filename or not file.filename.endswith(".db"):
         raise HTTPException(400, "Uploaded file must have a .db extension")
@@ -455,6 +497,7 @@ async def upload_db(file: UploadFile = File(...)):
 
 @router.delete("/record")
 def delete_record(model_name: str = "", record_id: int = 0):
+    """Delete one record only if the service recognizes its model allowlist entry."""
     logger.info("DELETE /admin/record model=%s id=%d", model_name, record_id)
     svc.delete_record(model_name, record_id)
     return {"status": "ok"}
@@ -462,6 +505,7 @@ def delete_record(model_name: str = "", record_id: int = 0):
 
 @router.post("/nuke")
 def nuke(tables: list[str] = Body([])):
+    """Clear only the explicitly service-allowlisted subset of tables."""
     logger.warning("POST /admin/nuke tables=%s", tables)
     svc.nuke_tables(tables)
     return {"status": "ok"}
@@ -469,6 +513,7 @@ def nuke(tables: list[str] = Body([])):
 
 @router.post("/nuke/crime")
 def nuke_crime():
+    """Clear all crime incident data through the legacy administrator tool."""
     logger.warning("POST /admin/nuke/crime")
     svc.nuke_crime_data()
     return {"status": "ok"}
@@ -476,6 +521,7 @@ def nuke_crime():
 
 @router.post("/nuke/weather")
 def nuke_weather():
+    """Clear regional hazard/GeoJSON data through the legacy administrator tool."""
     logger.warning("POST /admin/nuke/weather")
     svc.nuke_weather_data()
     return {"status": "ok"}
@@ -483,6 +529,7 @@ def nuke_weather():
 
 @router.post("/maintenance")
 def maintenance():
+    """Run the scheduler's retention and SQLite-maintenance job synchronously."""
     logger.info("POST /admin/maintenance")
     from src.scheduler import run_database_maintenance
     run_database_maintenance()
@@ -491,6 +538,7 @@ def maintenance():
 
 @router.post("/ml-retrain")
 def ml_retrain():
+    """Run legacy administrator-only training and reload the in-process scorer."""
     logger.info("POST /admin/ml-retrain")
     from src.train_model import train
     from src.services.logic import force_reload_scorer

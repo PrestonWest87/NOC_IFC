@@ -1,3 +1,5 @@
+"""Fetch regional weather, earthquake, and wildfire feeds and evaluate proximity."""
+
 import requests
 import uuid
 import math
@@ -15,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def _is_small_wildfire(details):
+    """Classify a finite acreage value at or below one acre as a small fire."""
     try:
         acres = float(details.get("acres"))
     except (TypeError, ValueError):
@@ -23,6 +26,7 @@ def _is_small_wildfire(details):
 
 
 def save_geojson_to_db(session, feed_name, data):
+    """Upsert one provider GeoJSON layer and its refresh timestamp."""
     cache_entry = session.query(GeoJsonCache).filter_by(feed_name=feed_name).first()
     if cache_entry:
         cache_entry.data = data
@@ -32,6 +36,7 @@ def save_geojson_to_db(session, feed_name, data):
 
 
 def fetch_spc_outlooks():
+    """Fetch SPC outlook layers and update their cached GeoJSON records."""
     SPC_URLS = {
         "spc_day1": "https://www.spc.noaa.gov/products/outlook/day1otlk_cat.nolyr.geojson",
         "spc_day2": "https://www.spc.noaa.gov/products/outlook/day2otlk_cat.nolyr.geojson",
@@ -42,6 +47,7 @@ def fetch_spc_outlooks():
     headers = {'User-Agent': 'Mozilla/5.0 (NOC_Fusion_Center)'}
 
     def _fetch_spc(item):
+        """Fetch one SPC outlook and return its feed name, data, and optional error."""
         feed_name, url = item
         try:
             response = requests.get(url, headers=headers, timeout=15)
@@ -68,6 +74,7 @@ def fetch_spc_outlooks():
 
 
 def fetch_nws_alerts_for_region(area_str, feed_name):
+    """Fetch one NWS area feed, persist normalized hazards, and cache its GeoJSON."""
     logger.debug("fetch_nws_alerts_for_region: area=%s feed=%s", area_str, feed_name)
     with SessionLocal() as session:
         try:
@@ -135,6 +142,7 @@ USGS_BOUNDS = {
 
 
 def fetch_usgs_earthquakes(area_key, feed_name):
+    """Fetch USGS earthquake GeoJSON for one operating-area query."""
     bounds = USGS_BOUNDS.get(area_key, USGS_BOUNDS["ar"])
     start_time = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
 
@@ -165,6 +173,7 @@ def fetch_usgs_earthquakes(area_key, feed_name):
 
 
 def haversine_distance(lat1, lon1, lat2, lon2):
+    """Return great-circle distance in miles between two coordinate pairs."""
     R = 3959
     lat1_r, lat2_r = math.radians(lat1), math.radians(lat2)
     dlat = math.radians(lat2 - lat1)
@@ -175,6 +184,7 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 
 
 def check_earthquake_proximity(equake_data, distance_miles=50):
+    """Email newly qualifying nearby earthquakes and retain alerted event IDs."""
     from src.utils.risk_alert import send_alert, get_alert_recipients, build_eq_alert_email_body
     from src.services import get_cached_config, save_global_config
 
@@ -249,7 +259,7 @@ def check_earthquake_proximity(equake_data, distance_miles=50):
 
 
 def check_wildfire_proximity(distance_miles=5):
-    """Email NOC_NOTIFY_EMAIL when an active WFCA fire reaches a site."""
+    """Email NOC_NOTIFY_EMAIL when active WFCA fire activity meets site-distance/re-alert rules."""
     import os
     from src.services import get_active_wildfires, _haversine_miles, _shape_site_distances_miles
     from src.utils.mailer import send_alert_email
@@ -370,6 +380,7 @@ def check_wildfire_proximity(distance_miles=5):
             return
 
         def fmt_date(value):
+            """Normalize ISO or epoch-millisecond provider timestamps to Central time."""
             if not value:
                 return "Unknown"
             try:
@@ -422,6 +433,7 @@ def check_wildfire_proximity(distance_miles=5):
 
 
 def fetch_regional_hazards():
+    """Refresh SPC/NWS/USGS feeds concurrently, then run earthquake and wildfire checks."""
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         futures = [
             executor.submit(fetch_spc_outlooks),

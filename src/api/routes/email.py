@@ -1,3 +1,5 @@
+"""SMTP send and brief-broadcast endpoints with explicit page/action grants."""
+
 import logging
 from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel, Field
@@ -8,12 +10,14 @@ router = APIRouter(prefix="/api/v1/email", tags=["email"])
 
 
 class EmailAttachment(BaseModel):
+    """Bounded base64 attachment accepted by the generic SMTP send route."""
     filename: str = Field("attachment", max_length=120)
     content_type: str = Field("application/octet-stream", max_length=100)
     content_base64: str = Field("", max_length=7_000_000)
 
 
 class SendEmailRequest(BaseModel):
+    """Validate arbitrary email fields and cap a request at five attachments."""
     to: str = Field("", max_length=2000)
     subject: str = Field("", max_length=200)
     html_body: str = Field("", max_length=200000)
@@ -21,11 +25,13 @@ class SendEmailRequest(BaseModel):
 
 
 class BroadcastBriefRequest(BaseModel):
+    """Body model for sending one saved dashboard brief to a selected address."""
     email: str = ""
 
 
 @router.post("/send", dependencies=[Depends(require_action("Action: Send Email"))])
 def send_email(req: SendEmailRequest):
+    """Send a caller-composed HTML email through the configured SMTP service."""
     logger.info("POST /email/send subject=%s to=%s body_length=%d",
                  req.subject, req.to, len(req.html_body) if req.html_body else 0)
     from src.utils.mailer import send_alert_email
@@ -42,6 +48,7 @@ def send_email(req: SendEmailRequest):
 
 @router.post("/broadcast-brief", dependencies=[Depends(require_any_page(["Global Dashboards", "Reporting & Briefings"])), Depends(require_action("Action: Dispatch Exec Report"))])
 def broadcast_brief(req: BroadcastBriefRequest):
+    """Format and email the saved Unified Brief; return an error when absent or SMTP fails."""
     logger.info("POST /email/broadcast-brief email=%s", req.email)
     if not req.email:
         return {"status": "error", "message": "No recipient email specified."}
@@ -80,6 +87,7 @@ def broadcast_brief(req: BroadcastBriefRequest):
 
 @router.post("/broadcast-global-brief", dependencies=[Depends(require_any_page(["Global Dashboards", "Reporting & Briefings"])), Depends(require_action("Action: Dispatch Exec Report"))])
 def broadcast_global_brief(req: BroadcastBriefRequest):
+    """Format and email the saved Global Threat Brief to the requested recipient."""
     logger.info("POST /email/broadcast-global-brief email=%s", req.email)
     if not req.email:
         return {"status": "error", "message": "No recipient email specified."}
@@ -118,6 +126,7 @@ def broadcast_global_brief(req: BroadcastBriefRequest):
 
 @router.post("/broadcast-internal-brief", dependencies=[Depends(require_any_page(["Global Dashboards", "Reporting & Briefings"])), Depends(require_action("Action: Dispatch Exec Report"))])
 def broadcast_internal_brief(req: BroadcastBriefRequest):
+    """Format and email the saved internal asset-risk brief to the requested recipient."""
     logger.info("POST /email/broadcast-internal-brief email=%s", req.email)
     if not req.email:
         return {"status": "error", "message": "No recipient email specified."}

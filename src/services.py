@@ -1,3 +1,11 @@
+"""Central data-access and domain-service layer used by routes and workers.
+
+Functions generally own their `SessionLocal` sessions unless a session argument
+is explicit. This module also coordinates permission checks, process-local
+caches, account/recovery workflows, scoring, regional data, reports, and legacy
+compatibility operations; focused algorithms live in `src.services.*`.
+"""
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -47,13 +55,16 @@ VALID_THEMES = {
 class TTLCache:
     """Small process-local TTL cache for repeatedly requested service data."""
     def __init__(self, ttl: int = 300, max_entries: int = 128):
+        """Create a cache with an expiration interval and entry-count bound."""
         self.ttl = ttl
         self.max_entries = max_entries
         self._store: dict = {}
         self._timestamps: dict = {}
 
     def __call__(self, func):
+        """Wrap a function with argument-keyed caching and attach a cache-clear method."""
         def wrapper(*args, **kwargs):
+            """Return a fresh cached result or recompute and evict the oldest key when full."""
             key = str(args) + str(sorted(kwargs.items()))
             now = datetime.utcnow().timestamp()
             if key in self._store and (now - self._timestamps.get(key, 0)) < self.ttl:
@@ -70,6 +81,7 @@ class TTLCache:
         return wrapper
 
     def clear(self):
+        """Discard cached values and their expiration timestamps."""
         self._store.clear()
         self._timestamps.clear()
 
@@ -102,10 +114,12 @@ def priority_tier(p):
     return int(m.group()) if m else 3
 
 def to_dotdict(obj):
+    """Convert an ORM row's mapped columns to attribute-accessible data, or return `None`."""
     if not obj: return None
     return DotDict({c.name: getattr(obj, c.name) for c in obj.__table__.columns})
 
 def to_dotdict_list(objs):
+    """Convert an iterable of ORM rows to `DotDict` values."""
     return [to_dotdict(obj) for obj in objs]
 
 def central_now():
@@ -139,6 +153,7 @@ from sqlalchemy.exc import OperationalError
 
 @TTLCache(ttl=300)
 def get_cached_config():
+    """Read or create the singleton system configuration and cache its mapped view for five minutes."""
     with SessionLocal() as db:
         try:
             config = db.query(SystemConfig).first()
@@ -154,11 +169,13 @@ def get_cached_config():
 
 @TTLCache(ttl=600, max_entries=1)
 def get_cached_locations():
+    """Return the full monitored-location list from the process-local ten-minute cache."""
     with SessionLocal() as db:
         return to_dotdict_list(db.query(MonitoredLocation).all())
 
 @TTLCache(ttl=120, max_entries=1)
 def get_cached_geojson():
+    """Return the seven cached SPC/NWS/USGS layers in the positional frontend order."""
     feed_names = ("spc_day1", "spc_day2", "spc_day3", "nws_ar", "nws_oos", "usgs_ar", "usgs_oos")
     with SessionLocal() as db:
         records = db.query(GeoJsonCache).filter(GeoJsonCache.feed_name.in_(feed_names)).all()
@@ -231,6 +248,7 @@ def get_regional_counties_mapping():
         return {}
 
 def get_all_site_types(db=None):
+    """Merge built-in site types with distinct database values using an optional caller session."""
     DEFAULT_SITE_TYPES = ["NOC", "SOC", "Data Center", "Field Office", "HQ", "Remote Site", "Cloud"]
     from src.database import MonitoredLocation
     if db is None:
@@ -247,6 +265,7 @@ def get_all_site_types(db=None):
     return merged
 
 def set_cluster_dispatch(alert_ids, is_dispatched, dispatched_by="unknown"):
+    """Update dispatch metadata on alert IDs and clear their Needs Dispatch flags."""
     with SessionLocal() as db:
         now_utc = datetime.utcnow()
         alerts = db.query(SolarWindsAlert).filter(SolarWindsAlert.id.in_(alert_ids)).all()
@@ -267,6 +286,7 @@ def set_cluster_dispatch(alert_ids, is_dispatched, dispatched_by="unknown"):
         return True
 
 def set_site_needs_dispatch(site_name, needs_dispatch, modified_by="unknown"):
+    """Persist Needs Dispatch on active uncorrelated site alerts and update site tracking metadata."""
     from src.database import MonitoredLocation, SolarWindsAlert
 
     with SessionLocal() as db:
@@ -294,6 +314,7 @@ def set_site_needs_dispatch(site_name, needs_dispatch, modified_by="unknown"):
         return len(alerts)
       
 def get_shift_logs(role_filter="All", start_date=None, end_date=None):
+    """Return non-deleted shift logs filtered by role and Central-time date boundaries."""
     with SessionLocal() as db:
         query = db.query(ShiftLogEntry).filter(ShiftLogEntry.is_deleted == False)
         
@@ -315,6 +336,7 @@ def get_shift_logs(role_filter="All", start_date=None, end_date=None):
         return to_dotdict_list(logs)
 
 def save_shift_log(analyst, role, shift_period, content, custom_date=None):
+    """Persist a shift note, converting an optional selected Central date to naive UTC."""
     from datetime import datetime
     from zoneinfo import ZoneInfo
     with SessionLocal() as db:
@@ -338,6 +360,7 @@ def save_shift_log(analyst, role, shift_period, content, custom_date=None):
         return True
 
 def set_site_maintenance(site_name, is_maint, etr_date, reason, modified_by=None):
+    """Set or clear maintenance fields and invalidate the cached location list."""
     from src.database import MonitoredLocation
     from datetime import datetime
     if not isinstance(is_maint, bool):
@@ -508,6 +531,7 @@ def get_role_permissions(role_name, db=None):
     normalized_role = str(role_name or "").strip().casefold()
 
     def full_access(session=None):
+        """Build administrator grants using the current site-type catalog."""
         return {
             "allowed_pages": list(PAGE_KEYS),
             "allowed_actions": list(ADMIN_ACTIONS),
@@ -518,6 +542,7 @@ def get_role_permissions(role_name, db=None):
         return full_access(db)
 
     def lookup(session):
+        """Load one named role's grants from the caller-owned session."""
         role = session.query(Role).filter(func.lower(Role.name) == normalized_role).first()
         if not role:
             return {"allowed_pages": [], "allowed_actions": [], "allowed_site_types": []}
@@ -534,6 +559,7 @@ def get_role_permissions(role_name, db=None):
 
 
 def _attach_recovery_email_state(user_view, user_row, db):
+    """Attach display exemption, verified/pending recovery-email state, and pending address."""
     if str(user_row.account_type or "individual") == "display":
         user_view.recovery_email_status = "exempt"
         user_view.pending_email = None
@@ -557,6 +583,7 @@ def _attach_recovery_email_state(user_view, user_row, db):
 
 
 def authenticate_user(username, password):
+    """Verify an active account, create a session row, and return user data with current grants."""
     with SessionLocal() as db:
         user = db.query(User).filter(User.username == username).first()
         if (user and user.is_active and user.password_hash
@@ -578,6 +605,7 @@ def authenticate_user(username, password):
 
 
 def _normalize_failed_login_alert_recipients(value):
+    """Validate, normalize, and case-insensitively deduplicate configured alert addresses."""
     if value is None:
         value = ""
     if not isinstance(value, str):
@@ -716,6 +744,7 @@ def record_failed_login_attempt(username, source_ip=None):
 
 
 def _invite_token_hash(token: str) -> str:
+    """Return the SHA-256 digest stored for invitation and recovery capabilities."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
@@ -727,6 +756,7 @@ EMAIL_ADDRESS_PATTERN = re.compile(
 
 
 def normalize_user_email(value: str) -> tuple[str, str]:
+    """Validate and return the display and case-folded forms of an email address."""
     email = str(value or "").strip()
     if not email or len(email) > 254 or not EMAIL_ADDRESS_PATTERN.fullmatch(email):
         raise ValueError("Enter a valid email address.")
@@ -734,6 +764,7 @@ def normalize_user_email(value: str) -> tuple[str, str]:
 
 
 def create_registration_invite(username: str, email: str, role: str, created_by: str, ttl_hours: int = 72):
+    """Create a hashed, expiring email invitation and return its raw token once."""
     username = username.strip()
     role = role.strip()
     display_email, normalized_email = normalize_user_email(email)
@@ -788,6 +819,7 @@ def create_registration_invite(username: str, email: str, role: str, created_by:
 
 
 def get_registration_invite(raw_token: str):
+    """Return safe invitation details only while its token is unused, unrevoked, and unexpired."""
     if not raw_token:
         return None
     with SessionLocal() as db:
@@ -808,6 +840,7 @@ def get_registration_invite(raw_token: str):
 
 
 def get_pending_registration_invites():
+    """List live pending invitations without exposing stored token hashes."""
     now = datetime.utcnow()
     with SessionLocal() as db:
         rows = db.query(RegistrationInvite).filter(
@@ -828,6 +861,7 @@ def get_pending_registration_invites():
 
 
 def revoke_registration_invite(invite_id, actor_user_id=None):
+    """Revoke one unused invitation and record the actor in account-audit history."""
     now = datetime.utcnow()
     with SessionLocal() as db:
         invite = db.query(RegistrationInvite).filter(
@@ -847,6 +881,7 @@ def revoke_registration_invite(invite_id, actor_user_id=None):
 
 
 def complete_registration(raw_token, password, full_name, job_title, contact_info, default_shift, theme="standard"):
+    """Consume a valid invite, create a verified individual account, and issue its first session."""
     if not raw_token or len(password or "") < 12:
         raise ValueError("Password must be at least 12 characters.")
     if theme not in VALID_THEMES:
@@ -899,6 +934,7 @@ def complete_registration(raw_token, password, full_name, job_title, contact_inf
         return u, new_token
 
 def get_user_by_token(token):
+    """Resolve current or legacy session tokens, refresh throttled activity, and attach grants."""
     if not token:
         return None
     with SessionLocal() as db:
@@ -925,6 +961,7 @@ def get_user_by_token(token):
         return u
 
 def update_user_profile(username, full_name, job_title, contact_info, old_pwd, new_pwd, default_shift=""):
+    """Update profile fields and optionally change the password after checking the current password."""
     with SessionLocal() as db:
         u = db.query(User).filter(User.username == username).first()
         if not u: return False, "User not found."
@@ -943,6 +980,7 @@ def update_user_profile(username, full_name, job_title, contact_info, old_pwd, n
 
 
 def set_user_theme(username, theme):
+    """Persist a supported theme for the named user."""
     if theme not in VALID_THEMES:
         raise ValueError("Invalid theme.")
     with SessionLocal() as db:
@@ -954,6 +992,7 @@ def set_user_theme(username, theme):
     return True
 
 def logout_user(username, token=None):
+    """Revoke one supplied session token, or all legacy sessions when no token is given."""
     with SessionLocal() as db:
         u = db.query(User).filter(User.username == username).first()
         if not u:
@@ -978,16 +1017,19 @@ PASSWORD_RESET_TOKEN_TTL_MINUTES = 60
 
 
 def validate_password(password):
+    """Enforce the shared minimum password length."""
     if not isinstance(password, str) or len(password) < PASSWORD_MIN_LENGTH:
         raise ValueError(f"Password must be at least {PASSWORD_MIN_LENGTH} characters.")
 
 
 def hash_password(password):
+    """Validate and bcrypt-hash a new password."""
     validate_password(password)
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def _audit_account_event(db, event_type, actor_user_id=None, subject_user_id=None, detail=None):
+    """Add an account audit row to the caller-owned transaction."""
     db.add(AccountAuditEvent(
         event_type=event_type,
         actor_user_id=actor_user_id,
@@ -998,6 +1040,7 @@ def _audit_account_event(db, event_type, actor_user_id=None, subject_user_id=Non
 
 
 def _recovery_reviewers(db, required_action):
+    """Select active, verified-email administrators or users with the required review grant."""
     reviewers = []
     for reviewer in db.query(User).filter(
         User.is_active.is_(True),
@@ -1019,6 +1062,7 @@ def _recovery_reviewers(db, required_action):
 
 
 def get_recovery_reviewer_emails(required_action="Action: Review Account Recovery Requests", exclude_user_id=None):
+    """Return unique verified reviewer addresses, optionally excluding the request subject."""
     with SessionLocal() as db:
         return list(dict.fromkeys(
             reviewer.email for reviewer in _recovery_reviewers(db, required_action)
@@ -1027,6 +1071,7 @@ def get_recovery_reviewer_emails(required_action="Action: Review Account Recover
 
 
 def get_user_directory():
+    """Build sanitized user rows with recovery-email, invitation, and access-history state."""
     with SessionLocal() as db:
         users = db.query(User).order_by(User.username.asc()).all()
         pending_emails = {
@@ -1073,6 +1118,7 @@ def get_user_directory():
 
 
 def create_display_account(username, password, role, full_name="", created_by=None):
+    """Create an email-optional display account with a validated password and audit event."""
     username = str(username or "").strip()
     role = str(role or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{2,63}", username):
@@ -1104,6 +1150,7 @@ def create_display_account(username, password, role, full_name="", created_by=No
 
 
 def submit_email_change_request(user_id, requested_email):
+    """Validate and queue a unique recovery-email change for reviewer approval."""
     email, normalized = normalize_user_email(requested_email)
     now = datetime.utcnow()
     with SessionLocal() as db:
@@ -1153,6 +1200,7 @@ def submit_email_change_request(user_id, requested_email):
 
 
 def list_email_change_requests():
+    """Return pending recovery-email requests without exposing verification token hashes."""
     with SessionLocal() as db:
         rows = db.query(EmailChangeRequest, User).join(
             User, User.id == EmailChangeRequest.user_id
@@ -1172,6 +1220,7 @@ def list_email_change_requests():
 
 
 def review_email_change_request(request_id, reviewer_id, approve, reason=""):
+    """Record a reviewer decision; approval creates a hashed mailbox-verification token."""
     now = datetime.utcnow()
     with SessionLocal() as db:
         request = db.query(EmailChangeRequest).filter(
@@ -1223,6 +1272,7 @@ def review_email_change_request(request_id, reviewer_id, approve, reason=""):
 
 
 def verify_recovery_email(raw_token):
+    """Consume an approved, unexpired mailbox token and commit the verified address."""
     if not raw_token:
         return False
     now = datetime.utcnow()
@@ -1260,6 +1310,7 @@ def verify_recovery_email(raw_token):
 
 
 def resend_recovery_email_verification(user_id):
+    """Rotate the pending verification token subject to the five-minute resend cooldown."""
     now = datetime.utcnow()
     with SessionLocal() as db:
         request = db.query(EmailChangeRequest).filter(
@@ -1282,6 +1333,7 @@ def resend_recovery_email_verification(user_id):
 
 
 def submit_password_reset_request(identifier, requester_ip=None):
+    """Hash reset evidence, apply IP/identifier limits, and queue eligible requests for review."""
     submitted = str(identifier or "").strip()
     identifier_hash = hashlib.sha256(submitted.casefold().encode("utf-8")).hexdigest()
     safe_ip = None
@@ -1358,6 +1410,7 @@ def submit_password_reset_request(identifier, requester_ip=None):
 
 
 def list_password_reset_requests():
+    """Return pending reset requests joined to safe account metadata for reviewers."""
     with SessionLocal() as db:
         rows = db.query(PasswordResetRequest, User).join(
             User, User.id == PasswordResetRequest.user_id
@@ -1377,6 +1430,7 @@ def list_password_reset_requests():
 
 
 def review_password_reset_request(request_id, reviewer_id, approve, reason=""):
+    """Record a reset decision, prevent self-approval, and issue a token only for eligible mailboxes."""
     now = datetime.utcnow()
     with SessionLocal() as db:
         request = db.query(PasswordResetRequest).filter(
@@ -1436,6 +1490,7 @@ def review_password_reset_request(request_id, reviewer_id, approve, reason=""):
 
 
 def complete_password_reset(raw_token, new_password):
+    """Consume a valid single-use reset token, update the hash, and revoke all user sessions."""
     password_hash = hash_password(new_password)
     now = datetime.utcnow()
     with SessionLocal() as db:
@@ -1473,6 +1528,7 @@ def complete_password_reset(raw_token, new_password):
 
 @TTLCache(ttl=60)
 def get_dashboard_metrics():
+    """Return 24-hour counts for qualifying articles, KEVs, hazards, and unresolved cloud incidents."""
     with SessionLocal() as db:
         t = datetime.utcnow() - timedelta(days=1)
         return {
@@ -1483,25 +1539,30 @@ def get_dashboard_metrics():
         }
 
 def get_pinned_articles():
+    """Return pinned articles ordered newest first."""
     with SessionLocal() as db:
         return to_dotdict_list(db.query(Article).filter_by(is_pinned=True).order_by(Article.published_date.desc()).all())
 
 def get_live_articles(limit=15):
+    """Return unpinned score-50+ articles from the last 24 hours, capped by `limit`."""
     with SessionLocal() as db:
         t = datetime.utcnow() - timedelta(days=1)
         return to_dotdict_list(db.query(Article).filter(Article.published_date >= t, Article.score >= 50.0, Article.is_pinned == False).order_by(Article.score.desc()).limit(limit).all())
 
 def toggle_pin(art_id):
+    """Toggle an article's shared pinned flag when the ID exists."""
     with SessionLocal() as db:
         a = db.query(Article).filter_by(id=art_id).first()
         if a: a.is_pinned = not a.is_pinned; db.commit()
 
 def boost_score(art_id, amount=15):
+    """Increase an article's score by the supplied amount, capped at 100."""
     with SessionLocal() as db:
         a = db.query(Article).filter_by(id=art_id).first()
         if a: a.score = min(100.0, a.score + amount); db.commit()
 
 def change_status(art_id, new_feedback):
+    """Persist a feedback label and adjust matched keyword weights on the first non-neutral label."""
     with SessionLocal() as db:
         a = db.query(Article).filter_by(id=art_id).first()
         if a:
@@ -1516,6 +1577,7 @@ def change_status(art_id, new_feedback):
             db.commit()
 
 def save_ai_bluf(art_id, bluf_text):
+    """Persist a generated BLUF string on the target article when it exists."""
     with SessionLocal() as db:
         a = db.query(Article).filter_by(id=art_id).first()
         if a: a.ai_bluf = bluf_text; db.commit()
@@ -2231,6 +2293,7 @@ def generate_and_save_internal_risk_snapshot():
 import re
 
 def generate_unified_brief_email_html(report_time, markdown_content, global_risk=None, internal_risk=None):
+    """Render a Unified Brief email with risk-tier banners and its supplied report body."""
     if not global_risk or not internal_risk:
         session = SessionLocal()
         try:
@@ -2298,6 +2361,7 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
         markdown_content = markdown_content.replace(disclaimer_match.group(0), "").strip()
 
     def native_md_to_html(text):
+        """Convert the supported report Markdown subset to email-safe HTML fragments."""
         text = text.replace('\r', '').strip()
 
         text = re.sub(r'^# (.*?)$', r'<h1 style="color:#111827; font-size:22px; font-weight:600; margin-bottom:10px; margin-top:0;">\1</h1>', text, flags=re.MULTILINE)
@@ -2401,6 +2465,7 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
     return formatted_html
     
 def generate_global_brief_email_html(report_time, markdown_content, global_risk=None, internal_risk=None):
+    """Render the US critical-infrastructure brief with its distinct global-risk email layout."""
     import re
 
     if not global_risk or not internal_risk:
@@ -2468,6 +2533,7 @@ def generate_global_brief_email_html(report_time, markdown_content, global_risk=
         markdown_content = markdown_content.replace(disclaimer_match.group(0), "").strip()
 
     def native_md_to_html(text):
+        """Convert the supported report Markdown subset to email-safe HTML fragments."""
         text = text.replace('\r', '').strip()
         text = re.sub(r'^# (.*?)$', r'<h1 style="color:#111827; font-size:22px; font-weight:600; margin-bottom:10px; margin-top:0;">\1</h1>', text, flags=re.MULTILINE)
         text = re.sub(r'^## (.*?)$', r'<h2 style="color:#111827; font-size:18px; font-weight:600; border-bottom:2px solid #e5e7eb; padding-bottom:8px; margin-top:25px; margin-bottom:12px;">\1</h2>', text, flags=re.MULTILINE)
@@ -2557,6 +2623,7 @@ def generate_global_brief_email_html(report_time, markdown_content, global_risk=
 
 
 def generate_internal_brief_email_html(report_time, markdown_content, global_risk=None, internal_risk=None):
+    """Render the internal asset-risk brief with its distinct internal-risk email layout."""
     import re
 
     if not global_risk or not internal_risk:
@@ -2624,6 +2691,7 @@ def generate_internal_brief_email_html(report_time, markdown_content, global_ris
         markdown_content = markdown_content.replace(disclaimer_match.group(0), "").strip()
 
     def native_md_to_html(text):
+        """Convert the supported report Markdown subset to email-safe HTML fragments."""
         text = text.replace('\r', '').strip()
         text = re.sub(r'^# (.*?)$', r'<h1 style="color:#111827; font-size:22px; font-weight:600; margin-bottom:10px; margin-top:0;">\1</h1>', text, flags=re.MULTILINE)
         text = re.sub(r'^## (.*?)$', r'<h2 style="color:#111827; font-size:18px; font-weight:600; border-bottom:2px solid #e5e7eb; padding-bottom:8px; margin-top:25px; margin-bottom:12px;">\1</h2>', text, flags=re.MULTILINE)
@@ -2756,6 +2824,7 @@ def generate_outlook_html_report(intel):
     return html
 
 def send_executive_report(recipient_email, intel, sys_config):
+    """Build and send the executive report through the configured mailer."""
     try:
         html_body = generate_outlook_html_report(intel)
         from src.utils.mailer import send_alert_email
@@ -2772,15 +2841,18 @@ def send_executive_report(recipient_email, intel, sys_config):
 # ==========================================
 
 def get_all_daily_briefings():
+    """Return archived Daily Fusion reports ordered newest report date first."""
     with SessionLocal() as db:
         reports = db.query(DailyBriefing).order_by(DailyBriefing.report_date.desc()).all()
         return to_dotdict_list(reports)
 
 def get_daily_briefing(target_date):
+    """Return the archived report for one date, or `None` when it is absent."""
     with SessionLocal() as db:
         return to_dotdict(db.query(DailyBriefing).filter(DailyBriefing.report_date == target_date).first())
 
 def save_daily_briefing(target_date, content):
+    """Insert or update the archived Daily Fusion report for a date."""
     with SessionLocal() as db:
         b = db.query(DailyBriefing).filter(DailyBriefing.report_date == target_date).first()
         if b:
@@ -2791,7 +2863,9 @@ def save_daily_briefing(target_date, content):
         db.commit()
 
 def generate_daily_report_email_html(report_date, markdown_content):
+    """Render the supplied Daily Fusion date and Markdown body as an email."""
     def native_md_to_html(text):
+        """Convert the limited Daily Fusion Markdown subset to HTML."""
         text = re.sub(r'^### (.*?)$', r'<h3 style="color:#2c3e50; margin-bottom:5px;">\1</h3>', text, flags=re.MULTILINE)
         text = re.sub(r'^## (.*?)$', r'<h2 style="color:#2980b9; margin-bottom:5px; border-bottom:1px solid #eee;">\1</h2>', text, flags=re.MULTILINE)
         text = re.sub(r'^# (.*?)$', r'<h1 style="color:#2c3e50;">\1</h1>', text, flags=re.MULTILINE)
@@ -2823,6 +2897,7 @@ def generate_custom_report_email_html(title, report_time, markdown_content):
     from html import escape
 
     def native_md_to_html(text):
+        """Escape report content before converting supported headings, emphasis, and bullets."""
         text = escape(text)
         text = re.sub(r'^### (.*?)$', r'<h3 style="color:#374151; font-size:16px; margin:20px 0 8px;">\1</h3>', text, flags=re.MULTILINE)
         text = re.sub(r'^## (.*?)$', r'<h2 style="color:#111827; font-size:19px; border-bottom:2px solid #e5e7eb; padding-bottom:8px; margin:28px 0 12px;">\1</h2>', text, flags=re.MULTILINE)
@@ -2859,6 +2934,7 @@ def generate_custom_report_email_html(title, report_time, markdown_content):
 # ==========================================
 
 def get_paginated_articles(feed_type, cat_filter, page, page_size, search_term=None, min_score=0):
+    """Return one page of articles after feed type, category, text, and score filters."""
     with SessionLocal() as db:
         q = db.query(Article)
         if feed_type == "pinned": q = q.filter_by(is_pinned=True)
@@ -2880,6 +2956,7 @@ def get_paginated_articles(feed_type, cat_filter, page, page_size, search_term=N
         return to_dotdict_list(items), total_items, total_pages, page
 
 def get_article_detail(article_id):
+    """Return one article's detail, related IOC data, or `None` when the ID is missing."""
     with SessionLocal() as db:
         art = db.query(Article).filter_by(id=article_id).first()
         if not art:
@@ -2909,12 +2986,14 @@ def get_article_detail(article_id):
 
 
 def get_cves(limit=15, days_back=None):
+    """Return recent CISA KEV rows with optional lookback and result bounds."""
     with SessionLocal() as db:
         q = db.query(CveItem)
         if days_back: q = q.filter(CveItem.date_added >= datetime.utcnow() - timedelta(days=days_back))
         return to_dotdict_list(q.order_by(CveItem.date_added.desc()).limit(limit).all())
 
 def get_cloud_outages(active_only=True, limit=None, days_back=None):
+    """Return cloud incidents filtered by resolution state, lookback, and optional limit."""
     with SessionLocal() as db:
         q = db.query(CloudOutage)
         if active_only: q = q.filter_by(is_resolved=False)
@@ -2926,12 +3005,14 @@ def get_cloud_outages(active_only=True, limit=None, days_back=None):
         return to_dotdict_list(q.all())
 
 def get_user_weather_prefs(username):
+    """Return alert-type preferences stored for one username."""
     from src.database import SessionLocal, UserWeatherPreference
     with SessionLocal() as db:
         prefs = db.query(UserWeatherPreference).filter_by(username=username).all()
         return [p.alert_type for p in prefs]
 
 def set_user_weather_prefs(username, alerts):
+    """Replace the alert-type preference rows belonging to one username."""
     from src.database import SessionLocal, UserWeatherPreference
     with SessionLocal() as db:
         # Clear existing and replace
@@ -2989,10 +3070,12 @@ def _fetch_wfca_wfs_features(layer_name):
 
 
 def _normalize_fire_id(value):
+    """Normalize an IRWIN/fire identifier for joining wildfire feed records."""
     return str(value or "").strip().strip("{}").casefold()
 
 
 def _fire_number(value, default=None):
+    """Parse a finite numeric fire attribute while preserving an explicit fallback."""
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -3019,6 +3102,7 @@ def _get_wildfire_site_coordinates():
 
 
 def _haversine_miles(lon1, lat1, lon2, lat2):
+    """Calculate great-circle distance in miles between longitude/latitude pairs."""
     earth_radius_miles = 3958.7613
     lat1_r, lat2_r = math.radians(lat1), math.radians(lat2)
     dlat = lat2_r - lat1_r
@@ -3390,12 +3474,14 @@ def dispatch_perimeter_crime_alerts():
     return True, "Perimeter SMS alerts processed."
 
 def get_hazards(limit=15, hours_back=None):
+    """Return recent regional hazards with an optional age filter and result cap."""
     with SessionLocal() as db:
         q = db.query(RegionalHazard)
         if hours_back: q = q.filter(RegionalHazard.updated_at >= datetime.utcnow() - timedelta(hours=hours_back))
         return to_dotdict_list(q.order_by(RegionalHazard.updated_at.desc()).limit(limit).all())
 
 def _hazard_color(event_type, severity, is_oos):
+    """Map event/severity/region values to the map fill color."""
     event_lower = event_type.lower()
     if is_oos:
         base = _hazard_color(event_type, severity, False)
@@ -3446,11 +3532,13 @@ def _hazard_color(event_type, severity, is_oos):
 
 
 def _hazard_line_color(fill):
+    """Choose a contrasting outline color for a compiled hazard fill."""
     r, g, b, a = fill
     return [min(255, r + 60), min(255, g + 60), min(255, b + 60), 255]
 
 
 def process_nws_alerts(data, selected_events, is_oos=False):
+    """Convert NWS GeoJSON into warning/watch geometries, zone alerts, and diagnostics."""
     map_diagnostics = []
     warn_geo = {"type": "FeatureCollection", "features": []}
     watch_geo = {"type": "FeatureCollection", "features": []}
@@ -3521,6 +3609,7 @@ def process_nws_alerts(data, selected_events, is_oos=False):
     return warn_geo, watch_geo, zonewide_alerts, map_diagnostics
 
 def get_weather_alerts_log(ar_data, oos_data, selected_events, usgs_ar_data=None, usgs_oos_data=None):
+    """Combine selected NWS alerts and USGS earthquakes into a sorted operator log."""
     all_alert_details = []
     
     # NWS Alerts (existing code)
@@ -3572,6 +3661,7 @@ def _get_eq_severity(mag):
     return "Minor"
 
 def _mapping_value(row, *keys, default=None):
+    """Return the first non-`None` value for one of the requested mapping keys."""
     for key in keys:
         value = row.get(key)
         if value is not None:
@@ -3580,6 +3670,7 @@ def _mapping_value(row, *keys, default=None):
 
 
 def calculate_site_intersections(map_rows, master_polygons):
+    """Use bounds prechecks and Shapely containment to return toggled/all affected site lists."""
     from math import isfinite
 
     toggled_affected_sites, master_affected_sites = [], []
@@ -3654,10 +3745,12 @@ def get_infrastructure_analytics(map_rows, master_affected_sites):
     }
 
     def rank_hazard(hazard):
+        """Map embedded severity labels to a numeric rank for choosing each site's worst hazard."""
         hazard_text = str(hazard).upper()
         return max((rank for level, rank in severity_rank.items() if level in hazard_text), default=10)
 
     def primary_label(hazard):
+        """Extract a stable, compact severity label for analytics distributions."""
         text_value = str(hazard).upper()
         for label in ("HIGH", "MDT", "ENH", "SLGT", "MRGL", "TSTM", "WARNING", "WATCH", "ADVISORY"):
             if label in text_value:
@@ -3721,6 +3814,7 @@ def get_infrastructure_analytics(map_rows, master_affected_sites):
             ]
 
     def ordered_distribution(values, order, key):
+        """Count values and order output by frequency with the declared tier order as tie-breaker."""
         counts = Counter(values)
         order_index = {value: index for index, value in enumerate(order)}
         return [
@@ -3743,6 +3837,7 @@ def get_infrastructure_analytics(map_rows, master_affected_sites):
 
 
 def import_locations(data, mode="add"):
+    """Import monitored locations in add, upsert, or replace mode and clear the location cache."""
     with SessionLocal() as db:
         count = 0
         if mode == "replace":
@@ -3880,6 +3975,7 @@ def nuke_crime_data():
 # ==========================================
 
 def get_iocs(days_back=3, limit=1000):
+    """Join recent IOC rows to articles and group repeated CVEs with their source list."""
     with SessionLocal() as db:
         t = datetime.utcnow() - timedelta(days=days_back)
         rows = (
@@ -3947,6 +4043,7 @@ def parse_search_terms(target: str) -> list[str]:
 
 
 def search_articles_for_hunting(target, days_back):
+    """Search title/summary/full text using parsed OR terms and return at most thirty articles."""
     terms = parse_search_terms(target)
     if not terms:
         return []
@@ -3954,6 +4051,7 @@ def search_articles_for_hunting(target, days_back):
     with SessionLocal() as db:
         cutoff = datetime.utcnow() - timedelta(days=days_back)
         def like_pattern(term):
+            """Escape SQL LIKE metacharacters before surrounding a term with wildcards."""
             escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             return f"%{escaped}%"
 
@@ -3975,11 +4073,13 @@ def search_articles_for_hunting(target, days_back):
         return to_dotdict_list(arts)
 
 def get_articles_by_ids(ids):
+    """Return article rows for the requested IDs as `DotDict` values."""
     with SessionLocal() as db:
         arts = db.query(Article).filter(Article.id.in_(ids)).all()
         return to_dotdict_list(arts)
 
 def get_osint_pivot_link(ioc_type, value):
+    """Validate an indicator and return its supported VirusTotal/Shodan/NVD/MITRE URL."""
     value = str(value or "").strip()
     if not value or len(value) > 512:
         return None
@@ -4005,6 +4105,7 @@ def get_osint_pivot_link(ioc_type, value):
 
 
 def get_elastic_events(hours_back=24, page=1, page_size=100):
+    """Return bounded, timestamp-ordered pages from the local Elastic event cache."""
     hours_back = max(1, min(int(hours_back), 168))
     page = max(1, int(page))
     page_size = max(1, min(int(page_size), 500))
@@ -4038,6 +4139,7 @@ def get_elastic_events(hours_back=24, page=1, page_size=100):
 # ==========================================
 
 def _query_aiops_timeline_events(db, allowed_site_names=None):
+    """Read and sanitize at most fifty recent timeline events, applying site scope before limit."""
     query = db.query(TimelineEvent)
     if allowed_site_names is not None:
         allowed_names = {str(name) for name in allowed_site_names if name}
@@ -4058,6 +4160,11 @@ def get_aiops_timeline_events(allowed_site_names=None):
 
 
 def get_aiops_dashboard_data(allowed_site_names=None):
+    """Return unresolved uncorrelated alerts, scoped timeline events, and unresolved outages.
+
+    Callers must still apply `filter_aiops_payload_for_user` before returning the
+    combined payload to a non-administrator.
+    """
     with SessionLocal() as db:
         alerts = db.query(SolarWindsAlert).filter(SolarWindsAlert.status != 'Resolved', SolarWindsAlert.is_correlated == False).all()
         events = _query_aiops_timeline_events(db, allowed_site_names)
@@ -4092,6 +4199,7 @@ def get_aiops_active_issue_counts(allowed_site_names=None):
 
 
 def get_allowed_site_names(allowed_site_types):
+    """Resolve allowed site-type grants to the corresponding current location names."""
     allowed_types = set(allowed_site_types or [])
     if not allowed_types:
         return set()
@@ -4103,6 +4211,7 @@ def get_allowed_site_names(allowed_site_types):
 
 
 def get_allowed_site_names_for_user(user, locations=None):
+    """Resolve a user/admin's allowed names from supplied locations or a database query."""
     is_admin = str(getattr(user, "role", "") or "").casefold() in {"admin", "administrator"}
     if locations is not None:
         allowed_types = set(getattr(user, "allowed_site_types", []) or [])
@@ -4119,18 +4228,21 @@ def get_allowed_site_names_for_user(user, locations=None):
 
 
 def user_has_all_site_type_access(user):
+    """Check whether the caller is admin or holds every current site-type grant."""
     if str(getattr(user, "role", "") or "").casefold() in {"admin", "administrator"}:
         return True
     return set(getattr(user, "allowed_site_types", []) or []).issuperset(set(get_all_site_types()))
 
 
 def user_can_access_site(user, site_name):
+    """Check access to one named site through administrator override or current site scope."""
     if str(getattr(user, "role", "") or "").casefold() in {"admin", "administrator"}:
         return True
     return bool(site_name) and site_name in get_allowed_site_names_for_user(user)
 
 
 def ensure_user_can_access_alerts(user, alert_ids):
+    """Raise `ValueError` unless every requested alert exists and belongs to an allowed site."""
     if str(getattr(user, "role", "") or "").casefold() in {"admin", "administrator"}:
         return
     ids = list({int(value) for value in alert_ids if int(value) > 0})
@@ -4194,12 +4306,15 @@ def filter_aiops_payload_for_user(payload, user, locations=None):
     }
 
 def clear_timeline_events():
+    """Delete all operational timeline rows."""
     with SessionLocal() as db: db.query(TimelineEvent).delete(); db.commit()
 
 def nuke_active_alerts():
+    """Delete all SolarWinds alert rows; this is a destructive administrator operation."""
     with SessionLocal() as db: db.query(SolarWindsAlert).delete(); db.commit()
 
 def resolve_alert(alert_id, node_name):
+    """Resolve one alert, clear its Needs Dispatch flag, and append an operator timeline event."""
     with SessionLocal() as db:
         a = db.query(SolarWindsAlert).filter_by(id=alert_id).first()
         site_name = a.mapped_location if a else None
@@ -4246,6 +4361,7 @@ def resolve_site_alerts(site_name, modified_by="unknown"):
         return len(active_alerts)
 
 def acknowledge_cluster(alert_ids, username="unknown"):
+    """Mark existing alert IDs correlated and record acknowledgement actor/time without resolving them."""
     with SessionLocal() as db:
         now_utc = datetime.utcnow()
         updated_sites = set()
@@ -4266,6 +4382,7 @@ def acknowledge_cluster(alert_ids, username="unknown"):
         db.commit()
 
 def save_alias(alias_id, new_mapped_name):
+    """Set a node alias's verified location mapping and confidence to 100 percent."""
     with SessionLocal() as db:
         a = db.query(NodeAlias).filter_by(id=alias_id).first()
         if a:
@@ -4326,6 +4443,7 @@ def generate_global_sitrep(sys_config_dict):
 
         return report
 def generate_rca_ticket_text(site, data, priority, patient_zero, root_cause):
+    """Format a sanitized site ticket from cluster metadata, timestamps, alerts, and RCA text."""
     priority = sanitize_text(priority)
     root_cause = sanitize_text(root_cause)
     pz_obj = data.get('patient_zero')
@@ -4368,16 +4486,19 @@ def generate_rca_ticket_text(site, data, priority, patient_zero, root_cause):
 # ==========================================
 
 def search_articles(query, limit):
+    """Search article title/summary substrings and return newest matches up to `limit`."""
     with SessionLocal() as db:
         q = db.query(Article)
         if query: q = q.filter(Article.title.ilike(f"%{query}%") | Article.summary.ilike(f"%{query}%"))
         return to_dotdict_list(q.order_by(Article.published_date.desc()).limit(limit).all())
 
 def get_saved_reports():
+    """Return shared-library reports ordered newest first."""
     with SessionLocal() as db:
         return to_dotdict_list(db.query(SavedReport).order_by(SavedReport.created_at.desc()).all())
 
 def save_custom_report(title, author, content):
+    """Insert a new custom report into the shared report library."""
     with SessionLocal() as db:
         db.add(SavedReport(title=title, author=author, content=content))
         db.commit()
@@ -4389,10 +4510,12 @@ def save_custom_report(title, author, content):
 
 @TTLCache(ttl=300)
 def get_all_roles():
+    """Return role definitions through the process-local five-minute cache."""
     with SessionLocal() as db:
         return to_dotdict_list(db.query(Role).all())
 
 def create_role(name, allowed_pages, allowed_actions, allowed_site_types=None):
+    """Validate catalog grants/site types and insert a new role, returning false on duplicate."""
     name = str(name or "").strip()
     allowed_pages = list(dict.fromkeys(allowed_pages or []))
     allowed_actions = list(dict.fromkeys(allowed_actions or []))
@@ -4415,6 +4538,7 @@ def create_role(name, allowed_pages, allowed_actions, allowed_site_types=None):
     return True
 
 def update_role(name, allowed_pages, allowed_actions, allowed_site_types=None):
+    """Update grants while allowing existing legacy keys to be retained or removed."""
     allowed_pages = list(dict.fromkeys(allowed_pages or []))
     allowed_actions = list(dict.fromkeys(allowed_actions or []))
     allowed_site_types = list(dict.fromkeys(allowed_site_types or []))
@@ -4446,10 +4570,12 @@ def update_role(name, allowed_pages, allowed_actions, allowed_site_types=None):
     return True
 
 def create_user(username, password, role, full_name=""):
+    """Legacy wrapper that creates an email-optional display account."""
     create_display_account(username, password, role, full_name)
     return True
 
 def force_reset_pwd(username, new_password, actor_user_id=None):
+    """Set a validated password, revoke sessions/reset tokens, and audit administrator recovery."""
     password_hash = hash_password(new_password)
     with SessionLocal() as db:
         user = db.query(User).filter(User.username == username).first()
@@ -4469,6 +4595,7 @@ def force_reset_pwd(username, new_password, actor_user_id=None):
         return False
 
 def update_user_role(username, new_role, actor_user_id=None):
+    """Assign an existing role, revoke the user's sessions, and audit the role transition."""
     with SessionLocal() as db:
         if not db.query(Role).filter(Role.name == new_role).first():
             raise ValueError("That role does not exist.")
@@ -4487,6 +4614,7 @@ def update_user_role(username, new_role, actor_user_id=None):
 
 
 def set_user_active(username, is_active, actor_user_id=None):
+    """Change account active state, revoke sessions on disable, and append an audit event."""
     with SessionLocal() as db:
         user = db.query(User).filter_by(username=username).first()
         if not user:
@@ -4504,6 +4632,7 @@ def set_user_active(username, is_active, actor_user_id=None):
 
 
 def set_user_account_type(username, account_type, actor_user_id=None):
+    """Validate an individual/display transition, revoke sessions when changed, and audit it."""
     account_type = str(account_type or "").strip().lower()
     if account_type not in {"individual", "display"}:
         raise ValueError("Account type must be 'individual' or 'display'.")
@@ -4525,6 +4654,7 @@ def set_user_account_type(username, account_type, actor_user_id=None):
 
 
 def update_user_identity(username, full_name="", job_title="", contact_info="", actor_user_id=None):
+    """Update identity display fields and record the acting administrator."""
     full_name = str(full_name or "").strip()
     job_title = str(job_title or "").strip()
     contact_info = str(contact_info or "").strip()
@@ -4544,6 +4674,7 @@ def update_user_identity(username, full_name="", job_title="", contact_info="", 
 
 
 def revoke_user_sessions(username, actor_user_id=None):
+    """Revoke every modern and legacy session for a user and append an audit event."""
     with SessionLocal() as db:
         user = db.query(User).filter_by(username=username).first()
         if not user:
@@ -4556,6 +4687,7 @@ def revoke_user_sessions(username, actor_user_id=None):
 
 
 def get_scheduler_settings():
+    """Merge saved job overrides with registry metadata/defaults and both revision counters."""
     with SessionLocal() as db:
         config = db.query(SystemConfig).first()
         revision = int(config.scheduler_revision or 0) if config else 0
@@ -4591,6 +4723,7 @@ def get_scheduler_settings():
 
 
 def save_scheduler_setting(job_key, schedule, updated_by, actor_user_id=None):
+    """Validate and persist one schedule, increment the reload revision, and audit the change."""
     normalized = validate_schedule(job_key, schedule)
     now = datetime.utcnow()
     with SessionLocal() as db:
@@ -4622,6 +4755,7 @@ def save_scheduler_setting(job_key, schedule, updated_by, actor_user_id=None):
 
 
 def mark_scheduler_revision_applied(revision):
+    """Persist the highest scheduler revision the worker has applied."""
     with SessionLocal() as db:
         config = db.query(SystemConfig).first()
         if not config:
@@ -4631,6 +4765,7 @@ def mark_scheduler_revision_applied(revision):
         db.commit()
 
 def save_global_config(data, allow_system_fields=True):
+    """Validate allowlisted SystemConfig fields and optionally permit system-maintained fields."""
     # The frontend historically used these labels; normalize them before the
     # strict allowlist so configuration updates remain compatible.
     data = dict(data)
@@ -4707,6 +4842,7 @@ def save_global_config(data, allow_system_fields=True):
     get_cached_config.clear()
 
 def get_latest_internal_risk():
+    """Return the newest internal-risk snapshot with decoded asset payloads and scoring mode."""
     from src.database import InternalRiskSnapshot
     with SessionLocal() as db:
         snap = db.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
@@ -4732,6 +4868,7 @@ def get_latest_internal_risk():
         }
 
 def get_internal_risk_history(days: int = 28):
+    """Return timestamp-ordered internal-risk score points within the requested lookback."""
     from src.database import InternalRiskSnapshot
     from datetime import timedelta
     cutoff = datetime.utcnow() - timedelta(days=days)
@@ -4751,6 +4888,7 @@ def trigger_unified_brief(progress_generation_id=None):
     logger.info("trigger_unified_brief: starting manual generation")
 
     def _progress(**kw):
+        """Forward generation updates only when the API supplied a progress ID."""
         if progress_generation_id:
             update_brief_progress(progress_generation_id, **kw)
 
@@ -4782,6 +4920,7 @@ def trigger_global_brief(progress_generation_id=None):
     logger.info("trigger_global_brief: starting manual generation")
 
     def _progress(**kw):
+        """Forward generation updates only when the API supplied a progress ID."""
         if progress_generation_id:
             update_brief_progress(progress_generation_id, **kw)
 
@@ -4808,6 +4947,7 @@ def trigger_internal_brief(progress_generation_id=None):
     logger.info("trigger_internal_brief: starting manual generation")
 
     def _progress(**kw):
+        """Forward generation updates only when the API supplied a progress ID."""
         if progress_generation_id:
             update_brief_progress(progress_generation_id, **kw)
 
@@ -4865,7 +5005,7 @@ def trigger_scoring_rationale(intel_data: dict):
     return {"status": "error", "message": report or "Generation failed."}
 
 def _build_fallback_summary(logs, timeframe_label, target_role, generated_by, generated_by_role):
-    """Build a narrative handoff summary without an LLM."""
+    """Build a deterministic chronological handoff narrative from logs without an LLM."""
     handoff_title = timeframe_label if "handoff" in timeframe_label.lower() else f"{timeframe_label} Operational Handoff"
     timeline = []
     open_items = []
@@ -4894,8 +5034,9 @@ def _build_fallback_summary(logs, timeframe_label, target_role, generated_by, ge
 
 
 def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning", timeframe_label: str = "Morning Shift", auto_append: bool = False, timeframe: str = "shift", generated_by: str = "Unknown", generated_by_role: str = "analyst"):
-    """Force-generate an aggregated shift summary from log entries.
-    timeframe: 'shift' = today only, 'week' = last 7 days.
+    """Generate a shift/day/week summary from at most 200 logs with a 30-second LLM fallback.
+
+    When requested, the completed summary is appended as a new shift-log entry.
     """
     import threading
     from src.utils.llm import generate_aggregated_shift_summary
@@ -4942,6 +5083,7 @@ def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning
         done = threading.Event()
 
         def run_llm():
+            """Capture LLM output/error for the parent thread and always signal completion."""
             try:
                 llm_result[0] = generate_aggregated_shift_summary(session, logs, timeframe_label, target_role=role_filter, generated_by=generated_by, generated_by_role=generated_by_role)
             except Exception as e:
@@ -4976,6 +5118,7 @@ def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning
     return {"status": "ok", "summary": summary}
 
 def add_bulk_keywords(raw_text):
+    """Insert missing newline-delimited keywords, defaulting invalid weights to ten."""
     with SessionLocal() as db:
         for line in raw_text.split('\n'):
             if line.strip():
@@ -4992,6 +5135,7 @@ def add_bulk_keywords(raw_text):
         db.commit()
 
 def update_keyword_weight(keyword_id: int, weight: int):
+    """Update one 1–100 keyword weight and reload the in-process scorer."""
     if not isinstance(weight, int) or weight < 1 or weight > 100:
         raise ValueError("Weight must be an integer between 1 and 100")
     with SessionLocal() as db:
@@ -5005,6 +5149,7 @@ def update_keyword_weight(keyword_id: int, weight: int):
         return {"id": kw.id, "word": kw.word, "weight": kw.weight}
 
 def add_bulk_feeds(raw_text):
+    """Insert newline-delimited feed URLs while skipping existing URLs."""
     with SessionLocal() as db:
         for line in raw_text.split('\n'):
             if line.strip():
@@ -5014,21 +5159,25 @@ def add_bulk_feeds(raw_text):
         db.commit()
 
 def delete_record(model_name, record_id):
+    """Delete one record only from the explicit settings-service model allowlist."""
     models = {"Keyword": Keyword, "FeedSource": FeedSource, "User": User, "Role": Role, "SavedReport": SavedReport}
     with SessionLocal() as db:
         record = db.query(models[model_name]).filter_by(id=record_id).first()
         if record: db.delete(record); db.commit()
 
 def get_admin_lists():
+    """Return keyword, feed, and legacy user lists for administrator settings views."""
     with SessionLocal() as db:
         return to_dotdict_list(db.query(Keyword).order_by(Keyword.weight.desc()).all()), to_dotdict_list(db.query(FeedSource).all()), to_dotdict_list(db.query(User).all())
 
 def get_ml_counts():
+    """Return kept, dismissed, and total article feedback counts."""
     with SessionLocal() as db:
         pos, neg = db.query(Article).filter(Article.human_feedback == 2).count(), db.query(Article).filter(Article.human_feedback == 1).count()
         return pos, neg, pos + neg
 
 def get_backup_data():
+    """Export the legacy partial settings backup containing keywords, feeds, locations, and aliases."""
     with SessionLocal() as db:
         return {
             "keywords": [{"word": k.word, "weight": k.weight} for k in db.query(Keyword).all()],
@@ -5038,6 +5187,7 @@ def get_backup_data():
         }
 
 def restore_backup_data(data):
+    """Add missing records from the legacy four-collection backup without replacing existing rows."""
     added = {"kw": 0, "feeds": 0, "locs": 0, "alias": 0}
     with SessionLocal() as db:
         for kw in data.get("keywords", []):
@@ -5083,6 +5233,7 @@ ALL_MODELS = {
 
 
 def _serialize_record(record):
+    """Convert one ORM row's mapped columns to JSON-compatible scalar values."""
     d = {}
     for col in record.__table__.columns:
         val = getattr(record, col.name)
@@ -5094,7 +5245,11 @@ def _serialize_record(record):
 
 
 def export_all_tables():
-    """Export ALL tables as a dict of table_name -> list of records."""
+    """Export the 27-model `ALL_MODELS` allowlist as JSON-compatible table rows.
+
+    This compatibility export omits sessions, recovery, failed-login, audit,
+    and scheduler-configuration state; it is not a full database backup.
+    """
     result = {}
     with SessionLocal() as db:
         for table_name, model_cls in ALL_MODELS.items():
@@ -5104,10 +5259,10 @@ def export_all_tables():
 
 
 def import_all_tables(data, merge=False):
-    """Import a full JSON dump of all tables.
+    """Import rows for the supported `ALL_MODELS` collection.
 
-    If merge=True, inserts only non-duplicate records (by 'id').
-    If merge=False (default), truncates tables first then inserts.
+    If `merge` is true, existing IDs are skipped; otherwise supported non-empty
+    tables are cleared before supplied rows are inserted.
     """
     counts = {}
     with SessionLocal() as db:
@@ -5153,7 +5308,11 @@ def import_all_tables(data, merge=False):
 
 
 def restore_from_db_upload(db_file_path):
-    """Read a SQLite .db file and import all its tables into the current database."""
+    """Import supported table rows from a SQLite upload into the active database.
+
+    This compatibility path does not replace the active database file and must
+    not be treated as the encrypted full-backup restore procedure.
+    """
     import sqlite3
     conn = sqlite3.connect(db_file_path)
     conn.row_factory = sqlite3.Row
@@ -5210,6 +5369,7 @@ def restore_from_db_upload(db_file_path):
 
 
 def recategorize_all_articles():
+    """Reapply the categorizer to every stored article and return the changed-row count."""
     from src.services.categorizer import categorize_text
     with SessionLocal() as db:
         # Fetch ALL articles, not just "General"
@@ -5233,7 +5393,7 @@ def recategorize_all_articles():
         return count
 
 def rescore_all_articles():
-    """Re-score all existing articles using current keywords and categorizer."""
+    """Re-score all articles, refresh categories, and rebuild eligible cyber IOC rows."""
     from src.services.logic import HybridScorer
     from src.services.categorizer import categorize_text
     from src.services.ioc_extractor import ioc_engine
@@ -5280,6 +5440,7 @@ def rescore_all_articles():
 
 
 def nuke_tables(model_names):
+    """Delete rows only from the small, hard-coded destructive-operation allowlist."""
     models_map = {"CloudOutage": CloudOutage, "MonitoredLocation": MonitoredLocation, "Article": Article, "ExtractedIOC": ExtractedIOC, "FeedSource": FeedSource, "Keyword": Keyword}
     with SessionLocal() as db:
         for name in model_names:
@@ -5287,12 +5448,13 @@ def nuke_tables(model_names):
         db.commit()
 
 def truncate_db_table(table_query):
+    """Legacy compatibility helper that only recognizes the monitored-locations table."""
     if "monitored_locations" in table_query.lower():
         nuke_tables(["MonitoredLocation"])
         get_cached_locations.clear()
 
 def nuke_weather_data():
-    """Wipes all records from Regional Hazards and the GeoJSON cache, and resets location risks."""
+    """Delete regional hazards/GeoJSON cache rows and reset every site's SPC risk state."""
     from src.database import RegionalHazard, GeoJsonCache, MonitoredLocation
     with SessionLocal() as db:
         try:
@@ -5305,7 +5467,7 @@ def nuke_weather_data():
             
             db.commit()
             
-            # Clear the Streamlit RAM cache so the map instantly goes blank
+            # Clear the process-local GeoJSON cache so map reads see the reset immediately.
             get_cached_geojson.clear()
             
             return True, (haz_deleted + geo_deleted)
@@ -5315,7 +5477,7 @@ def nuke_weather_data():
 
 
 # ==========================================
-# 10. UI MAP GENERATION ENGINE (PyDeck)
+# 10. REGIONAL MAP PRECOMPUTATION
 # ==========================================
 
 @TTLCache(ttl=120, max_entries=4)
@@ -5353,7 +5515,7 @@ def _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_d
                 "shape": f['properties']['shapely_obj'], 
                 "severity": f['properties']['severity']
             })
-            # MUST remove shapely_obj so Streamlit can serialize the dict into RAM cache
+            # Remove Shapely objects before returning/caching JSON-ready GeoJSON.
             f['properties'].pop('shapely_obj', None)
 
     # 3. Process Fire Risk
@@ -5412,12 +5574,14 @@ def _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_d
     # 5. Process USGS Earthquakes
     eq_data = []
     def get_eq_color(mag):
+        """Map earthquake magnitude bands to their Regional Grid marker colors."""
         if mag >= 5.0: return [255, 0, 0, 200]
         if mag >= 4.0: return [255, 165, 0, 200]
         if mag >= 3.0: return [255, 255, 0, 200]
         return [0, 0, 255, 200]
     
     def process_usgs_quakes(usgs_data, label_prefix):
+        """Append eligible USGS feature markers and buffered site-intersection shapes."""
         if not usgs_data or 'features' not in usgs_data:
             return
         for f in usgs_data['features']:

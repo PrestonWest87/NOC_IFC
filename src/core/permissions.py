@@ -1,4 +1,9 @@
-"""Canonical permission keys and descriptions shared by API policy and role UI."""
+"""Canonical permission keys and descriptions shared by API policy and role UI.
+
+Page keys are stored separately from action grants. Tab keys share the
+`allowed_actions` role field with action keys, so spelling and grouping here are
+part of the persisted authorization contract.
+"""
 
 from __future__ import annotations
 
@@ -96,6 +101,7 @@ TAB_CATALOG = {
     ],
 }
 
+# Bootstrap's administrator role receives both operational actions and tabs.
 PAGE_KEYS = [item["key"] for item in PAGE_CATALOG]
 ACTION_KEYS = [item["key"] for item in ACTION_CATALOG]
 TAB_KEYS = [item["key"] for tabs in TAB_CATALOG.values() for item in tabs]

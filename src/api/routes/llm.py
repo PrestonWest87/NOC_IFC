@@ -1,3 +1,9 @@
+"""LLM connection testing and weather-brief endpoints.
+
+Endpoint validation rejects unsafe/private URLs unless the explicit runtime
+setting allows private LLM destinations.
+"""
+
 import logging
 import ipaddress
 import socket
@@ -14,6 +20,7 @@ router = APIRouter(prefix="/api/v1/llm", tags=["llm"])
 
 
 def _safe_llm_endpoint(endpoint: str) -> bool:
+    """Reject malformed URLs and, by default, DNS results targeting private networks."""
     parsed = urlparse(endpoint)
     if parsed.scheme not in {"http", "https"} or parsed.username or parsed.password or not parsed.hostname:
         return False
@@ -32,6 +39,7 @@ def _safe_llm_endpoint(endpoint: str) -> bool:
     Depends(require_action("Tab: Settings -> AI & SMTP")),
 ])
 def test_llm_connection(data: dict[str, Any] = Body({})):
+    """Test one configured-compatible chat endpoint with a 30-second request timeout."""
     from src.utils.llm import call_llm
 
     endpoint = data.get("llm_endpoint", "").rstrip("/")
@@ -46,6 +54,7 @@ def test_llm_connection(data: dict[str, Any] = Body({})):
         return {"success": False, "message": "Endpoint is not an allowed external HTTP(S) endpoint."}
 
     class _TestConfig:
+        """Minimal LLM config adapter for the submitted, unpersisted connection test."""
         llm_endpoint = endpoint
         llm_api_key = api_key
         llm_model_name = model_name
@@ -82,6 +91,7 @@ def test_llm_connection(data: dict[str, Any] = Body({})):
     Depends(require_action("Action: Generate Reports")),
 ])
 def executive_weather_brief(data: dict[str, Any] = Body({})):
+    """Generate a Regional Grid weather brief from submitted analytics and cached settings."""
     from src.utils.llm import generate_executive_weather_brief
     config = svc.get_cached_config()
     brief = generate_executive_weather_brief(

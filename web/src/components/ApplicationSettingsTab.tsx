@@ -4,7 +4,9 @@ import { Clock, Gauge, Globe, Save } from "lucide-react";
 import api, { getApiErrorMessage } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
 
+/** Permission fields required to decide which application-setting sections are editable. */
 type ApplicationUser = { role?: string; allowed_actions?: string[] } | null;
+/** Registry-provided job metadata and the currently configured schedule shape. */
 type SchedulerJob = {
   key: string;
   label: string;
@@ -33,6 +35,7 @@ const card: React.CSSProperties = {
   borderRadius: "var(--radius-md)", padding: "1rem",
 };
 
+/** Render independent global, risk-scoring, and scheduler settings by action grant. */
 export function ApplicationSettingsTab({ user }: { user: ApplicationUser }) {
   const queryClient = useQueryClient();
   const canManageApp = hasActionPermission(user, "Action: Manage Application Settings");

@@ -91,6 +91,7 @@ function validateRecipients(value: string): string | null {
   return null;
 }
 
+/** Render Daily Fusion, custom report generation, and the shared report library. */
 export function ReportingPage() {
   const { user } = useAuth();
   const allowedReportTabs = getAllowedTabs(user?.allowed_actions, "reporting");

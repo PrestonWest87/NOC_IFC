@@ -1,3 +1,5 @@
+"""Shift-log reads, ownership-checked mutations, and handoff-summary generation."""
+
 import logging
 from datetime import datetime
 from fastapi import APIRouter, Query, Body, Depends, HTTPException
@@ -20,6 +22,7 @@ router = APIRouter(prefix="/api/v1/logbook", tags=["logbook"], dependencies=[Dep
     "Tab: Shift Log -> Active Shift", "Tab: Shift Log -> History",
 ]))])
 def entries(role_filter: str = Query("All"), start_date: str = None, end_date: str = None, user=Depends(get_current_user)):
+    """Return visible log entries, forcing non-history users to their own current-day scope."""
     logger.debug("GET /logbook/entries role=%s start=%s end=%s", role_filter, start_date, end_date)
     sd = datetime.fromisoformat(start_date) if start_date else None
     ed = datetime.fromisoformat(end_date) if end_date else None
@@ -35,6 +38,7 @@ def entries(role_filter: str = Query("All"), start_date: str = None, end_date: s
 
 @router.get("/roles")
 def logbook_roles():
+    """Return role names available to logbook filters."""
     return [{"name": role.name} for role in svc.get_all_roles()]
 
 
@@ -49,6 +53,7 @@ def create_entry(
     custom_date: str = None,
     user=Depends(get_current_user),
 ):
+    """Create a bounded shift note using the authenticated user's identity and role."""
     analyst = user.full_name or user.username
     if not is_admin(user):
         role = user.role or "analyst"
@@ -68,6 +73,7 @@ def create_entry(
     Depends(require_action("Action: Submit Shift Log")),
 ])
 def update_entry(entry_id: int, data: dict[str, Any] = Body({}), user=Depends(get_current_user)):
+    """Soft-delete or restore an entry after author/admin/manage-other-user checks."""
     is_deleted = data.get("is_deleted")
     logger.info("PATCH /logbook/entries/%d is_deleted=%s", entry_id, is_deleted)
     with SessionLocal() as session:
@@ -88,6 +94,7 @@ def update_entry(entry_id: int, data: dict[str, Any] = Body({}), user=Depends(ge
     Depends(require_action("Action: Generate Reports")),
 ])
 def generate_shift_summary(data: dict[str, Any] = Body({}), user=Depends(get_current_user)):
+    """Generate a session-scoped handoff summary and optionally append it to the log."""
     role_filter = str(data.get("role_filter", "All") or "All")
     shift_period = data.get("shift_period", "Morning")
     timeframe_label = data.get("timeframe_label", shift_period + " Shift")

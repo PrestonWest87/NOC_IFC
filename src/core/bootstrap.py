@@ -1,4 +1,10 @@
-"""Idempotent application data setup that runs after schema migrations."""
+"""Seed missing application defaults after schema migrations.
+
+Ordinary startup retains operator-edited feeds, keyword weights, and custom-role
+grants; the one-time permission-catalog conversion is versioned in
+`SystemConfig`. `DEFAULT_ADMIN_EMAIL` is trusted bootstrap configuration for
+the initial administrator and an existing email-less bootstrap administrator.
+"""
 
 import logging
 import os
@@ -62,6 +68,7 @@ DEFAULT_KEYWORDS = (
 )
 
 def _demo_hardware_assets():
+    """Return disposable synthetic hardware rows for an explicitly enabled demo."""
     return (
     HardwareAsset(ip_address="10.0.1.10", asset_name="FW-CORE-01", operating_system="PAN-OS", os_vendor="Palo Alto Networks", os_product="PA-5260", os_version="11.1.2", host_type="Firewall", instances=1, critical_instances=1, vulnerabilities=3, critical_vulnerabilities=1, severe_vulnerabilities=1, exploit_count=1, raw_risk_score=85.0, risk_score=85.0),
     HardwareAsset(ip_address="10.0.1.20", asset_name="FW-BRANCH-01", operating_system="PAN-OS", os_vendor="Palo Alto Networks", os_product="PA-460", os_version="11.0.4", host_type="Firewall", instances=1, critical_instances=0, vulnerabilities=2, critical_vulnerabilities=0, severe_vulnerabilities=1, exploit_count=0, raw_risk_score=45.0, risk_score=45.0),
@@ -95,6 +102,14 @@ DEMO_SOFTWARE_ASSETS = (
 
 
 def _seed_roles_and_admin(session):
+    """Seed built-in roles/admin and apply the one-time permission-catalog migration.
+
+    The admin role is kept fully granted; default analyst/viewer/user-admin roles
+    are created only when absent. Versioned migration logic resets the built-in
+    analyst baseline without repeatedly broadening custom grants. A configured
+    trusted bootstrap mailbox may initialize the new admin or verify an existing
+    email-less `admin` account.
+    """
     site_types = ["NOC", "SOC", "Data Center", "Field Office", "HQ", "Remote Site", "Cloud"]
     site_types.extend(
         value for (value,) in session.query(MonitoredLocation.loc_type).distinct().all()
@@ -238,6 +253,7 @@ def _seed_roles_and_admin(session):
 
 
 def _seed_feeds(session_factory):
+    """Insert missing default feeds without overwriting existing feed settings."""
     with session_factory() as session:
         urls = [url for url, _ in DEFAULT_FEEDS]
         existing = {
@@ -254,6 +270,7 @@ def _seed_feeds(session_factory):
 
 
 def _seed_keywords(session_factory):
+    """Insert missing default keywords without resetting operator-edited weights."""
     with session_factory() as session:
         words = [word for word, _ in DEFAULT_KEYWORDS]
         existing = {
@@ -267,6 +284,7 @@ def _seed_keywords(session_factory):
 
 
 def _seed_demo_assets(session_factory):
+    """Seed synthetic assets only when demo mode is enabled and each inventory is empty."""
     if not settings.demo_seed_data:
         return
     with session_factory() as session:
@@ -282,7 +300,12 @@ def _seed_demo_assets(session_factory):
 
 
 def ensure_bootstrap_data(session_factory) -> None:
-    """Create missing default data without replacing operator customizations."""
+    """Run independent, best-effort seed stages after migrations.
+
+    A failed stage is logged without suppressing unrelated seed stages. Full
+    article rescoring is opt-in through `RESCORE_ON_STARTUP` and is not part of
+    ordinary bootstrap.
+    """
     try:
         with session_factory() as session:
             _seed_roles_and_admin(session)

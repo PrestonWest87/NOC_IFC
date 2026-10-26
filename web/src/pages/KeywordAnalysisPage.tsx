@@ -51,6 +51,7 @@ function StatCard({ label, value, icon, color }: { label: string; value: string 
   );
 }
 
+/** Render persisted keyword/category analytics and permission-gated recategorization. */
 export function KeywordAnalysisPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();

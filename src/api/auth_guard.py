@@ -1,3 +1,11 @@
+"""Authentication, permission dependencies, and restore-aware request gating.
+
+The middleware resolves session tokens and counts protected API work for the
+restore coordinator. Route dependencies enforce the canonical page, tab, action,
+and administrator grants; permission failures are structured 403s, not logout
+signals.
+"""
+
 from fastapi import Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
@@ -7,7 +15,11 @@ from src.core import restore_control
 
 
 def token_from_request(request: Request) -> str:
-    """Read bearer auth while retaining query-token compatibility for old clients."""
+    """Resolve a session token from Bearer auth, the backup download cookie, or legacy query parameters.
+
+    Bearer authorization takes precedence. The scoped cookie is accepted only
+    for backup-download paths; query-token support remains for older clients.
+    """
     authorization = request.headers.get("Authorization", "")
     if authorization.lower().startswith("bearer "):
         return authorization[7:].strip()
@@ -20,6 +32,11 @@ def token_from_request(request: Request) -> str:
 
 
 def get_current_user(request: Request, token: str = Query("")):
+    """Return the user already authenticated by middleware or resolve the fallback token.
+
+    The fallback supports direct dependency use outside the normal middleware
+    path. Missing, revoked, or inactive sessions produce the standard 401 body.
+    """
     user = getattr(request.state, "user", None)
     if user:
         return user
@@ -33,6 +50,7 @@ def get_current_user(request: Request, token: str = Query("")):
 
 
 def permission_denied(permission: str, scope: str = "action") -> HTTPException:
+    """Build the structured 403 response while preserving the caller's session."""
     if scope == "role":
         message = "Administrator role required"
     elif scope == "page":
@@ -53,31 +71,38 @@ def permission_denied(permission: str, scope: str = "action") -> HTTPException:
 
 
 def require_admin(user=Depends(get_current_user)):
+    """Require one of the built-in administrator role names and return that user."""
     if not is_admin(user):
         raise permission_denied("Administrator", "role")
     return user
 
 
 def is_admin(user) -> bool:
+    """Apply the backend administrator override for `admin` and `administrator`."""
     return str(user.role or "").lower() in {"admin", "administrator"}
 
 
 def has_page_permission(user, page: str) -> bool:
+    """Check a page grant, including the built-in administrator override."""
     return is_admin(user) or page in (user.allowed_pages or [])
 
 
 def has_action_permission(user, action: str) -> bool:
+    """Check an action or tab grant stored in the role's shared grant array."""
     return is_admin(user) or action in (user.allowed_actions or [])
 
 
 def has_site_type_permission(user, site_type: str) -> bool:
+    """Check whether a user may access a site type; administrators receive all types."""
     if is_admin(user):
         return True
     return site_type in (user.allowed_site_types or [])
 
 
 def require_page(page: str):
+    """Create a route dependency for one catalogued page grant."""
     def checker(user=Depends(get_current_user)):
+        """Validate this request's page key and return its authenticated user."""
         if page not in PAGE_KEYS:
             raise RuntimeError(f"Unknown page permission: {page}")
         if not has_page_permission(user, page):
@@ -87,11 +112,13 @@ def require_page(page: str):
 
 
 def require_any_page(pages: list[str]):
+    """Create a dependency that accepts any listed page grant and rejects unknown keys at setup."""
     unknown = set(pages) - set(PAGE_KEYS)
     if unknown:
         raise RuntimeError(f"Unknown page permissions: {', '.join(sorted(unknown))}")
 
     def checker(user=Depends(get_current_user)):
+        """Require at least one page from the prevalidated alternatives."""
         if not is_admin(user) and not any(page in (user.allowed_pages or []) for page in pages):
             raise permission_denied(" or ".join(pages), "page")
         return user
@@ -99,7 +126,9 @@ def require_any_page(pages: list[str]):
 
 
 def require_action(action: str):
+    """Create a route dependency for one canonical action or tab grant."""
     def checker(user=Depends(get_current_user)):
+        """Validate this request's action/tab key and return its authenticated user."""
         if action not in ACTION_KEYS and action not in TAB_KEYS:
             raise RuntimeError(f"Unknown action permission: {action}")
         if not has_action_permission(user, action):
@@ -109,11 +138,13 @@ def require_action(action: str):
 
 
 def require_any_action(actions: list[str]):
+    """Create a dependency that accepts any listed action/tab grant."""
     unknown = set(actions) - (set(ACTION_KEYS) | set(TAB_KEYS))
     if unknown:
         raise RuntimeError(f"Unknown action permissions: {', '.join(sorted(unknown))}")
 
     def checker(user=Depends(get_current_user)):
+        """Require at least one prevalidated action/tab alternative."""
         if not is_admin(user) and not any(action in (user.allowed_actions or []) for action in actions):
             raise permission_denied(" or ".join(actions), "tab")
         return user
@@ -121,6 +152,14 @@ def require_any_action(actions: list[str]):
 
 
 async def authentication_middleware(request: Request, call_next):
+    """Apply restore gating, API activity accounting, and session authentication.
+
+    Public login/registration, password-reset, recovery-email verification,
+    health/readiness, and restore-status routes are explicit exceptions;
+    recovery-email change submission remains authenticated. Protected requests
+    are registered before dispatch and released in `finally`, allowing restore
+    to drain in-flight handlers without invalidating permission-denied sessions.
+    """
     path = request.url.path.rstrip("/")
     restore_status = path == "/api/v1/restore-status"
     restore_start = (

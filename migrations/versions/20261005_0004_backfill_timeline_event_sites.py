@@ -31,6 +31,7 @@ def infer_legacy_webhook_alert_site_name(message, monitored_site_names):
 
 
 def upgrade():
+    """Backfill only unscoped legacy Webhook/Alert rows matching a known exact site suffix."""
     bind = op.get_bind()
     timeline_events = sa.table(
         "timeline_events",
@@ -76,6 +77,7 @@ def upgrade():
 
 
 def downgrade():
+    """Reject downgrade because the original event site scope cannot be reconstructed."""
     raise RuntimeError(
         "This timeline site-scope backfill is forward-only; restore a verified backup instead."
     )

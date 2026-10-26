@@ -1,3 +1,5 @@
+"""Read-only and compatibility settings endpoints with per-route authorization."""
+
 import logging
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -15,6 +17,7 @@ router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
     Depends(require_action("Tab: Settings -> AI & SMTP")),
 ])
 def get_config(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Return AI/SMTP settings without returning stored credentials."""
     logger.debug("GET /settings/config")
     from src.models.schema import SystemConfig
     config = db.query(SystemConfig).first()
@@ -40,6 +43,7 @@ def get_config(db: Session = Depends(get_db), user=Depends(get_current_user)):
     Depends(require_action("Action: Manage Users")),
 ])
 def get_users(user=Depends(get_current_user)):
+    """Return the compatibility user-directory view for authorized user managers."""
     logger.debug("GET /settings/users")
     users = svc.get_user_directory()
     logger.debug("GET /settings/users: found %d users", len(users))

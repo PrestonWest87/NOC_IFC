@@ -1,4 +1,9 @@
-"""Cross-process maintenance coordination for UI-initiated full restores."""
+"""Coordinate a full restore across API, worker, and webhook processes.
+
+The shared data-volume marker blocks new writes; API request/background-writer
+counters and fresh worker/webhook status files let the restore coordinator wait
+for active work to drain. Per-process counters remain process-local.
+"""
 
 from __future__ import annotations
 
@@ -24,6 +29,7 @@ RESTORE_STATUS_TTL_SECONDS = 24 * 60 * 60
 
 
 def _control_dir() -> Path:
+    """Create and permission the shared restore-control directory."""
     path = application_data_dir() / ".restore-control"
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(path, 0o700)
@@ -31,6 +37,7 @@ def _control_dir() -> Path:
 
 
 def _requests_dir() -> Path:
+    """Return the private directory containing restore progress capability records."""
     path = _control_dir() / "requests"
     path.mkdir(mode=0o700, exist_ok=True)
     os.chmod(path, 0o700)
@@ -38,6 +45,7 @@ def _requests_dir() -> Path:
 
 
 def _status_dir() -> Path:
+    """Return the private directory used for worker/webhook quiescence heartbeats."""
     path = _control_dir() / "process-status"
     path.mkdir(mode=0o700, exist_ok=True)
     os.chmod(path, 0o700)
@@ -45,14 +53,17 @@ def _status_dir() -> Path:
 
 
 def _marker_path() -> Path:
+    """Return the shared file whose presence places all services in maintenance mode."""
     return application_data_dir() / ".restore-control" / "active-restore.json"
 
 
 def _utc_now() -> str:
+    """Format the current UTC timestamp in the ISO-8601 `Z` form used in control files."""
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _atomic_json(path: Path, value: dict) -> None:
+    """Write a private JSON record through a fsynced temporary file and atomic replace."""
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         with temporary.open("x", encoding="utf-8") as stream:
@@ -66,6 +77,7 @@ def _atomic_json(path: Path, value: dict) -> None:
 
 
 def _read_json(path: Path) -> dict | None:
+    """Read one control record, treating missing, malformed, or non-object data as absent."""
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, UnicodeDecodeError, json.JSONDecodeError):
@@ -74,15 +86,17 @@ def _read_json(path: Path) -> dict | None:
 
 
 def active_restore() -> dict | None:
+    """Return the active restore marker, if one has been published."""
     return _read_json(_marker_path())
 
 
 def maintenance_requested() -> bool:
+    """Check the marker's existence so every service can gate new writes quickly."""
     return _marker_path().exists()
 
 
 def begin_api_request() -> bool:
-    """Reserve an API request slot unless the restore gate is already active."""
+    """Atomically reserve a request slot unless maintenance has already started."""
     global _active_requests
     with _activity:
         if maintenance_requested():
@@ -92,6 +106,7 @@ def begin_api_request() -> bool:
 
 
 def end_api_request() -> None:
+    """Release one process-local request slot and wake restore waiters."""
     global _active_requests
     with _activity:
         _active_requests = max(0, _active_requests - 1)
@@ -99,7 +114,7 @@ def end_api_request() -> None:
 
 
 def begin_api_background_writer() -> bool:
-    """Register a detached API thread that can write to the database."""
+    """Register a detached API writer unless the shared restore gate is active."""
     global _active_background_writers
     with _activity:
         if maintenance_requested():
@@ -109,6 +124,7 @@ def begin_api_background_writer() -> bool:
 
 
 def end_api_background_writer() -> None:
+    """Release one detached-writer slot and wake restore waiters."""
     global _active_background_writers
     with _activity:
         _active_background_writers = max(0, _active_background_writers - 1)
@@ -117,6 +133,7 @@ def end_api_background_writer() -> None:
 
 @contextmanager
 def api_background_writer():
+    """Guard a database-writing background task for its full execution lifetime."""
     if not begin_api_background_writer():
         raise RestoreInProgressError("A database restore is in progress.")
     try:
@@ -126,6 +143,7 @@ def api_background_writer():
 
 
 def api_activity() -> dict:
+    """Snapshot this API process's in-flight request and background-writer counts."""
     with _activity:
         return {
             "active_requests": _active_requests,
@@ -134,7 +152,12 @@ def api_activity() -> dict:
 
 
 def begin_restore(stage_id: str, requested_by: str) -> str:
-    """Persist the maintenance gate before notifying the other services."""
+    """Publish a unique restore marker before services begin quiescing.
+
+    The condition lock serializes starters in this process; an existing shared
+    marker rejects another request. Once written, the marker is visible to the
+    other service processes as they enter their restore gates.
+    """
     _control_dir()
     with _activity:
         if _marker_path().exists():
@@ -163,6 +186,7 @@ def begin_restore(stage_id: str, requested_by: str) -> str:
 
 
 def update_restore(restore_id: str, state: str, message: str, *, percent: int | None = None, result: dict | None = None) -> dict:
+    """Update active-marker state and the pollable status record for this restore ID."""
     request = active_restore()
     if not request or request.get("restore_id") != restore_id:
         raise RestoreInProgressError("The active restore request changed unexpectedly.")
@@ -180,6 +204,7 @@ def update_restore(restore_id: str, state: str, message: str, *, percent: int | 
 
 
 def finish_restore(restore_id: str, state: str, message: str, *, result: dict | None = None) -> None:
+    """Write terminal status, clear only the matching active marker, and wake waiters."""
     update_restore(restore_id, state, message, percent=100 if state == "complete" else None, result=result)
     with _activity:
         request = active_restore()
@@ -189,6 +214,7 @@ def finish_restore(restore_id: str, state: str, message: str, *, result: dict | 
 
 
 def restore_status(restore_id: str) -> dict | None:
+    """Read a UUID capability's status while its record is within the 24-hour TTL."""
     try:
         normalized = uuid.UUID(hex=restore_id).hex
     except (ValueError, AttributeError, TypeError):
@@ -206,6 +232,7 @@ def restore_status(restore_id: str) -> dict | None:
 
 
 def publish_process_status(process_name: str, state: str, *, active: int = 0, jobs: list[str] | None = None) -> None:
+    """Publish the worker or webhook's current restore-drain state on the shared volume."""
     if process_name not in {"worker", "webhook"}:
         raise ValueError("Unknown restore-coordination process.")
     request = active_restore()
@@ -220,6 +247,7 @@ def publish_process_status(process_name: str, state: str, *, active: int = 0, jo
 
 
 def process_status(process_name: str, restore_id: str) -> dict | None:
+    """Return a matching process heartbeat only while its update is at most ten seconds old."""
     value = _read_json(_status_dir() / f"{process_name}.json")
     if not value or value.get("restore_id") != restore_id:
         return None

@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import api, { getApiErrorMessage } from "../utils/api";
 import { signalAuthUserRefresh, useAuth } from "../utils/AuthContext";
 
+/** Submit the approved recovery-email mailbox token and refresh same-origin account state. */
 export function VerifyRecoveryEmailPage() {
   const [params] = useSearchParams();
   const token = params.get("token") || "";

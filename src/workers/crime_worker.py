@@ -1,3 +1,5 @@
+"""Fetch Little Rock CAD incidents, geocode addresses, and persist nearby events."""
+
 import os
 import sys
 import requests
@@ -25,13 +27,16 @@ class _GeoCacheProxy:
     __slots__ = ()
 
     def __contains__(self, key):
+        """Check the backing LRU store for a normalized geocode key."""
         return key in _geo_cache_store
 
     def __getitem__(self, key):
+        """Read one cached coordinate and promote it to most recently used."""
         _geo_cache_store.move_to_end(key)
         return _geo_cache_store[key]
 
     def __setitem__(self, key, value):
+        """Insert/promote a coordinate and evict the oldest entry over the size bound."""
         if key in _geo_cache_store:
             _geo_cache_store.move_to_end(key)
         _geo_cache_store[key] = value
@@ -39,6 +44,7 @@ class _GeoCacheProxy:
             _geo_cache_store.popitem(last=False)
 
     def __len__(self):
+        """Return the current number of cached geocode entries."""
         return len(_geo_cache_store)
 
 
@@ -46,6 +52,7 @@ GEO_CACHE = _GeoCacheProxy()
 
 
 def calculate_distance(lat1, lon1, lat2, lon2):
+    """Return great-circle distance in miles for two latitude/longitude pairs."""
     R = 3958.8
     lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
     dlat = lat2 - lat1
@@ -56,6 +63,7 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 
 
 def geocode_address_arcgis(address, hq_lat, hq_lon, region="Little Rock, AR"):
+    """Resolve a CAD address through ArcGIS and cache the result in a bounded LRU."""
     if address in GEO_CACHE: return GEO_CACHE[address]
 
     clean_address = address.replace("/", " and ").replace(" BLK ", " ").replace(" BLOCK ", " ").strip()
@@ -87,7 +95,7 @@ def geocode_address_arcgis(address, hq_lat, hq_lon, region="Little Rock, AR"):
 
 
 def _store_crime_batch(db, items):
-    """Insert only new incident IDs with one lookup for the whole batch."""
+    """Insert one batch of new CAD incident IDs using a single duplicate lookup."""
     if not items:
         return 0
     batch_ids = [item.id for item in items]
@@ -108,6 +116,7 @@ def _store_crime_batch(db, items):
 
 
 def fetch_live_crimes():
+    """Fetch Little Rock CAD pages, geocode incidents, persist batches, and prune old rows."""
     import logging
     logger = logging.getLogger(__name__)
     logger.debug("Polling LR Dispatches...")

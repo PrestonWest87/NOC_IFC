@@ -1,3 +1,9 @@
+"""Train and atomically persist the optional article-feedback classifier.
+
+Feedback labels are mapped from dismissed/kept articles, and training is skipped
+until the minimum labeled corpus is available.
+"""
+
 import logging
 import os
 import tempfile
@@ -12,6 +18,11 @@ logger = logging.getLogger(__name__)
 MODEL_PATH = str(ml_model_path())
 
 def train():
+    """Fit the TF-IDF/logistic model from feedback labels and atomically replace its artifact.
+
+    Label 1 maps to noise and label 2 to keep; fewer than ten examples leaves
+    the current model untouched.
+    """
     with SessionLocal() as session:
         # 1. Fetch Training Data
         # human_feedback: 1 = Dismiss (Noise), 2 = Confirm (Keep)

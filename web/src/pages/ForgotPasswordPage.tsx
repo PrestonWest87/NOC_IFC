@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import api, { getApiErrorMessage } from "../utils/api";
 
+/** Submit a generic administrator-reviewed password-reset request. */
 export function ForgotPasswordPage() {
   const [identifier, setIdentifier] = useState("");
   const [message, setMessage] = useState("");

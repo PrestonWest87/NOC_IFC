@@ -18,6 +18,7 @@ const navItems = [
   { label: "Settings & Admin", icon: Settings, href: "/settings" },
 ];
 
+/** Render the shared workspace shell with permission-filtered navigation and account controls. */
 export function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);

@@ -1,3 +1,4 @@
+/** Initialize theme before mounting the React application and its style layers. */
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";

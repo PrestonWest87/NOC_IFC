@@ -1,4 +1,5 @@
 services:
+  # FastAPI owns REST/WebSocket requests and runs migrations/readiness on startup.
   api:
     build:
       context: .
@@ -21,6 +22,7 @@ services:
           cpus: "1.0"
           memory: 768M
 
+  # The scheduler shares the SQLite/model volume and waits for API readiness.
   worker:
     build:
       context: .
@@ -61,6 +63,7 @@ services:
           cpus: "0.5"
           memory: 384M
 
+  # Static production bundle; Nginx proxies relative /api and /ws requests.
   web:
     build:
       context: ./web
@@ -84,6 +87,7 @@ services:
           cpus: "0.25"
           memory: 128M
 
+  # Additive dev profile: Vite runs beside the production web service.
   web-dev:
     profiles: ["dev"]
     image: node:22-alpine

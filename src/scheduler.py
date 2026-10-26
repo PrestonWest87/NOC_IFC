@@ -1,12 +1,12 @@
 """
 NOC Intelligence Fusion Center - Background Scheduler
 
-This module orchestrates all background tasks for the NOC Intelligence system,
-including RSS feed fetching, weather/telemetry ingestion, ML model training,
-and automated reporting.
+This module registers the 20 registry-managed jobs and owns feed ingestion,
+article enrichment, escalation, retention, and report scheduling. Provider-specific
+fetchers are delegated to `src.workers` modules.
 
-Tasks are scheduled using the 'schedule' library and run in background threads
-to prevent blocking the main scheduler loop.
+The single worker runs jobs through a bounded thread pool, prevents same-job
+overlap, and reloads persisted schedules without restarting the process.
 """
 
 import time
@@ -26,6 +26,7 @@ from typing import List, Dict, Tuple, Optional
 import urllib3
 _orig_create_pool = urllib3.PoolManager.__init__
 def _patched_pool_init(self, *a, **kw):
+    """Default urllib3 connection pools to three connections unless a caller overrides it."""
     _orig_create_pool(self, *a, **kw)
     self.connection_pool_kw.setdefault("maxsize", 3)
 urllib3.PoolManager.__init__ = _patched_pool_init
@@ -61,6 +62,7 @@ def log(message, source="SYSTEM", level=None):
     logger.log(level, "[%s] %s", source.upper(), message)
 
 def log_memory_usage(tag=""):
+    """Log this Linux worker process's resident memory from `/proc/self/status`."""
     try:
         with open("/proc/self/status") as f:
             for line in f:
@@ -75,6 +77,7 @@ def log_memory_usage(tag=""):
 _global_scorer = None
 
 def _ensure_scorer():
+    """Load the process-local HybridScorer on first use and reuse it afterward."""
     global _global_scorer
     if _global_scorer is None:
         from src.services.logic import get_scorer
@@ -234,6 +237,7 @@ def enrich_pending_articles(limit=25):
         return 0
 
     def fetch(row):
+        """Fetch one pending article's full content for the enrichment thread pool."""
         return row.id, _fetch_full_content(row.link)
 
     completed = 0
@@ -438,6 +442,7 @@ def job_daily_email_unified_brief():
 # =====================================================================
 
 def run_database_maintenance():
+    """Apply configured row-retention cleanup, remove orphan IOCs, and tune SQLite."""
     log("[CLEANUP] Running Master Database Maintenance...", "SYSTEM", logging.DEBUG)
     with SessionLocal() as session:
         try:
@@ -567,6 +572,7 @@ def job_tiered_alert_escalation(now_utc=None):
     local_tz = ZoneInfo("America/Chicago")
 
     def is_business_hours(dt_utc):
+        """Classify a timestamp in the weekday 06:00–20:00 America/Chicago window."""
         if not dt_utc:
             return False
         if dt_utc.tzinfo is None:
@@ -611,6 +617,7 @@ def job_tiered_alert_escalation(now_utc=None):
     }
 
     def get_tier(alert):
+        """Normalize priority from the payload's normalized or universal alert-level field."""
         payload = alert.raw_payload if isinstance(alert.raw_payload, dict) else {}
         custom_properties = payload.get("Custom_Properties_Universal") or {}
         raw_level = str(
@@ -634,6 +641,7 @@ def job_tiered_alert_escalation(now_utc=None):
         return "unknown"
 
     def is_node_on_cooldown(db, alert, cooldown_hours):
+        """Find a recent ticket/dispatch for the same node and mapped site only."""
         if not alert.node_name:
             return False
         cooldown_cutoff = now_utc - timedelta(hours=cooldown_hours)
@@ -651,6 +659,7 @@ def job_tiered_alert_escalation(now_utc=None):
         return query.first() is not None
 
     def node_already_paged(db, site, alert):
+        """Check whether this unresolved node incident has a successful page timestamp."""
         if not alert.node_name:
             return bool(alert.onpage_sent_at)
         return db.query(SolarWindsAlert.id).filter(
@@ -661,6 +670,7 @@ def job_tiered_alert_escalation(now_utc=None):
         ).first() is not None
 
     def mark_node_paged(db, site, alert):
+        """Record successful paging on all unresolved rows for the node at the site."""
         if not alert.node_name:
             alert.onpage_sent_at = now_utc
             return
@@ -674,6 +684,7 @@ def job_tiered_alert_escalation(now_utc=None):
         )
 
     def select_target(candidates):
+        """Choose the highest-weight candidate and flag priority escalation as a cascade."""
         if not candidates:
             return None, "unknown", False
         ordered = sorted(candidates, key=lambda alert: alert.received_at or now_utc)
@@ -695,6 +706,7 @@ def job_tiered_alert_escalation(now_utc=None):
         return target, target_tier, is_cascade
 
     def is_due(alert, tier, is_cascade):
+        """Apply day/night wait rules, with cascades dispatchable immediately."""
         alert_is_day = is_business_hours(alert.received_at)
         if tier == "unknown":
             wait_minutes = 10 if alert_is_day else 30
@@ -787,6 +799,7 @@ def job_tiered_alert_escalation(now_utc=None):
             )
 
             def dispatch_details(target_alert, target_tier, is_cascade):
+                """Build delivery-channel metadata and ticket body for the selected alert."""
                 alert_is_day = is_business_hours(target_alert.received_at)
                 rules = (DAY_SHIFT_RULES if alert_is_day else AFTER_HOURS_RULES).get(target_tier, {})
                 payload = target_alert.raw_payload if isinstance(target_alert.raw_payload, dict) else {}
@@ -973,6 +986,7 @@ def run_threaded(job_func, *args, **kwargs):
         _running_jobs.add(job_name)
 
     def _run():
+        """Execute one scheduled callback, isolate exceptions, and always clear its running marker."""
         log_memory_usage(f"pre-{job_name}")
         try:
             job_func(*args, **kwargs)
@@ -989,6 +1003,7 @@ def run_threaded(job_func, *args, **kwargs):
 
 
 def _scheduler_functions():
+    """Resolve each registry function name to the callable used by the scheduler."""
     from src.workers.report_worker import run_daily_report
 
     return {
@@ -1039,6 +1054,7 @@ def _register_configured_jobs(settings_rows):
 
 
 def _get_scheduler_snapshot():
+    """Load schedule/applied revisions and normalized job settings from persistence."""
     from src.services import get_scheduler_settings
 
     snapshot = get_scheduler_settings()
@@ -1049,6 +1065,7 @@ def _get_scheduler_snapshot():
 
 
 def _start_configured_startup_jobs(settings_rows):
+    """Launch enabled startup-run jobs in ordered groups separated by 30-second pauses."""
     functions = _scheduler_functions()
     startup_groups = [
         ["tiered_alert_escalation", "maintenance_expiry", "rss_fetch"],
@@ -1147,6 +1164,7 @@ _loaded_scheduler_revision = None
 
 
 def _reload_scheduler_if_changed():
+    """Apply a new persisted revision without interrupting in-flight job callbacks."""
     global _loaded_scheduler_revision
     try:
         revision, applied_revision, settings_rows, _ = _get_scheduler_snapshot()

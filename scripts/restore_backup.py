@@ -13,6 +13,7 @@ from src.core.backup_manager import BackupError, restore_backup
 
 
 def main() -> int:
+    """Parse offline restore arguments and print the restore result as JSON."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("backup", type=Path, help="Encrypted .nocbackup file to restore")
     parser.add_argument(

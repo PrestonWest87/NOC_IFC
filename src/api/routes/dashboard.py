@@ -1,3 +1,10 @@
+"""Dashboard data, article actions, and asynchronous brief-generation routes.
+
+The router requires the Global Dashboards page. Per-tab and action dependencies
+scope each operation; generated brief progress remains process-local, and
+background writers participate in restore draining.
+"""
+
 import logging
 import uuid
 import threading
@@ -15,10 +22,12 @@ router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"], dependencies=
 
 
 def _launch_report_writer(target, generation_id: str) -> None:
+    """Run one report task in a thread registered with the restore drain counter."""
     if not restore_control.begin_api_background_writer():
         raise HTTPException(status_code=503, detail="A database restore is in progress.")
 
     def _tracked_run():
+        """Run the report callback and release its restore-writer slot even on failure."""
         try:
             target()
         finally:
@@ -34,36 +43,42 @@ def _launch_report_writer(target, generation_id: str) -> None:
 
 @router.get("/metrics", dependencies=[Depends(require_action("Tab: Dashboards -> Operational"))])
 def dashboard_metrics():
+    """Return operational dashboard counters."""
     logger.debug("GET /dashboard/metrics")
     return svc.get_dashboard_metrics()
 
 
 @router.get("/pinned-articles", dependencies=[Depends(require_action("Tab: Dashboards -> Operational"))])
 def pinned_articles():
+    """Return pinned articles for the operational dashboard."""
     logger.debug("GET /dashboard/pinned-articles")
     return svc.get_pinned_articles()
 
 
 @router.get("/live-articles", dependencies=[Depends(require_action("Tab: Dashboards -> Operational"))])
 def live_articles(limit: int = Query(15, ge=1, le=100)):
+    """Return recent high-scoring articles with a bounded result limit."""
     logger.debug("GET /dashboard/live-articles limit=%d", limit)
     return svc.get_live_articles(limit=limit)
 
 
 @router.get("/hazards", dependencies=[Depends(require_action("Tab: Dashboards -> Operational"))])
 def hazards(limit: int = Query(15, ge=1, le=100)):
+    """Return recent regional hazards for the operational dashboard."""
     logger.debug("GET /dashboard/hazards limit=%d", limit)
     return svc.get_hazards(limit=limit)
 
 
 @router.get("/threat-trends", dependencies=[Depends(require_action("Tab: Dashboards -> Global Risk"))])
 def threat_trends(days: int = Query(14, ge=1, le=90)):
+    """Return persisted daily risk scores for the requested bounded history window."""
     logger.debug("GET /dashboard/threat-trends days=%d", days)
     return svc.get_historical_threat_scores(days=days)
 
 
 @router.get("/internal-risk", dependencies=[Depends(require_action("Tab: Dashboards -> Internal Risk"))])
 def internal_risk():
+    """Return the latest internal-risk snapshot or an explicit empty state."""
     logger.debug("GET /dashboard/internal-risk")
     data = svc.get_latest_internal_risk()
     if not data:
@@ -73,6 +88,7 @@ def internal_risk():
 
 @router.get("/internal-risk/history", dependencies=[Depends(require_action("Tab: Dashboards -> Internal Risk"))])
 def internal_risk_history(days: int = Query(28, ge=1, le=365)):
+    """Return internal-risk snapshots for the requested bounded history window."""
     logger.debug("GET /dashboard/internal-risk/history days=%d", days)
     return svc.get_internal_risk_history(days=days)
 
@@ -104,6 +120,7 @@ def dashboard_briefs(user=Depends(get_current_user)):
 
 @router.get("/executive-intel", dependencies=[Depends(require_action("Tab: Dashboards -> Global Risk"))])
 def executive_intel():
+    """Calculate global CIS intelligence from current hazards and headquarters crime data."""
     logger.debug("GET /dashboard/executive-intel")
     crimes = svc.get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
     from src.models.schema import RegionalHazard
@@ -115,16 +132,19 @@ def executive_intel():
 
 @router.post("/generate-internal-risk", dependencies=[Depends(require_action("Tab: Dashboards -> Internal Risk")), Depends(require_action("Action: Generate Risk Snapshot"))])
 def generate_internal_risk():
+    """Calculate and persist an internal asset-risk snapshot synchronously."""
     return svc.generate_and_save_internal_risk_snapshot()
 
 
 @router.post("/generate-unified-brief", dependencies=[Depends(require_action("Tab: Dashboards -> Unified Brief")), Depends(require_action("Action: Generate Reports"))])
 def generate_unified_brief():
+    """Start background Unified Brief generation and return its process-local ID."""
     logger.info("POST /generate-unified-brief: manual trigger (async)")
     generation_id = str(uuid.uuid4())
     init_brief_progress(generation_id)
 
     def _run():
+        """Run Unified Brief generation and store any exception in progress state."""
         try:
             svc.trigger_unified_brief(progress_generation_id=generation_id)
         except Exception as e:
@@ -137,6 +157,7 @@ def generate_unified_brief():
 
 @router.get("/brief-generation-status", dependencies=[Depends(require_action("Tab: Dashboards -> Unified Brief"))])
 def brief_generation_status(generation_id: str = Query(...)):
+    """Return Unified Brief progress or `unknown` after the record is absent."""
     progress = get_brief_progress(generation_id)
     if not progress:
         return {"status": "unknown"}
@@ -145,11 +166,13 @@ def brief_generation_status(generation_id: str = Query(...)):
 
 @router.post("/generate-global-brief", dependencies=[Depends(require_action("Tab: Dashboards -> Global Risk")), Depends(require_action("Action: Generate Reports"))])
 def generate_global_brief():
+    """Start background Global Threat Brief generation and return its process-local ID."""
     logger.info("POST /generate-global-brief: manual trigger (async)")
     generation_id = str(uuid.uuid4())
     init_brief_progress(generation_id)
 
     def _run():
+        """Run Global Brief generation and store any exception in progress state."""
         try:
             svc.trigger_global_brief(progress_generation_id=generation_id)
         except Exception as e:
@@ -162,6 +185,7 @@ def generate_global_brief():
 
 @router.get("/global-brief-generation-status", dependencies=[Depends(require_action("Tab: Dashboards -> Global Risk"))])
 def global_brief_generation_status(generation_id: str = Query(...)):
+    """Return Global Threat Brief progress or `unknown` after the record is absent."""
     progress = get_brief_progress(generation_id)
     if not progress:
         return {"status": "unknown"}
@@ -170,11 +194,13 @@ def global_brief_generation_status(generation_id: str = Query(...)):
 
 @router.post("/generate-internal-brief", dependencies=[Depends(require_action("Tab: Dashboards -> Internal Risk")), Depends(require_action("Action: Generate Reports"))])
 def generate_internal_brief():
+    """Start background internal asset-risk brief generation and return its process-local ID."""
     logger.info("POST /generate-internal-brief: manual trigger (async)")
     generation_id = str(uuid.uuid4())
     init_brief_progress(generation_id)
 
     def _run():
+        """Run internal brief generation and store any exception in progress state."""
         try:
             svc.trigger_internal_brief(progress_generation_id=generation_id)
         except Exception as e:
@@ -187,6 +213,7 @@ def generate_internal_brief():
 
 @router.get("/internal-brief-generation-status", dependencies=[Depends(require_action("Tab: Dashboards -> Internal Risk"))])
 def internal_brief_generation_status(generation_id: str = Query(...)):
+    """Return internal brief progress or `unknown` after the record is absent."""
     progress = get_brief_progress(generation_id)
     if not progress:
         return {"status": "unknown"}
@@ -195,6 +222,7 @@ def internal_brief_generation_status(generation_id: str = Query(...)):
 
 @router.post("/generate-rolling-summary", dependencies=[Depends(require_action("Tab: Dashboards -> Operational")), Depends(require_action("Action: Generate Reports"))])
 def generate_rolling_summary():
+    """Generate and persist a rolling handoff summary synchronously."""
     logger.info("POST /generate-rolling-summary: manual trigger")
     result = svc.trigger_rolling_summary()
     return result
@@ -202,6 +230,7 @@ def generate_rolling_summary():
 
 @router.post("/generate-scoring-rationale", dependencies=[Depends(require_action("Tab: Dashboards -> Global Risk")), Depends(require_action("Action: Trigger AI Functions"))])
 def generate_scoring_rationale(data: dict[str, Any] = Body({})):
+    """Generate an AI scoring rationale from the supplied intelligence payload."""
     logger.info("POST /generate-scoring-rationale: manual trigger")
     intel = data.get("intel", {})
     result = svc.trigger_scoring_rationale(intel)
@@ -210,24 +239,28 @@ def generate_scoring_rationale(data: dict[str, Any] = Body({})):
 
 @router.post("/articles/toggle-pin", dependencies=[Depends(require_action("Tab: Dashboards -> Operational")), Depends(require_action("Action: Pin Articles"))])
 def toggle_pin(article_id: int):
+    """Toggle the shared pinned state of one article."""
     svc.toggle_pin(article_id)
     return {"status": "ok"}
 
 
 @router.post("/articles/boost-score", dependencies=[Depends(require_action("Tab: Dashboards -> Operational")), Depends(require_action("Action: Boost Threat Score"))])
 def boost_score(article_id: int, amount: int = Query(15, ge=1, le=100)):
+    """Apply a validated manual score boost to one article."""
     svc.boost_score(article_id, amount)
     return {"status": "ok"}
 
 
 @router.post("/articles/feedback", dependencies=[Depends(require_action("Tab: Dashboards -> Operational")), Depends(require_action("Action: Trigger AI Functions"))])
 def article_feedback(article_id: int, feedback: int = Query(0, ge=0, le=2)):
+    """Persist a neutral/dismiss/keep label and apply first-label keyword feedback."""
     svc.change_status(article_id, feedback)
     return {"status": "ok"}
 
 
 @router.post("/articles/generate-bluf", dependencies=[Depends(require_action("Tab: Dashboards -> Operational")), Depends(require_action("Action: Trigger AI Functions"))])
 def generate_article_bluf(article_id: int = Query(0, ge=0)):
+    """Generate and persist a BLUF for an existing article."""
     from src.utils.llm import generate_bluf
     from src.models.schema import Article
     from src.core.db import SessionLocal

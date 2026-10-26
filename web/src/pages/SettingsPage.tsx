@@ -113,6 +113,7 @@ function SectionTitle({ text }: { text: string }) {
   return <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>{text}</h4>;
 }
 
+/** Render self-service and permission-gated administration/settings sections. */
 export function SettingsPage() {
   const { user: currentUser, refreshUser } = useAuth();
   const allowedSettingsTabs = getAllowedTabs(currentUser?.allowed_actions, "settings");

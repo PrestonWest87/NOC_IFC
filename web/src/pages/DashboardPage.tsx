@@ -175,6 +175,7 @@ function ArticleItem({ article, onPin, onBoost, onFeedback, canPin, canBoost, ca
 
 const SUB_PANELS = ["Threat Triage", "Infrastructure Status", "AI Analysis"];
 
+/** Render operational/global/internal dashboards and persist brief polling IDs across SPA navigation. */
 export function DashboardPage() {
   const { user } = useAuth();
   const allowedDashboardTabs = getAllowedTabs(user?.allowed_actions, "dashboard");

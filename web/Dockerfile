@@ -9,6 +9,7 @@ RUN --mount=type=cache,target=/root/.npm npm ci
 COPY . .
 RUN npm run build
 
+# Production serves only the built static bundle; Vite is not present at runtime.
 FROM nginx:alpine
 
 COPY --from=builder /app/dist /usr/share/nginx/html
