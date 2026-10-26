@@ -114,9 +114,10 @@ Comprehensive enterprise documentation is in `docs/`:
 |----------|----------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System context, C4 container model, technology stack, data flow overview, security, scalability |
 | [API.md](docs/API.md) | Complete REST operation inventory and endpoint behavior; path/method coverage is checked against the FastAPI OpenAPI schema |
+| [PERMISSIONS.md](docs/PERMISSIONS.md) | Exact page, tab, action, site-type, built-in-role, and enforcement contracts |
 | [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | All 35 tables with columns, types, constraints, indexes, relationships, migration strategy, retention policies |
 | [MIGRATION_COMPATIBILITY.md](docs/MIGRATION_COMPATIBILITY.md) | Supported older SQLite upgrade shapes, additive migration behavior, failure handling, and safety-test coverage |
-| [DATA_FLOWS.md](docs/DATA_FLOWS.md) | 8 complete pipelines with ASCII diagrams: RSS ingestion, CIS scoring, internal risk, brief generation, webhook, AIOps correlation, risk alerting, weather telemetry |
+| [DATA_FLOWS.md](docs/DATA_FLOWS.md) | Ingestion, scoring, internal risk, reporting, webhook/AIOps, hazard/telemetry, provider-worker, and retention flows |
 | [TRIGGER_ACTION_FLOWS.md](docs/TRIGGER_ACTION_FLOWS.md) | Every trigger (webhook, scheduler, user action, WebSocket) mapped to its complete action flow |
 | [SERVICES.md](docs/SERVICES.md) | All 11 service modules with function signatures, class hierarchies, call chains, dependencies |
 | [SCHEDULER.md](docs/SCHEDULER.md) | All 20 registry-managed background jobs with schedules, execution order, thread safety, retention policies |
@@ -124,6 +125,8 @@ Comprehensive enterprise documentation is in `docs/`:
 | [WEBHOOK.md](docs/WEBHOOK.md) | SolarWinds webhook gateway: payload normalization, device classification, resolution detection |
 | [FRONTEND.md](docs/FRONTEND.md) | React SPA: component tree, routing, hooks, state management, theme system, WebSocket client |
 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Docker Compose, environment variables, commands, production considerations, troubleshooting |
+| [DOCUMENTATION_AUDIT.md](docs/DOCUMENTATION_AUDIT.md) | Source-to-documentation audit scope, verified inventories, and observed source-level inconsistencies |
+| [IN_CODE_DOCUMENTATION_PLAN.md](docs/IN_CODE_DOCUMENTATION_PLAN.md) | Phased plan and style for future source docstrings and explanatory comments; no code edits are implied |
 | [IMPLEMENTATION_PLAN_EFFICIENCY_AND_MIGRATIONS.md](docs/IMPLEMENTATION_PLAN_EFFICIENCY_AND_MIGRATIONS.md) | Current startup migration, dependency, and efficiency implementation plan |
 | [IMPLEMENTATION_LOG_EFFICIENCY_AND_MIGRATIONS.md](docs/IMPLEMENTATION_LOG_EFFICIENCY_AND_MIGRATIONS.md) | Dated progress and verification record for the active implementation |
 
@@ -172,7 +175,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 ### Initial Access
 
 - Set `DEFAULT_ADMIN_PASSWORD` before first startup; no hard-coded production password is guaranteed by the current seed logic.
-- `DEFAULT_ADMIN_EMAIL` is optional trusted bootstrap configuration. It can initialize an existing email-less bootstrap admin on API/worker startup; administrator-created display accounts can remain email-less.
+- `DEFAULT_ADMIN_EMAIL` is optional trusted bootstrap configuration. API, worker, and webhook startup can initialize an existing email-less bootstrap admin; administrator-created display accounts can remain email-less.
 - Webhook target: `POST http://host:8100/webhook/solarwinds`
 
 ### Risk Levels
@@ -183,7 +186,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 
 | Domain | Examples |
 |--------|----------|
-| `PRIMARY_INTERNET` | VSAT, cellular, SD-WAN, modem, radio, ISP link |
+| `INTERNET` | VSAT, cellular, SD-WAN, modem, radio, ISP link (`PRIMARY_INTERNET` is a normalized compatibility alias) |
 | `COMMS_EQUIPMENT` | Firewall, router, switch, AP, gateway, WLC |
 | `POWER_SUPPLIES` | UPS, PDU, ATS, battery, generator, HVAC |
 | `RTU` | RTU, remote terminal unit |
@@ -193,26 +196,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 
 ### Permission Strings (must match exactly)
 
-- `Action: Dispatch RCA Tickets`
-- `Action: Manage Site Maintenance`
-- `Action: Send Email`
-- `Action: Generate Reports`
-- `Action: Adjust Risk Scoring Overrides`
-- `Action: Manage Scheduler Settings`
-- `Action: Manage Application Settings`
-- `Action: Train ML Model`
-- `Action: Manage Users`
-- `Action: Manage Roles`
-- `Action: Review Account Recovery Requests`
-- `Action: Approve Recovery Email Changes`
-- `Action: Generate Risk Snapshot`
-- `Action: Run RCA Analysis`
-- `Action: Clear AIOps Data`
-- `Action: Manage Shift Logs`
-- `Tab: Settings -> Internal Assets`
-- `Tab: Settings -> Application Settings`
-- `Tab: Dashboards -> Unified Brief`
-- `src/core/permissions.py` is the canonical backend/role-editor catalog; frontend route/tab/action references must match its keys and descriptions.
+`docs/PERMISSIONS.md` contains the complete catalog. `src/core/permissions.py` is the canonical backend/role-editor catalog; frontend route/tab/action references must match its keys and descriptions. Do not copy a partial grant list into new guides.
 
 ### Frontend Routes
 
@@ -227,6 +211,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `/shift-logbook` | ShiftLogbookPage | `web/src/pages/ShiftLogbookPage.tsx` |
 | `/reporting` | ReportingPage | `web/src/pages/ReportingPage.tsx` |
 | `/settings` | SettingsPage | `web/src/pages/SettingsPage.tsx` |
+| `/#/keyword-analysis` | KeywordAnalysisPage | `web/src/pages/KeywordAnalysisPage.tsx` |
 
 ## Key Files
 
@@ -234,11 +219,11 @@ The complete environment template and source mapping are maintained in [`.env.ex
 |------|---------|
 | `src/api/main.py` | FastAPI app entry, router mounting, WebSocket manager |
 | `src/api/routes/*.py` | 17 route modules, including permissions, user administration, and application settings |
-| `src/services.py` | Central Data Access Layer (~5,100 lines) |
+| `src/services.py` | Central data-access and domain-service module |
 | `src/services/aiops_engine.py` | EnterpriseAIOpsEngine — clustering, patient zero, RCA |
 | `src/services/logic.py` | HybridScorer — keyword + ML scoring |
-| `src/services/categorizer.py` | Article categorization (8 categories via regex) |
-| `src/services/ioc_extractor.py` | Enterprise IOC extraction (18 types, 5 categories) |
+| `src/services/categorizer.py` | Article categorization (9 regex categories) |
+| `src/services/ioc_extractor.py` | IOC extraction (21 rule types across 5 categories) |
 | `src/core/db.py` | SQLite-only engine/session + startup migration/bootstrap entrypoint |
 | `src/core/migration_runner.py` | Alembic startup runner and cross-process SQLite migration lock |
 | `migrations/schema_v1.py` | Frozen first-revision schema snapshot; keep immutable |
@@ -271,7 +256,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | Crime Fetch | 10 min | Crime API data + perimeter alert dispatch |
 | Regional Hazards | 7 min | NWS weather, USGS earthquakes, site intersections |
 | Cloud Outages | 8 min | Cloud provider status |
-| Telemetry Sync | 6 min | BGP anomalies, Elastic events |
+| Telemetry Sync | 6 min | ORNL power, RIPE BGP visibility, and IODA ISP outages |
 | Elastic Cache Sync | 6 min | Refresh high-severity Elastic events |
 | CISA KEV | 7 hours | Known Exploited Vulnerabilities catalog |
 | Internal Risk | 2 hours | Internal CIS scoring pipeline |
@@ -288,8 +273,8 @@ The complete environment template and source mapping are maintained in [`.env.ex
 
 ## Critical Context
 
-- **Keywords must be seeded for scorer**: `init_db()` seeds 70 keywords + rescales all existing articles. Rebuild API container after DB reset.
-- **compile-map response format**: `[layers[], viewState{}, diagnostics[], toggled_affected[], master_affected[], analytics{}]` — frontend accesses by index.
+- **Keywords must be seeded for scorer**: bootstrap seeds 70 keywords. Startup rescoring is opt-in via `RESCORE_ON_STARTUP=true`; ordinary startup does not rescore the corpus.
+- **compile-map response format**: `[processed_geo, {}, diagnostics, toggled_affected_sites, master_affected_sites, analytics]` — the frontend consumes the six positions by index.
 - **Web container has source mount with hot reload** in dev mode: changes to `web/` files reflected instantly via Vite HMR.
 - **Brief generation_id persisted in sessionStorage**: survives SPA navigation; polling resumes on return.
 - **Current implementation branch:** `main`, as requested. Keep `architecture/monolith-to-decoupled` synchronized after verification; do not force-push.
@@ -320,7 +305,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 
 ### Shift Logbook
 - Layout overhaul, day-stepper navigation, independent explorer tab
-- Soft delete with reason field
+- Soft delete/restore via `is_deleted`; the current API does not store a deletion-reason field
 - Auto-assign shift from user profile (name + title)
 - Fallback text summary when LLM generation >30s (prevents 504)
 

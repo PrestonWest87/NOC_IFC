@@ -18,7 +18,8 @@ def send_alert_email(
     subject: str,
     body: str,
     recipient_override: str = None,
-    is_html: bool = True
+    is_html: bool = True,
+    attachments=None
 ) -> tuple[bool, str]
 ```
 
@@ -30,6 +31,7 @@ def send_alert_email(
 | `body` | `str` | Email body content |
 | `recipient_override` | `str \| None` | Optional override recipient email address; if `None`, uses `config.smtp_recipient` |
 | `is_html` | `bool` | Whether to render the body as HTML; defaults to `True`. When enabled, performs lightweight Markdown-to-HTML conversion (line breaks, bold, headers) |
+| `attachments` | `list[dict] \| None` | Optional list of `{filename, content_type, content_base64}` objects. Filenames are reduced to a basename, base64 must validate, and each decoded attachment is limited to 5 MiB. The HTTP model allows at most five attachments. |
 
 **Returns:**
 
@@ -54,13 +56,11 @@ def send_alert_email(
 7. If `is_html` is `False`:
    - Attaches as `MIMEText` with `'plain'` subtype
 8. Connects to SMTP server at `config.smtp_server:config.smtp_port`
-9. Attempts `starttls()` (swallows exceptions if TLS is unavailable)
-10. Logs in with `smtp_username`/`smtp_password` if both are configured
-11. Sends the message via `server.send_message()`
-12. Quits the server connection
-13. Returns success tuple
-14. On any `Exception`, returns `(False, str(exception))`
-15. In the `finally` block, closes the database session
+9. Calls `starttls()` with a 10-second SMTP connection timeout. A TLS negotiation failure closes the server and returns a failure result.
+10. Logs in with `smtp_username`/`smtp_password` only when both are configured.
+11. Sends the message via `server.send_message()` and quits the connection.
+12. Returns `(True, "Email sent successfully.")` on success. SMTP/authentication/connect/general errors are caught and returned as `(False, message)`.
+13. Closes the database session in `finally`.
 
 **Dependencies:**
 
@@ -71,6 +71,8 @@ def send_alert_email(
 | `email.mime.multipart.MIMEMultipart` | Multipart email container |
 | `src.core.db.SessionLocal` | Database session factory |
 | `src.models.schema.SystemConfig` | Database model for SMTP configuration |
+
+The configured SMTP sender, username, and password are read from `SystemConfig`. The helper logs recipient counts rather than logging attachment contents. It does not guarantee SMTP server-side delivery beyond a successful `send_message()` call.
 
 ---
 

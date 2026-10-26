@@ -1,20 +1,12 @@
 # Module: `src.api.main`
 
-FastAPI application entry point for the active API container. This module configures logging, database startup, authentication middleware, CORS, all route routers, health endpoints, the WebSocket broadcaster, and the authenticated WebSocket protocol.
+Creates the FastAPI application, mounts REST routers, coordinates SQLite/restore startup, and hosts the authenticated AIOps WebSocket. The active entry point is `uvicorn src.api.main:app --host 0.0.0.0 --port 8101`.
 
-## Module Objects
+## Application and router inventory
 
-### `manager: ConnectionManager`
+`app` is titled `NOC Fusion Enterprise API`, reports version `2.0.0`, installs `authentication_middleware`, and configures CORS from `settings.cors_origins`.
 
-Process-local connection registry used by the broadcaster and route-triggered realtime updates. It does not provide cross-process fan-out; multiple API replicas require an external pub/sub layer.
-
-### `app: FastAPI`
-
-Created with title `NOC Fusion Enterprise API`, version `2.0.0`, and the `lifespan` context manager. The routers define their own `/api/v1/...` prefixes; `main.py` includes the router objects without adding a second prefix.
-
-Registered routers:
-
-| Module | Prefix |
+| Router | Prefix |
 |---|---|
 | `auth` | `/api/v1/auth` |
 | `dashboard` | `/api/v1/dashboard` |
@@ -30,70 +22,56 @@ Registered routers:
 | `llm` | `/api/v1/llm` |
 | `email` | `/api/v1/email` |
 | `keyword_analysis` | `/api/v1/keyword-analysis` |
+| `permissions` | `/api/v1/permissions` |
+| `user_admin` | `/api/v1/user-admin` |
+| `application_settings` | `/api/v1/application-settings` |
 
-Middleware order and behavior:
+The checked-out app's OpenAPI schema contains 177 paths and 189 HTTP operations. `docs/API.md` is the human reference for request behavior and route permissions.
 
-- `authentication_middleware` resolves a database session token for protected `/api/v1` requests.
-- `OPTIONS`, `/health`, `/ready`, login, and registration validation are public pass-through paths.
-- CORS origins are read from `settings.cors_origins`; credentials, methods, and headers are allowed.
+## `lifespan(app)`
 
-## Functions
+On ordinary startup, calls `init_db()` before creating the broadcaster task. If a durable restore marker already exists, it avoids normal database initialization, starts the broadcaster loop in maintenance mode, and attempts `resume_pending_restore()` through `src.core.ui_restore`. On shutdown it cancels the broadcaster and absorbs `asyncio.CancelledError`.
 
-### `broadcaster() -> None`
+## `broadcaster()`
 
-Infinite async task started during application lifespan. If no WebSocket clients exist, it sleeps for 10 seconds without querying the database. When clients exist:
+Runs every ten seconds. Before database work, it registers itself as an API background writer with `restore_control`; it releases that registration in `finally` so a UI restore can wait for in-flight writes. With no connected clients it skips service queries. With clients it:
 
-1. Runs `svc.get_aiops_dashboard_data` in a worker thread via `asyncio.to_thread`.
-2. Builds `{type, alerts, events, grid, alert_count}` with `type="dashboard_update"`.
-3. Awaits `manager.broadcast_json(payload)`.
-4. Logs exceptions and continues.
-5. Sleeps 10 seconds after each iteration.
+1. Fetches AIOps alerts, global timeline events, outage grid, active unresolved-alert counts, and cached locations.
+2. Computes separate site-scoped timeline lists for the distinct non-administrator allowed-site sets connected at that cycle.
+3. Sends a `dashboard_update` through `ConnectionManager.broadcast_json(transform=...)`; the per-connection transform checks AIOps page and Active Board grants and filters alerts/events/grid/counts to the connected user's allowed site types.
+4. Logs unexpected errors and continues after the next sleep.
 
-The thread handoff keeps synchronous database/service work from blocking the event loop. Connection-level failures are removed by `ConnectionManager.broadcast_json`.
+The message includes `type`, `alerts`, `events`, `grid`, `active_issue_counts`, and `alert_count`. `ConnectionManager` is process-local; it is not a cross-replica pub/sub implementation.
 
-### `lifespan(app: FastAPI)`
+## Health and restore-status routes
 
-Async context manager used by FastAPI startup/shutdown.
+### `GET /health`
 
-Startup:
+Liveness check; does not query SQLite. Returns `{"status":"ok","ws_clients":<count>}`.
 
-1. Calls `src.core.db.init_db()`.
-2. Creates an asyncio task for `broadcaster()`.
-3. Yields control to Uvicorn.
+### `GET /ready`
 
-Shutdown cancels the broadcaster task and absorbs `asyncio.CancelledError` after cleanup.
+Returns `{"status":"ready"}` after `SELECT 1`. Returns HTTP 503 while a restore marker is active or if SQLite cannot answer.
 
-### `health() -> dict`
+### `POST /api/v1/restore-status`
 
-`GET /health` liveness endpoint. Returns:
+Accepts `{ "restore_id": "..." }` without a normal session token. `restore_control.restore_status()` validates the random capability ID and its 24-hour lifetime; unknown/expired IDs return 404. The endpoint exposes restore progress, not database contents or file paths.
 
-```json
-{"status": "ok", "ws_clients": 0}
-```
+## `websocket_endpoint(websocket)`
 
-It does not query the database.
+The connection requires a valid `?token=<opaque session token>`, page grant `AIOps RCA`, and tab grant `Tab: AIOps RCA -> Active Board`. The handler also rejects connections during restore maintenance (close code 1012).
 
-### `ready() -> dict`
+After acceptance:
 
-`GET /ready` readiness endpoint. Executes `SELECT 1` through the configured SQLAlchemy engine. Returns `{"status": "ready"}` on success and raises HTTP `503` with `database unavailable` when the database cannot respond.
+- The connection registry stores both the WebSocket and the current authenticated user.
+- The receive loop times out after 30 seconds; on timeout it rechecks the token and required grants. It also rechecks them before processing each received message, so revocation takes effect on the next check.
+- A message exceeding `settings.websocket_max_message_bytes` is closed with code 1009. Invalid JSON and non-object messages are ignored.
+- Only `INVESTIGATING_UPDATE` and `RCA_UPDATE` are recognized. Both require `Action: Dispatch RCA Tickets`; unrecognized/unauthorized types receive a structured permission error. Parsed objects with more than ten top-level keys are ignored.
+- `INVESTIGATING_UPDATE` additionally requires the sender to access the named site. The broadcast transform suppresses that site update for recipients without access.
+- `RCA_UPDATE` is a resynchronization event broadcast to eligible AIOps clients; it does not itself perform a database mutation.
 
-### `websocket_endpoint(websocket: WebSocket)`
+The server-originated dashboard data path is separate from client commands. See [`ws_manager.md`](ws_manager.md), [`routes/rca.md`](routes/rca.md), and [`PERMISSIONS.md`](../../PERMISSIONS.md).
 
-`/ws` authenticated realtime endpoint.
+## Direct execution
 
-1. Reads `token` from the query string.
-2. Resolves the user with `svc.get_user_by_token` in a worker thread.
-3. Closes with code `1008` if no user is found.
-4. Awaits `manager.connect(websocket)` after successful authentication.
-5. Reads client text messages continuously.
-6. Rejects messages larger than `settings.websocket_max_message_bytes` with code `1009`.
-7. Parses JSON object messages. `INVESTIGATING_UPDATE` and `RCA_UPDATE` require `Action: Dispatch RCA Tickets`.
-8. Rejects unauthorized commands with an error JSON response.
-9. Broadcasts authorized command messages to all connected clients.
-10. Removes the socket on disconnect or unexpected error.
-
-The server-to-client dashboard stream is emitted by `broadcaster`; client command messages are not treated as arbitrary application actions.
-
-## Direct Execution
-
-The `__main__` block runs `uvicorn src.api.main:app` on `0.0.0.0:8101` with reload enabled for direct development execution. Docker uses the non-reload Compose command.
+The `__main__` block runs Uvicorn on `0.0.0.0:8101` with reload enabled for direct development. Docker Compose starts the same app without reload.

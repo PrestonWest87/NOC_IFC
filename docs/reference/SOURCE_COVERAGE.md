@@ -38,6 +38,7 @@ This index records the current source-to-reference mapping after the reference c
 | `src/train_model.py` | `train_model.md` |
 | `src/workers/*.py` | `workers/*.md` |
 | `scripts/restore_backup.py` | `core/backup_restore.md`, `../MAINTENANCE.md` |
+| `scripts/seed_aiops_test_data.py` | `scripts/seed_aiops_test_data.md` |
 
 ## Frontend
 

@@ -1,275 +1,32 @@
-# Module: `src.api.routes.reporting`
+# Route module: `src.api.routes.reporting`
 
-Reporting and daily briefing routes for executive intel, saved reports, daily fusion reports, custom intel reports, and email broadcast. Prefix: `/api/v1/reporting`.
+Prefix: `/api/v1/reporting`. Every route requires `Reporting & Briefings`; the tab/action requirements are listed below.
 
----
+## Request model bounds
 
-## Pydantic Models
+- `BroadcastRequest`: `report_date` ≤50 chars, `content` ≤200,000, `recipients` ≤2,000.
+- `BroadcastCustomRequest`: `title` ≤200 chars, `content` ≤200,000, `recipients` ≤2,000.
+- Both broadcast recipient fields reject newlines, accept comma/semicolon-separated addresses, validate a simple email shape, and allow at most 20 recipients.
+- `SaveReportRequest`: title ≤200, author ≤120, content ≤200,000.
+- `GenerateCustomRequest`: target ≤500, `days_back` 1–30 (default 7), at most 100 positive unique `article_ids`, objective ≤4,000, analyst ≤120.
+- `SearchArticlesRequest`: target ≤500 and `days_back` 1–30 (default 7).
 
-### `BroadcastRequest`
-| Field         | Type     | Default | Description                         |
-|---------------|----------|---------|-------------------------------------|
-| `report_date` | `str`    | `""`    | Date of the report being broadcast. |
-| `content`     | `str`    | `""`    | Report body content.                |
-| `recipients`  | `str`    | `""`    | Comma-separated email recipients.   |
+## Routes
 
-### `SaveReportRequest`
-| Field    | Type     | Default             | Description                |
-|----------|----------|---------------------|----------------------------|
-| `title`  | `str`    | `"Untitled Report"` | Report title.              |
-| `author` | `str`    | `"Unknown"`         | Report author name.        |
-| `content`| `str`    | `""`                | Report body content.       |
-
-### `GenerateCustomRequest`
-| Field       | Type     | Default      | Description                          |
-|-------------|----------|--------------|--------------------------------------|
-| `target` | `str` | `""` | Search target/keyword for the report. |
-| `days_back` | `int` | `7` | Lookback window, constrained to 1–30 days. |
-| `article_ids` | `list[int] \| None` | `None` | Optional selection of up to 100 positive article IDs. |
-| `objective` | `str` | `""` | Report objective/context. |
-| `analyst` | `str` | `"Unknown"` | Analyst attribution shown in the report. |
-
-`BroadcastCustomRequest` contains `title`, `content`, and `recipients`. `SearchArticlesRequest` contains `target` and `days_back` (1–30); both reporting recipient request models reject newlines, validate addresses, and limit recipient lists to 20.
-
----
-
-## Endpoint: `GET /executive-intel`
-
-### Purpose
-Returns executive-level intelligence grid data.
-
-### Parameters
-None.
-
-### Returns
-Executive intel grid object from `svc.get_executive_grid_intel()`.
-
-### Raises
-None.
-
-### Flow
-Calls `svc.get_executive_grid_intel()` with zero values (no hazard or crime context), returns the default intel structure.
-
-### Dependencies
-- `src.services.get_executive_grid_intel()`
-
----
-
-## Endpoint: `GET /saved-reports`
-
-### Purpose
-Lists all previously saved custom reports.
-
-### Parameters
-None.
-
-### Returns
-List of saved report objects.
-
-### Raises
-None.
-
-### Flow
-Direct delegation to `svc.get_saved_reports()`.
-
-### Dependencies
-- `src.services.get_saved_reports()`
-
----
-
-## Endpoint: `GET /daily-briefings`
-
-### Purpose
-Lists all generated daily briefing records.
-
-### Parameters
-None.
-
-### Returns
-List of daily briefing objects.
-
-### Raises
-None.
-
-### Flow
-Direct delegation to `svc.get_all_daily_briefings()`.
-
-### Dependencies
-- `src.services.get_all_daily_briefings()`
-
----
-
-## Endpoint: `POST /generate-daily`
-
-### Purpose
-Generates a new daily fusion report using the AI/LLM, saves it as a daily briefing, and returns the content.
-
-### Parameters
-None.
-
-### Returns
-```json
-{
-  "status": "ok" | "error",
-  "date": "<YYYY-MM-DD>",
-  "content": "<report markdown>" | null,
-  "message": "<error description>"
-}
-```
-
-### Raises
-None.
-
-### Flow
-1. Opens a database session.
-2. Calls `generate_daily_fusion_report(session)` from `src.utils.llm`.
-3. If a report was generated successfully:
-   - Saves it via `svc.save_daily_briefing()`.
-   - Formats the date string.
-   - Returns success with date and content.
-4. If generation failed, returns error status.
-
-### Dependencies
-- `src.utils.llm.generate_daily_fusion_report()`
-- `src.services.save_daily_briefing()`
-- `src.core.db.SessionLocal`
-
----
-
-## Endpoint: `POST /broadcast`
-
-### Purpose
-Broadcasts a daily fusion report to specified email recipients as an HTML email.
-
-### Parameters
-| Parameter | Type               | Description                 |
-|-----------|--------------------|-----------------------------|
-| `data`    | `BroadcastRequest` | Report date, content, and recipients.|
-
-### Returns
-```json
-{
-  "status": "ok" | "error",
-  "message": "<description>"
-}
-```
-
-### Raises
-None.
-
-### Flow
-1. Validates that recipients are specified; returns error if empty.
-2. Calls `svc.generate_daily_report_email_html()` to format the report as HTML.
-3. Sends the email via `send_alert_email()` with HTML content type.
-4. Returns success or error based on the send result.
-
-### Dependencies
-- `src.services.generate_daily_report_email_html()`
-- `src.utils.mailer.send_alert_email()`
-
----
-
-## Endpoint: `POST /save-report`
-
-### Purpose
-Saves a custom intelligence report to the database.
-
-### Parameters
-| Parameter | Type               | Description              |
-|-----------|--------------------|--------------------------|
-| `data`    | `SaveReportRequest`| Report title, author, content.|
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-Direct delegation to `svc.save_custom_report()`.
-
-### Dependencies
-- `src.services.save_custom_report()`
-
----
-
-## Endpoint: `DELETE /saved-reports/{report_id}`
-
-### Purpose
-Deletes a saved custom report by its ID.
-
-### Parameters
-| Parameter   | Type  | Description                    |
-|-------------|-------|--------------------------------|
-| `report_id` | `int` | ID of the report to delete.    |
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-Calls `svc.delete_record("SavedReport", report_id)`.
-
-### Dependencies
-- `src.services.delete_record()`
-
----
-
-## Endpoint: `POST /generate-custom`
-
-### Purpose
-Starts asynchronous custom intelligence report generation from either a search target/lookback window or selected article IDs.
-
-### Parameters
-| Parameter | Type                   | Description                      |
-|-----------|------------------------|----------------------------------|
-| `data`    | `GenerateCustomRequest`| Target, days_back, objective, analyst.|
-
-### Returns
-```json
-{"status":"started","generation_id":"<uuid>"}
-```
-The endpoint returns this immediately; poll the custom-report status route for progress/result.
-
-### Raises
-None.
-
-### Flow
-1. Requires either a non-empty target or a non-empty `article_ids` list and validates search terms.
-2. Creates a generation ID and starts a tracked daemon thread.
-3. Loads the selected articles or searches by target, then calls `build_custom_intel_report()` with the objective and database session.
-4. Stores progress/results in process memory; poll `GET /generate-custom-status?generation_id=...` for progress or the completed report.
-
-### Dependencies
-- `src.services.search_articles_for_hunting()`
-- `src.utils.llm.build_custom_intel_report()`
-- `src.core.db.SessionLocal`
-## Current Source Corrections
-
-Router prefix: `/api/v1/reporting`. The router requires page permission `Reporting & Briefings`.
-
-### Request Models
-
-- `BroadcastRequest`: `report_date` max 50 characters, `content` max 200,000, `recipients` max 2,000; recipient validation accepts commas/semicolons, rejects newlines, limits to 20 addresses, and validates email format.
-- `BroadcastCustomRequest`: custom report content and recipient validation using the same recipient rules.
-- `GenerateCustomRequest`: supports `target`, `days_back` constrained to 1–30, `objective`, and optional `article_ids`.
-- `SearchArticlesRequest`: request model for targeted article searches.
-
-### Current Endpoints
-
-| Endpoint | Permission | Behavior |
+| Method/path | Additional grant | Behavior |
 |---|---|---|
-| `POST /broadcast-custom` | `Action: Dispatch Exec Report` | Sends a custom report to validated recipients. |
-| `POST /search-articles` | Router page permission | Searches source articles for custom report building. |
-| `POST /generate-custom` | `Action: Generate Reports` | Starts daemon/background custom report generation and returns a generation ID. |
-| `GET /generate-custom-status` | Router page permission | Reads progress/result from the in-memory report stores. |
-| `DELETE /saved-reports/{report_id}` | `Action: Dispatch Exec Report` | Deletes a saved report. |
-| `POST /generate-daily` | `Action: Generate Reports` | Generates the daily report. |
+| `GET /executive-intel` | `Tab: Reporting -> Daily Fusion` | Calls executive scoring with zero weather count and no crime rows. |
+| `GET /saved-reports` | `Tab: Reporting -> Shared Library` | Returns all saved report rows, newest first. |
+| `GET /daily-briefings` | `Tab: Reporting -> Daily Fusion` | Returns archived Daily Fusion reports newest first. |
+| `POST /generate-daily` | Daily Fusion tab + `Action: Generate Reports` | Synchronously generates and saves the previous local-day Daily Fusion report; returns status, date, and content or a controlled generation error. |
+| `POST /broadcast` | Daily Fusion tab + `Action: Dispatch Exec Report` | Sends the supplied report date/content to validated recipients as HTML. Empty recipients return a status/message error. |
+| `POST /broadcast-custom` | Report Builder tab + `Action: Dispatch Exec Report` | Sends non-empty custom content to validated recipients. |
+| `POST /save-report` | Report Builder tab + `Action: Dispatch Exec Report` | Saves `{title,author,content}` to the shared report library. |
+| `DELETE /saved-reports/{report_id}` | Shared Library tab + `Action: Dispatch Exec Report` | Deletes the selected saved report. |
+| `POST /search-articles` | Report Builder tab | Accepts `{target,days_back}`; parses comma/semicolon/space-separated terms and quoted phrases, searches title/summary/full content using OR across terms, and returns up to 30 article summaries. |
+| `POST /generate-custom` | Report Builder tab + `Action: Generate Reports` | Requires a non-empty target or article ID list; starts a tracked background thread and returns `{status:"started",generation_id}`. |
+| `GET /generate-custom-status?generation_id=...` | Report Builder tab | Returns progress while running. When complete/error, returns the result and removes the stored progress/result; invalid IDs return a controlled error. |
 
-Custom generation uses `_report_progress_store`, `_report_result_store`, and `_report_lock` to coordinate progress and result retrieval. Generation can use either a search `target` or explicit `article_ids`.
+## Custom generation lifecycle
+
+The in-memory progress/result dictionaries are protected by a thread lock and are process-local. The generation thread registers as an API background writer so a coordinated restore waits for it. It loads selected IDs or searches the target, calls `build_custom_intel_report()`, adds target/date/analyst metadata, and stores either the completed report or an error. A restart loses the in-memory polling record; the generated output is not automatically saved to `SavedReport` until the user invokes `POST /save-report`.

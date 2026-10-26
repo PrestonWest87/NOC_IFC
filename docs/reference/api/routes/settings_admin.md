@@ -1,590 +1,75 @@
-# Module: `src.api.routes.settings_admin`
-
-Admin-level system administration routes for user management, keyword/feed management, role management, location management, backup/restore, database maintenance, ML retraining, and data nuking. Prefix: `/api/v1/admin`.
-
----
-
-## Endpoint: `GET /lists`
-
-### Purpose
-Returns all admin list data: keywords, RSS feeds, and users.
-
-### Parameters
-None.
-
-### Returns
-```json
-{
-  "keywords": [...],
-  "feeds": [...],
-  "users": [...]
-}
-```
-
-### Raises
-None.
-
-### Flow
-Calls `svc.get_admin_lists()` which returns a 3-tuple destructured into keywords, feeds, and users.
-
-### Dependencies
-- `src.services.get_admin_lists()`
-
----
-
-## Endpoint: `POST /keywords/bulk`
-
-### Purpose
-Bulk-adds keywords from raw text (one per line or comma-separated).
-
-### Parameters
-| Parameter  | Type   | Default | Description                    |
-|------------|--------|---------|--------------------------------|
-| `raw_text` | `str`  | `""`    | Raw text containing keywords.  |
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-Direct delegation to `svc.add_bulk_keywords()`.
-
-### Dependencies
-- `src.services.add_bulk_keywords()`
-
----
-
-## Endpoint: `POST /feeds/bulk`
-
-### Purpose
-Bulk-adds RSS feed URLs from raw text (one per line).
-
-### Parameters
-| Parameter  | Type   | Default | Description                    |
-|------------|--------|---------|--------------------------------|
-| `raw_text` | `str`  | `""`    | Raw text containing feed URLs. |
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-Direct delegation to `svc.add_bulk_feeds()`.
-
-### Dependencies
-- `src.services.add_bulk_feeds()`
-
----
-
-## Endpoint: `GET /ml-counts`
-
-### Purpose
-Returns the count of positive, negative, and total ML training samples.
-
-### Parameters
-None.
-
-### Returns
-```json
-{
-  "positive": <int>,
-  "negative": <int>,
-  "total": <int>
-}
-```
-
-### Raises
-None.
-
-### Flow
-Calls `svc.get_ml_counts()` which returns a 3-tuple destructured into pos, neg, total.
-
-### Dependencies
-- `src.services.get_ml_counts()`
-
----
-
-## Endpoint: `POST /config`
-
-### Purpose
-Saves the global system configuration from a JSON body.
-
-### Parameters
-| Parameter | Type               | Description                           |
-|-----------|--------------------|---------------------------------------|
-| `data`    | `dict[str, Any]`   | JSON body with configuration fields.  |
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-Direct delegation to `svc.save_global_config()`.
-
-### Dependencies
-- `src.services.save_global_config()`
-
----
-
-## Endpoint: `GET /roles`
-
-### Purpose
-Returns all defined roles and their permissions (allowed pages, actions, site types).
-
-### Parameters
-None.
-
-### Returns
-List of role objects.
-
-### Raises
-None.
-
-### Flow
-Direct delegation to `svc.get_all_roles()`.
-
-### Dependencies
-- `src.services.get_all_roles()`
-
----
-
-## Endpoint: `POST /roles`
-
-### Purpose
-Creates a new role with specified permissions.
-
-### Parameters
-| Parameter | Type               | Description                                   |
-|-----------|--------------------|-----------------------------------------------|
-| `data`    | `dict[str, Any]`   | JSON body with `name`, `allowed_pages`, `allowed_actions`, `allowed_site_types`.|
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-Extracts fields from the body and delegates to `svc.create_role()`.
-
-### Dependencies
-- `src.services.create_role()`
-
----
-
-## Endpoint: `PUT /roles/{name}`
-
-### Purpose
-Updates an existing role's permissions.
-
-### Parameters
-| Parameter | Type               | Description                                   |
-|-----------|--------------------|-----------------------------------------------|
-| `name`    | `str`              | Role name (path parameter).                   |
-| `data`    | `dict[str, Any]`   | JSON body with `allowed_pages`, `allowed_actions`, `allowed_site_types`.|
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-Extracts fields from the body and delegates to `svc.update_role()`.
-
-### Dependencies
-- `src.services.update_role()`
-
----
-
-## Endpoint: `POST /users`
-
-### Purpose
-Creates a new user account.
-
-### Parameters
-| Parameter | Type               | Description                                             |
-|-----------|--------------------|---------------------------------------------------------|
-| `data`    | `dict[str, Any]`   | JSON body with `username`, `password`, `role`, `full_name`.|
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-Extracts fields from the body and delegates to `svc.create_user()`.
-
-### Dependencies
-- `src.services.create_user()`
-
----
-
-## Endpoint: `PUT /users/{username}/role`
-
-### Purpose
-Updates a user's role assignment.
-
-### Parameters
-| Parameter  | Type               | Description                              |
-|------------|--------------------|------------------------------------------|
-| `username` | `str`              | Username (path parameter).               |
-| `data`     | `dict[str, Any]`   | JSON body with `role` field.             |
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-Delegates to `svc.update_user_role()`.
-
-### Dependencies
-- `src.services.update_user_role()`
-
----
-
-## Endpoint: `POST /users/{username}/reset-password`
-
-### Purpose
-Force-resets a user's password (admin override).
-
-### Parameters
-| Parameter  | Type               | Description                                |
-|------------|--------------------|--------------------------------------------|
-| `username` | `str`              | Username (path parameter).                 |
-| `data`     | `dict[str, Any]`   | JSON body with `new_password` field.       |
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-Delegates to `svc.force_reset_pwd()`.
-
-### Dependencies
-- `src.services.force_reset_pwd()`
-
----
-
-## Endpoint: `GET /location`
-
-### Purpose
-Returns all cached monitored locations.
-
-### Parameters
-None.
-
-### Returns
-List of location objects.
-
-### Raises
-None.
-
-### Flow
-Direct delegation to `svc.get_cached_locations()`.
-
-### Dependencies
-- `src.services.get_cached_locations()`
-
----
-
-## Endpoint: `POST /location/import`
-
-### Purpose
-Bulk-imports location data from a list of dictionaries.
-
-### Parameters
-| Parameter | Type           | Description                      |
-|-----------|----------------|----------------------------------|
-| `data`    | `list[dict]`   | JSON body array of location dicts.|
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-1. Delegates to `svc.import_locations(data)`.
-2. Clears the cached locations via `svc.get_cached_locations.clear()`.
-
-### Dependencies
-- `src.services.import_locations()`
-- `src.services.get_cached_locations.clear()` (LRU cache clear)
-
----
-
-## Endpoint: `PUT /location`
-
-### Purpose
-Updates existing location records from a list of dictionaries.
-
-### Parameters
-| Parameter | Type           | Description                          |
-|-----------|----------------|--------------------------------------|
-| `data`    | `list[dict]`   | JSON body array of updated location dicts.|
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-1. Delegates the JSON body records to `svc.update_locations()`.
-2. The service loads matching locations in one query, applies updates, and commits.
-3. Clears the cached locations.
-
-### Dependencies
-- `src.services.update_locations()`
-- `src.services.get_cached_locations.clear()`
-
----
-
-## Endpoint: `GET /backup`
-
-### Purpose
-Returns the legacy logical backup containing keywords, feeds, monitored locations, and node aliases.
-
-### Parameters
-None.
-
-### Returns
-Backup data object from `svc.get_backup_data()`.
-
-### Raises
-None.
-
-### Flow
-Direct delegation to service layer.
-
-### Dependencies
-- `src.services.get_backup_data()`
-
----
-
-## Endpoint: `POST /restore`
-
-### Purpose
-Adds missing keyword, feed, location, and alias records from a legacy backup object. This is not a complete database restore.
-
-### Parameters
-| Parameter | Type               | Description                      |
-|-----------|--------------------|----------------------------------|
-| `data`    | `dict[str, Any]`   | JSON body with backup data.      |
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-Delegates to `svc.restore_backup_data()`.
-
-### Dependencies
-- `src.services.restore_backup_data()`
-
----
-
-## Endpoint: `DELETE /record`
-
-### Purpose
-Deletes a record from any table by model name and record ID.
-
-### Parameters
-| Parameter    | Type   | Default | Description                         |
-|--------------|--------|---------|-------------------------------------|
-| `model_name` | `str`  | `""`    | SQLAlchemy model class name.        |
-| `record_id`  | `int`  | `0`     | ID of the record to delete.         |
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-Delegates to `svc.delete_record()`.
-
-### Dependencies
-- `src.services.delete_record()`
-
----
-
-## Endpoint: `POST /nuke`
-
-### Purpose
-Truncates specified database tables (destructive operation).
-
-### Parameters
-| Parameter | Type        | Description                            |
-|-----------|-------------|----------------------------------------|
-| `tables`  | `list[str]` | JSON body array of table names to nuke.|
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-Delegates to `svc.nuke_tables()`.
-
-### Dependencies
-- `src.services.nuke_tables()`
-
----
-
-## Endpoint: `POST /nuke/crime`
-
-### Purpose
-Truncates all crime incident data from the database.
-
-### Parameters
-None.
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-Delegates to `svc.nuke_crime_data()`.
-
-### Dependencies
-- `src.services.nuke_crime_data()`
-
----
-
-## Endpoint: `POST /nuke/weather`
-
-### Purpose
-Truncates all weather/hazard data from the database.
-
-### Parameters
-None.
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-Delegates to `svc.nuke_weather_data()`.
-
-### Dependencies
-- `src.services.nuke_weather_data()`
-
----
-
-## Endpoint: `POST /maintenance`
-
-### Purpose
-Manually triggers database maintenance operations (deduplication, purging stale data).
-
-### Parameters
-None.
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-Imports and calls `run_database_maintenance()` from `src.scheduler`.
-
-### Dependencies
-- `src.scheduler.run_database_maintenance()`
-
----
-
-## Endpoint: `POST /ml-retrain`
-
-### Purpose
-Manually triggers ML model retraining and scorer reload.
-
-### Parameters
-None.
-
-### Returns
-```json
-{
-  "status": "ok" | "error",
-  "message": "<description>"
-}
-```
-
-### Raises
-None.
-
-### Flow
-1. Imports `train()` from `src.train_model`.
-2. Imports `force_reload_scorer()` from `src.services.logic`.
-3. Calls `train()` to retrain the model.
-4. Calls `force_reload_scorer()` to reload the scoring logic.
-5. Returns success, or catches any exception and returns error message.
-
-### Dependencies
-- `src.train_model.train()`
-- `src.services.logic.force_reload_scorer()`
-## Current Source Corrections
-
-The admin router is protected router-wide by `Depends(require_admin)`. Current administrative operations include:
-
-- `PATCH /keywords/{keyword_id}` with integer weight validation from 1 through 100.
-- `POST /assets/software` and `POST /assets/hardware` for asset imports.
-- `POST /registration-invites` for expiring registration links.
-- `GET /export-all` and `POST /import-all` operate on the 27 model classes in `ALL_MODELS`; they do not include session, invitation, recovery-request/token, failed-login, account-audit, or scheduler-job configuration tables.
-- `POST /upload-db` imports rows from an uploaded SQLite file into the current database; it does not swap the SQLite database file.
-- `POST /nuke/crime` and `POST /nuke/weather` for scoped cleanup actions.
-- `POST /ml-retrain` to trigger model training.
-- `POST /location/import` with `mode=add|upsert|replace`; response includes the selected mode and import count.
-
-`save_config()` passes `allow_system_fields=False` to the service layer so protected system fields cannot be changed through the general configuration form.
+# Route module: `src.api.routes.settings_admin`
+
+Prefix: `/api/v1/admin`. The entire router has `Depends(require_admin)`: a built-in `admin`/`administrator` role is required, in addition to normal session authentication. New delegated user-management and application-settings operations use the separate `/user-admin` and `/application-settings` routers.
+
+## Lists, scoring, feeds, and assets
+
+| Method/path | Inputs and behavior |
+|---|---|
+| `GET /lists` | Returns keywords, feeds, and a sanitized legacy user list (`id`, username, role, full name only). |
+| `POST /keywords/bulk?raw_text=...` | Newline-separated `word,weight`; missing/invalid/out-of-range weights fall back to 10. |
+| `PATCH /keywords/{keyword_id}` | JSON `{weight}`; requires an integer 1–100, updates the database and reloads the scorer. |
+| `DELETE /keywords/{keyword_id}` | Deletes a keyword record. |
+| `POST /feeds/bulk?raw_text=...` | Newline-separated `url, name`; duplicate URLs are skipped. |
+| `DELETE /feeds/{feed_id}` | Deletes a feed record. |
+| `GET /ml-counts` | Returns positive, negative, and total labeled-article counts. |
+| `POST /ml-retrain` | Synchronously calls `train()` and reloads the scorer; failures return an error result. The newer delegated route is `/application-settings/ml-retrain`. |
+| `POST /assets/software` | JSON body `{ "csv_body": "..." }`; requires a `name` column and replaces the software-asset table. |
+| `POST /assets/hardware` | JSON body `{ "csv_body": "..." }`; requires an `IP Address` column and replaces the hardware-asset table. |
+
+`GET /roles`, `POST /roles`, and `PUT /roles/{name}` read/create/update role definitions. Role changes are validated by the service; the built-in administrator role cannot be edited through the update route. Delegated role management uses `/user-admin/roles` and `Action: Manage Roles`.
+
+## Compatibility user, invitation, and location routes
+
+| Method/path | Inputs and behavior |
+|---|---|
+| `POST /users` | Compatibility path for creating a display account; accepts username/password/role/full name and returns its user ID. |
+| `POST /registration-invites` | Creates an email-required individual invitation; accepts username/email/role/optional `ttl_hours`, queues an email, and returns the registration URL. |
+| `PUT /users/{username}/role` | JSON `{role}`; updates the role and revokes sessions. |
+| `POST /users/{username}/reset-password` | JSON `{new_password}`; enforces 12+ characters, revokes sessions and outstanding reset tokens, and audits the action. |
+| `GET /location` | Returns cached monitored locations (unscoped administrator view). |
+| `POST /location/import?mode=add|upsert|replace` | JSON array of location objects. The route validates mode, returns `{status, mode, count}`, and clears the location cache. `replace` deletes the current location set before inserting. |
+| `PUT /location` | JSON array of edited location records; service updates rows by ID and clears the location cache. |
+
+The full role-aware individual/display-account workflow, invitation queue, recovery review, session revocation, and audit behavior is documented in [`routes/user_admin.md`](user_admin.md).
+
+## Configuration compatibility route
+
+`POST /config` accepts a JSON object and calls `save_global_config(..., allow_system_fields=False)`. It is administrator-only. The service allowlist includes user-editable application configuration; system-maintained brief/risk-state fields are removed from this path. Risk/application UI changes now use the narrower category endpoints, while administrator-only compatibility writes remain available.
+
+## Backup and restore
+
+All endpoints in this group are administrator-only. Configure `BACKUP_ENCRYPTION_KEYS` and `BACKUP_ENCRYPTION_ACTIVE_KEY_ID` before creating or staging packages.
+
+| Method/path | Behavior |
+|---|---|
+| `GET /backups/status` | Returns encryption-configured flag, max bytes, and scheduled retention policy; never returns key material. |
+| `GET /backups` | Lists encrypted `.nocbackup` package metadata. |
+| `POST /backups` | Creates an authenticated encrypted SQLite online backup and includes the persistent model artifact when present. |
+| `GET /backups/{backup_id}/download` | Streams the encrypted package with `Cache-Control: no-store`; normal Bearer auth or a short-lived scoped cookie is accepted. |
+| `POST /backups/{backup_id}/download-link` | Verifies the package and returns a same-origin URL while setting a 60-second HttpOnly, path-scoped download cookie. |
+| `DELETE /backups/{backup_id}` | Deletes manual or pre-restore safety packages. Scheduled packages are retention-managed and cannot be deleted here. |
+| `GET /backups/staged` | Lists validated staged restore packages. |
+| `POST /backups/staged` | Multipart form field `file`; validates encryption, manifest/checksums, archive layout, and SQLite integrity before staging. It does not restore. |
+| `DELETE /backups/staged/{stage_id}` | Removes one staged package. |
+| `POST /backups/staged/{stage_id}/restore` | Starts a UI-managed restore and returns 202 with a random `restore_id`. The API gates requests, closes WebSockets, waits for API/worker/webhook writers to drain, then migrates and atomically installs the package with rollback handling. |
+| `POST /restore-status` | This capability endpoint is mounted at `/api/v1/restore-status`, outside the `/admin` prefix. It accepts `{restore_id}` and does not require a session because a successful restore revokes the initiating session. |
+
+Restore invalidates restored sessions and outstanding invitation/reset/email-verification links, preserves request/audit history, and clears staged packages on success. The offline fallback is `scripts/restore_backup.py --maintenance-confirmed` after stopping all writers. See [`core/backup_restore.md`](../../core/backup_restore.md) and [`MAINTENANCE.md`](../../../MAINTENANCE.md).
+
+## Legacy partial migration and destructive tools
+
+| Method/path | Behavior |
+|---|---|
+| `GET /backup` | Four-collection legacy JSON backup: keywords, feeds, locations, aliases. |
+| `POST /restore` | Adds missing records from that legacy JSON; not a database-file restore. |
+| `GET /export-all` | Exports the 27 model classes in `ALL_MODELS`; may include password hashes/stored integrations and omits sessions, recovery state, failed-login records, audit, and scheduler config. |
+| `POST /import-all` | Imports supported JSON tables; default replaces non-empty supported tables, body `{"_merge":true}` skips duplicate IDs. |
+| `POST /upload-db` | Multipart `.db` file; reads the upload into memory and imports rows into the active database. It does not replace the active SQLite file. |
+| `DELETE /record?model_name=...&record_id=...` | Deletes only service-allowlisted `Keyword`, `FeedSource`, `User`, `Role`, or `SavedReport` records. |
+| `POST /nuke` | Calls a limited model allowlist: `CloudOutage`, `MonitoredLocation`, `Article`, `ExtractedIOC`, `FeedSource`, `Keyword`. It is not a full database reset. |
+| `POST /nuke/crime` | Deletes crime incidents. |
+| `POST /nuke/weather` | Deletes regional hazards and GeoJSON cache, resets site SPC risk. |
+| `POST /maintenance` | Runs the scheduler's database-retention/SQLite-maintenance function synchronously. |
+
+Create and verify an encrypted full backup before using any destructive or import tool. Legacy JSON and `.db` upload paths are partial migrations, not disaster-recovery restore.

@@ -180,7 +180,7 @@ Sets or clears maintenance mode for an accessible monitored site, with optional 
 |-------|------|---------|-------------|
 | `site_name` | `str` | required | Name of the monitored site. |
 | `is_maint` | `bool` | required | Whether to enable or disable maintenance. |
-| `etr` | `str` | `None` | ISO 8601 ETR datetime string. |
+| `etr` | `str` | `None` | ISO calendar date (`YYYY-MM-DD`) parsed with `date.fromisoformat()` when enabling maintenance. |
 | `reason` | `str` | `""` | Maintenance reason. |
 
 ### Returns
@@ -275,7 +275,7 @@ JSON body:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `site` | `str` | `""` | Site name. |
-| `priority` | `str` | `"P3"` | Priority level (P1-P5). |
+| `priority` | `str` | `"P3"` | Priority label passed through to ticket formatting; the handler does not validate an enum. |
 | `patient_zero` | `str` | `""` | Patient-zero device/node name. |
 | `root_cause` | `str` | `""` | Root cause description. |
 | `cluster` | `dict` | `{}` | Cluster data (alert details, event type, node info). |
@@ -395,7 +395,7 @@ Varies by action:
 ## Endpoint: `POST /clear-events`
 
 ### Purpose
-Clears all timeline events from the AIOps dashboard. Requires the AIOps RCA page, Danger Zone tab, and `Action: Clear AIOps Data`.
+Clears all timeline events. Requires page permission `AIOps RCA`, tab grant `Tab: Settings -> Danger Zone`, and `Action: Clear AIOps Data`. The Settings UI renders this control only for administrators, but the route dependency checks those grants rather than requiring the administrator role.
 
 ### Parameters
 None.
@@ -413,7 +413,7 @@ None.
 ## Endpoint: `POST /nuke-alerts`
 
 ### Purpose
-Deletes all SolarWinds alert records. Requires the AIOps RCA page, Danger Zone tab, and `Action: Clear AIOps Data`.
+Deletes all SolarWinds alert records. Requires page permission `AIOps RCA`, tab grant `Tab: Settings -> Danger Zone`, and `Action: Clear AIOps Data`. The Settings UI renders this control only for administrators, but the route dependency checks those grants rather than requiring the administrator role.
 
 ### Parameters
 None.

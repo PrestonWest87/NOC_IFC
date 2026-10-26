@@ -13,7 +13,7 @@ The `EnterpriseAIOpsEngine` class provides root cause analysis, incident cluster
 ### Constants
 
 #### `ONTOLOGY` (dict)
-Maps topology domains to their component device types. The engine’s internal canonical name is `INTERNET`; webhook and permission-facing documentation may call this `PRIMARY_INTERNET`.
+Maps topology domains to their component device types. The engine's internal canonical Internet key is `INTERNET`; `PRIMARY_INTERNET` is accepted as an input compatibility alias by `normalize_domain_hint()`.
 - `INTERNET` -- VSAT, Cellular, Radio, SD-WAN, Modem, ISP, Internet
 - `COMMS_EQUIPMENT` -- Router, Switch, Firewall, Lanolinx-switch, Fabric Interconnect
 - `POWER_SUPPLIES` -- UPS, Generator, DC Power Supply, PDU, PDS, DC Controller
@@ -23,15 +23,7 @@ Maps topology domains to their component device types. The engine’s internal c
 - `FACILITIES` -- Access Control Panel, Door Controller, IP Camera, HVAC
 
 #### `TIER_RANKING` (dict)
-Maps domains to criticality tiers (1 = highest criticality):
-- `POWER_SUPPLIES`: 1
-- `INTERNET`: 2
-- `COMMS_EQUIPMENT`: 3
-- `COMPUTE`: 4
-- `RTU`: 5
-- `SCADA`: 6
-- `FACILITIES`: 7
-- `UNKNOWN_DOMAIN`: 8
+Maps domains to the patient-zero topology weight (1 = highest weight): `POWER_SUPPLIES` 1, `INTERNET` 2, `COMMS_EQUIPMENT` 3, `COMPUTE` 4, `RTU` 5, `SCADA` 6, `FACILITIES` 7, and `UNKNOWN_DOMAIN` 8. The ranking is the order used by the implemented scoring formula, not a universal dependency graph.
 
 ---
 
@@ -100,9 +92,9 @@ Normalizes whitespace and hyphens to underscores, maps `PRIMARY_INTERNET` to the
 
 ### `generate_chronic_insights(self) -> tuple`
 
-**Purpose:** Analyzes 60 days of alert history to detect chronic node flapping and regional degradation hotspots.
+**Purpose:** Analyzes 60 days of alert history to count unresolved/non-resolved records per node and site and create threshold-based recommendation text.
 
-**Returns:** `tuple[list | None, list | None, list | None]` -- `(top_nodes_json, top_sites_json, recommendation_texts)` or `(None, None, None)` if no data.
+**Returns:** `tuple[list | None, list | None, list | None]` -- `(top_nodes, top_sites, recommendations)` or `(None, None, None)` when there are no qualifying records. The first two values are ordinary Python lists of dictionaries, not JSON-encoded strings.
 
 **Dependencies:** `collections.Counter`, `SolarWindsAlert`, `SessionLocal`
 
@@ -112,8 +104,8 @@ Normalizes whitespace and hyphens to underscores, maps `PRIMARY_INTERNET` to the
 3. Projects only node, device, site, payload, and status columns
 4. Counts incidents per node and site with `Counter`, retaining the first metadata row per node
 5. Counts incidents per site (excluding Unknown)
-6. Generates recommendations: critical flapping flag if top node has >5 incidents; regional degradation flag if top site has >15 incidents
-7. Returns JSON-serialized top 15 nodes, top 10 sites, and recommendation texts
+6. Generates a critical recommendation when the top node has more than five records and a regional recommendation when the top site has more than fifteen; otherwise returns a normal-operations recommendation.
+7. Returns up to 15 node rows, 10 site rows, and recommendation text. The recommendation strings include fixed wording; their incident counts are measured over the 60-day query window.
 
 ---
 
@@ -143,9 +135,9 @@ Normalizes whitespace and hyphens to underscores, maps `PRIMARY_INTERNET` to the
    - INTERNET/COMMS_EQUIPMENT: transport outage or congestion
    - SCADA/RTU: isolated OT telemetry failure
    - Other: generalized infrastructure degradation
-8. Geospatial weather correlation: calculates haversine distance to hazard epicenters
+8. Weather correlation: matches the site's name/district against `RegionalHazard.location` when coordinates are unavailable. The current `RegionalHazard` model has no latitude/longitude columns, so the normal persisted-record path uses the text match.
 9. Applies alert level override (Level 1 = +50 policy override)
-10. Maps max_alert_level to P1-P5 priority with SLA times
+10. Maps `max_alert_level` to P1-P5 and P6 informational labels with SLA text; an unknown level falls back to P3
 11. Returns cause, capped score (max 100), priority string, evidence log, blast radius, patient zero, cascade delay
 
 ---

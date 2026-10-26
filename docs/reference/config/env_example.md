@@ -6,7 +6,7 @@ This file is the complete template for environment variables used by the current
 
 | Variable | Default in template | Read by | Purpose |
 |---|---|---|---|
-| `DATABASE_URL` | SQLite container path `/app/data/noc_fusion.db` | `src.core.config` | SQLAlchemy database URL; Docker maps `/app/data` to repository `./data` |
+| `DATABASE_URL` | SQLite container path `/app/data/noc_fusion.db` | `src.core.config` | SQLAlchemy database URL; Docker maps `/app/data` to repository `./data`. `src/core/config.py` supplies this same default when unset, although `.env.example` currently labels it required. |
 | `DEMO_SEED_DATA` | `false` | `src.core.config` | Enable synthetic asset seed data |
 | `DEFAULT_ADMIN_PASSWORD` | change-me placeholder | `src.core.bootstrap` | Initial admin password when the database has no users |
 | `DEFAULT_ADMIN_EMAIL` | empty | `src.core.config`, `src.core.bootstrap` | Trusted verified bootstrap mailbox; can initialize an existing email-less bootstrap administrator on API/worker startup |

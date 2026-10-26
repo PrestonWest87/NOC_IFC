@@ -308,6 +308,8 @@ def send_alert(recipients: list[str], subject: str, body: str) -> tuple[bool, st
 
 **Dependencies:** `smtplib`, `email.mime.text.MIMEText`, `email.mime.multipart.MIMEMultipart`, `get_smtp_config`
 
+`send_alert()` is separate from `src.utils.mailer.send_alert_email()`: it uses `server.sendmail()` and starts TLS/authenticates only when both SMTP username and password are present. The general mailer always attempts STARTTLS and supports base64 attachments. Both read SMTP settings from the first `SystemConfig` row.
+
 ---
 
 ### `check_and_alert`

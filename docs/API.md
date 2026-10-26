@@ -3,7 +3,7 @@
 Base URL: `http://localhost:8101/api/v1`
 WebSocket: `ws://localhost:8101/ws`
 
-This operation inventory was verified against the FastAPI OpenAPI path/method set; the running application's OpenAPI schema remains the source of truth.
+This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-10-26 (177 paths and 189 HTTP operations). The running application's OpenAPI schema remains the source of truth.
 
 ## Authentication
 
@@ -15,7 +15,7 @@ The API installs `authentication_middleware` for `/api/v1/*`. Login, invitation 
 
 These unauthenticated checks are mounted outside `/api/v1`. `/health` reports process liveness. `/ready` checks database readiness and returns `503` if the database cannot be queried.
 
-The API mounts the REST, account-administration, application-settings, and permission-catalog routers. See `docs/CODE_REFERENCE.md` for module-level function documentation and verify endpoint details against the route source before integrating.
+The API mounts 17 routers covering REST operations, account administration, application settings, and the permission catalog. See `docs/CODE_REFERENCE.md` and `docs/reference/` for module details.
 
 ### POST /auth/login
 
@@ -28,7 +28,7 @@ Response (200):
 {"user": {"id": 1, "username": "admin", ...}, "token": "uuid-string"}
 ```
 
-When failed-login alerts are enabled in Settings > Application Settings, failed credentials are counted across users. Reaching the configured threshold queues a background email to the configured alert recipient list. Login failures return generic `401` responses.
+When failed-login alerts are enabled in Settings > Application Settings, validly configured failed credentials are counted across users. Reaching the configured threshold in its 1–60 minute window claims one alert and queues a background email. Login failures return the generic `401` body `{detail:{code:"invalid_credentials",message:"Invalid credentials"}}`.
 
 ### GET /auth/register/validate?token=
 
@@ -36,7 +36,7 @@ Public invitation validation. Returns the pending invitation details or `400` fo
 
 ### POST /auth/register
 
-Public body: `{token, password, full_name, job_title, contact_info, default_shift, theme}`. Completes the invitation and returns the public user object plus a new session token.
+Public body: `{token, password, full_name, job_title, contact_info, default_shift, theme}`. Password must be at least 12 characters. Completes the email-bound invitation and returns the public user object plus a new database-backed session token.
 
 ### GET /auth/me
 
@@ -62,11 +62,11 @@ Authenticated users submit `{ "email": "person@example.com" }`. The address rema
 
 ### POST /auth/resend-recovery-email-verification
 
-Authenticated users can request a replacement verification message for their pending recovery address. A conflicting/non-pending request returns `409`.
+Authenticated users can request a replacement verification message for their pending recovery address. A non-pending request or resend during the five-minute cooldown returns `409`.
 
 ### POST /auth/request-password-reset
 
-Public body: `{ "identifier": "username-or-approved-email" }`. Always returns a generic accepted response. Matching requests are placed in the user-administrator review queue; an approved request sends a one-hour, single-use reset link to the verified recovery email.
+Public body: `{ "identifier": "username-or-approved-email" }`. Always returns a generic accepted response. Matching requests are placed in the user-administrator review queue; an approved request sends a one-hour, single-use reset link to the verified recovery email. Rate limits are 10 requests per source IP/hour and 5 per normalized identifier/hour; a matching pending request less than 30 minutes old is reused.
 
 ### POST /auth/reset-password
 
@@ -88,7 +88,7 @@ User-management routes require the Settings page, Users & Roles tab, and `Action
 
 - `GET /user-admin/users` — directory data including account type, email/recovery status, active state, last sign-in, and last activity.
 - `GET /user-admin/roles` — roles assignable to accounts.
-- `GET /user-admin/site-types` — site types available to role editors.
+- `GET /user-admin/site-types` — current site-type choices; requires `Action: Manage Roles`.
 - `POST /user-admin/display-accounts` — email-optional display account with administrator-selected password and role.
 - `POST /user-admin/invitations` — email-required individual invitation delivered to that address.
 - `GET /user-admin/invitations`, `POST /user-admin/invitations/{invite_id}/resend`, and `DELETE /user-admin/invitations/{invite_id}` — manage pending invitations.
@@ -100,7 +100,7 @@ User-management routes require the Settings page, Users & Roles tab, and `Action
 - `POST /user-admin/users/{username}/revoke-sessions`
 - `GET /user-admin/recovery-requests` and `POST /user-admin/recovery-requests/{request_id}/decision` — decision body `{approve, reason}`.
 - `GET /user-admin/email-change-requests` and `POST /user-admin/email-change-requests/{request_id}/decision` — decision body `{approve, reason}`.
-- `GET /user-admin/role-definitions`, `POST /user-admin/roles`, and `PUT /user-admin/roles/{name}` — require role-management permission.
+- `GET /user-admin/role-definitions`, `POST /user-admin/roles`, and `PUT /user-admin/roles/{name}` — require `Action: Manage Roles` in addition to the router-level page/tab grants.
 
 Non-administrator role editors cannot grant pages, actions, or site types that their own role does not have and cannot assign the built-in administrator role. When updating a legacy role, existing site types that have left the live catalog can be retained or removed; new site-type grants must be current.
 
@@ -302,7 +302,7 @@ Body: `{site, is_investigating}`
 Requires `Tab: AIOps RCA -> Active Board` and `Action: Dispatch RCA Tickets`. Body: `{site, needs_dispatch}`. Applies or clears the persisted Needs Dispatch state on the site's active, uncorrelated alerts; setting it requires at least one active alert.
 
 ### POST /rca/analyze
-Requires `Tab: AIOps RCA -> Active Board` and `Action: Run RCA Analysis`. Runs full EnterpriseAIOpsEngine analysis. Returns site-scoped clustered alerts, fleet outages, root causes, and chronic insights when the caller has access to all site types.
+Requires `Tab: AIOps RCA -> Active Board` and `Action: Run RCA Analysis`. Runs EnterpriseAIOpsEngine analysis on the caller's site-scoped alert set and returns scoped clusters, fleet events, and root causes. The global 60-day chronic-insight aggregate is included only for callers with access to all current site types.
 
 ### POST /rca/acknowledge
 Body: `[alert_id, ...]`. Requires `Tab: AIOps RCA -> Active Board` and `Action: Acknowledge RCA Alerts`; the normal bearer session authorizes the request and the backend checks site scope.
@@ -311,7 +311,7 @@ Body: `[alert_id, ...]`. Requires `Tab: AIOps RCA -> Active Board` and `Action: 
 Requires `Tab: AIOps RCA -> Active Board` and `Action: Dispatch RCA Tickets`. Body: `{alert_ids, is_dispatched}`; the server checks that all affected alerts are in the caller's site scope.
 
 ### POST /rca/site-maintenance
-Requires `Tab: AIOps RCA -> Active Board` and `Action: Manage Site Maintenance`. Body: `{site_name, is_maint, etr, reason}` with an explicit boolean `is_maint`; the server checks site scope. Clearing maintenance also clears the stored ETR and reason.
+Requires `Tab: AIOps RCA -> Active Board` and `Action: Manage Site Maintenance`. Body: `{site_name, is_maint, etr, reason}` with an explicit boolean `is_maint`; when enabling, `etr` is an ISO calendar date (`YYYY-MM-DD`). The server checks site scope. Clearing maintenance also clears the stored ETR and reason.
 
 ### POST /rca/generate-ticket
 Requires the Active Board tab and `Action: Dispatch RCA Tickets`. Body: `{site, priority, patient_zero, root_cause, cluster}`. Returns generated ticket text after site-scope validation.
@@ -326,16 +326,16 @@ Requires the Global Correlation tab, report-generation action, and access to all
 Body: `{action: "refresh_briefing" | "scoring_rationale" | "security_audit"}`. Each action has a separate report/AI/RCA action grant; scoring rationale and security audit also require access to all site types.
 
 ### POST /rca/clear-events
-Requires `Tab: Settings -> Danger Zone` and `Action: Clear AIOps Data`. Deletes all timeline events.
+Requires the AIOps RCA page, `Tab: Settings -> Danger Zone`, and `Action: Clear AIOps Data`. Deletes all timeline events. The Settings UI currently presents this control only to administrators; the route enforces the listed page/tab/action grants.
 
 ### POST /rca/nuke-alerts
-Requires `Tab: Settings -> Danger Zone` and `Action: Clear AIOps Data`. Deletes all SolarWinds alert records.
+Requires the AIOps RCA page, `Tab: Settings -> Danger Zone`, and `Action: Clear AIOps Data`. Deletes all SolarWinds alert records. The Settings UI currently presents this control only to administrators; the route enforces the listed page/tab/action grants.
 
 ### POST /rca/resolve-alert?alert_id=&node_name=
 Requires the Active Board tab and `Action: Acknowledge RCA Alerts`; verifies access to the alert's site. `alert_id` selects the record to resolve; optional `node_name` is included in the operator timeline message.
 
 ### POST /rca/resolve-site
-Requires the Active Board tab and `Action: Acknowledge RCA Alerts`. Body: `{site_name}`; verifies site scope, resolves every unresolved alert at the site, records the operator action, clears stale Needs Dispatch state, and broadcasts an AIOps update.
+Requires the Active Board tab and `Action: Acknowledge RCA Alerts`. Body: `{site_name}`; verifies site scope, resolves every unresolved alert at the site, records the operator action when alerts were resolved, clears stale Needs Dispatch state, clears the in-memory investigating marker, and broadcasts an AIOps update. Returns a zero count when the site exists but has no unresolved alerts.
 
 ## AIOps Endpoints (/aiops)
 
@@ -362,48 +362,53 @@ Returns available role names for shift-logbook filters.
 ### GET /logbook/entries?role_filter=All&start_date=&end_date=
 
 ### POST /logbook/entries?role=analyst&shift_period=Morning&content=&custom_date=
+Requires Active Shift tab and `Action: Submit Shift Log`. Accepted `shift_period` values are Morning, Afternoon, Evening, or No Shift; content must be non-empty and at most 20,000 characters. The server derives author identity from the session and forces non-admin role to the caller's role.
 
 ### PATCH /logbook/entries/{entry_id}
 Body: `{"is_deleted": true|false}`. Soft delete/restore; only the author, an administrator, or a caller with `Action: Manage Shift Logs` may change another user's entry.
 
 ### POST /logbook/generate-summary
-Body: `{role_filter, shift_period, timeframe_label, auto_append, timeframe}`
+Requires Active Shift tab and `Action: Generate Reports`. Body: `{role_filter, shift_period, timeframe_label, auto_append, timeframe}`. Supported timeframes are `shift`, `fullday`, and `week`; the service reads at most 200 non-deleted entries, waits up to 30 seconds for LLM output, then builds a source-based fallback if needed.
 
 ## Reporting Endpoints (/reporting)
 
 ### GET /reporting/executive-intel
+Requires `Tab: Reporting -> Daily Fusion`.
 
 ### GET /reporting/saved-reports
+Requires `Tab: Reporting -> Shared Library`.
 
 ### GET /reporting/daily-briefings
+Requires `Tab: Reporting -> Daily Fusion`.
 
 ### POST /reporting/generate-daily
-Generates daily fusion report via LLM.
+Requires Daily Fusion tab and `Action: Generate Reports`. Generates the previous-local-day fusion report via LLM and returns it; the worker's scheduled job also archives that day's report.
 
 ### POST /reporting/broadcast
-Body: `{report_date, content, recipients}`
+Requires Daily Fusion tab and `Action: Dispatch Exec Report`. Body: `{report_date, content, recipients}`; recipient addresses are validated, comma/semicolon separated, and limited to 20.
 
 ### POST /reporting/broadcast-custom
 
 Body: `{title, content, recipients}`. Requires the Report Builder tab and `Action: Dispatch Exec Report`; recipients are validated and limited to 20 addresses.
 
 ### POST /reporting/save-report
-Body: `{title, author, content}`
+Requires Report Builder tab and `Action: Dispatch Exec Report`. Body: `{title, author, content}`.
 
 ### DELETE /reporting/saved-reports/{report_id}
+Requires Shared Library tab and `Action: Dispatch Exec Report`.
 
 ### POST /reporting/generate-custom
-Body: `{target, days_back, objective, analyst}`
+Requires Report Builder tab and `Action: Generate Reports`. Body: `{target, days_back, objective, analyst}`.
 
 Optional `article_ids` may be provided to use selected articles instead of a text search. A successful start returns a `generation_id`.
 
 ### GET /reporting/generate-custom-status?generation_id=
 
-Returns custom-report progress or the completed result for the supplied generation ID.
+Requires Report Builder tab. Returns custom-report progress or the completed result for the supplied generation ID. The completed/error result is removed after it is read once; state is in API-process memory.
 
 ### POST /reporting/search-articles
 
-Body: `{target, days_back}`. Searches articles for the Report Builder; `days_back` must be from 1 through 30.
+Requires Report Builder tab. Body: `{target, days_back}`. Searches up to 30 articles in title, summary, or full content; parsed terms are ORed. `days_back` must be from 1 through 30.
 
 ## Settings Endpoints (/settings)
 
@@ -411,7 +416,7 @@ Body: `{target, days_back}`. Searches articles for the Report Builder; `days_bac
 Returns LLM/SMTP configuration fields. Requires the Settings page and AI & SMTP tab; secret values are not returned.
 
 ### GET /settings/users
-Compatibility endpoint for the user directory; requires `Action: Manage Users`.
+Compatibility endpoint for the user directory; requires `Tab: Settings -> Users & Roles` and `Action: Manage Users`. Unlike the newer `/user-admin/users` route it does not declare an additional router-level Settings page dependency.
 
 ### GET /settings/facilities and GET /settings/rss
 
@@ -446,7 +451,7 @@ Body: `{weight: N}`. Validates 1-100, force-reloads scorer.
 ### GET /admin/ml-counts
 
 ### POST /admin/config
-Administrator-only compatibility endpoint for global configuration. Risk scoring, application defaults, and scheduler edits use the category-specific `/application-settings/*` routes and action permissions.
+Administrator-only compatibility endpoint for allowlisted editable `SystemConfig` fields. It cannot write system-maintained brief/risk-state fields; the current UI uses category-specific `/application-settings/*` routes for risk scoring, application defaults, and scheduler changes.
 
 ### POST /admin/assets/software
 Body: `{csv_body: "..."}`. Replaces all software assets.
@@ -536,7 +541,7 @@ Accepts a `.db` upload and imports table rows into the current database. It does
 Generic record deletion.
 
 ### POST /admin/nuke
-Body: `{tables: ["Keyword", "Article", ...]}`
+Body: `{tables: ["CloudOutage", "MonitoredLocation", "Article", "ExtractedIOC", "FeedSource", "Keyword"]}`. Other names are ignored by the service. This is a limited table-clear helper, not a full database reset.
 
 ### POST /admin/nuke/crime
 Deletes all crime data.
@@ -567,15 +572,15 @@ Body: `{to, subject, html_body, attachments?}`. Optional attachments contain fil
 Body: `{email}`. Sends the current unified brief via email; requires the Global Dashboards or Reporting page and `Action: Dispatch Exec Report`.
 
 ### POST /email/broadcast-global-brief
-Body: `{email}`. Sends the current global threat brief via email (red header, US CI focus); requires `Action: Dispatch Exec Report`.
+Body: `{email}`. Sends the current global threat brief via email (red header, US CI focus); requires either the Global Dashboards or Reporting & Briefings page and `Action: Dispatch Exec Report`.
 
 ### POST /email/broadcast-internal-brief
-Body: `{email}`. Sends the current internal asset risk brief via email (purple header, asset risk focus); requires `Action: Dispatch Exec Report`.
+Body: `{email}`. Sends the current internal asset risk brief via email (purple header, asset risk focus); requires either the Global Dashboards or Reporting & Briefings page and `Action: Dispatch Exec Report`.
 
 ## WebSocket
 
-Connect to `ws://localhost:8101/ws?token=<session-token>`. The user must have AIOps RCA page permission. Dashboard pushes are filtered by allowed site types, and the connection is periodically revalidated so revoked sessions or grants are closed.
+Connect to `ws://localhost:8101/ws?token=<session-token>` (or `wss` through HTTPS). The user must have the `AIOps RCA` page and `Tab: AIOps RCA -> Active Board` grants. Dashboard pushes are filtered by allowed site types, and the connection is periodically revalidated so revoked sessions or grants are closed.
 
-Receives JSON messages with type `dashboard_update` every 10 seconds containing metrics data.
+Receives JSON messages with type `dashboard_update` every 10 seconds containing alerts, timeline events, grid outages, per-site unresolved-alert counts, and alert count.
 
-Send only authorized JSON commands. `INVESTIGATING_UPDATE` and `RCA_UPDATE` require the relevant RCA action; investigating-site commands are filtered by site-type access. The server broadcasts `RCA_UPDATE` after permitted RCA actions.
+Send only authorized JSON object commands. `INVESTIGATING_UPDATE` and `RCA_UPDATE` both require `Action: Dispatch RCA Tickets`; investigating-site commands are additionally checked against sender and recipient site scope. The server treats `RCA_UPDATE` as a resynchronization request, not a database action.

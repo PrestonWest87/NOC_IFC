@@ -12,17 +12,18 @@ Single-stage Python production image used by the `api`, `worker`, and `webhook` 
 |-----------|-------|-------------|
 | `FROM` | `python:3.11-slim` | Base image — Debian slim variant with Python 3.11. Minimal footprint for production. |
 | `WORKDIR` | `/app` | Working directory inside the container. All subsequent commands and `COPY` destinations resolve relative to this path. |
+| `ENV` | `PYTHONDONTWRITEBYTECODE=1`, `PYTHONUNBUFFERED=1`, `PYTHONPATH=/app` | Prevents bytecode writes in the image, streams log output, and makes `/app` the Python import root. |
 | `RUN` | `apt-get update && apt-get install -y gosu && rm -rf /var/lib/apt/lists/*` | Installs `gosu` to drop container privileges. Runtime packages use prebuilt wheels, so a compiler and PostgreSQL client libraries are not installed. |
 | `COPY` | `requirements.txt requirements.lock ./` | Copies direct requirements and the resolved Python lock before source to leverage Docker layer caching. |
 | `RUN` | `pip install --disable-pip-version-check --require-hashes -r requirements.lock` with a BuildKit pip-cache mount | Installs pinned runtime packages with artifact hashes while reusing downloaded wheels across rebuilds. The cache mount is not stored in the image. |
-| `COPY` | `. .` | Copies the project source while `.dockerignore` excludes local data/backups/models, documentation, dependencies, and the legacy generated `src/ml_model.pkl` artifact. Production model weights persist under `/app/data/models/` on the shared data volume and are not baked into the image. |
-| `ENV` | `PYTHONPATH=/app` | Ensures Python can resolve imports from `/app` as the root package directory. Required for `from src.api.main import app` to work at runtime. |
+| `COPY` | `. .` | Copies project runtime source while `.dockerignore` excludes local data/backups/models, Markdown documentation, dependencies, and the legacy generated `src/ml_model.pkl` artifact. |
+| `COPY` / `RUN` | `docker-entrypoint.sh` | Adds the runtime entrypoint, which repairs `/app/data` ownership and drops privileges to `appuser` through `gosu`. |
 
 ## Dependencies
 
 - **`requirements.txt`** — Direct Python runtime requirements.
 - **`requirements.lock`** — Transitive, version-pinned, hash-checked runtime resolution used by the image build.
-- **`src/`** — Application source code mounted as a volume at runtime for live-reload in development; baked into the image at build time for production.
+- **`src/`** — Application source baked into the shared backend image. Compose does not mount backend source at runtime; API/worker/webhook code changes require rebuilding those services.
 - **OS packages:** `gosu`; no compiler or PostgreSQL client libraries are installed.
 
 ## Usage

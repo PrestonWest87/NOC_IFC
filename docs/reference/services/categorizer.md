@@ -18,11 +18,12 @@ Maps category names to regex patterns used for text classification:
 | `Cyber: Exploits & Vulns` | CVE IDs, zero-day, vulnerability, exploit, patch, buffer overflow, RCE, privilege escalation, bypass |
 | `Cyber: Malware & Threats` | malware, ransomware, botnet, trojan, spyware, keylogger, phishing, APT, threat actor, dark web, breach, exfiltration |
 | `ICS/OT & SCADA` | scada, ics-cert, industrial control, modbus, dnp3, PLC, RTU, HMI, stuxnet, BES, bulk electric, smart grid, substation |
-| `Cloud & IT Infra` | AWS, Azure, GCP, outage, BGP, route leak, DNS, Cloudflare, CDN, SolarWinds, Active Directory, VMware, Cisco, Fortinet |
-| `Physical Security` | vandalism, sabotage, active shooter, trespass, drone, cut fiber, perimeter, unauthorized access, arson, copper theft |
-| `Severe Weather` | tornado, hurricane, flood, wildfire, earthquake, tsunami, NWS, SPC, convective, derecho, blizzard |
+| `Cloud & IT Infrastructure` | AWS, Azure, GCP, outage, BGP, route leak, DNS, Cloudflare, CDN, SolarWinds, Active Directory, VMware, Cisco, Fortinet |
+| `Physical Security & Crime` | vandalism, sabotage, active shooter, trespass, drone, cut fiber, perimeter, unauthorized access, arson, copper theft |
+| `Severe Weather & Natural Hazards` | tornado, hurricane, flood, wildfire, earthquake, tsunami, NWS, SPC, convective, derecho, blizzard |
 | `Geopolitics & Policy` | sanctions, nation-state, CISA, NSA, FBI, legislation, congress, parliament, Cybercom, FCC, NERC, FERC |
 | `AI & Emerging Tech` | artificial intelligence, LLM, ChatGPT, machine learning, deepfake, quantum, blockchain |
+| `Data Breach & Privacy` | data breach/leak/exposure, credentials, PII/PHI, privacy incidents, ransomware data theft |
 
 ### `COMPILED_CATEGORIES` (dict)
 Pre-compiled regex patterns compiled from `CATEGORIES` using `re.IGNORECASE`.
@@ -49,3 +50,9 @@ Pre-compiled regex patterns compiled from `CATEGORIES` using `re.IGNORECASE`.
 6. Returns the category with the highest match count (`most_common(1)`)
 
 **Dependencies:** `re`, `collections.Counter`
+
+Matches are counted by regex match occurrences. The category whose pattern produces the largest count wins; when counts tie, `Counter.most_common(1)` preserves the first category encountered in the source mapping. The fallback is exactly `General`.
+
+### Consumer-label compatibility note
+
+`src/services.py:get_executive_grid_intel()` and `web/src/pages/ThreatTelemetryPage.tsx` still compare or offer some earlier category names (`Cloud & IT Infra`, `Physical Security`, and `Severe Weather`). These strings do not equal the current labels above. The source-level mismatch is recorded in `docs/DOCUMENTATION_AUDIT.md`; this reference describes the categorizer output, not a claim that every downstream filter uses the same labels.

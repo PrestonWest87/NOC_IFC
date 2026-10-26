@@ -17,6 +17,7 @@ This directory is the detailed source-oriented reference corpus. It is part of t
 - `workers/`: external feed workers and scheduled data integrations.
 - `web/`: React pages, components, hooks, state, and utilities.
 - `config/`: Docker, nginx, TypeScript, Vite, dependency, and environment-file notes.
+- `scripts/`: Operational CLI utilities such as encrypted restore and synthetic AIOps data seeding.
 - `SOURCE_COVERAGE.md`: Current source-to-reference coverage map and documentation requirements.
 
 ## Source-of-Truth Rule

@@ -1,852 +1,172 @@
-# Trigger & Action Flow Reference
+# Trigger and Action Flows
 
-> Enterprise-grade reference for every trigger in the NOC Intelligence Fusion Center and the complete action flows they initiate.
+This guide traces externally triggered, scheduled, browser-initiated, and WebSocket actions through the current implementation. REST route examples use router-relative suffixes; prepend `/api/v1` unless a full path is shown. The webhook and `/health`/`/ready` probes are outside that prefix. Exact route bodies/permissions are in [`API.md`](API.md); schedule defaults and bounds are in [`SCHEDULER.md`](SCHEDULER.md).
 
----
+## 1. SolarWinds webhook
 
-## Table of Contents
-
-1. [SolarWinds Webhook Triggers](#1-solarwinds-webhook-triggers)
-2. [Scheduler Job Triggers](#2-scheduler-job-triggers)
-3. [User Action Triggers](#3-user-action-triggers)
-4. [WebSocket Triggers](#4-websocket-triggers)
-
----
-
-## 1. SolarWinds Webhook Triggers
-
-### POST /webhook/solarwinds
-
-| Attribute | Value |
-|-----------|-------|
-| **Trigger** | SolarWinds Orion sends a JSON alert payload to port 8100 |
-| **Source** | SolarWinds Orion via webhook action |
-| **Endpoint** | `POST http://<host>:8100/webhook/solarwinds` |
-| **Handler** | `src/webhook_listener.py` |
-
-#### Complete Action Flow
-
-```
-SolarWinds Orion
-  │
-  ▼
-POST /webhook/solarwinds  (raw JSON body)
-  │
-  ├─ 1. Receive raw JSON
-  │     └─ Parse body → validate JSON structure
-  │
-  ├─ 2. smart_extract()
-  │     └─ Normalize: node_name, ip, severity, alert_level, event_type, status
-  │
-  ├─ 3. classify_device()
-  │     └─ Fingerprint (node_name + event_type) → map to one of 7 ontology domains:
-  │        PRIMARY_INTERNET | COMMS_EQUIPMENT | POWER_SUPPLIES | RTU |
-  │        SCADA | COMPUTE | FACILITIES
-  │
-  ├─ 4. Check resolution status
-  │     └─ Scan status field for keywords: resolved, up, ok, clear, operational, recovered
-  │
-  ├─ 5a. IF RESOLUTION detected:
-  │       ├─ Query active (unresolved) alerts for matching node_name
-  │       ├─ Mark all matching alerts → Resolved, set resolved_at
-  │       ├─ Create TimelineEvent(type=Resolution)
-  │       ├─ COMMIT
-  │       └─ DONE
-  │
-  └─ 5b. IF NEW ALERT:
-        ├─ Create SolarWindsAlert record (includes raw_payload)
-        ├─ Create TimelineEvent(type=Alert)
-        ├─ COMMIT
-        └─ Scheduler tiered escalation picks up within 1 minute
+```text
+SolarWinds sender
+  -> POST :8100/webhook/solarwinds
+  -> restore/body-size/HMAC/timestamp/JSON checks
+  -> smart_extract + domain normalization + resolution-word detection
+  -> HTTP 200 {status: accepted}
+  -> FastAPI background task
+       ├─ resolution: update unresolved same-node alerts + site-scoped timeline row
+       └─ alert: insert SolarWindsAlert(raw payload) + site-scoped timeline row
+  -> 1-minute escalation job / AIOps board / authenticated WebSocket
 ```
 
-#### Outputs
+The success response confirms queueing only; it is not a persistence acknowledgment and is HTTP 200, not 202. See [`WEBHOOK.md`](WEBHOOK.md) for HMAC format and exact rejection codes.
 
-| Artifact | Table | Notes |
-|----------|-------|-------|
-| Alert record | `solarwinds_alerts` | New row with raw payload, domain, severity |
-| Timeline event | `timeline_events` | Type: `Alert` or `Resolution` |
-| Resolved alerts | `solarwinds_alerts` | All matching alerts marked `status='Resolved'` (on resolution) |
+## 2. Scheduler triggers
 
----
+The single `worker` process registers 20 jobs from `JOB_REGISTRY`. It runs registry entries with `startup_run=true` during boot in four groups separated by 30-second pauses; scheduled callbacks use a two-thread executor and same-function non-overlap guard. On boot, enabled startup jobs can initiate external HTTP, email, LLM, and database work.
 
-## 2. Scheduler Job Triggers
+| Job | Default trigger | Main work |
+|---|---|---|
+| `tiered_alert_escalation` | Every 1 minute; starts on boot | Cluster active SolarWinds alerts; prepare site ticket and separate per-node on-page delivery |
+| `rss_fetch` | Every 5 minutes; starts on boot | Fetch/score/categorize articles, extract eligible IOCs, persist, deduplicate |
+| `article_enrichment` | Every 3 minutes | Extract full content for eligible captured articles |
+| `maintenance_expiry` | Every 5 minutes; starts on boot | Clear maintenance after ETR date ends in Central time |
+| `telemetry_sync` | Every 6 minutes; starts on boot | Run ORNL, RIPE, and IODA fetches concurrently |
+| `elastic_sync` | Every 6 minutes; starts on boot | Import bounded high-severity Elastic events into the local cache |
+| `regional_hazards` | Every 7 minutes; starts on boot | Refresh SPC/NWS/USGS/WFCA and evaluate earthquake/wildfire proximity |
+| `cloud_outages` | Every 8 minutes; starts on boot | Fetch configured cloud status feeds |
+| `crime_fetch` | Every 10 minutes; starts on boot | Fetch/geocode Little Rock CAD events and dispatch qualifying high-severity alerts |
+| `database_maintenance` | Every 60 minutes | Retention, orphan IOC deletion, SQLite optimize/passive checkpoint |
+| `internal_risk` | Every 2 hours; starts on boot | Calculate/store internal risk snapshot and check risk escalation |
+| `rolling_summary` | Every 30 minutes | Generate/save rolling handoff summary |
+| `internal_brief` | Every 3 hours; starts on boot | Generate/save internal asset-risk brief |
+| `unified_brief` | Every 6 hours; starts on boot | Generate/save unified cyber/physical/internal brief and check global risk escalation |
+| `cisa_kev` | Every 7 hours; starts on boot | Synchronize CISA KEV catalog |
+| `global_brief` | Daily 02:00 Central; starts on boot | Generate/save US CI and global threat brief |
+| `daily_fusion_report` | Daily 06:00 Central | Generate/save previous Central calendar day's Daily Fusion report |
+| `daily_email_brief` | Daily 07:00 Central | Send the saved Unified Brief to `RISK_ALERT_RECIPIENTS` |
+| `ml_retrain` | Sunday 02:00 Central | Train from feedback labels and reload scorer |
+| `database_backup` | Sunday 00:00 Central | Create full encrypted backup; retain newest three scheduled packages |
 
-All scheduler jobs are defined in `src/scheduler.py` and run inside the **worker container**.
+`tiered_alert_escalation` is bounded to 1–5 minutes and cannot be disabled. `database_backup` cannot be disabled. Daily/weekly jobs remain on `America/Chicago`; other interval minima/maxima are in `SCHEDULER.md`.
 
----
+## 3. Authentication, invitations, and recovery
 
-### 2.1 fetch_feeds
+### Login
 
-| Attribute | Value |
-|-----------|-------|
-| **Interval** | Every 5 minutes |
-| **Source** | `src/scheduler.py` → feed worker |
-| **DB tables** | `articles`, `extracted_iocs` |
-
-#### Action Flow
-
-```
-Schedule library fires
-  │
-  ├─ 1. Query active FeedSources from DB
-  │
-  ├─ 2. Build known_links set (articles from last 7 days for dedup)
-  │
-  ├─ 3. Async fetch all feeds in chunks of 5
-  │     └─ For each feed URL: aiohttp GET → feedparser.parse()
-  │
-  ├─ 4. For each parsed entry:
-  │     ├─ HybridScorer.score()          → risk_score, risk_level
-  │     ├─ categorize_text()              → category
-  │     └─ ioc_engine.extract()           → IOCs (optional)
-  │
-  ├─ 5. bulk_save_to_db() in batches of 100
-  │
-  └─ 6. deduplicate_articles()
-        └─ Remove exact link duplicates + title similarity matches
+```text
+LoginPage -> POST /api/v1/auth/login -> bcrypt/session validation
+  -> UserSession row + durable sign-in/activity timestamp
+  -> public user/grants + opaque token
+  -> sessionStorage(noc_user, noc_token)
+  -> first granted page route
 ```
 
-#### Outputs
+If enabled and correctly configured, failed attempts are stored for threshold-based alerting. The threshold is global across submitted usernames; one claimed alert window queues an email. Credentials are never included in the alert.
 
-| Artifact | Table | Notes |
-|----------|-------|-------|
-| Articles | `articles` | Scored, categorized, with dedup |
-| IOCs | `extracted_iocs` | IPs, domains, hashes extracted from article text |
+### Individual invitation and display account
 
----
+- An authorized manager creates an email-bound individual invitation. The server stores a hashed, expiring single-use token; the mailer queues a registration URL. Registration validates the token, sets a 12+ character password, marks the invited email verified, creates a session, and returns the public user.
+- An authorized manager creates a display account directly with an administrator-selected 12+ character password. Email is optional; the browser identifies this account type as exempt from recovery-email prompting.
 
-### 2.2 fetch_live_crimes
+### Recovery
 
-| Attribute | Value |
-|-----------|-------|
-| **Interval** | Every 10 minutes |
-| **Source** | `src/scheduler.py` → crime worker |
-| **DB tables** | `crime_incidents` |
-
-#### Action Flow
-
-```
-Schedule library fires
-  │
-  ├─ 1. Call crime worker fetch_live_crimes()
-  │
-  ├─ 2. Save CrimeIncident records to DB
-  │
-  └─ 3. dispatch_perimeter_crime_alerts()
-        ├─ Check for new high-severity crimes within 0.4 miles of monitored locations
-        └─ Send SMS-via-email alert for each qualifying crime
+```text
+Forgot password -> generic POST /auth/request-password-reset
+  -> identifier/IP rate limit + hashed evidence
+  -> permitted reviewer queue/notification
+  -> approve => single-use token emailed to verified recovery email
+  -> POST /auth/reset-password => password update + revoke all sessions
 ```
 
-#### Outputs
+Recovery-email changes follow a separate request → reviewer approval → mailbox verification flow. Request owners cannot approve their own recovery or reset request. Denials require a reason. Restores invalidate sessions and outstanding invitation/reset/email-verification links.
 
-| Artifact | Table | Notes |
-|----------|-------|-------|
-| Crime incidents | `crime_incidents` | New records from data source |
-| Email alerts | SMTP | Perimeter crime alerts to configured recipients |
+## 4. Article actions and threat-data refresh
 
----
+| User action | API/service path | State change |
+|---|---|---|
+| Open article | `GET /threat/articles/{id}` | Reads article, persisted keyword weights, and related IOCs. |
+| Pin/unpin | `POST /dashboard/articles/toggle-pin` -> `toggle_pin()` | Toggles shared `Article.is_pinned`. |
+| Boost score | `POST /dashboard/articles/boost-score` -> `boost_score()` | Adds the requested amount, capped at 100. |
+| Keep/dismiss | `POST /dashboard/articles/feedback` -> `change_status()` | Writes label 2/1; only a first label from 0 adjusts matched keyword weights. |
+| Manually refresh RSS/KEV/cloud/crime | Corresponding `/threat/*` route | Calls the worker/service synchronously and returns before any separate scheduled run. |
+| Manually sync Elastic | `/hunting/sync-elastic-cache` | Runs a bounded Elastic query; local `elastic_events` cache is refreshed. |
 
-### 2.3 fetch_regional_hazards
+Each operation requires its workspace/tab and action grant. The threat-page category names and backend category outputs have a documented current mismatch; see [`DOCUMENTATION_AUDIT.md`](DOCUMENTATION_AUDIT.md#source-level-mismatches-surfaced-during-the-audit).
 
-| Attribute | Value |
-|-----------|-------|
-| **Interval** | Every 7 minutes |
-| **Source** | `src/scheduler.py` → infra worker |
-| **DB tables** | `regional_hazards`, `geojson_cache` |
+## 5. Brief and report actions
 
-#### Action Flow
+### Dashboard briefs
 
-```
-Schedule library fires
-  │
-  ├─ 1. Call infra worker fetch_regional_hazards()
-  │
-  ├─ 2. Update RegionalHazard records
-  │
-  ├─ 3. Update GeoJsonCache with NWS GeoJSON
-  │
-  ├─ 4. Calculate site intersections with hazard polygons
-  │     └─ Match hazard geometry against monitored location coordinates
-  │
-  ├─ 5. Check earthquake proximity (50-mile radius)
-  │     └─ Compare earthquake epicenter distance to each monitored site
-  │
-  └─ 6. Optional email SitRep (if conditions warrant)
-```
+1. An authorized user starts unified/global/internal generation from its dashboard tab with `Action: Generate Reports`.
+2. The route returns a generation ID and starts a tracked background thread.
+3. The browser stores the ID in `sessionStorage` and polls the matching status route every two seconds.
+4. On completion, the brief is saved to `SystemConfig`; the client refreshes saved brief data.
+5. Email broadcast uses `/email/broadcast-*` and `Action: Dispatch Exec Report`.
 
-#### Outputs
+Progress is an in-memory API-process record; a process restart can make an old generation ID return `unknown`.
 
-| Artifact | Table | Notes |
-|----------|-------|-------|
-| Hazards | `regional_hazards` | Updated NWS hazard data |
-| GeoJSON cache | `geojson_cache` | Latest NWS GeoJSON polygons |
-| Site intersections | Calculated | Hazards affecting monitored locations |
-| Email | SMTP | Optional situation report |
+### Custom and Daily Fusion reports
 
----
+- Daily Fusion generation calls the LLM pipeline synchronously from the reporting route or the scheduled worker; the worker skips if the previous Central calendar day's row already exists.
+- Custom report search uses OR matching across parsed terms; a user can select article IDs or use a target/lookback. Generation is asynchronous and reports progress/results from an in-memory store. Saving to the shared library and email broadcasting require the report-dispatch action.
+- Recipient validation for report broadcasts rejects line breaks, validates address shape, and limits to 20 recipients.
 
-### 2.4 fetch_cloud_outages
+## 6. AIOps response state machine
 
-| Attribute | Value |
-|-----------|-------|
-| **Interval** | Every 8 minutes |
-| **Source** | `src/scheduler.py` → cloud worker |
-| **DB tables** | `cloud_outages` |
+Operational health is based on unresolved alerts; acknowledgement/dispatch/workflow flags do not represent recovery.
 
-#### Action Flow
-
-```
-Schedule library fires
-  │
-  ├─ 1. Call cloud worker fetch_cloud_outages()
-  │
-  └─ 2. Update CloudOutage records
-        └─ Merge new outage data into existing table (upsert by provider+event)
+```text
+No unresolved site alerts -> Up / Clear (green)
+Unresolved alert, no workflow state -> Down / Action Required (red)
+Operator sets Needs Dispatch -> Needs Dispatch annotation
+Operator investigates -> Investigating annotation
+Operator completes ticket dispatch -> Ticket Dispatched annotation
+Authorized Mark Site Up -> resolve every unresolved site alert, clear Needs Dispatch/investigating
+Maintenance -> independent blue outline/ETR annotation; does not suppress alerts or escalation
 ```
 
-#### Outputs
+| Action | Route and checks | Persistence / broadcast |
+|---|---|---|
+| Load Active Board | `GET /rca/dashboard`; AIOps page + Active Board | Returns alerts/events/grid/locations/investigation state and unresolved-alert counts, all scoped to permitted site types. |
+| Run analysis | `POST /rca/analyze`; `Action: Run RCA Analysis` | Clusters visible alerts, calculates root causes/fleet events; chronic insight aggregate is returned only with all site types. |
+| Investigate | `POST /rca/investigate`; `Action: Dispatch RCA Tickets` | Toggles process-local set; lost on API restart; broadcasts refresh. |
+| Set Needs Dispatch | `POST /rca/needs-dispatch`; `Action: Dispatch RCA Tickets` | Persists the flag for active uncorrelated alerts; true requires at least one such alert. |
+| Acknowledge | `POST /rca/acknowledge`; `Action: Acknowledge RCA Alerts` | Marks selected alerts correlated and records actor/time; they remain unresolved and counted for health. |
+| Dispatch state | `POST /rca/dispatch`; `Action: Dispatch RCA Tickets` | Sets/clears alert workflow flag, clears Needs Dispatch, records actor/time, broadcasts refresh. |
+| Generate/send ticket | `POST /rca/generate-ticket`, `POST /rca/send-ticket`; Dispatch RCA Tickets | Site/alert IDs are site-scope checked; email state changes to dispatched only after successful send. |
+| Set/clear maintenance | `POST /rca/site-maintenance`; `Action: Manage Site Maintenance` | Persists `under_maintenance`, ETR date, reason, status actor/time; clearing nulls ETR/reason. |
+| Mark Site Up | `POST /rca/resolve-site`; `Action: Acknowledge RCA Alerts` | Resolves all unresolved site alerts and clears investigation state. When alerts were resolved, records operator/status/timeline metadata; always broadcasts refresh. Maintenance remains separate. |
 
-| Artifact | Table | Notes |
-|----------|-------|-------|
-| Cloud outages | `cloud_outages` | Provider outage status updates |
+The server-side AIOps WebSocket requires the page and Active Board tab. Both accepted client commands (`INVESTIGATING_UPDATE`, `RCA_UPDATE`) require `Action: Dispatch RCA Tickets`; they do not replace the REST workflow endpoints.
 
----
+## 7. Settings and scheduler changes
 
-### 2.5 run_telemetry_sync
+- Risk scoring writes use `/application-settings/risk-scoring` and `Action: Adjust Risk Scoring Overrides`.
+- Global defaults/failed-login alert writes use `/application-settings` and `Action: Manage Application Settings`.
+- Job schedules use `/application-settings/scheduler/jobs/{job_key}` and `Action: Manage Scheduler Settings`.
+- The API validates job type, fixed interval units, interval bounds, Central timezone, time format, weekday, and non-disableable jobs. It increments `SystemConfig.scheduler_revision` and records an audit event.
+- The worker polls every 30 seconds and rebuilds only registry-managed jobs when revision changes; active jobs are not interrupted.
 
-| Attribute | Value |
-|-----------|-------|
-| **Interval** | Every 6 minutes |
-| **Source** | `src/scheduler.py` → telemetry worker |
-| **DB tables** | `bgp_anomalies`, `elastic_events` |
+## 8. Backup and restore triggers
 
-#### Action Flow
-
-```
-Schedule library fires
-  │
-  └─ Call telemetry worker run_telemetry_sync()
-        ├─ Sync BGP anomalies from upstream sources
-        └─ Sync Elastic events from upstream sources
-```
-
-#### Outputs
-
-| Artifact | Table | Notes |
-|----------|-------|-------|
-| BGP anomalies | `bgp_anomalies` | BGP route/flow anomalies |
-| Elastic events | `elastic_events` | Correlated SIEM telemetry |
-
----
-
-### 2.6 fetch_cisa_kev
-
-| Attribute | Value |
-|-----------|-------|
-| **Interval** | Every 7 hours |
-| **Source** | `src/scheduler.py` → cve worker |
-| **DB tables** | `cve_items` |
-
-#### Action Flow
-
-```
-Schedule library fires
-  │
-  └─ Call cve_worker fetch_cisa_kev()
-        └─ Update CveItem records from CISA Known Exploited Vulnerabilities catalog
+```text
+Admin creates encrypted backup -> SQLite online snapshot + model if present -> AES-GCM package
+Admin stages upload -> authenticate/decrypt/check manifest/checksum/SQLite integrity -> keep staged
+Admin starts restore -> maintenance marker -> drain API/worker/webhook -> close sockets
+  -> validate + migrate staged DB -> pre-restore encrypted backup
+  -> atomic database/model swap with rollback -> invalidate sessions/links -> clear staging
+  -> refresh runtime caches/scorer -> report completion by restore capability ID
 ```
 
-#### Outputs
-
-| Artifact | Table | Notes |
-|----------|-------|-------|
-| CVE items | `cve_items` | KEV catalog entries with exploit status |
-
----
-
-### 2.7 job_internal_risk
-
-| Attribute | Value |
-|-----------|-------|
-| **Interval** | Every 1 hour |
-| **Source** | `src/scheduler.py` |
-| **DB tables** | `internal_risk_snapshots` |
-
-#### Action Flow
-
-```
-Schedule library fires
-  │
-  ├─ 1. generate_and_save_internal_risk_snapshot()
-  │     └─ Gather internal telemetry, asset posture, IOC matches
-  │
-  ├─ 2. calculate_internal_cis_score()
-  │     └─ Compute C/I/L components → composite score → risk level
-  │
-  ├─ 3. Save InternalRiskSnapshot row
-  │
-  └─ 4. check_and_alert()
-        └─ If risk level increased since last snapshot → send email alert
-```
-
-#### Outputs
-
-| Artifact | Table | Notes |
-|----------|-------|-------|
-| Risk snapshot | `internal_risk_snapshots` | C/I/L scores, composite, risk level |
-| Email alert | SMTP | Only on risk level increase |
-
----
-
-### 2.8 job_unified_brief
-
-| Attribute | Value |
-|-----------|-------|
-| **Interval** | Every 30 minutes |
-| **Source** | `src/scheduler.py` |
-| **DB tables** | `system_config` (unified_brief key) |
-
-#### Action Flow
-
-```
-Schedule library fires
-  │
-  ├─ 1. Gather telemetry:
-  │     ├─ Latest internal risk snapshot
-  │     ├─ NWS hazard summary
-  │     └─ Crime incident summary
-  │
-  ├─ 2. get_executive_grid_intel()
-  │     └─ Global CIS scores across all 7 domains
-  │
-  ├─ 3. generate_unified_risk_brief()
-  │     └─ LLM map-reduce pipeline:
-  │        ├─ Map: per-source chunk summaries (temp 0.35)
-  │        └─ Reduce: executive synthesis with mandatory OSINT disclaimer
-  │
-  ├─ 4. Save to SystemConfig (key: unified_brief)
-  │
-  └─ 5. check_and_alert()
-        └─ If global risk level increased → send email alert
-```
-
-#### Outputs
-
-| Artifact | Table | Notes |
-|----------|-------|-------|
-| Brief text | `system_config` | Updated unified_brief value |
-| Email alert | SMTP | Only on global risk level increase |
-
----
-
-### 2.9 job_tiered_alert_escalation
-
-| Attribute | Value |
-|-----------|-------|
-| **Interval** | Every 1 minute |
-| **Source** | `src/scheduler.py` |
-| **DB tables** | `solarwinds_alerts`, `monitored_locations` |
-
-This is the most complex scheduler job. It runs a full enterprise AIOps correlation and escalation cycle.
-
-#### Action Flow
-
-```
-Schedule library fires
-  │
-  ├─ 1. Query unresolved SolarWindsAlerts (last 12 hours)
-  │
-  ├─ 2. EnterpriseAIOpsEngine.analyze_and_cluster()
-  │     └─ Group alerts by site using 7-domain correlation engine
-  │
-  └─ 3. For each site with undispatched alerts:
-        │
-        ├─ 3a. calculate_root_cause()
-        │      └─ 7-stage correlation:
-        │         ├─ Stage 1: Domain fingerprinting
-        │         ├─ Stage 2: Temporal clustering
-        │         ├─ Stage 3: Spatial grouping
-        │         ├─ Stage 4: Patient-zero identification (tier scoring)
-        │         ├─ Stage 5: Cascade detection
-        │         ├─ Stage 6: SLA/P1-P5 mapping
-        │         └─ Stage 7: Chronic insight generation
-        │
-        ├─ 3b. Determine business hours
-        │      └─ M-F 0600–2000 America/Chicago
-        │
-        ├─ 3c. Select escalation rules
-        │      ├─ DAY_SHIFT rules (business hours)
-        │      └─ AFTER_HOURS rules (nights/weekends)
-        │
-        ├─ 3d. Detect cascading alerts
-        │      └─ Higher-priority sibling alerts at same site
-        │
-        ├─ 3e. Apply same-node cooldown to ticket candidates
-        │      └─ Keep the suppressed node pending; do not mute sibling devices
-        │
-        ├─ 3f. Apply one-hour after-hours site cooldown to routine dispatches
-        │      ├─ Routine alerts remain pending and un-ticketed
-        │      └─ P1 ticket/page can bypass; page only if active node incident is unpaged
-        │
-        ├─ 3g. Dispatch one site-level ticket email
-        │      └─ To: REMEDYFORCE_TICKET_EMAIL
-        │      └─ Body: RCA ticket text (compact alerts, district line, trigger time)
-        │
-        ├─ 3h. If AFTER_HOURS:
-        │      ├─ Send NOC notification email
-        │      └─ Page on-call personnel
-        │
-        └─ 3i. Persist delivery outcomes
-               ├─ Mark site-cluster alerts ticketed only after ticket success
-               ├─ Record page delivery per active node incident
-               └─ Update site cooldown only after page success
-```
-
-#### Outputs
-
-| Artifact | Table | Notes |
-|----------|-------|-------|
-| Ticket emails | SMTP | To Remedyforce ticket queue |
-| After-hours pages | SMTP | NOC notification + on-call paging |
-| Alert state | `solarwinds_alerts` | `is_ticketed` flag set |
-| Location tracking | `monitored_locations` | `status_modified_by`, `status_modified_at` updated |
-
----
-
-### 2.10 job_retrain_ml
-
-| Attribute | Value |
-|-----------|-------|
-| **Interval** | Sundays at 02:00 CST |
-| **Source** | `src/scheduler.py` |
-| **DB tables** | `articles` (rescored) |
-
-#### Action Flow
-
-```
-Schedule fires (Sunday 02:00)
-  │
-  ├─ 1. train() ML model pipeline
-  │     └─ Retrain on labeled article corpus
-  │
-  ├─ 2. force_reload_scorer()
-  │     └─ Hot-reload HybridScorer with new model (no restart)
-  │
-  └─ 3. rescore_all_articles()
-        └─ Re-score every existing article with fresh model
-```
-
-#### Outputs
-
-| Artifact | Table | Notes |
-|----------|-------|-------|
-| ML model | filesystem | Updated model pickle file |
-| Rescored articles | `articles` | All risk_score/risk_level values updated |
-
----
-
-### 2.11 run_database_maintenance
-
-| Attribute | Value |
-|-----------|-------|
-| **Interval** | Every 60 minutes |
-| **Source** | `src/scheduler.py` |
-
-#### Action Flow
-
-```
-Schedule library fires
-  │
-  ├─ 1. deduplicate_articles()
-  │     └─ Remove exact link duplicates + title-similarity pairs
-  │
-  ├─ 2. Purge old data per retention policy
-  │     └─ Drop rows older than configured TTL per table
-  │
-  ├─ 3. Delete orphaned IOCs
-  │     └─ Remove ExtractedIOC rows whose parent article was purged
-  │
-  └─ 4. SQLite-specific optimizations
-        ├─ PRAGMA optimize
-        └─ WAL checkpoint
-```
-
-#### Outputs
-
-| Artifact | Table | Notes |
-|----------|-------|-------|
-| Cleaned DB | all tables | Deduplicated, purged, optimized |
-
----
-
-### 2.12 job_daily_email_unified_brief
-
-| Attribute | Value |
-|-----------|-------|
-| **Interval** | Daily at 07:00 CST |
-| **Source** | `src/scheduler.py` |
-
-#### Action Flow
-
-```
-Schedule fires (daily 07:00)
-  │
-  ├─ 1. Load latest unified brief from SystemConfig
-  │
-  ├─ 2. Generate rich HTML email body
-  │     └─ CIS alert level names (not color codes)
-  │     └─ Cyber Security Director sign-off line
-  │
-  └─ 3. Send via SMTP to RISK_ALERT_RECIPIENTS
-```
-
-#### Outputs
-
-| Artifact | Table | Notes |
-|----------|-------|-------|
-| Email | SMTP | Daily unified brief to configured recipients |
-
----
-
-## 3. User Action Triggers
-
-All user-initiated actions follow this general pattern:
-
-```
-React Component
-  → useMutation / api.{method}()
-    → API route (FastAPI)
-      → services.py function
-        → DB operation (SQLAlchemy)
-          → Response
-            → queryClient.invalidateQueries()
-              → UI refresh
-```
-
----
-
-### 3.1 Login
-
-| Attribute | Value |
-|-----------|-------|
-| **Component** | `web/src/pages/LoginPage.tsx` |
-| **Endpoint** | `POST /api/v1/auth/login` |
-
-#### Action Flow
-
-```
-User submits credentials
-  │
-  ├─ 1. React LoginPage → POST /auth/login
-  │
-  ├─ 2. authenticate_user()
-  │     ├─ Query user by username
-  │     ├─ bcrypt verify password hash
-  │     └─ Generate UUID session token
-  │
-  ├─ 3. Return user object + token
-  │
-  ├─ 4. AuthContext stores token (localStorage)
-  │
-  └─ 5. Redirect to dashboard
-```
-
----
-
-### 3.2 Generate Unified Brief
-
-| Attribute | Value |
-|-----------|-------|
-| **Component** | `web/src/pages/DashboardPage.tsx` |
-| **Endpoint** | `POST /api/v1/dashboard/generate-unified-brief` |
-
-#### Action Flow
-
-```
-User clicks "Generate Brief"
-  │
-  ├─ 1. POST /dashboard/generate-unified-brief
-  │     └─ Spawn background thread → return generation_id immediately
-  │
-  ├─ 2. Frontend polls GET /brief-generation-status every 2 seconds
-  │     └─ Progress bar updates from response
-  │
-  ├─ 3. On "complete" status:
-  │     ├─ Invalidate sys-config query
-  │     ├─ Refresh brief display
-  │     └─ Auto-clear progress indicator
-  │
-  └─ 4. On "error" status:
-        └─ Display error, stop polling
-```
-
----
-
-### 3.3 Acknowledge Alert
-
-| Attribute | Value |
-|-----------|-------|
-| **Component** | `web/src/pages/AiopsRcaPage.tsx` |
-| **Endpoint** | `POST /api/v1/rca/acknowledge` |
-
-#### Action Flow
-
-```
-User clicks "Acknowledge" on alert cluster
-  │
-  ├─ 1. POST /rca/acknowledge
-  │     └─ Body: cluster_id, alert_ids
-  │
-  ├─ 2. acknowledge_cluster()
-  │     ├─ Update alerts as correlated
-  │     └─ Update MonitoredLocation.status_modified_by/at
-  │
-  ├─ 3. Broadcast RCA_UPDATE via WebSocket
-  │     └─ ws_manager.broadcast({"type": "RCA_UPDATE", ...})
-  │
-  └─ 4. Frontend receives WebSocket event → refreshes cluster view
-```
-
----
-
-### 3.4 Dispatch RCA Ticket
-
-| Attribute | Value |
-|-----------|-------|
-| **Component** | `web/src/pages/AiopsRcaPage.tsx` |
-| **Endpoint** | `POST /api/v1/rca/dispatch` |
-
-#### Action Flow
-
-```
-User clicks "Dispatch Ticket"
-  │
-  ├─ 1. POST /rca/dispatch
-  │     └─ Body: cluster_id, alert_ids
-  │
-  ├─ 2. set_cluster_dispatch()
-  │     ├─ Generate RCA ticket text (compact alerts, district line)
-  │     ├─ Update alerts: is_ticketed = True
-  │     └─ Update MonitoredLocation tracking fields
-  │
-  ├─ 3. Broadcast RCA_UPDATE via WebSocket
-  │
-  └─ 4. Frontend receives WebSocket event → refreshes cluster view
-```
-
----
-
-### 3.5 Set Site Maintenance
-
-| Attribute | Value |
-|-----------|-------|
-| **Component** | `web/src/pages/AiopsRcaPage.tsx` |
-| **Endpoint** | `POST /api/v1/rca/site-maintenance` |
-
-#### Action Flow
-
-```
-User clicks "Set Maintenance"
-  │
-  ├─ 1. POST /rca/site-maintenance
-  │     └─ Body: site_name, is_maint, etr, reason
-  │
-  ├─ 2. set_site_maintenance()
-  │     ├─ Toggle MonitoredLocation.under_maintenance
-  │     ├─ Set ETR (estimated time to resolution) and reason
-  │     └─ Clear location cache
-  │
-  ├─ 3. Broadcast RCA_UPDATE via WebSocket
-  │
-  └─ 4. Frontend receives WebSocket event → refreshes cluster view
-```
-
-**Note:** Maintenance can be cleared from the site dialog even when no incident is active. Clearing nulls the ETR and reason; the existing ETR-expiry job remains available. Maintenance does not gate alert ingestion or escalation. The map's operational fill is green when no unresolved issues remain, while a blue outline preserves the maintenance annotation.
-
----
-
-### 3.6 Edit Keyword Weight
-
-| Attribute | Value |
-|-----------|-------|
-| **Component** | `web/src/pages/SettingsPage.tsx` |
-| **Endpoint** | `PATCH /api/v1/admin/keywords/{id}` |
-
-#### Action Flow
-
-```
-User clicks w:N label → number input appears
-  │
-  ├─ 1. User enters new weight (1–100) → Enter or blur
-  │
-  ├─ 2. PATCH /admin/keywords/{id}
-  │     └─ Body: { weight: <value> }
-  │
-  ├─ 3. update_keyword_weight()
-  │     ├─ Validate weight ∈ [1, 100]
-  │     └─ Update DB row
-  │
-  ├─ 4. force_reload_scorer()
-  │     └─ Hot-reload HybridScorer with updated keyword weights
-  │
-  ├─ 5. Return updated keyword object
-  │
-  └─ 6. Invalidate admin-lists query → UI refreshes with new weight
-```
-
----
-
-### 3.7 Bulk Add Keywords
-
-| Attribute | Value |
-|-----------|-------|
-| **Component** | `web/src/pages/SettingsPage.tsx` |
-| **Endpoint** | `POST /api/v1/admin/keywords/bulk` |
-
-#### Action Flow
-
-```
-User submits raw keyword text
-  │
-  ├─ 1. POST /admin/keywords/bulk?raw_text=...
-  │
-  ├─ 2. add_bulk_keywords()
-  │     ├─ Parse word,weight pairs from raw text
-  │     ├─ Validate each weight ∈ [1, 100]
-  │     ├─ Filter out duplicates (existing keywords)
-  │     └─ Bulk insert new keywords
-  │
-  ├─ 3. COMMIT
-  │
-  └─ 4. Return created keywords → UI refreshes
-```
-
----
-
-### 3.8 Import Locations
-
-| Attribute | Value |
-|-----------|-------|
-| **Component** | `web/src/pages/SettingsPage.tsx` |
-| **Endpoint** | `POST /api/v1/admin/location/import` |
-
-#### Action Flow
-
-```
-User uploads location CSV / submits form
-  │
-  ├─ 1. POST /admin/location/import?mode=add|upsert|replace
-  │
-  ├─ 2. import_locations()
-  │     ├─ mode=add:      Insert new rows only (skip duplicates)
-  │     ├─ mode=upsert:   Insert or update by matching key
-  │     └─ mode=replace:  Truncate + reload full dataset
-  │
-  ├─ 3. Clear location cache
-  │
-  └─ 4. Return import summary → UI refreshes
-```
-
----
-
-## 4. WebSocket Triggers
-
-| Attribute | Value |
-|-----------|-------|
-| **Endpoint** | `ws://<host>:8101/ws` |
-| **Handler** | `src/api/main.py` → `ws_manager` |
-| **Protocol** | JSON messages over WebSocket |
-
-### Broadcast Mechanism
-
-```
-API endpoint / background task
-  │
-  ├─ BackgroundTasks.add_task(ws_manager.broadcast, payload)
-  │
-  └─ ws_manager.broadcast()
-        └─ Iterate all connected clients → send JSON message
-```
-
-### Dashboard Polling
-
-| Attribute | Value |
-|-----------|-------|
-| **Interval** | Every 10 seconds while clients are connected |
-| **Payload type** | `dashboard_update` |
-| **Content** | Current CIS metrics, alert counts, risk levels |
-
-```
-Server-side timer (10s, skipped when no clients are connected)
-  │
-  └─ Collect current dashboard state
-        └─ ws_manager.broadcast({"type": "dashboard_update", "data": {...}})
-              └─ All connected clients receive current metrics
-```
-
-### RCA UPDATE Events
-
-The following user actions trigger an `RCA_UPDATE` broadcast to all connected WebSocket clients:
-
-| Action | Endpoint | Trigger |
-|--------|----------|---------|
-| Investigate cluster | `POST /rca/analyze` | User opens cluster details |
-| Acknowledge alert | `POST /rca/acknowledge` | User acknowledges cluster |
-| Dispatch ticket | `POST /rca/dispatch` | User dispatches RCA ticket |
-| Set site maintenance | `POST /rca/site-maintenance` | User toggles maintenance mode |
-| Send ticket email | `POST /rca/send-ticket` | User manually sends ticket |
-
-```
-User action completes
-  │
-  ├─ DB state updated
-  ├─ MonitoredLocation tracking fields updated
-  │
-  └─ ws_manager.broadcast({"type": "RCA_UPDATE", ...})
-        │
-        └─ All WebSocket clients
-              └─ React useAIOpsWebSocket hook
-                    └─ queryClient.invalidateQueries() → UI refresh
-```
-
----
-
-## Appendix: Email Alert Summary
-
-| Trigger | Recipients | Condition |
-|---------|------------|-----------|
-| Perimeter crime alert | Configured SMS gateway | High-severity crime < 0.4 mi from site |
-| Internal risk increase | `RISK_ALERT_RECIPIENTS` | Risk level escalated since last snapshot |
-| Unified brief risk increase | `RISK_ALERT_RECIPIENTS` | Global risk level escalated |
-| Daily unified brief | `RISK_ALERT_RECIPIENTS` | Always at 07:00 CST |
-| Tiered escalation ticket | `REMEDYFORCE_TICKET_EMAIL` | Undispatched alerts at a site |
-| After-hours NOC notification | NOC distribution list | After-hours escalation |
-| After-hours on-call paging | On-call rotation list | After-hours escalation |
-| Optional SitRep | Configured recipients | Regional hazard conditions warrant |
-
----
-
-## Appendix: Ontology Domains
-
-All 7 domains must be consistent across webhook classification, AIOps correlation, and UI display:
-
-| Domain | Description |
-|--------|-------------|
-| `PRIMARY_INTERNET` | WAN/ISP connectivity, DNS, BGP |
-| `COMMS_EQUIPMENT` | Switches, routers, firewalls, wireless |
-| `POWER_SUPPLIES` | UPS, PDU, generators, utility power |
-| `RTU` | Remote terminal units, PLCs, field I/O |
-| `SCADA` | SCADA servers, HMI, historians |
-| `COMPUTE` | Servers, VMs, containers, applications |
-| `FACILITIES` | HVAC, physical security, environmental sensors |
-
----
-
-## Appendix: Risk Level Hierarchy
-
-```
-GREEN  <  BLUE  <  YELLOW  <  ORANGE  <  RED
-```
-
-Used for: CIS scoring, alert escalation, email triggers, dashboard display, and brief generation.
+The offline CLI requires `--maintenance-confirmed` only after API, worker, and webhook writers are stopped. Environment secrets are not part of a full backup.
+
+## 9. Scheduled notifications and external integrations
+
+| Trigger | Destination/condition |
+|---|---|
+| Risk tier increases | `RISK_ALERT_RECIPIENTS`, only when prior tier is known, tier increases, SMTP is enabled, and the four-hour cooldown allows. |
+| Earthquake proximity | `RISK_ALERT_RECIPIENTS`; USGS M≥2.5 within 50 miles of a monitored site. |
+| Wildfire proximity | `NOC_NOTIFY_EMAIL`; 5 miles for ordinary fires, 1 mile for fires ≤1 acre, per-fire/site repeat tracking. |
+| Perimeter crime | `CRIME_ALERT_SMS` (fallback `CRIME_ALERT_EMAIL`); severity text “High”, ≤0.4 miles from headquarters, not previously dispatched. |
+| Escalation ticket/page | Remedyforce/NOC/ITNETWORK destinations; see [`ESCALATION.md`](ESCALATION.md) for wait, cooldown, and retry rules. |
+| Daily email brief | `RISK_ALERT_RECIPIENTS` at 07:00 Central, if a saved unified brief exists. |
+
+Email send paths depend on the `SystemConfig` SMTP settings; env recipients do not replace SMTP server/sender configuration.

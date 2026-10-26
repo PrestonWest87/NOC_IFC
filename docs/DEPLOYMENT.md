@@ -91,8 +91,8 @@ Receives SolarWinds alerts at `POST http://localhost:8100/webhook/solarwinds`.
 |----------|-------|
 | Dockerfile | `web/Dockerfile` (multi-stage: `node:22-alpine` build + `nginx:alpine` serve) |
 | Port | `8501` → internal `5173` |
-| Env | `VITE_API_URL=http://localhost:8101` |
-| Depends on | `api` |
+| Env | Compose declares `VITE_API_URL=http://localhost:8101`; the static bundle and Nginx do not consume this runtime variable |
+| Depends on | `api` healthy |
 | Static build | No HMR; rebuild required for frontend changes |
 
 ### web-dev — Development Frontend (Vite, profile: dev)
@@ -102,9 +102,9 @@ Receives SolarWinds alerts at `POST http://localhost:8100/webhook/solarwinds`.
 | Image | `node:22-alpine` |
 | Command | `sh ./dev-entrypoint.sh` |
 | Port | `5173` |
-| Env | `VITE_API_URL=http://api:8101` |
+| Env | `VITE_API_URL=http://api:8101` for the running Vite development proxy |
 | Volumes | `./web:/app` and a persistent `node_modules` volume (hot reload via Vite HMR) |
-| Profile | `dev` — activated via `docker compose --profile dev up` |
+| Profile | `dev` — adds the Vite service; production `web` remains running. Use host port 5173 for HMR. |
 
 ---
 
@@ -118,7 +118,7 @@ cp .env.example .env
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `DATABASE_URL` | Yes | `sqlite:////app/data/noc_fusion.db` | Shared SQLite database file; non-SQLite URLs are rejected |
+| `DATABASE_URL` | No | `sqlite:////app/data/noc_fusion.db` | Optional path override for the shared SQLite database file; non-SQLite URLs are rejected |
 | `DEMO_SEED_DATA` | No | `false` | Seed synthetic hardware/software assets; use only in disposable environments |
 | `DEFAULT_ADMIN_PASSWORD` | First boot | `.env.example` contains a change-me placeholder; runtime default is empty | Creates the initial admin only when no users exist and the value is non-empty; replace the placeholder before startup |
 | `DEFAULT_ADMIN_EMAIL` | Optional | (empty) | Trusted verified recovery/notification address for the bootstrap administrator; can initialize an existing email-less bootstrap admin at API/worker startup |
@@ -371,6 +371,7 @@ All containers communicate on the same Docker bridge network. Internal service-t
 | SMTP/LLM credentials | SMTP passwords and LLM keys may be stored in `SystemConfig`; the live SQLite columns are not field-level encrypted. Full backup packages encrypt the database snapshot; `.env` and environment secrets stay external. | Protect the SQLite volume and backups. Define secret rotation and external secret-management requirements for the customer environment. |
 | Request limits | The webhook and WebSocket have configured size limits. There is no general API rate limiter; the database-upload endpoint currently reads its upload into memory. | Add route-level rate limits and bounded upload handling before exposing the service to broad or untrusted networks. |
 | Transport | Compose publishes the API, webhook, and web ports; TLS termination is not built into the stack. | Terminate HTTPS at a trusted reverse proxy and apply firewall rules to limit source networks. |
+| Frontend source-IP rule | `web/nginx.conf` contains `allow 10.0.0.0/8` for workspace requests but no `deny all`; this is not an allowlist and does not block unmatched client addresses. | Enforce the intended source-network restriction at the host firewall or trusted upstream proxy. |
 
 Set `DEFAULT_ADMIN_PASSWORD` before first boot; there is no guaranteed hard-coded production password. Review `CORS_ORIGINS`, TLS, network exposure, credential handling, and backup protection as part of each deployment.
 

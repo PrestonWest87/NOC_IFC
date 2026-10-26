@@ -1,92 +1,14 @@
-# Module: `src.api.routes.hunting`
+# Route module: `src.api.routes.hunting`
 
-Threat hunting routes for IOC retrieval, OSINT pivoting, and article searching. Prefix: `/api/v1/hunting`.
+Prefix: `/api/v1/hunting`. Every endpoint requires page permission `Threat Hunting & IOCs`.
 
----
+| Method/path | Additional grants | Inputs and behavior |
+|---|---|---|
+| `GET /iocs?days_back=3&limit=1000` | `Tab: Threat Hunting -> Global IOC Matrix` | `days_back` 1–30; `limit` 1–1000. Returns recent extracted IOCs joined to source-article links; repeated CVE values are grouped with multiple sources. |
+| `GET /osint-pivot?ioc_type=&ioc_value=` | Global IOC Matrix tab | Returns `{link}` for validated hash, IPv4, domain, CVE, or MITRE ATT&CK values; unsupported/malformed values return a null link. |
+| `GET /search-articles?target=&days_back=3` | `Tab: Threat Hunting -> Deep Hunt Builder` | Target max 500 characters, quoted phrases must balance, at most 50 parsed terms; `days_back` is 1–30. Terms are ORed across title, summary, and full content; at most 30 rows are returned. |
+| `GET /elastic-events?hours_back=24&page=1&page_size=100` | `Tab: Reporting -> Elastic SIEM Report` | `hours_back` 1–168, page 1–1000, `page_size` 1–500. Returns `{items,total,page,page_size,hours_back}` from the local Elastic cache. |
+| `POST /sync-elastic-cache?hours_back=24` | Elastic SIEM tab + `Action: Manually Sync Data` | Synchronizes high-severity events using the shared worker. `hours_back` is 1–168; returns HTTP 502 on failure and 503 when skipped because `ELASTIC_URL` is blank. |
+| `POST /generate-siem-triage` | Elastic SIEM tab + legacy `Action: Trigger AI Functions` | JSON `{events:[...]}` with 1–50 events. Input fields are bounded, extras ignored, and serialized size over 100 KB returns HTTP 413. Returns `{summary}` from the configured LLM. |
 
-## Endpoint: `GET /iocs`
-
-### Purpose
-Returns Indicators of Compromise (IOCs) observed within a configurable lookback window.
-
-### Parameters
-| Parameter   | Type  | Default | Constraints | Description                              |
-|-------------|-------|---------|-------------|------------------------------------------|
-| `days_back` | `int` | `3`     | 1-30        | Number of days of IOC history to return. |
-| `limit`     | `int` | `1000`  | 1-1000      | Maximum IOC rows to inspect.             |
-
-### Returns
-Bounded list of IOC objects.
-
-### Raises
-None.
-
-### Flow
-Direct delegation to `svc.get_iocs()`.
-
-### Dependencies
-- `src.services.get_iocs()`
-
----
-
-## Endpoint: `GET /osint-pivot`
-
-### Purpose
-Generates an OSINT pivot search link for a given IOC type and value (e.g., IP address, hash, domain).
-
-### Parameters
-| Parameter  | Type   | Default | Description                    |
-|------------|--------|---------|--------------------------------|
-| `ioc_type` | `str`  | `""`    | IOC type (e.g., "ip", "hash"). |
-| `ioc_value`| `str`  | `""`    | IOC value to pivot on.         |
-
-### Returns
-```json
-{
-  "link": "<generated OSINT search URL>"
-}
-```
-
-### Raises
-None.
-
-### Flow
-Calls `svc.get_osint_pivot_link()` and returns the URL wrapped in an object.
-
-### Dependencies
-- `src.services.get_osint_pivot_link()`
-
----
-
-## Endpoint: `GET /search-articles`
-
-### Purpose
-Searches articles for a given target string within a configurable lookback window, for hunting purposes.
-
-### Parameters
-| Parameter   | Type   | Default | Constraints | Description                              |
-|-------------|--------|---------|-------------|------------------------------------------|
-| `target`    | `str`  | `""`    | —           | Search query string.                     |
-| `days_back` | `int`  | `3`     | 1-30        | Number of days to search back.           |
-
-### Returns
-List of article objects matching the search criteria.
-
-### Raises
-None.
-
-### Flow
-Direct delegation to `svc.search_articles_for_hunting()`.
-
-### Dependencies
-- `src.services.search_articles_for_hunting()`
-## Current Source Surface
-
-Router prefix: `/api/v1/hunting` with `Threat Hunting & IOCs` page permission.
-
-- `GET /iocs` returns extracted indicators for a bounded `days_back` range of 1–30.
-- `GET /osint-pivot` maps an IOC type/value to external investigation URLs.
-- `GET /search-articles` searches articles for a target with a bounded 1–30 day range.
-- `GET /elastic-events` returns paginated cached SIEM events and requires the Elastic SIEM tab permission.
-- `POST /sync-elastic-cache` synchronizes high-severity Elastic events and requires manual sync permission.
-- `POST /generate-siem-triage` accepts up to 50 bounded events and requires the AI action permission.
+The Deep Hunt page builds its detection package in frontend code from the search result records. It does not call an LLM endpoint for that package; only the separate SIEM triage route makes an LLM request. See [`ThreatHuntingPage.md`](../../web/pages/ThreatHuntingPage.md) for the rendered flow.

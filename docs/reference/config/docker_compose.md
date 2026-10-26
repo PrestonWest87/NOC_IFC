@@ -18,6 +18,8 @@ Defines five services (`api`, `worker`, `webhook`, `web`, `web-dev`) that consti
 | `ports` | `"8101:8101"` | Maps host port 8101 to container port 8101. |
 | `env_file` | `.env` | Loads environment variables from `.env` at project root. |
 | `volumes` | `./data:/app/data` | Mounts persistent storage. |
+| `healthcheck` | `GET /ready` every 30 seconds | Checks both the API process and database readiness; health becomes ready after the 20-second start period and configured retries. |
+| `deploy.resources.limits` | `1.0` CPU, `768M` | Compose resource limits for the API container. |
 
 ### `worker` — Background Scheduler
 
@@ -29,6 +31,8 @@ Defines five services (`api`, `worker`, `webhook`, `web`, `web-dev`) that consti
 | `env_file` | `.env` | Environment from `.env`. |
 | `volumes` | `./data:/app/data` | Persistent data mount. |
 | `deploy.resources.limits.memory` | `1.5G` | Caps worker container memory. Prevents runaway jobs from exhausting host memory. |
+| `depends_on` | `api` with `condition: service_healthy` | Waits for API readiness before starting the worker. |
+| `deploy.resources.limits.cpus` | `2.0` | Compose worker CPU limit. |
 
 ### `webhook` — SolarWinds Webhook Gateway
 
@@ -40,6 +44,8 @@ Defines five services (`api`, `worker`, `webhook`, `web`, `web-dev`) that consti
 | `ports` | `"8100:8100"` | Maps host port 8100 to container port 8100. |
 | `env_file` | `.env` | Environment from `.env`. |
 | `volumes` | `./data:/app/data` | Persistent data mount. |
+| `healthcheck` | `GET /health` every 30 seconds | Confirms the webhook HTTP server is live. |
+| `deploy.resources.limits` | `0.5` CPU, `384M` | Compose resource limits for the webhook container. |
 
 ### `web` — Frontend Production (Nginx)
 
@@ -48,8 +54,10 @@ Defines five services (`api`, `worker`, `webhook`, `web`, `web-dev`) that consti
 | `build.context` | `./web` | Web subdirectory as build context. |
 | `build.dockerfile` | `Dockerfile` | Uses the multi-stage web Dockerfile. |
 | `ports` | `"8501:5173"` | Maps host port 8501 to container port 5173. |
-| `environment.VITE_API_URL` | `http://localhost:8101` | Declared for the production container; the built nginx configuration handles production `/api/` and `/ws` proxying directly. |
-| `depends_on` | `api` | Ensures the API container starts before the web container (best-effort — does not wait for readiness). |
+| `environment.VITE_API_URL` | `http://localhost:8101` | Declared on the running container, but the built static frontend/Nginx does not consume this runtime variable; Nginx proxies `/api/` and `/ws` to `http://api:8101`. |
+| `depends_on` | `api` with `condition: service_healthy` | Waits for API readiness before starting the production web container. |
+| `healthcheck` | `GET /health` every 30 seconds | Checks the Nginx static server. |
+| `deploy.resources.limits` | `0.25` CPU, `128M` | Compose resource limits for the production web container. |
 
 ### `web-dev` — Frontend Development (Hot Reload)
 
@@ -60,13 +68,13 @@ Defines five services (`api`, `worker`, `webhook`, `web`, `web-dev`) that consti
 | `working_dir` | `/app` | Container working directory. |
 | `command` | `sh ./dev-entrypoint.sh` | Reuses the named dependency volume; reruns `npm ci` only when the lockfile hash changes, then starts Vite. |
 | `ports` | `"5173:5173"` | Maps host port 5173 to container port 5173. |
-| `environment.VITE_API_URL` | `http://api:8101` | Injected at build time. Points to the Docker-internal `api` service hostname. |
+| `environment.VITE_API_URL` | `http://api:8101` | Read by the running Vite dev server to target the Docker-internal `api` service hostname. |
 | `depends_on` | `api` | Ensures API starts first. |
 | `volumes` | `./web:/app`, `web_dev_node_modules:/app/node_modules` | Source changes trigger HMR while the separate named volume preserves container-installed dependencies. |
 
 ## Environment Configuration
 
-All backend services source environment variables from the project root `.env` file via `env_file: .env`. The frontend services use inline `environment:` blocks for `VITE_API_URL` since Vite only embeds variables prefixed with `VITE_` at build time.
+All backend services source environment variables from the project root `.env` file via `env_file: .env`. The `web-dev` service reads its inline `VITE_API_URL` at Vite-server startup to configure its `/api` and `/ws` development proxies. The production `web` service also declares that variable, but its already-built static bundle and Nginx proxy do not read it at container runtime.
 
 Key environment variable consumed:
 
@@ -82,7 +90,7 @@ Key environment variable consumed:
 
 | Profile | Service | Purpose |
 |---------|---------|---------|
-| `dev` | `web-dev` | Enables the additional Vite hot-reload service. The profile does not inherently remove the production `web` service. |
+| `dev` | `web-dev` | Adds the Vite hot-reload service; it does not remove the production `web` service. Use host port 5173 for the dev frontend. |
 
 Activation:
 
@@ -98,8 +106,7 @@ docker compose --profile dev up --build -d
 
 All services share the default Docker Compose network (bridge). Internal DNS resolution uses service names:
 
-- `http://api:8101` — used by `web-dev` Vite proxy and `web` Nginx proxy
-- `http://api:8101` — used by the production nginx container’s `/api/` and `/ws` upstreams
+- `http://api:8101` — used by the `web-dev` Vite proxy and production Nginx `/api/` and `/ws` upstreams
 
 ## Volume Mounts
 

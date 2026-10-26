@@ -6,22 +6,31 @@ All notable changes to the NOC Intelligence Fusion Center application are docume
 
 ## Unreleased
 
-### Accounts, Permissions, and Administration
-- Canonical page/tab/action permissions are enforced by the API, including site-scoped AIOps/WebSocket access.
-- Added individual invitations, email-optional display accounts, reviewed recovery requests, session revocation, and account activity history.
-- Added permission-scoped application settings and dynamically reloaded, validated scheduler schedules.
+### Operations and incident workflow
+- AIOps site dialogs provide an authorized **Mark Site Up** action that resolves all unresolved alerts at the selected site, clears stale Needs Dispatch state, records the operator/timestamp, and leaves maintenance as a separate annotation.
+- AIOps map status now distinguishes operational health from workflow state: unresolved alerts remain active after acknowledgement; maintenance is shown as an outline and does not hide active alert colors.
+- Escalation tracks successful on-page delivery per active node incident, separates page retries from site-ticket state, and applies same-node flapping suppression without consuming unrelated alerts.
+- Regional wildfires use WFCA incidents, reported perimeters, and recent FIRMS satellite-footprint estimates. Small-fire map/proximity rules are site-distance aware.
 
-### Database Lifecycle and Efficiency
-- SQLite is the only supported database backend. Alembic revisions run at backend startup under a cross-process SQLite lock.
-- The legacy-adoption migration uses a frozen v1 schema snapshot; future schema changes require forward revisions.
-- Removed pandas and unused runtime dependencies; analytics use projected rows, counters, and batches. Article deduplication uses RapidFuzz at the established threshold.
-- Added a hash-pinned Python runtime lock, Docker build caches, and a persistent dependency-aware frontend development install. Runtime data and generated model artifacts are excluded from image build contexts.
+### Accounts, permissions, and administration
+- The canonical page/tab/action/site-type catalog is enforced by the API. AIOps WebSocket access requires the Active Board tab and filters data by site type.
+- Individual accounts use email invitations; display accounts may omit email. Password-reset and recovery-email changes require separate reviewer actions, and approved recovery addresses require mailbox verification.
+- Application Settings separates risk-scoring controls, scheduler configuration, global defaults, and failed-login alerts. Schedule edits are validated and reloaded by the worker without restart.
 
-### Frontend and Documentation
-- Updated MapLibre/deck.gl dependencies and the React map wrapper; the theme selector currently offers 21 themes.
-- Updated deployment, database, operations, API, user, and frontend documentation for current behavior.
+### Database lifecycle and resilience
+- SQLite is the only supported database backend. Alembic migrations run before startup work under a cross-process SQLite lock and preserve known legacy data through additive revisions.
+- Full backups are online SQLite snapshots packaged with the persistent ML model when present, authenticated with AES-256-GCM, and managed through administrator UI/CLI restore workflows.
+- The production model path is on the shared data volume; training writes artifacts atomically. Normal startup does not rescore the article corpus unless `RESCORE_ON_STARTUP=true`.
+
+### Documentation
+- Reconciled user, API, permission, scheduler, data-flow, database, deployment, and module-reference guides against the checked-out implementation.
+- Added a source-to-documentation audit record, a complete permission reference, and a phased in-code docstring/comment plan. The plan is documentation only; source comments are not changed in this release.
+
+> The complete current behavior is documented in `docs/`. The `v2.0.0` section below is a historical release snapshot, not a current runtime specification.
 
 ## v2.0.0 — 2026-07-01
+
+> Historical baseline notes. Some routes, intervals, labels, dependencies, and UI flows in this release snapshot were subsequently changed. Use the current guides linked from `README.md` and `docs/README.md` for current behavior.
 
 ### Overview
 
