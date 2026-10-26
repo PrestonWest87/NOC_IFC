@@ -1,3 +1,9 @@
+"""Create the SQLite engine/session factory and initialize schema before data seeds.
+
+Startup runs serialized Alembic migrations before enabling WAL/pragmas and then
+performs conditional bootstrap seeding. SQLite is the only supported backend.
+"""
+
 import logging
 import time
 import weakref
@@ -14,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def validate_database_url(database_url: str):
+    """Parse and enforce the application's SQLite-only database URL contract."""
     url = make_url(database_url)
     if url.get_backend_name() != "sqlite":
         raise RuntimeError(
@@ -34,7 +41,7 @@ _sqlite_wal_configured = weakref.WeakSet()
 
 
 def _apply_sqlite_connection_pragmas(dbapi_connection, _connection_record):
-    """Apply connection-local SQLite tuning on every NullPool connection."""
+    """Apply connection-local SQLite tuning whenever NullPool opens a connection."""
     cursor = dbapi_connection.cursor()
     try:
         cursor.execute("PRAGMA synchronous=NORMAL")
@@ -46,7 +53,7 @@ def _apply_sqlite_connection_pragmas(dbapi_connection, _connection_record):
 
 
 def _set_sqlite_pragmas(bind=engine):
-    """Enable persistent WAL and connection-local pragmas after migrations."""
+    """Install connection pragmas once and retry enabling persistent WAL after migrations."""
     if bind not in _sqlite_connection_pragmas_configured:
         event.listen(bind, "connect", _apply_sqlite_connection_pragmas)
         _sqlite_connection_pragmas_configured.add(bind)
@@ -73,7 +80,7 @@ def _set_sqlite_pragmas(bind=engine):
 
 
 def get_db():
-    """FastAPI dependency yielding a database session."""
+    """Yield a request-scoped SQLAlchemy session and always close it after the handler."""
     db = SessionLocal()
     try:
         yield db
@@ -82,7 +89,7 @@ def get_db():
 
 
 def init_db():
-    """Run pending schema migrations before pragmas or bootstrap data."""
+    """Apply pending migrations, then configure SQLite and run conditional bootstrap seeds."""
     from src.core.migration_runner import run_migrations
 
     run_migrations(engine)

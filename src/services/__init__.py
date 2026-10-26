@@ -1,3 +1,9 @@
+"""Compatibility loader for the central `src/services.py` module and subpackages.
+
+It preserves `src.services` imports while keeping `logic`, `categorizer`,
+`ioc_extractor`, and `aiops_engine` importable as package modules.
+"""
+
 import importlib.util
 import sys
 from pathlib import Path

@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect, type React
 import api from "./api";
 import axios from "axios";
 
+/** Public session user shape returned by `/auth/login` and `/auth/me`. */
 interface User {
   id?: number;
   username: string;
@@ -25,6 +26,7 @@ interface User {
   allowed_site_types?: string[];
 }
 
+/** Authentication operations and current browser-session state shared by the SPA. */
 interface AuthContextType {
   user: User | null;
   token: string;
@@ -35,6 +37,7 @@ interface AuthContextType {
 
 const AUTH_USER_REFRESH_STORAGE_KEY = "noc-auth-user-refresh";
 
+/** Notify same-origin tabs to refresh user grants without copying credentials. */
 export function signalAuthUserRefresh() {
   try {
     // Notify other same-origin tabs without sharing session credentials.
@@ -46,6 +49,7 @@ export function signalAuthUserRefresh() {
 
 const AuthContext = createContext<AuthContextType>(null!);
 
+/** Keep session state in sessionStorage and refresh grants on mount/cross-tab changes. */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
     const stored = sessionStorage.getItem("noc_user");
@@ -53,6 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
   const [token, setToken] = useState(sessionStorage.getItem("noc_token") ?? "");
 
+  /** Exchange credentials for a server session and cache the public user/token for this tab. */
   const login = useCallback(async (username: string, password: string) => {
     const { data } = await api.post("/auth/login", { username, password });
     sessionStorage.setItem("noc_token", data.token);
@@ -62,6 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data.user;
   }, []);
 
+  /** Refresh grants/profile; only an explicit 401 clears the local session. */
   const refreshUser = useCallback(async () => {
     const tok = sessionStorage.getItem("noc_token");
     if (!tok) return;
@@ -100,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshUser]);
 
+  /** Revoke the current server session best-effort and clear local state immediately. */
   const logout = useCallback(() => {
     api.post("/auth/logout").catch(() => {});
     sessionStorage.removeItem("noc_token");
@@ -115,4 +122,5 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/** Read the current SPA authentication context. */
 export const useAuth = () => useContext(AuthContext);

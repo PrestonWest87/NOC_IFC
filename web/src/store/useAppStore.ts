@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+/** Minimal SolarWinds fields used by realtime map and alert notifications. */
 export interface AlertItem {
   id?: number | string;
   node_name?: string;
@@ -8,6 +9,7 @@ export interface AlertItem {
   mapped_location?: string;
 }
 
+/** Server push or workflow-echo payload shared between the WebSocket hook and pages. */
 export interface DashboardPayload {
   type?: string;
   alerts?: AlertItem[];
@@ -19,6 +21,7 @@ export interface DashboardPayload {
   is_investigating?: boolean;
 }
 
+/** Shared in-memory WebSocket/dashboard state and command sender. */
 interface AppState {
   dashboard: DashboardPayload | null;
   connected: boolean;
@@ -30,6 +33,7 @@ interface AppState {
   setSendMessage: (fn: (msg: any) => void) => void;
 }
 
+/** In-memory Zustand state for realtime dashboard data and outbound socket commands. */
 export const useAppStore = create<AppState>((set) => ({
   dashboard: null,
   connected: false,

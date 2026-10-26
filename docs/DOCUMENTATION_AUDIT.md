@@ -39,7 +39,7 @@ These are implementation inconsistencies, not documentation facts to conceal. Th
 2. **Historical comments remain in service code.** Some comments/section labels in `src/services.py` still mention Streamlit or PyDeck although the active application is a React/Deck.gl SPA and the relevant helpers are server-side Shapely processing. These are included in the in-code documentation plan for a later source-only change.
 3. **The test suite is intentionally untracked.** `tests/` is excluded by repository policy. The source audit can verify checked-in code and configuration, but cannot inspect or run the local-only regression suite from this worktree.
 4. **The production nginx `allow` rule is not an IP allowlist.** `web/nginx.conf` includes `allow 10.0.0.0/8` in `location /` but has no `deny all`; unmatched client addresses are not denied by that rule. Deployment network restriction must therefore be provided by the host firewall or an upstream proxy. This audit documents the current configuration without changing it.
-5. **The environment template overstates the database variable requirement.** `.env.example` comments that `DATABASE_URL` is required, while `src/core/config.py` supplies the SQLite path when the variable is unset. The deployment guides describe the runtime behavior; the template comment is left unchanged in this documentation-only pass.
+5. **Resolved during the in-code documentation phase:** `.env.example` now labels `DATABASE_URL` as an optional override, matching the default supplied by `src/core/config.py`. This is a comment-only template correction; runtime configuration is unchanged.
 
 ## Verification record
 

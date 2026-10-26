@@ -116,12 +116,14 @@ SCHEDULER_POLL_SECONDS = 30
 
 
 def default_schedule(job_key: str) -> dict:
+    """Return only the persisted schedule fields defined by a registry entry."""
     job = JOB_REGISTRY[job_key]
     fields = ("schedule_type", "every_value", "unit", "run_at", "weekday", "timezone", "enabled")
     return {key: job[key] for key in fields if key in job}
 
 
 def validate_schedule(job_key: str, value: dict) -> dict:
+    """Validate and normalize a user-supplied schedule against immutable job bounds."""
     if job_key not in JOB_REGISTRY:
         raise ValueError("Unknown scheduler job.")
     job = JOB_REGISTRY[job_key]

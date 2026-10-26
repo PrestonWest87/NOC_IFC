@@ -5,6 +5,7 @@ import api, { getApiErrorMessage } from "../utils/api";
 import { formatInChicago } from "../utils/timezone";
 import { hasActionPermission } from "../utils/permissions";
 
+/** Sanitized directory row returned by the user-administration API. */
 type UserRecord = {
   id: number;
   username: string;
@@ -24,8 +25,11 @@ type UserRecord = {
   invitation_pending?: boolean;
 };
 
+/** Persisted role grants used by the role editor. */
 type RoleRecord = { name: string; allowed_pages: string[]; allowed_actions: string[]; allowed_site_types: string[] };
+/** Internal selection for the four role-grant editor sections. */
 type RoleEditorSection = "pages" | "tabs" | "actions" | "siteTypes";
+/** Canonical page/action/tab schema loaded from the permission-catalog endpoint. */
 type Catalog = {
   pages: { key: string; description: string }[];
   actions: { key: string; group: string; description: string; legacy?: boolean }[];
@@ -64,6 +68,7 @@ function localTime(value?: string | null) {
   return value ? formatInChicago(value) : "Not recorded";
 }
 
+/** Render the directory and permission-gated invitation, role, and recovery-review workflows. */
 export function UsersRolesTab({ user }: { user: { id?: number; role?: string; allowed_actions?: string[] } | null }) {
   const queryClient = useQueryClient();
   const canManageUsers = hasActionPermission(user, "Action: Manage Users");

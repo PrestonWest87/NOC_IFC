@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import api, { getApiErrorMessage } from "../utils/api";
 
+/** Complete a token-authorized password reset; existing server sessions are revoked. */
 export function ResetPasswordPage() {
   const [params] = useSearchParams();
   const token = params.get("token") || "";

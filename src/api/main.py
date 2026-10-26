@@ -1,3 +1,10 @@
+"""Compose the FastAPI application, lifecycle hooks, readiness, and AIOps WebSocket.
+
+Startup applies database migrations/bootstrap before serving. The broadcaster
+publishes user-scoped updates only to authenticated clients with Active Board
+access, and restore maintenance gates new requests and drains writers.
+"""
+
 import asyncio
 import json
 import logging
@@ -29,6 +36,7 @@ manager = ConnectionManager()
 
 
 def _has_aiops_websocket_access(user):
+    """Require both the AIOps page and Active Board tab for live-board access."""
     return (
         has_page_permission(user, "AIOps RCA")
         and has_action_permission(user, "Tab: AIOps RCA -> Active Board")
@@ -36,6 +44,11 @@ def _has_aiops_websocket_access(user):
 
 
 async def broadcaster():
+    """Broadcast ten-second AIOps updates through a restore-aware writer slot.
+
+    Shared alert/grid data is filtered per recipient; non-admin timeline queries
+    are loaded per unique allowed-site scope to avoid cross-site disclosure.
+    """
     from src import services as svc
     cycle = 0
     while True:
@@ -73,6 +86,7 @@ async def broadcaster():
             }
 
             def filter_for_user(message, user):
+                """Suppress unauthorized sockets and filter each update to the recipient's site scope."""
                 if not user or not _has_aiops_websocket_access(user):
                     return None
                 is_admin = str(getattr(user, "role", "") or "").casefold() in {"admin", "administrator"}
@@ -94,6 +108,7 @@ async def broadcaster():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Initialize schema, recover a pending restore, and own the broadcaster task lifetime."""
     if restore_control.maintenance_requested():
         logger.warning("Starting API in restore maintenance mode; waiting for restore recovery.")
     else:
@@ -142,6 +157,7 @@ app.include_router(application_settings.router)
 
 @app.get("/health")
 def health():
+    """Return process liveness and the number of currently connected WebSockets."""
     return {"status": "ok", "ws_clients": manager.count}
 
 
@@ -169,6 +185,12 @@ def restore_status(data: dict = Body(...)):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    """Authenticate an AIOps stream, revalidate it, and scope accepted commands.
+
+    Browser WebSockets use a query token. Sessions and Active Board grants are
+    rechecked at least every 30 seconds and on each message; only the two
+    allowlisted command types may be rebroadcast.
+    """
     if restore_control.maintenance_requested():
         await websocket.close(code=1012, reason="Database restore in progress")
         return
@@ -239,6 +261,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 # If a client sends an investigating lock or a manual resync request, broadcast it!
                 if msg_type in ["INVESTIGATING_UPDATE", "RCA_UPDATE"]:
                     def filter_command(message, recipient):
+                        """Prevent command rebroadcast to recipients lacking page or site access."""
                         if not recipient or not _has_aiops_websocket_access(recipient):
                             return None
                         if message.get("type") == "INVESTIGATING_UPDATE":

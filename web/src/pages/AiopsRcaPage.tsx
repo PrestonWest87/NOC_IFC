@@ -97,6 +97,7 @@ const TOOLTIP_HTML_ESCAPES: Record<string, string> = {
 const escapeTooltipHtml = (value: unknown) =>
   String(value ?? "").replace(/[&<>"']/g, (character) => TOOLTIP_HTML_ESCAPES[character] ?? character);
 
+/** Render scoped AIOps incident workflows; unresolved alerts remain active until resolved. */
 export function AiopsRcaPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();

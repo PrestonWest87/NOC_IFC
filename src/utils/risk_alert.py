@@ -1,3 +1,5 @@
+"""Detect global/internal risk increases and format risk or earthquake email alerts."""
+
 import logging
 import smtplib
 from email.mime.text import MIMEText
@@ -16,6 +18,7 @@ CENTRAL_TZ = ZoneInfo("America/Chicago")
 RISK_TIER_ORDER = ["GREEN", "BLUE", "YELLOW", "ORANGE", "RED"]
 
 def get_tier_level(risk: str) -> int:
+    """Return the ordered risk-tier index, or -1 for an unknown level."""
     try:
         return RISK_TIER_ORDER.index(risk.upper())
     except ValueError:
@@ -23,11 +26,13 @@ def get_tier_level(risk: str) -> int:
         return -1
 
 def is_increase(from_level: str, to_level: str) -> bool:
+    """Return whether the destination tier is strictly higher than the prior tier."""
     result = get_tier_level(to_level) > get_tier_level(from_level)
     logger.debug("is_increase: from=%s to=%s result=%s", from_level, to_level, result)
     return result
 
 def get_alert_recipients() -> list:
+    """Parse non-empty addresses from the `RISK_ALERT_RECIPIENTS` setting."""
     if not RISK_ALERT_RECIPIENTS:
         logger.warning("get_alert_recipients: RISK_ALERT_RECIPIENTS not set")
         return []
@@ -36,12 +41,14 @@ def get_alert_recipients() -> list:
     return recipients
 
 def get_smtp_config():
+    """Return the first persisted SMTP/application configuration row, if present."""
     logger.debug("get_smtp_config: fetching SMTP config from DB")
     with SessionLocal() as session:
         config = session.query(SystemConfig).first()
         return config
 
 def should_send_alert() -> bool:
+    """Allow a risk-change email only when no prior alert exists or four hours elapsed."""
     with SessionLocal() as session:
         config = session.query(SystemConfig).first()
         if not config or not config.last_risk_alert_time:
@@ -53,6 +60,7 @@ def should_send_alert() -> bool:
         return can_send
 
 def update_last_alert_time():
+    """Persist the Central-time timestamp of a successfully sent risk alert."""
     with SessionLocal() as session:
         config = session.query(SystemConfig).first()
         if config:
@@ -61,6 +69,7 @@ def update_last_alert_time():
             logger.info("update_last_alert_time: updated to %s", config.last_risk_alert_time)
 
 def update_tracked_risks(global_risk: str = None, internal_risk: str = None):
+    """Persist supplied current tiers so the next check can detect an increase."""
     with SessionLocal() as session:
         config = session.query(SystemConfig).first()
         if config:
@@ -77,6 +86,7 @@ def build_alert_email_body(
     current_global: str = None,
     current_internal: str = None
 ) -> str:
+    """Format changed global/internal tiers and current risk state as plain text."""
     lines = [
         "NOC Intelligence Fusion Center - Risk Level Change Alert",
         "=" * 50,
@@ -110,6 +120,7 @@ def build_alert_email_body(
     return "\n".join(lines)
 
 def send_alert(recipients: list, subject: str, body: str):
+    """Send the risk notification using saved SMTP configuration and return delivery status."""
     logger.info("send_alert: subject=%s recipients=%s body_length=%d", subject, recipients, len(body) if body else 0)
     config = get_smtp_config()
     if not config or not config.smtp_enabled:
@@ -154,6 +165,7 @@ def send_alert(recipients: list, subject: str, body: str):
         return False, str(e)
 
 def check_and_alert(global_risk: str = None, internal_risk: str = None):
+    """Notify only on increases from known tiers, respecting recipients and the shared cooldown."""
     logger.info("check_and_alert: global=%s internal=%s", global_risk, internal_risk)
     global_change = None
     internal_change = None
@@ -217,6 +229,7 @@ def check_and_alert(global_risk: str = None, internal_risk: str = None):
     update_tracked_risks(global_risk, internal_risk)
 
 def build_eq_alert_email_body(alerts: list) -> str:
+    """Format earthquake/site proximity evidence as a Central-time plain-text alert."""
     lines = [
         "NOC Intelligence Fusion Center - Earthquake Proximity Alert",
         "=" * 50,

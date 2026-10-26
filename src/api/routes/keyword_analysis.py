@@ -1,3 +1,5 @@
+"""Persisted keyword/category analytics and permission-gated recategorization."""
+
 import logging
 from fastapi import APIRouter, Query, Depends
 from datetime import datetime, timedelta
@@ -9,6 +11,7 @@ router = APIRouter(prefix="/api/v1/keyword-analysis", tags=["keyword-analysis"],
 
 @router.get("/overview")
 def keyword_overview():
+    """Return corpus, weight, and keyword-trigger summary statistics."""
     from src.core.db import SessionLocal
     from src.models.schema import Keyword, Article
 
@@ -62,6 +65,7 @@ def keyword_stats(
     search: str = Query(""),
     limit: int = Query(100),
 ):
+    """Return filtered keyword weights, trigger counts, and score contributions."""
     from src.core.db import SessionLocal
     from src.models.schema import Keyword, Article
     from collections import defaultdict
@@ -118,6 +122,7 @@ def keyword_stats(
 def category_distribution(
     days: int = Query(0, description="0=all time"),
 ):
+    """Aggregate stored article counts and mean scores by category."""
     from src.core.db import SessionLocal
     from src.models.schema import Article
     from collections import Counter
@@ -161,6 +166,7 @@ def keyword_timeline(
     days: int = Query(30),
     interval: str = Query("day", description="day|week"),
 ):
+    """Return article totals and persisted keyword-match rates grouped by time bucket."""
     from src.core.db import SessionLocal
     from src.models.schema import Article
     from collections import defaultdict
@@ -217,6 +223,7 @@ def keyword_articles(
     keyword: str = Query(...),
     limit: int = Query(50),
 ):
+    """Return recent articles whose stored keyword-match list contains the requested term."""
     from src.core.db import SessionLocal
     from src.models.schema import Article
 
@@ -254,6 +261,7 @@ def score_distribution(
     days: int = Query(0),
     bucket_size: int = Query(10),
 ):
+    """Group stored article scores into buckets and identify each bucket's leading category."""
     from src.core.db import SessionLocal
     from src.models.schema import Article
 
@@ -297,6 +305,7 @@ def score_distribution(
 def category_keyword_matrix(
     top_n: int = Query(20),
 ):
+    """Build an occurrence matrix for categories and the most frequent stored keywords."""
     from src.core.db import SessionLocal
     from src.models.schema import Article, Keyword
     from collections import defaultdict, Counter
@@ -340,6 +349,7 @@ def category_details(
     category: str = Query(...),
     days: int = Query(0),
 ):
+    """Return bounded article, source, score, and keyword detail for one category."""
     from src.core.db import SessionLocal
     from src.models.schema import Article
     from collections import Counter
@@ -388,6 +398,7 @@ def category_details(
 
 @router.post("/recategorize", dependencies=[Depends(require_action("Action: Trigger AI Functions"))])
 def recategorize_all():
+    """Recompute stored article categories in ID-ordered batches and commit changed rows."""
     from src.core.db import SessionLocal
     from src.models.schema import Article
     from src.services.categorizer import categorize_text

@@ -15,6 +15,7 @@ depends_on = None
 
 
 def upgrade():
+    """Add a false-default Needs Dispatch flag without changing existing alert rows."""
     bind = op.get_bind()
     if "needs_dispatch" not in {
         column["name"] for column in inspect(bind).get_columns("solarwinds_alerts")
@@ -31,6 +32,7 @@ def upgrade():
 
 
 def downgrade():
+    """Reject downgrade so operational dispatch state is not silently discarded."""
     raise RuntimeError(
         "This operational-state migration is forward-only; restore a verified backup instead."
     )

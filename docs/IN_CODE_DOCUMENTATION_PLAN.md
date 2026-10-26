@@ -1,6 +1,6 @@
 # In-Code Documentation Plan
 
-**Status:** Planned; no source files are changed by the current documentation audit.
+**Status:** Coverage pass complete on `main` and mirrored to `architecture/monolith-to-decoupled` (2026-10-26); source docstrings/comments describe existing behavior without changing runtime logic.
 **Goal:** Add concise, durable docstrings and comments to the code paths whose contracts or reasoning are difficult to infer safely from names and types alone.
 
 ## Documentation principles
@@ -67,29 +67,54 @@ Use inline comments for non-obvious query-cache merge rules, permission-driven U
 
 ## Phased implementation
 
+### Progress record — 2026-10-26
+
+The Phase 1–6 coverage pass is complete across the checked-in Python and React
+runtime: all 67 Python modules have module docstrings; all top-level and nested
+callables outside the frozen schema snapshot have docstrings; all 49 exported
+TypeScript/TSX declarations have TSDoc; and non-obvious cache, restore, migration,
+network, and browser-compatibility invariants have focused comments. Stale active
+Streamlit/PyDeck comments in `src/services.py` were replaced with current server/map
+terminology. No runtime behavior was changed. The 101 changed paths in the main and
+architecture worktrees were byte-compared with zero differences.
+
+`migrations/schema_v1.py` remains byte-for-byte frozen per `AGENTS.md`; its mapped
+runtime counterparts are documented in `src/models/schema.py`. The frozen copy has
+a module-level description but its snapshot classes were not edited.
+
 ### Phase 1 — Security, identity, restore, and permission contracts
 
-**Priority:** Highest; these paths determine access and recoverability.
+**Status:** Complete. These paths determine access and recoverability.
 
 Document module/handler contracts in `src/api/auth_guard.py`, `src/api/routes/auth.py`, `src/api/routes/user_admin.py`, `src/core/permissions.py`, `src/core/bootstrap.py`, `src/core/backup_manager.py`, `src/core/restore_control.py`, and `src/core/ui_restore.py`. Focus comments on public-vs-protected route boundaries, reviewer eligibility/self-approval rules, token hashing and expiry, cross-process restore coordination, rollback, and the exact site-scope invariant.
 
 ### Phase 2 — Background execution and external integrations
 
+**Status:** Complete.
+
 Document `src/core/scheduler_registry.py`, `src/scheduler.py`, every `src/workers/*.py` entry point, and `src/webhook_listener.py`. Explain startup-run policy, job reload/non-overlap behavior, bounded network/input processing, idempotency, HMAC signing format/replay memory, source-specific normalization, and which failures are isolated versus fatal.
 
 ### Phase 3 — Risk, correlation, ingestion, and map algorithms
+
+**Status:** Complete.
 
 Document the algorithms in `src/services.py`, `src/services/logic.py`, `src/services/categorizer.py`, `src/services/ioc_extractor.py`, and `src/services/aiops_engine.py`. Cover scoring thresholds, exact category/domain names, what data is considered, tie/fallback behavior, title/asset match caps, patient-zero scoring, fleet thresholds, site-health semantics, and positional map response contracts. Replace stale copied comments that mention removed Streamlit/PyDeck behavior when the corresponding source areas are next edited.
 
 ### Phase 4 — LLM, email, reporting, and ML lifecycle
 
+**Status:** Complete.
+
 Document `src/utils/llm.py`, `src/utils/mailer.py`, `src/utils/risk_alert.py`, `src/train_model.py`, and `src/workers/report_worker.py`. Capture context-window resolution, timeout/fallback behavior, map/reduce sequencing, progress-store lifetime, trusted/untrusted prompt inputs, email recipient/config requirements, training labels/minimum sample count, and atomic model replacement.
 
 ### Phase 5 — Frontend state and page contracts
 
+**Status:** Complete.
+
 Add TSDoc to exported APIs in `web/src/App.tsx`, `web/src/utils/*`, `web/src/hooks/*`, `web/src/store/*`, and shared components. Add focused comments to large pages only for state transitions and permission-bound controls. Prioritize 401/403 handling, session storage, account theme synchronization, reconnect behavior, AIOps workflow state, large file downloads/restores, and the Regional Grid six-position compile-map response.
 
 ### Phase 6 — Runtime configuration and maintenance tools
+
+**Status:** Complete.
 
 Document all functions and CLI flags in `scripts/*.py`, configuration loaders, database/migration setup, compatibility shims, and Docker/Vite/nginx startup behavior. Keep default values and bounds synchronized with `.env.example`, `JOB_REGISTRY`, and the matching config references.
 
@@ -104,6 +129,13 @@ Document all functions and CLI flags in `scripts/*.py`, configuration loaders, d
 - Does the documentation index/source-coverage map still include the module?
 - Do Python compile/import checks and the frontend production build pass? Run focused tests when code behavior changes.
 
-## Proposed completion criteria
+## Verification record
 
-The commenting phase is complete when all modules and public/operational functions meet the coverage target; the documentation inventory has no missing source modules; generated API/model/scheduler facts match the source; stale comments identified during the audit are corrected; and the implementation test/build checks pass. This plan defines future work only; it does not authorize source edits in the current audit.
+- Python 3.11-compatible compile check passed for `src/`, `scripts/`, and `migrations/`.
+- FastAPI import/OpenAPI generation passed: 177 paths and 189 HTTP operations.
+- Frontend production build passed in the Node 22 Docker builder; the existing >500 kB chunk warning remains.
+- `docker compose config --quiet`, Nginx `-t`, and `git diff --check` passed.
+- The architecture worktree also passed Python compilation, OpenAPI import, Docker frontend build, Compose configuration (using the main worktree's env file), and Nginx syntax checks.
+- The exported-symbol inventory reports 67 Python modules with module docs, no undocumented top-level/nested definitions outside frozen `migrations/schema_v1.py`, and 49/49 exported TypeScript/TSX declarations with TSDoc.
+
+This coverage pass is complete. Future code changes should follow the review checklist above and keep the in-code contracts synchronized with `docs/reference/` and the operational guides.

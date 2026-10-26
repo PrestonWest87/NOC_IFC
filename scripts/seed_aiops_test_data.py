@@ -70,6 +70,7 @@ ARKANSAS_CITIES = [
 
 
 def build_payload(site: str, city: str, index: int, node_type: str, alert_level: str, lat: float, lon: float) -> dict:
+    """Build one deterministic synthetic SolarWinds payload with the AIOTEST prefix."""
     now = datetime.now(timezone.utc).isoformat()
     ip = f"10.77.{index // 250 + 1}.{index % 250 + 1}"
     severity = "Critical" if alert_level.startswith("P1") else "High" if alert_level.startswith("P2") else "Warning"
@@ -145,6 +146,7 @@ def build_payload(site: str, city: str, index: int, node_type: str, alert_level:
 
 
 def main(apply: bool) -> None:
+    """Preview deterministic site/alert counts or write marked synthetic AIOps fixtures."""
     rng = random.Random(20260814)
     sites = []
     for index, city in enumerate(ARKANSAS_CITIES, 1):

@@ -49,6 +49,7 @@ def resume_pending_restore() -> str | None:
 
 
 def _launch(restore_id: str) -> None:
+    """Start at most one live daemon restore thread for the given restore ID."""
     with _restore_thread_lock:
         current = _restore_threads.get(restore_id)
         if current and current.is_alive():
@@ -64,6 +65,11 @@ def _launch(restore_id: str) -> None:
 
 
 def _wait_for_writers(restore_id: str) -> None:
+    """Wait until this API process and both companion writers report quiescence.
+
+    The shared marker must still identify this restore throughout the wait. A
+    timeout aborts before installation, leaving the live database untouched.
+    """
     deadline = time.monotonic() + QUIESCE_TIMEOUT_SECONDS
     last_message = ""
     while time.monotonic() < deadline:
@@ -96,6 +102,7 @@ def _wait_for_writers(restore_id: str) -> None:
 
 
 def _refresh_restored_runtime() -> None:
+    """Clear process-local service caches and reload the optional scorer after replacement."""
     from src import services as svc
 
     for value in vars(svc).values():
@@ -116,6 +123,7 @@ def _refresh_restored_runtime() -> None:
 
 
 def _run_restore(restore_id: str) -> None:
+    """Quiesce writers, install the validated snapshot with rollback, refresh runtime, and publish status."""
     request = restore_control.active_restore()
     if not request or request.get("restore_id") != restore_id:
         return

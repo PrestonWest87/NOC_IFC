@@ -1,3 +1,9 @@
+"""Correlate SolarWinds alerts into site clusters, fleet events, and RCA context.
+
+The engine normalizes device-domain hints, ranks patient-zero candidates, and
+uses cloud/BGP/weather context plus historical alerts for operational analysis.
+"""
+
 import ipaddress
 import json
 import logging
@@ -10,6 +16,7 @@ from src.models.schema import MonitoredLocation, SolarWindsAlert
 logger = logging.getLogger(__name__)
 
 class EnterpriseAIOpsEngine:
+    """Cluster site alerts and correlate infrastructure, provider, and hazard evidence."""
     ONTOLOGY = {
         "INTERNET": ["VSAT", "Cellular", "Radio", "SD-WAN", "Modem", "ISP", "Internet"],
         "COMMS_EQUIPMENT": ["Router", "Switch", "Firewall", "Lanolinx-switch", "Fabric Interconnect"],
@@ -32,11 +39,13 @@ class EnterpriseAIOpsEngine:
     }
 
     def __init__(self, session_factory=None):
+        """Use the supplied session factory or the shared application session factory."""
         self.session_factory = session_factory or SessionLocal
         logger.info("EnterpriseAIOpsEngine initialized")
 
     @classmethod
     def normalize_domain_hint(cls, value):
+        """Normalize known ontology aliases, including legacy `PRIMARY_INTERNET`, or return `None`."""
         text = str(value or "").strip()
         normalized = re.sub(r"[\s-]+", "_", text.upper())
         if normalized == "PRIMARY_INTERNET":
@@ -58,6 +67,7 @@ class EnterpriseAIOpsEngine:
         return None
 
     def _get_domain(self, node_type, node_name="", primary_comms=""):
+        """Resolve explicit hints first, then infer a canonical domain from device text."""
         hinted = self.normalize_domain_hint(node_type)
         if hinted:
             return hinted
@@ -91,6 +101,7 @@ class EnterpriseAIOpsEngine:
         return "UNKNOWN_DOMAIN"
 
     def _determine_patient_zero(self, alerts):
+        """Rank site alerts by domain tier, severity, and a capped arrival-time penalty."""
         if not alerts:
             logger.debug("_determine_patient_zero: no alerts provided")
             return None, []
@@ -142,6 +153,7 @@ class EnterpriseAIOpsEngine:
         return scored_alerts[0]['alert'], scored_alerts
 
     def identify_fleet_outages(self, incidents, threshold=5):
+        """Group eligible Internet/comms incidents by known provider at the site threshold."""
         logger.debug("identify_fleet_outages: checking %d sites with threshold=%d", len(incidents), threshold)
         provider_map = {}
         for site, data in incidents.items():
@@ -162,6 +174,7 @@ class EnterpriseAIOpsEngine:
         return fleet_events
 
     def generate_chronic_insights(self):
+        """Summarize 60-day unresolved alert repetition by node/site, or return three `None`s."""
         from collections import Counter
         from datetime import datetime, timedelta
 
@@ -244,6 +257,11 @@ class EnterpriseAIOpsEngine:
         return f, v, r
 
     def calculate_root_cause(self, site_name, data, active_weather, active_cloud, active_bgp, fleet_events=None):
+        """Correlate one site cluster with fleet, cloud, BGP, weather, and severity evidence.
+
+        Return `(cause, bounded_score, priority, evidence, blast_radius,
+        patient_zero_name, cascade_delay)` for ticket/report consumers.
+        """
         logger.info("calculate_root_cause: site=%s domains=%s", site_name, data.get('domains_affected', set()))
         meta = data.get('site_metadata', {})
         domains = data.get('domains_affected', set())
@@ -394,6 +412,7 @@ class EnterpriseAIOpsEngine:
         return cause, min(score, 100), priority, evidence_log, blast_radius, p0.node_name, cascade_str
 
     def analyze_and_cluster(self, active_alerts):
+        """Group alerts by site and attach patient-zero/domain dependency-chain metadata."""
         logger.info("analyze_and_cluster: clustering %d active alerts", len(active_alerts))
         incidents = {}
         for alert in active_alerts:

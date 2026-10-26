@@ -1,3 +1,5 @@
+"""Send SMTP alerts using database configuration, with bounded optional attachments."""
+
 import smtplib
 import logging
 import base64
@@ -12,12 +14,18 @@ logger = logging.getLogger(__name__)
 
 
 def _recipient_count(value):
+    """Count non-empty comma/semicolon-separated recipient entries for safe logging."""
     if not value:
         return 0
     return len([recipient for recipient in value.replace(";", ",").split(",") if recipient.strip()])
 
 
 def send_alert_email(subject: str, body: str, recipient_override: str = None, is_html: bool = True, attachments=None):
+    """Send configured SMTP mail and return `(success, message)` instead of raising.
+
+    An override replaces the configured default recipient. Attachments are
+    basename-sanitized, strict-base64 decoded, and limited to 5 MiB each.
+    """
     logger.info(
         "send_alert_email: subject=%s recipient_override_set=%s is_html=%s body_length=%d",
         subject, bool(recipient_override), is_html, len(body) if body else 0,

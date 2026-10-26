@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 
+/** Theme identifiers and labels supported by the stylesheet and account profile. */
 export const THEMES = [
   { id: "standard", label: "Standard" },
   { id: "noc-terminal", label: "NOC Terminal" },
@@ -28,15 +29,18 @@ export const THEMES = [
 
 const STORAGE_KEY = "noc_theme";
 
+/** Read the local fallback theme before authenticated account state is available. */
 function getSavedTheme(): string {
   return localStorage.getItem(STORAGE_KEY) || "standard";
 }
 
+/** Apply the document theme and persist the local browser preference. */
 function applyTheme(themeId: string) {
   document.body.setAttribute("data-theme", themeId);
   localStorage.setItem(STORAGE_KEY, themeId);
 }
 
+/** Render selectable themes and sync a signed-in user's choice to the API. */
 export function ThemeSelector() {
   const { user } = useAuth();
   const [theme, setTheme] = useState(getSavedTheme);
@@ -80,6 +84,7 @@ export function ThemeSelector() {
   );
 }
 
+/** Apply the authenticated user's persisted theme after login or profile refresh. */
 export function ThemeSync() {
   const { user } = useAuth();
 
@@ -90,7 +95,7 @@ export function ThemeSync() {
   return null;
 }
 
-// Call on app mount to restore saved theme
+/** Restore the locally saved theme before the React tree is rendered. */
 export function initTheme() {
   const saved = getSavedTheme();
   applyTheme(saved);

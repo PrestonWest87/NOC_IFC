@@ -50,10 +50,12 @@ class BackupError(ValueError):
 
 
 def backup_directory() -> Path:
+    """Return the persistent full-backup directory beneath the SQLite data volume."""
     return application_data_dir() / "backups"
 
 
 def _max_bytes(value: int | None = None) -> int:
+    """Resolve and validate the configured encrypted-package byte limit."""
     raw = value if value is not None else settings.backup_max_bytes
     if isinstance(raw, bool):
         raise BackupError("BACKUP_MAX_BYTES must be a positive integer.")
@@ -69,6 +71,7 @@ def _max_bytes(value: int | None = None) -> int:
 
 
 def _encryption_keys() -> tuple[dict[str, bytes], str]:
+    """Parse the key-ID map and require a valid active 32-byte AES key."""
     raw = str(settings.backup_encryption_keys or "").strip()
     active_id = str(settings.backup_encryption_active_key_id or "").strip()
     if not raw:
@@ -102,6 +105,7 @@ def _encryption_keys() -> tuple[dict[str, bytes], str]:
 
 
 def _backup_root(path: str | Path | None = None) -> Path:
+    """Create a private backup root and return its canonical path."""
     root = Path(path) if path is not None else backup_directory()
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(root, 0o700)
@@ -109,6 +113,7 @@ def _backup_root(path: str | Path | None = None) -> Path:
 
 
 def encryption_configured() -> bool:
+    """Report whether a valid active encryption key is configured without exposing it."""
     try:
         _encryption_keys()
         return True
@@ -118,6 +123,7 @@ def encryption_configured() -> bool:
 
 @contextmanager
 def _backup_lock(root: Path):
+    """Serialize backup mutations across processes and threads sharing this volume."""
     lock_path = root / ".backup.lock"
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
@@ -137,6 +143,7 @@ def _backup_lock(root: Path):
 
 
 def _sha256_file(path: Path) -> str:
+    """Hash a file incrementally so full-size backup artifacts are not loaded at once."""
     digest = hashlib.sha256()
     with path.open("rb") as source:
         for block in iter(lambda: source.read(1024 * 1024), b""):
@@ -145,6 +152,7 @@ def _sha256_file(path: Path) -> str:
 
 
 def _database_metadata(path: Path) -> dict:
+    """Check SQLite integrity and return the sorted application-table inventory."""
     connection = sqlite3.connect(str(path), timeout=60)
     try:
         integrity = connection.execute("PRAGMA integrity_check").fetchone()
@@ -161,6 +169,7 @@ def _database_metadata(path: Path) -> dict:
 
 
 def _sqlite_snapshot(source_path: Path, destination_path: Path) -> dict:
+    """Create a consistent online SQLite snapshot and record its size, tables, and digest."""
     if not source_path.is_file():
         raise BackupError(f"SQLite database file does not exist: {source_path}")
     destination_path.parent.mkdir(parents=True, exist_ok=True)
@@ -182,16 +191,19 @@ def _sqlite_snapshot(source_path: Path, destination_path: Path) -> dict:
 
 
 def _record_aad(header_frame: bytes, record_type: int, index: int) -> bytes:
+    """Bind each AES-GCM tag to the package header, record type, and sequence index."""
     return header_frame + bytes([record_type]) + index.to_bytes(8, "big")
 
 
 def _nonce(prefix: bytes, index: int) -> bytes:
+    """Build a per-record nonce from the package prefix and bounded chunk index."""
     if index >= 2**32:
         raise BackupError("The backup exceeds the supported encrypted chunk count.")
     return prefix + index.to_bytes(4, "big")
 
 
 def _read_exact(stream, size: int) -> bytes:
+    """Read a complete binary frame or reject the package as truncated."""
     chunks = []
     remaining = size
     while remaining:
@@ -204,6 +216,7 @@ def _read_exact(stream, size: int) -> bytes:
 
 
 def _encrypt_file(source_path: Path, destination_path: Path, max_bytes: int) -> int:
+    """Encrypt bounded chunks with AES-GCM and authenticate each record plus the final marker."""
     keys, active_id = _encryption_keys()
     key = keys[active_id]
     nonce_prefix = secrets.token_bytes(8)
@@ -258,6 +271,7 @@ def _encrypt_file(source_path: Path, destination_path: Path, max_bytes: int) -> 
 
 
 def _decrypt_file(source_path: Path, destination_path: Path, max_bytes: int) -> dict:
+    """Authenticate every encrypted record before leaving a decrypted archive on disk."""
     try:
         encrypted_size = source_path.stat().st_size
     except OSError as exc:
@@ -355,6 +369,7 @@ def _decrypt_file(source_path: Path, destination_path: Path, max_bytes: int) -> 
 
 
 def _manifest_summary(manifest: dict) -> dict:
+    """Select safe listing metadata from a previously validated backup manifest."""
     database = manifest["database"]
     model = manifest.get("model")
     category = manifest.get("backup_category")
@@ -374,6 +389,7 @@ def _manifest_summary(manifest: dict) -> dict:
 
 @contextmanager
 def _extract_and_validate(package_path: Path, workspace: Path, max_bytes: int):
+    """Decrypt and validate archive layout, manifest, checksums, and SQLite integrity in a temporary workspace."""
     archive_path = workspace / "payload.zip"
     _decrypt_file(package_path, archive_path, max_bytes)
     database_path = workspace / "database.sqlite"
@@ -424,6 +440,7 @@ def _extract_and_validate(package_path: Path, workspace: Path, max_bytes: int):
 
 
 def _validate_manifest(manifest, member_names: list[str], max_bytes: int) -> None:
+    """Reject unsupported versions and invalid required fields, payload inventory, sizes, or checksums."""
     if not isinstance(manifest, dict) or manifest.get("format_version") != BACKUP_FORMAT_VERSION:
         raise BackupError("This backup manifest version is not supported.")
     if manifest.get("backup_kind") not in {"manual", "scheduled"}:
@@ -462,6 +479,7 @@ def _validate_manifest(manifest, member_names: list[str], max_bytes: int) -> Non
 
 
 def _valid_file_metadata(metadata: dict, max_bytes: int) -> bool:
+    """Check that payload metadata has a positive bounded size and lowercase SHA-256 digest."""
     size = metadata.get("size_bytes")
     digest = metadata.get("sha256")
     return (
@@ -471,6 +489,7 @@ def _valid_file_metadata(metadata: dict, max_bytes: int) -> bool:
 
 
 def _copy_archive_entry(archive, info, destination: Path, expected_size: int, expected_digest: str, max_bytes: int) -> None:
+    """Stream one archive member to a private file while enforcing declared size and digest."""
     if info.file_size != expected_size or expected_size > max_bytes:
         raise BackupError(f"The backup payload size is invalid for {info.filename}.")
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -507,11 +526,13 @@ def validate_backup(package_path: str | Path, *, max_bytes: int | None = None) -
 
 
 def _backup_filename(kind: str, created_at: datetime, backup_id: str, *, category: str | None = None) -> str:
+    """Build the strict timestamped filename accepted by backup discovery."""
     timestamp = created_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return f"noc-ifc-{category or kind}-{timestamp}-{backup_id}.nocbackup"
 
 
 def _file_record(path: Path, kind: str, created_at: datetime, summary: dict) -> dict:
+    """Build listing metadata for a package already created by this module."""
     return {
         "id": path.name,
         "filename": path.name,
@@ -532,7 +553,11 @@ def create_backup(
     backup_dir: str | Path | None = None,
     max_bytes: int | None = None,
 ) -> dict:
-    """Create a consistent full SQLite snapshot, encrypt it, and apply retention."""
+    """Create and encrypt a full SQLite snapshot, optionally including the persisted model.
+
+    Scheduled packages use the three-file retention policy; manual and
+    pre-restore safety snapshots are retained independently.
+    """
     if kind not in {"manual", "scheduled"}:
         raise BackupError("Backup kind must be 'manual' or 'scheduled'.")
     limit = _max_bytes(max_bytes)
@@ -610,6 +635,7 @@ def create_backup(
 
 
 def _prune_scheduled(root: Path, keep: int) -> None:
+    """Keep only the newest valid scheduled filenames; manual safety backups are untouched."""
     scheduled = []
     for path in root.glob("noc-ifc-scheduled-*.nocbackup"):
         match = _BACKUP_FILENAME.fullmatch(path.name)
@@ -621,6 +647,7 @@ def _prune_scheduled(root: Path, keep: int) -> None:
 
 
 def _fsync_directory(directory: Path) -> None:
+    """Best-effort fsync of a directory after atomic package or restore-file replacement."""
     try:
         descriptor = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
         try:
@@ -632,6 +659,7 @@ def _fsync_directory(directory: Path) -> None:
 
 
 def list_backups(*, backup_dir: str | Path | None = None) -> list[dict]:
+    """List regular package files with recognized names without decrypting them."""
     root = _backup_root(backup_dir)
     records = []
     for path in root.glob("noc-ifc-*.nocbackup"):
@@ -651,6 +679,7 @@ def list_backups(*, backup_dir: str | Path | None = None) -> list[dict]:
 
 
 def get_backup_path(backup_id: str, *, backup_dir: str | Path | None = None) -> Path:
+    """Resolve a strict backup filename and reject missing files or symlinks."""
     if not isinstance(backup_id, str) or not _BACKUP_FILENAME.fullmatch(backup_id):
         raise BackupError("Backup not found.")
     path = _backup_root(backup_dir) / backup_id
@@ -684,6 +713,7 @@ def relabel_legacy_pre_restore_backup(backup_id: str, *, backup_dir: str | Path 
 
 
 def delete_backup(backup_id: str, *, backup_dir: str | Path | None = None) -> None:
+    """Delete a manual or pre-restore package; scheduled packages remain retention-managed."""
     path = get_backup_path(backup_id, backup_dir=backup_dir)
     match = _BACKUP_FILENAME.fullmatch(path.name)
     if not match or match.group(1) not in {"manual", "pre-restore"}:
@@ -734,6 +764,7 @@ def stage_uploaded_backup(source, *, backup_dir: str | Path | None = None, max_b
 
 
 def list_staged_backups(*, backup_dir: str | Path | None = None) -> list[dict]:
+    """List regular staged package filenames and filesystem timestamps."""
     staged_dir = _backup_root(backup_dir) / "staged"
     staged_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(staged_dir, 0o700)
@@ -749,6 +780,7 @@ def list_staged_backups(*, backup_dir: str | Path | None = None) -> list[dict]:
 
 
 def delete_staged_backup(stage_id: str, *, backup_dir: str | Path | None = None) -> None:
+    """Delete one staged package after validating its opaque stage filename."""
     get_staged_backup_path(stage_id, backup_dir=backup_dir).unlink()
 
 
@@ -768,6 +800,7 @@ def clear_staged_backups(*, backup_dir: str | Path | None = None) -> int:
 
 
 def get_staged_backup_path(stage_id: str, *, backup_dir: str | Path | None = None) -> Path:
+    """Resolve a staged package ID without following symlinks or accepting arbitrary paths."""
     if not isinstance(stage_id, str) or not _STAGED_FILENAME.fullmatch(stage_id):
         raise BackupError("Staged backup not found.")
     path = _backup_root(backup_dir) / "staged" / stage_id
@@ -777,6 +810,7 @@ def get_staged_backup_path(stage_id: str, *, backup_dir: str | Path | None = Non
 
 
 def _upgrade_database(path: Path) -> None:
+    """Run the packaged Alembic revisions against an isolated staged SQLite file."""
     from sqlalchemy import create_engine
     from sqlalchemy.engine import URL
     from sqlalchemy.pool import NullPool
@@ -795,6 +829,7 @@ def _upgrade_database(path: Path) -> None:
 
 
 def _invalidate_restored_credentials(path: Path) -> dict:
+    """Revoke restored sessions and outstanding invite/reset/email-verification credentials."""
     now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=" ", timespec="microseconds")
     connection = sqlite3.connect(str(path), timeout=60)
     try:
@@ -836,6 +871,7 @@ def _invalidate_restored_credentials(path: Path) -> dict:
 
 
 def _copy_to_temporary_file(source: Path, destination_directory: Path, final_name: str) -> Path:
+    """Copy a replacement or rollback artifact to a private fsynced sibling temporary file."""
     destination_directory.mkdir(parents=True, exist_ok=True)
     temporary_path = destination_directory / f".{final_name}.{uuid.uuid4().hex}.restore-tmp"
     try:
@@ -851,6 +887,7 @@ def _copy_to_temporary_file(source: Path, destination_directory: Path, final_nam
 
 
 def _restore_sidecars(database_path: Path) -> None:
+    """Remove SQLite WAL, shared-memory, and journal files before database replacement."""
     for suffix in ("-wal", "-shm", "-journal"):
         Path(f"{database_path}{suffix}").unlink(missing_ok=True)
 
@@ -864,7 +901,12 @@ def restore_backup(
     backup_dir: str | Path | None = None,
     max_bytes: int | None = None,
 ) -> dict:
-    """Restore a validated backup. Call only after stopping API, worker, and webhook."""
+    """Install a validated full snapshot after all API, worker, and webhook writers are stopped.
+
+    The staged database is migrated and credentials are invalidated before live
+    files are touched. A pre-restore package is created when a live database
+    exists; installation failures restore the prior database/model artifacts.
+    """
     if not maintenance_confirmed:
         raise BackupError("Pass maintenance_confirmed=True only after stopping API, worker, and webhook services.")
     limit = _max_bytes(max_bytes)

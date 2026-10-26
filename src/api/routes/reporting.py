@@ -1,3 +1,9 @@
+"""Daily Fusion and custom-report search, generation, storage, and broadcast routes.
+
+Custom generation progress/results are process-local and protected by a lock;
+generation threads register as API writers so restores wait for them to finish.
+"""
+
 import logging
 import uuid
 import threading
@@ -19,6 +25,7 @@ _report_lock = threading.Lock()
 
 
 def _validated_recipients(value: str) -> str:
+    """Normalize comma/semicolon addresses and reject newlines or more than twenty recipients."""
     if "\r" in value or "\n" in value:
         raise ValueError("Recipients cannot contain newlines.")
     recipients = [part.strip() for part in re.split(r"[,;]", value) if part.strip()]
@@ -31,6 +38,7 @@ def _validated_recipients(value: str) -> str:
 
 
 class BroadcastRequest(BaseModel):
+    """Bound a Daily Fusion email's date, body, and recipient fields."""
     report_date: str = Field("", max_length=50)
     content: str = Field("", max_length=200000)
     recipients: str = Field("", max_length=2000)
@@ -38,10 +46,12 @@ class BroadcastRequest(BaseModel):
     @field_validator("recipients")
     @classmethod
     def validate_recipients(cls, value):
+        """Apply the common recipient rules when a non-empty list is supplied."""
         return _validated_recipients(value) if value.strip() else value
 
 
 class BroadcastCustomRequest(BaseModel):
+    """Bound a custom-report broadcast payload and validate its recipient list."""
     title: str = Field("NOC Custom Intel Report", max_length=200)
     content: str = Field("", max_length=200000)
     recipients: str = Field("", max_length=2000)
@@ -49,16 +59,19 @@ class BroadcastCustomRequest(BaseModel):
     @field_validator("recipients")
     @classmethod
     def validate_recipients(cls, value):
+        """Apply the common recipient rules when a non-empty list is supplied."""
         return _validated_recipients(value) if value.strip() else value
 
 
 class SaveReportRequest(BaseModel):
+    """Bound title, author label, and Markdown content for shared report storage."""
     title: str = Field("Untitled Report", max_length=200)
     author: str = Field("Unknown", max_length=120)
     content: str = Field("", max_length=200000)
 
 
 class GenerateCustomRequest(BaseModel):
+    """Validate search criteria or selected article IDs for custom generation."""
     target: str = Field("", max_length=500)
     days_back: int = Field(7, ge=1, le=30)
     article_ids: Optional[list[int]] = Field(default=None, max_length=100)
@@ -68,6 +81,7 @@ class GenerateCustomRequest(BaseModel):
     @field_validator("article_ids")
     @classmethod
     def valid_article_ids(cls, value):
+        """Reject non-positive IDs and remove repeated IDs while preserving input order."""
         if value is not None and any(article_id <= 0 for article_id in value):
             raise ValueError("article_ids must contain positive integers")
         return list(dict.fromkeys(value)) if value is not None else value
@@ -75,6 +89,7 @@ class GenerateCustomRequest(BaseModel):
 
 @router.get("/executive-intel", dependencies=[Depends(require_action("Tab: Reporting -> Daily Fusion"))])
 def get_executive_intel():
+    """Return the current executive scoring payload for the Daily Fusion view."""
     logger.debug("GET /reporting/executive-intel")
     intel = svc.get_executive_grid_intel(0, [])
     return intel
@@ -82,18 +97,21 @@ def get_executive_intel():
 
 @router.get("/saved-reports", dependencies=[Depends(require_action("Tab: Reporting -> Shared Library"))])
 def list_saved_reports():
+    """List reports saved to the shared library."""
     logger.debug("GET /reporting/saved-reports")
     return svc.get_saved_reports()
 
 
 @router.get("/daily-briefings", dependencies=[Depends(require_action("Tab: Reporting -> Daily Fusion"))])
 def list_daily_briefings():
+    """List archived Daily Fusion reports newest first."""
     logger.debug("GET /reporting/daily-briefings")
     return svc.get_all_daily_briefings()
 
 
 @router.post("/generate-daily", dependencies=[Depends(require_action("Tab: Reporting -> Daily Fusion")), Depends(require_action("Action: Generate Reports"))])
 def generate_daily_report():
+    """Generate and save the previous local calendar day's Daily Fusion report."""
     logger.info("POST /reporting/generate-daily")
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -112,6 +130,7 @@ def generate_daily_report():
 
 @router.post("/broadcast", dependencies=[Depends(require_action("Tab: Reporting -> Daily Fusion")), Depends(require_action("Action: Dispatch Exec Report"))])
 def broadcast_report(data: BroadcastRequest):
+    """Format and email supplied Daily Fusion content to validated recipients."""
     logger.info("POST /reporting/broadcast recipients=%s", data.recipients)
     if not data.recipients:
         logger.warning("POST /reporting/broadcast: no recipients")
@@ -130,6 +149,7 @@ def broadcast_report(data: BroadcastRequest):
 
 @router.post("/broadcast-custom", dependencies=[Depends(require_action("Tab: Reporting -> Report Builder")), Depends(require_action("Action: Dispatch Exec Report"))])
 def broadcast_custom_report(data: BroadcastCustomRequest):
+    """Format and email non-empty custom report content to validated recipients."""
     logger.info("POST /reporting/broadcast-custom title=%s recipients=%s", data.title, data.recipients)
     if not data.recipients.strip():
         return {"status": "error", "message": "No recipients specified."}
@@ -154,6 +174,7 @@ def broadcast_custom_report(data: BroadcastCustomRequest):
 
 @router.post("/save-report", dependencies=[Depends(require_action("Tab: Reporting -> Report Builder")), Depends(require_action("Action: Dispatch Exec Report"))])
 def save_custom_report(data: SaveReportRequest):
+    """Persist user-approved custom report content in the shared library."""
     logger.info("POST /reporting/save-report title=%s author=%s", data.title, data.author)
     svc.save_custom_report(data.title, data.author, data.content)
     return {"status": "ok"}
@@ -161,18 +182,21 @@ def save_custom_report(data: SaveReportRequest):
 
 @router.delete("/saved-reports/{report_id}", dependencies=[Depends(require_action("Tab: Reporting -> Shared Library")), Depends(require_action("Action: Dispatch Exec Report"))])
 def delete_saved_report(report_id: int):
+    """Delete one shared-library report through the service allowlist."""
     logger.info("DELETE /reporting/saved-reports/%d", report_id)
     svc.delete_record("SavedReport", report_id)
     return {"status": "ok"}
 
 
 class SearchArticlesRequest(BaseModel):
+    """Bound text and lookback used by the custom-report article search."""
     target: str = Field("", max_length=500)
     days_back: int = Field(7, ge=1, le=30)
 
 
 @router.post("/search-articles", dependencies=[Depends(require_action("Tab: Reporting -> Report Builder"))])
 def search_articles_for_report(data: SearchArticlesRequest):
+    """Find bounded article evidence and return compact summaries for report selection."""
     logger.info("POST /reporting/search-articles target=%s days_back=%d", data.target, data.days_back)
     if not data.target or not data.target.strip():
         return {"status": "error", "message": "Please enter a search target.", "articles": []}
@@ -196,13 +220,14 @@ def search_articles_for_report(data: SearchArticlesRequest):
 
 
 def _run_custom_report_generation(generation_id, target, days_back, article_ids, objective, analyst):
-    """Background thread for custom report generation."""
+    """Run custom generation and publish progress/results in the process-local stores."""
     from datetime import datetime
     from zoneinfo import ZoneInfo
     from src.core.db import SessionLocal
     from src.utils.llm import build_custom_intel_report
 
     def _progress(stage, message, percent=0):
+        """Replace the generation's locked in-memory progress snapshot."""
         with _report_lock:
             _report_progress_store[generation_id] = {
                 "stage": stage, "message": message, "percent": percent
@@ -228,6 +253,7 @@ def _run_custom_report_generation(generation_id, target, days_back, article_ids,
 
         with SessionLocal() as session:
             def _llm_progress(done, total_chunks, total_items, processed):
+                """Translate map/reduce chunk counts into the report progress percentage."""
                 pct = int((done / total_chunks) * 75) + 20
                 _progress("generating", f"AI map-reduce: chunk {done}/{total_chunks}", pct)
 
@@ -275,6 +301,7 @@ def _run_custom_report_generation(generation_id, target, days_back, article_ids,
 
 @router.post("/generate-custom", dependencies=[Depends(require_action("Tab: Reporting -> Report Builder")), Depends(require_action("Action: Generate Reports"))])
 def generate_custom_report(data: GenerateCustomRequest):
+    """Validate report criteria, register a restore-aware worker thread, and return its ID."""
     logger.info("POST /reporting/generate-custom target=%s days_back=%d article_ids=%s", data.target, data.days_back, data.article_ids)
 
     has_target = data.target and data.target.strip()
@@ -300,6 +327,7 @@ def generate_custom_report(data: GenerateCustomRequest):
         raise HTTPException(status_code=503, detail="A database restore is in progress.")
 
     def _tracked_run():
+        """Run report generation and release the API restore-writer slot in `finally`."""
         try:
             _run_custom_report_generation(
                 generation_id,
@@ -327,6 +355,7 @@ def generate_custom_report(data: GenerateCustomRequest):
 
 @router.get("/generate-custom-status", dependencies=[Depends(require_action("Tab: Reporting -> Report Builder"))])
 def get_custom_report_status(generation_id: str):
+    """Return in-progress status or consume a completed result for one UUID generation ID."""
     try:
         uuid.UUID(generation_id)
     except (ValueError, AttributeError):

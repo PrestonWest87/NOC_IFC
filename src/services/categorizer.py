@@ -1,3 +1,5 @@
+"""Assign deterministic regex-based categories to article text."""
+
 import logging
 import re
 from collections import Counter
@@ -198,6 +200,7 @@ COMPILED_CATEGORIES = {cat: re.compile(pattern, re.IGNORECASE | re.VERBOSE) for 
 
 
 def categorize_text(text):
+    """Return the category with the most regex matches, or `General` when none match."""
     if not text:
         logger.debug("categorize_text: empty text, returning General")
         return "General"

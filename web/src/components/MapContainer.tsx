@@ -1,10 +1,12 @@
 import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 
+/** Layout contract for a map that may expand to fill the browser window. */
 interface MapContainerProps {
   height: string;
   children: ReactNode;
 }
 
+/** Wait for non-zero map dimensions and provide CSS window-fill expansion. */
 export function MapContainer({ height, children }: MapContainerProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);

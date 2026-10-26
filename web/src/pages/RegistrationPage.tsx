@@ -4,6 +4,7 @@ import api from "../utils/api";
 import { PAGE_ROUTE_MAP } from "../utils/routeConfig";
 import { THEMES } from "../components/ThemeSelector";
 
+/** Validate an invitation token, collect the new account profile, and complete registration. */
 export function RegistrationPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();

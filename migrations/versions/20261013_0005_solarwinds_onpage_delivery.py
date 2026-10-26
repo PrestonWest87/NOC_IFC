@@ -15,6 +15,7 @@ depends_on = None
 
 
 def upgrade():
+    """Add nullable per-incident on-page delivery time when the column is absent."""
     bind = op.get_bind()
     if "onpage_sent_at" not in {
         column["name"] for column in inspect(bind).get_columns("solarwinds_alerts")
@@ -26,6 +27,7 @@ def upgrade():
 
 
 def downgrade():
+    """Reject downgrade so successful page-delivery history is not lost."""
     raise RuntimeError(
         "This operational-state migration is forward-only; restore a verified backup instead."
     )

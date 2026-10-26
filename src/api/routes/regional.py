@@ -1,3 +1,9 @@
+"""Regional map, weather, and hazard endpoints over cached provider data.
+
+The map compiler returns a positional six-element response consumed by the
+frontend; endpoint grants correspond to Regional Grid tabs.
+"""
+
 import logging
 from fastapi import APIRouter, Query, Body, Depends, HTTPException
 from typing import Any
@@ -15,6 +21,7 @@ router = APIRouter(prefix="/api/v1/regional", tags=["regional"], dependencies=[D
     "Tab: Regional Grid -> Weather Alerts Log", "Tab: Regional Grid -> Atmos Weather",
 ]))])
 def locations(user=Depends(get_current_user)):
+    """Return cached monitored locations filtered to the caller's site types."""
     logger.debug("GET /locations")
     locations_data = svc.get_cached_locations()
     if str(user.role or "").casefold() in {"admin", "administrator"}:
@@ -29,6 +36,7 @@ def locations(user=Depends(get_current_user)):
     "Tab: Regional Grid -> Atmos Weather",
 ]))])
 def geojson():
+    """Return cached SPC, NWS, and USGS layers with per-feed freshness metadata."""
     logger.debug("GET /geojson")
     spc_d1, spc_d2, spc_d3, ar, oos, usgs_ar, usgs_oos = svc.get_cached_geojson()
     return {
@@ -52,6 +60,7 @@ def wildfires():
     "Tab: Regional Grid -> Weather Alerts Log", "Tab: Regional Grid -> Atmos Weather",
 ]))])
 def compile_map(data: dict[str, Any] = Body({}), user=Depends(get_current_user)):
+    """Intersect selected cached hazard layers with scoped sites and return the positional map payload."""
     logger.info("POST /compile-map toggles=%s", data.get("toggles", {}))
     toggles = data.get("toggles", {})
     spc = data.get("spc_data")
@@ -124,6 +133,7 @@ def compile_map(data: dict[str, Any] = Body({}), user=Depends(get_current_user))
     }
 
     def _strip_feature(f):
+        """Remove non-serializable Shapely objects from one GeoJSON feature."""
         if not isinstance(f, dict):
             return f
         return {
@@ -136,6 +146,7 @@ def compile_map(data: dict[str, Any] = Body({}), user=Depends(get_current_user))
         }
 
     def _strip_collection(fc):
+        """Normalize an absent collection and strip Shapely objects from its features."""
         if not fc:
             return {"type": "FeatureCollection", "features": []}
         return {
@@ -157,12 +168,14 @@ def compile_map(data: dict[str, Any] = Body({}), user=Depends(get_current_user))
 
 @router.get("/weather-prefs", dependencies=[Depends(require_action("Tab: Regional Grid -> Atmos Weather"))])
 def weather_prefs(user=Depends(get_current_user)):
+    """Return alert preferences belonging to the authenticated user."""
     logger.debug("GET /weather-prefs username=%s", user.username)
     return svc.get_user_weather_prefs(user.username)
 
 
 @router.post("/weather-prefs", dependencies=[Depends(require_action("Tab: Regional Grid -> Atmos Weather"))])
 def set_weather_prefs(alerts: list[str] = Body([]), user=Depends(get_current_user)):
+    """Replace the authenticated user's weather-alert preference list."""
     logger.info("POST /weather-prefs username=%s alerts=%s", user.username, alerts)
     svc.set_user_weather_prefs(user.username, alerts)
     return {"status": "ok"}
@@ -170,12 +183,14 @@ def set_weather_prefs(alerts: list[str] = Body([]), user=Depends(get_current_use
 
 @router.get("/forecast", dependencies=[Depends(require_action("Tab: Regional Grid -> Atmos Weather"))])
 def forecast(lat: float = Query(34.8), lon: float = Query(-92.2)):
+    """Return the cached/upstream NWS forecast for the requested coordinates."""
     logger.debug("GET /forecast lat=%.4f lon=%.4f", lat, lon)
     return svc.get_nws_forecast(lat, lon)
 
 
 @router.get("/weather-alerts-log", dependencies=[Depends(require_action("Tab: Regional Grid -> Weather Alerts Log"))])
 def weather_alerts_log():
+    """Build the weather-alert log from cached regional NWS and USGS layers."""
     logger.debug("GET /weather-alerts-log")
     _, _, _, ar, oos, usgs_ar, usgs_oos = svc.get_cached_geojson()
     return svc.get_weather_alerts_log(ar, oos, [], usgs_ar, usgs_oos)
@@ -183,6 +198,7 @@ def weather_alerts_log():
 
 @router.get("/site-types")
 def site_types():
+    """Return the merged default and database-backed site-type catalog."""
     logger.debug("GET /site-types")
     return svc.get_all_site_types()
 
@@ -195,6 +211,7 @@ def site_types():
     Depends(require_action("Action: Manually Sync Data")),
 ])
 def sync_hazards():
+    """Refresh regional hazard feeds and clear derived caches after a successful sync."""
     logger.info("POST /sync-hazards: triggering manual hazard sync")
     from src.workers.infra_worker import fetch_regional_hazards
     try:

@@ -1,3 +1,9 @@
+"""Compatibility AIOps dashboard and site-level acknowledgement routes.
+
+The router requires the AIOps page; each handler also enforces its tab/action
+grant and filters facility data by the caller's allowed site types.
+"""
+
 import logging
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
@@ -16,6 +22,7 @@ router = APIRouter(prefix="/api/v1/aiops", tags=["aiops"], dependencies=[Depends
 
 @router.get("/dashboard", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board"))])
 def get_dashboard(user=Depends(get_current_user)):
+    """Return the Active Board payload filtered to the caller's permitted sites."""
     logger.debug("GET /aiops/dashboard")
     locations = svc.get_cached_locations()
     is_admin = str(user.role or "").casefold() in {"admin", "administrator"}
@@ -35,6 +42,7 @@ def get_dashboard(user=Depends(get_current_user)):
     Depends(require_action("Action: Generate Reports")),
 ])
 def get_sitrep(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Generate the global SITREP only for callers with every site type and report access."""
     logger.debug("GET /aiops/sitrep")
     if not svc.user_has_all_site_type_access(user):
         raise HTTPException(status_code=403, detail={
@@ -53,6 +61,7 @@ def get_sitrep(user=Depends(get_current_user), db: Session = Depends(get_db)):
 
 @router.get("/sites", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board"))])
 def get_sites(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return monitored-site metadata filtered by allowed site types."""
     logger.debug("GET /aiops/sites")
     from src.models.schema import MonitoredLocation
     sites = db.query(MonitoredLocation).all()
@@ -71,12 +80,14 @@ def get_sites(user=Depends(get_current_user), db: Session = Depends(get_db)):
 
 
 def _require_acknowledge(user=Depends(get_current_user)):
+    """Require the separate alert-acknowledgement action grant."""
     if not has_action_permission(user, "Action: Acknowledge RCA Alerts"):
         raise permission_denied("Action: Acknowledge RCA Alerts")
     return user
 
 @router.patch("/sites/{site_id}/acknowledge", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board"))])
 def acknowledge_site(site_id: int, user=Depends(_require_acknowledge), db: Session = Depends(get_db)):
+    """Acknowledge unresolved, uncorrelated alerts for one site after checking site scope."""
     logger.info("PATCH /aiops/sites/%d/acknowledge by %s", site_id, user.username)
     from src.models.schema import MonitoredLocation, SolarWindsAlert
     site = db.query(MonitoredLocation).filter(MonitoredLocation.id == site_id).first()

@@ -13,11 +13,7 @@ const TIME_OPTIONS: Intl.DateTimeFormatOptions = {
   hour: "2-digit", minute: "2-digit", timeZone: CHICAGO,
 };
 
-/**
- * Safely parses naive date strings from the database (e.g., "2026-06-30T22:35:00")
- * by appending a 'Z' suffix if no timezone indicator is present. This forces
- * JavaScript to treat it as UTC rather than falling back to local system time.
- */
+/** Parse database timestamps as UTC when they omit an explicit offset. */
 function ensureUtcDate(d: string | Date): Date {
   if (d instanceof Date) return d;
   
@@ -28,6 +24,7 @@ function ensureUtcDate(d: string | Date): Date {
   return new Date(d);
 }
 
+/** Format a date in America/Chicago, returning `fallback` for missing/invalid values. */
 export function formatInChicago(
   d: string | Date | null | undefined,
   options?: Intl.DateTimeFormatOptions,
@@ -42,6 +39,7 @@ export function formatInChicago(
   }
 }
 
+/** Format only the calendar date in America/Chicago. */
 export function formatDateInChicago(
   d: string | Date | null | undefined,
   fallback = "Unknown"
@@ -55,6 +53,7 @@ export function formatDateInChicago(
   }
 }
 
+/** Format only the clock time in America/Chicago. */
 export function formatTimeInChicago(
   d: string | Date | null | undefined,
   fallback = ""
@@ -68,6 +67,7 @@ export function formatTimeInChicago(
   }
 }
 
+/** Return an ISO `YYYY-MM-DD` calendar string using America/Chicago wall time. */
 export function chicagoDateString(d?: string | Date): string {
   const date = d ? ensureUtcDate(d) : new Date();
   const parts = new Intl.DateTimeFormat("en-CA", { // en-CA formats as YYYY-MM-DD
@@ -77,6 +77,7 @@ export function chicagoDateString(d?: string | Date): string {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
+/** Construct a `Date` from the current America/Chicago wall-clock components. */
 export function chicagoNow(): Date {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: CHICAGO,
@@ -87,6 +88,7 @@ export function chicagoNow(): Date {
   return new Date(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
 }
 
+/** Format a compact date/time label in America/Chicago. */
 export function formatShortInChicago(
   d: string | Date | null | undefined,
   fallback = "—"
@@ -105,6 +107,7 @@ export function formatShortInChicago(
 
 const _MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
+/** Render the date portion of an ETR ISO string without timezone conversion. */
 export function formatEtrDate(isoStr: string | null | undefined): string {
   if (!isoStr) return "Unknown";
   const d = isoStr.substring(0, 10);

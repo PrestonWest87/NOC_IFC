@@ -121,10 +121,12 @@ CUSTOM_INDEXES = (
 
 
 def _table_columns(bind, table_name):
+    """Return current column names for one table on the migration connection."""
     return {column["name"] for column in inspect(bind).get_columns(table_name)}
 
 
 def upgrade():
+    """Adopt known legacy databases additively, validate compatibility, and run safe backfills."""
     bind = op.get_bind()
 
     # This is the one-time bridge for both new installations and databases that
@@ -201,4 +203,5 @@ def upgrade():
 
 
 def downgrade():
+    """Reject downgrade because legacy adoption cannot safely reconstruct the source schema."""
     raise RuntimeError("The legacy adoption revision is intentionally non-reversible; restore a database backup instead.")

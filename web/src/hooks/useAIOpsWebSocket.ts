@@ -5,6 +5,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../utils/AuthContext";
 import { hasPagePermission } from "../utils/permissions";
 
+/**
+ * Open the authorized AIOps stream using the browser's query-token constraint,
+ * merge pushes into shared/query state, and retry transient closes with backoff.
+ * Policy close code 1008 stops retries after an authentication/permission denial.
+ */
 export function useAIOpsWebSocket() {
   const queryClient = useQueryClient();
   const { token, user } = useAuth();

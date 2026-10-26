@@ -1,3 +1,4 @@
+/** Map HashRouter paths to the canonical backend page-permission keys. */
 export const PAGE_PERMISSION_MAP: Record<string, string> = {
   "/": "Global Dashboards",
   "/threat-telemetry": "Threat Telemetry",
@@ -10,6 +11,7 @@ export const PAGE_PERMISSION_MAP: Record<string, string> = {
   "/keyword-analysis": "Keyword Analysis",
 };
 
+/** Reverse lookup used to route a signed-in user to an allowed workspace. */
 export const PAGE_ROUTE_MAP: Record<string, string> = Object.fromEntries(
   Object.entries(PAGE_PERMISSION_MAP).map(([k, v]) => [v, k])
 );

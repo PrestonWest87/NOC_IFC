@@ -1,3 +1,5 @@
+"""Configure Alembic's online/offline SQLite migration environments."""
+
 from alembic import context
 
 from src.models import Base
@@ -7,6 +9,7 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline():
+    """Configure Alembic SQL rendering without opening a database connection."""
     context.configure(
         url=config.get_main_option("sqlalchemy.url"),
         target_metadata=target_metadata,
@@ -19,6 +22,7 @@ def run_migrations_offline():
 
 
 def run_migrations_online():
+    """Run revisions through an injected connection or the shared SQLite engine."""
     connection = config.attributes.get("connection")
     close_connection = connection is None
     if connection is None:

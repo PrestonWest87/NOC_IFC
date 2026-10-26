@@ -1,3 +1,5 @@
+"""Refang, validate, and extract contextual indicators from untrusted text."""
+
 import logging
 import re
 import ipaddress
@@ -7,7 +9,10 @@ from typing import List, Dict, Set
 logger = logging.getLogger(__name__)
 
 class EnterpriseIOCExtractor:
+    """Refang and extract typed indicators while excluding benign/non-public values."""
+
     def __init__(self):
+        """Compile the extraction rules and initialize domain/IP exclusions."""
         self.CONTEXT_WINDOW = 45
         logger.info("EnterpriseIOCExtractor: initializing with context_window=%d", self.CONTEXT_WINDOW)
         self._compile_rulesets()
@@ -15,6 +20,7 @@ class EnterpriseIOCExtractor:
         logger.info("EnterpriseIOCExtractor: initialized with %d rule categories", len(self.rules))
 
     def _initialize_whitelists(self):
+        """Define exact benign domains and IP values that should not be emitted."""
         self.ignore_domains: Set[str] = {
             'example.com', 'google.com', 'microsoft.com', 'apple.com', 'amazon.com',
             'github.com', 'mitre.org', 'nist.gov', 'virustotal.com', 'shodan.io',
@@ -26,6 +32,7 @@ class EnterpriseIOCExtractor:
         }
 
     def _compile_rulesets(self):
+        """Compile the module's categorized IOC patterns once per extractor instance."""
         self.rules = {
             "Network": {
                 "IPv4": r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b',
@@ -67,6 +74,7 @@ class EnterpriseIOCExtractor:
                 self.compiled_rules[category][type_name] = re.compile(pattern, re.IGNORECASE)
 
     def refang_payload(self, text: str) -> str:
+        """URL-decode and normalize common bracketed/refanged URL and email forms."""
         if not text: return ""
         text = unquote(text)
 
@@ -83,6 +91,7 @@ class EnterpriseIOCExtractor:
         return text
 
     def _is_valid_ip(self, ip_str: str) -> bool:
+        """Accept only parseable public IP addresses outside configured exclusions."""
         if ip_str in self.ignore_ips: return False
         try:
             ip = ipaddress.ip_address(ip_str)
@@ -93,6 +102,7 @@ class EnterpriseIOCExtractor:
             return False
 
     def _get_context(self, text: str, match: re.Match) -> str:
+        """Return a whitespace-normalized context window around one regex match."""
         start = max(0, match.start() - self.CONTEXT_WINDOW)
         end = min(len(text), match.end() + self.CONTEXT_WINDOW)
 
@@ -100,6 +110,7 @@ class EnterpriseIOCExtractor:
         return f"...{context}..."
 
     def extract(self, raw_text: str) -> List[Dict]:
+        """Return unique categorized indicators with normalized values and match context."""
         if not raw_text:
             logger.debug("extract: empty text, returning empty list")
             return []

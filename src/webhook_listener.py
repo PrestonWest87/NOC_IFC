@@ -1,3 +1,9 @@
+"""Validate and normalize SolarWinds webhook events before background persistence.
+
+The standalone port-8100 service applies body-size/signature/replay checks and
+publishes writer status for coordinated database restores; it does not run RCA.
+"""
+
 import re
 import json
 import logging
@@ -25,6 +31,7 @@ _pending_webhook_tasks_lock = threading.Lock()
 
 
 async def _restore_status_loop():
+    """Publish webhook running/draining/paused state for the restore coordinator."""
     while True:
         requested = restore_control.maintenance_requested()
         with _pending_webhook_tasks_lock:
@@ -38,6 +45,7 @@ async def _restore_status_loop():
 
 @asynccontextmanager
 async def lifespan(app):
+    """Initialize the shared database unless restoring and manage the status heartbeat."""
     if not restore_control.maintenance_requested():
         init_db()
     else:
@@ -56,6 +64,7 @@ app = FastAPI(title="NOC Fusion Enterprise Gateway", lifespan=lifespan)
 
 @app.get("/health")
 def health():
+    """Report webhook process liveness without probing database readiness."""
     return {"status": "ok"}
 _seen_nonces: OrderedDict[str, float] = OrderedDict()
 
@@ -102,9 +111,11 @@ def _verify_webhook(request: Request, body: bytes) -> None:
             _seen_nonces.popitem(last=False)
 
 def log(msg):
+    """Write a gateway-prefixed message through the process logger."""
     logger.info("[WEBHOOK] %s", msg)
 
 def classify_device(text_corpus: str, node_type_hint: str = None) -> str:
+    """Normalize an explicit device hint first, then fall back to ontology keywords."""
     normalized_hint = EnterpriseAIOpsEngine.normalize_domain_hint(node_type_hint)
     if normalized_hint:
         return normalized_hint
@@ -124,6 +135,7 @@ def classify_device(text_corpus: str, node_type_hint: str = None) -> str:
     return "Network Node"
 
 def smart_extract(payload: dict):
+    """Normalize supported SolarWinds fields and detect resolution language."""
     nd = payload.get("Node_Details") or {}
     pm = payload.get("Performance_Metrics") or {}
     cp = payload.get("Custom_Properties_Universal") or {}
@@ -163,6 +175,7 @@ def smart_extract(payload: dict):
     return extracted
     
 def process_payload_background(raw_payload: dict):
+    """Persist a normalized alert or resolve same-node alerts in a background task."""
     log(f"[PROCESSING] Starting background processing of webhook payload")
     with SessionLocal() as db:
         try:
@@ -213,6 +226,7 @@ def process_payload_background(raw_payload: dict):
 
 
 def _process_payload_with_restore_tracking(raw_payload: dict):
+    """Run payload persistence and release the accepted-task counter in `finally`."""
     try:
         process_payload_background(raw_payload)
     finally:
@@ -222,6 +236,7 @@ def _process_payload_with_restore_tracking(raw_payload: dict):
 
 @app.post("/webhook/solarwinds")
 async def receive_alert(request: Request, background_tasks: BackgroundTasks):
+    """Validate and queue a bounded signed payload; HTTP 200 means queued, not committed."""
     try:
         if restore_control.maintenance_requested():
             raise HTTPException(status_code=503, detail="Database restore in progress")

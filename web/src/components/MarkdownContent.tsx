@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+/** Render the supported inline bold syntax without interpreting arbitrary HTML. */
 function inlineMarkdown(value: string): ReactNode[] {
   return value.split(/(\*\*.*?\*\*)/g).map((part, index) =>
     part.startsWith("**") && part.endsWith("**")
@@ -8,6 +9,7 @@ function inlineMarkdown(value: string): ReactNode[] {
   );
 }
 
+/** Render report Markdown's supported paragraphs, headings, bullets, and bold spans. */
 export function MarkdownContent({ content }: { content: string }) {
   const blocks = content.replace(/\r/g, "").split(/\n\s*\n/).filter(Boolean);
   return (

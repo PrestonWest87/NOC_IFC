@@ -91,6 +91,7 @@ function entriesForChicagoDay(entries: any[], dayStr: string): any[] {
   });
 }
 
+/** Render active-shift notes, history, scoped summaries, and optional auto-append. */
 export function ShiftLogbookPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();

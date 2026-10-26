@@ -1,3 +1,5 @@
+"""Poll configured cloud-provider RSS/Atom feeds and reconcile outage incidents."""
+
 import feedparser
 import requests
 from datetime import datetime, timedelta
@@ -55,6 +57,7 @@ _TITLE_SPLIT_RE = re.compile(r'\s*(?: - |: \| |\| )\s*')
 
 
 def is_foreign_region(text):
+    """Exclude foreign-only status notices unless the text also names a US/global region."""
     text_lower = text.lower()
     for f in FOREIGN_IDENTIFIERS:
         if re.search(r'\b' + re.escape(f), text_lower):
@@ -64,6 +67,7 @@ def is_foreign_region(text):
 
 
 def extract_us_regions(text):
+    """Extract known US region labels or fall back to a general US multi-region label."""
     text_lower = text.lower()
     affected = set()
     for key, display in US_REGIONS.items():
@@ -75,6 +79,7 @@ def extract_us_regions(text):
 
 
 def is_future_maintenance(title, description):
+    """Heuristically filter scheduled maintenance that is neither active nor dated today."""
     text = (title + " " + description).lower()
     if not any(k in text for k in _MAINTENANCE_KEYWORDS):
         return False
@@ -93,6 +98,7 @@ def is_future_maintenance(title, description):
 
 
 def extract_service_name(provider, title):
+    """Derive a provider service label from a status-feed title or provider fallback."""
     clean_title = title.replace("[Investigating]", "").replace("[Resolved]", "").replace("[Update]", "").strip()
     parts = _TITLE_SPLIT_RE.split(clean_title, maxsplit=1)
     if len(parts) > 1:
@@ -118,6 +124,7 @@ def _fetch_single_feed(provider_url_pair):
 
 
 def fetch_cloud_outages():
+    """Fetch providers concurrently, then reconcile parsed outage rows in one database session."""
     import logging
     logger = logging.getLogger(__name__)
     logger.info(f"Fetching status feeds from {len(CLOUD_FEEDS)} providers...")

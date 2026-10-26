@@ -1,3 +1,9 @@
+"""Public sign-in/recovery routes and authenticated self-service account actions.
+
+Session creation, password/token validation, and durable audit/state changes live
+in `src.services`; this module shapes HTTP responses and queues notification mail.
+"""
+
 import json
 import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
@@ -12,6 +18,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
 def _public_user(user):
+    """Remove stored password/session credentials before returning a user payload."""
     if not user:
         return user
     return {
@@ -21,11 +28,13 @@ def _public_user(user):
 
 
 class LoginRequest(BaseModel):
+    """Login identifier and password submitted to the public authentication endpoint."""
     username: str
     password: str
 
 
 class ProfileUpdate(BaseModel):
+    """Self-service profile fields with optional current/new password values."""
     full_name: str = ""
     job_title: str = ""
     contact_info: str = ""
@@ -35,6 +44,7 @@ class ProfileUpdate(BaseModel):
 
 
 class RegistrationRequest(BaseModel):
+    """Invitation token, password, and profile fields used to complete registration."""
     token: str
     password: str
     full_name: str = ""
@@ -45,19 +55,23 @@ class RegistrationRequest(BaseModel):
 
 
 class PasswordResetRequest(BaseModel):
+    """Public reset identifier, interpreted generically as username or approved email."""
     identifier: str
 
 
 class PasswordResetCompletion(BaseModel):
+    """Single-use reset token and replacement password."""
     token: str
     new_password: str
 
 
 class RecoveryEmailRequest(BaseModel):
+    """New mailbox address submitted for administrator review and verification."""
     email: str
 
 
 def _send_account_recovery_notice(subject, body, recipients):
+    """Deliver a recovery/reviewer notice as a response background task."""
     from src.utils.mailer import send_alert_email
 
     success, message = send_alert_email(
@@ -71,6 +85,7 @@ def _send_account_recovery_notice(subject, body, recipients):
 
 
 def _send_failed_login_alert(alert):
+    """Send a threshold alert without collecting or including attempted passwords."""
     from src.utils.mailer import send_alert_email
 
     attempts = alert["attempts"]
@@ -122,6 +137,11 @@ def _send_failed_login_alert(alert):
 
 @router.post("/login")
 def login(req: LoginRequest, request: Request, background_tasks: BackgroundTasks):
+    """Authenticate and issue a session or return the generic invalid-credentials 401.
+
+    Failed-login recording is best-effort. Returning `JSONResponse` rather than
+    raising preserves the queued alert background task on the 401 path.
+    """
     logger.info("POST /login")
     user, token = svc.authenticate_user(req.username, req.password)
     if not user:
@@ -150,6 +170,7 @@ def login(req: LoginRequest, request: Request, background_tasks: BackgroundTasks
 
 @router.get("/register/validate")
 def validate_registration(token: str = Query("")):
+    """Validate an invitation token for the registration page without creating an account."""
     invite = svc.get_registration_invite(token)
     if not invite:
         raise HTTPException(status_code=400, detail="This registration link is invalid, expired, or already used.")
@@ -158,6 +179,7 @@ def validate_registration(token: str = Query("")):
 
 @router.post("/register")
 def register(req: RegistrationRequest):
+    """Consume an email-bound invitation, create the account, and return a sanitized user/session."""
     try:
         user, token = svc.complete_registration(
             req.token, req.password, req.full_name, req.job_title,
@@ -174,6 +196,7 @@ def request_password_reset(
     request: Request,
     background_tasks: BackgroundTasks,
 ):
+    """Submit a rate-limited reset request while keeping the public response generic."""
     source_ip = request.client.host if request.client else None
     result = svc.submit_password_reset_request(body.identifier, source_ip)
     recipients = result.get("notify", [])
@@ -199,6 +222,7 @@ def request_password_reset(
 
 @router.post("/reset-password")
 def complete_password_reset(body: PasswordResetCompletion):
+    """Complete a single-use reset and translate invalid/expired credentials to HTTP 400."""
     try:
         completed = svc.complete_password_reset(body.token, body.new_password)
     except ValueError as exc:
@@ -213,6 +237,7 @@ def complete_password_reset(body: PasswordResetCompletion):
 
 @router.get("/verify-recovery-email")
 def verify_recovery_email(token: str = Query("")):
+    """Consume the reviewer-approved mailbox verification token."""
     if not svc.verify_recovery_email(token):
         raise HTTPException(
             status_code=400,
@@ -227,6 +252,7 @@ def request_recovery_email(
     background_tasks: BackgroundTasks,
     user=Depends(get_current_user),
 ):
+    """Record the signed-in user's pending recovery-email request and notify eligible reviewers."""
     try:
         request_id = svc.submit_email_change_request(user.id, body.email)
     except ValueError as exc:
@@ -266,6 +292,7 @@ def resend_recovery_email_verification(
     background_tasks: BackgroundTasks,
     user=Depends(get_current_user),
 ):
+    """Queue a replacement verification link subject to the service's resend cooldown."""
     try:
         verification = svc.resend_recovery_email_verification(user.id)
     except ValueError as exc:
@@ -285,12 +312,14 @@ def resend_recovery_email_verification(
 
 @router.get("/me")
 def me(user=Depends(get_current_user)):
+    """Return the current user's public profile and resolved permission grants."""
     logger.debug("GET /me: user=%s role=%s", user.get('username'), user.get('role'))
     return _public_user(user)
 
 
 @router.post("/logout")
 def logout(request: Request, user=Depends(get_current_user)):
+    """Revoke the session token used for this request."""
     logger.info("POST /logout username=%s", user.username)
     svc.logout_user(user.username, getattr(request.state, "auth_token", ""))
     return {"status": "ok"}
@@ -298,6 +327,7 @@ def logout(request: Request, user=Depends(get_current_user)):
 
 @router.post("/update-profile")
 def update_profile(body: ProfileUpdate, user=Depends(get_current_user)):
+    """Update the authenticated user's own profile and optional password."""
     username = user.username
     logger.info("POST /update-profile username=%s", username)
     ok, msg = svc.update_user_profile(
@@ -313,6 +343,7 @@ def update_profile(body: ProfileUpdate, user=Depends(get_current_user)):
 
 @router.post("/update-theme")
 def update_theme(data: dict, user=Depends(get_current_user)):
+    """Persist a validated theme choice for the authenticated user."""
     try:
         svc.set_user_theme(user.username, str(data.get("theme", "")))
     except ValueError as exc:

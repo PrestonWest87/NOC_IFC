@@ -1,3 +1,10 @@
+"""AIOps incident workflow, RCA analysis, dispatch, maintenance, and site resolution.
+
+The router requires AIOps page access. Individual actions validate alert/site
+scope; investigation markers are process-local while dispatch and maintenance
+state are persisted by the service layer.
+"""
+
 import logging
 # Ensure BackgroundTasks is imported
 from fastapi import APIRouter, Depends, Query, Body, HTTPException, BackgroundTasks
@@ -18,11 +25,13 @@ router = APIRouter(prefix="/api/v1/rca", tags=["rca"], dependencies=[Depends(req
 INVESTIGATING_SITES = set()
 
 def require_action(action: str):
+    """Keep the route module's historical dependency name bound to the canonical guard."""
     return require_authorized_action(action)
 
 
 @router.get("/dashboard", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board"))])
 def rca_dashboard(user=Depends(get_current_user)):
+    """Return the alert board, timeline, grid, and workflow state within site scope."""
     logger.debug("GET /rca/dashboard")
     locs = svc.get_cached_locations()
     is_admin = str(user.role or "").casefold() in {"admin", "administrator"}
@@ -54,6 +63,7 @@ def rca_dashboard(user=Depends(get_current_user)):
 # --- NEW: Dedicated endpoint to lock/unlock investigations globally ---
 @router.post("/investigate", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board"))])
 def set_investigate(background_tasks: BackgroundTasks, data: dict = Body(...), user=Depends(require_action("Action: Dispatch RCA Tickets"))):
+    """Set or clear the process-local investigating marker after checking site access."""
     site = data.get("site", "")
     is_investigating = data.get("is_investigating", False)
     if not svc.user_can_access_site(user, site):
@@ -80,6 +90,7 @@ def set_needs_dispatch(
     data: dict = Body(...),
     user=Depends(require_action("Action: Dispatch RCA Tickets")),
 ):
+    """Persist Needs Dispatch on eligible active alerts for one accessible site."""
     site = str(data.get("site", ""))
     needs_dispatch = data.get("needs_dispatch")
     if not isinstance(needs_dispatch, bool):
@@ -102,6 +113,7 @@ def set_needs_dispatch(
 
 @router.post("/analyze", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board")), Depends(require_action("Action: Run RCA Analysis"))])
 def analyze(user=Depends(get_current_user)):
+    """Analyze only the caller's scoped alert payload and restrict global insights to full site access."""
     logger.info("POST /rca/analyze: starting root cause analysis")
     from src.models.schema import CloudOutage, RegionalHazard, BgpAnomaly
     from src.core.db import SessionLocal
@@ -144,6 +156,7 @@ def analyze(user=Depends(get_current_user)):
 # UPDATE: Add BackgroundTasks to force live-sync on Acknowledgements
 @router.post("/acknowledge", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board"))])
 def acknowledge(background_tasks: BackgroundTasks, alert_ids: list[int] = Body([]), user=Depends(require_action("Action: Acknowledge RCA Alerts"))):
+    """Acknowledge accessible alert IDs without resolving their active incidents."""
     logger.info("POST /rca/acknowledge alert_ids=%s", alert_ids)
     try:
         svc.ensure_user_can_access_alerts(user, alert_ids)
@@ -159,6 +172,7 @@ def acknowledge(background_tasks: BackgroundTasks, alert_ids: list[int] = Body([
 # UPDATE: Add BackgroundTasks to force live-sync on Dispatches
 @router.post("/dispatch", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board"))])
 def dispatch(background_tasks: BackgroundTasks, data: dict = Body(...), user=Depends(require_action("Action: Dispatch RCA Tickets"))):
+    """Set dispatch workflow state for accessible alerts and broadcast a board refresh."""
     logger.info("POST /rca/dispatch alert_ids=%s is_dispatched=%s", data.get("alert_ids"), data.get("is_dispatched"))
     alert_ids = data.get("alert_ids", [])
     try:
@@ -175,6 +189,7 @@ def dispatch(background_tasks: BackgroundTasks, data: dict = Body(...), user=Dep
 # UPDATE: Add BackgroundTasks to force live-sync on Maintenance 
 @router.post("/site-maintenance", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board"))])
 def site_maintenance(background_tasks: BackgroundTasks, data: dict = Body(...), user=Depends(require_action("Action: Manage Site Maintenance"))):
+    """Set or clear a site's maintenance annotation after validating ETR and site scope."""
     from datetime import date
     site_name = str(data.get("site_name") or "").strip()
     if not site_name:
@@ -211,6 +226,7 @@ def site_maintenance(background_tasks: BackgroundTasks, data: dict = Body(...), 
 
 @router.post("/generate-ticket", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board")), Depends(require_action("Action: Dispatch RCA Tickets"))])
 def generate_ticket(data: dict = Body(...), user=Depends(get_current_user)):
+    """Render ticket text for an accessible site without sending email or changing alert state."""
     site = data.get("site", "")
     if not svc.user_can_access_site(user, site):
         raise HTTPException(status_code=403, detail={
@@ -225,6 +241,7 @@ def generate_ticket(data: dict = Body(...), user=Depends(get_current_user)):
 
 @router.post("/send-ticket", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board"))])
 def send_ticket(background_tasks: BackgroundTasks, data: dict = Body(...), user=Depends(require_action("Action: Dispatch RCA Tickets"))):
+    """Email ticket text after site/alert scope checks and mark alerts dispatched only on success."""
     from src.utils.mailer import send_alert_email
     site = data.get("site", "")
     ticket_text = data.get("ticket_text", "")
@@ -258,6 +275,7 @@ def send_ticket(background_tasks: BackgroundTasks, data: dict = Body(...), user=
 
 @router.get("/sitrep", dependencies=[Depends(require_action("Tab: AIOps RCA -> Global Correlation")), Depends(require_action("Action: Generate Reports"))])
 def sitrep(user=Depends(get_current_user)):
+    """Generate a global SITREP only for callers with access to all site types."""
     if not svc.user_has_all_site_type_access(user):
         raise HTTPException(status_code=403, detail={
             "code": "site_scope_denied", "message": "This global sitrep requires access to all site types."
@@ -277,6 +295,7 @@ def sitrep(user=Depends(get_current_user)):
 
 @router.post("/sitrep", dependencies=[Depends(require_action("Tab: AIOps RCA -> Global Correlation"))])
 def sitrep_action(data: dict[str, Any] = Body({}), user=Depends(get_current_user)):
+    """Dispatch one allowlisted global-correlation action with its own grant and scope checks."""
     action = data.get("action", "")
     required_action = {
         "refresh_briefing": "Action: Generate Reports",
@@ -307,16 +326,19 @@ def sitrep_action(data: dict[str, Any] = Body({}), user=Depends(get_current_user
 
 @router.post("/clear-events", dependencies=[Depends(require_action("Tab: Settings -> Danger Zone")), Depends(require_action("Action: Clear AIOps Data"))])
 def clear_events():
+    """Clear the timeline event table through the destructive Settings action."""
     svc.clear_timeline_events()
     return {"status": "ok"}
 
 @router.post("/nuke-alerts", dependencies=[Depends(require_action("Tab: Settings -> Danger Zone")), Depends(require_action("Action: Clear AIOps Data"))])
 def nuke_alerts():
+    """Clear SolarWinds alert records through the destructive Settings action."""
     svc.nuke_active_alerts()
     return {"status": "ok"}
 
 @router.post("/resolve-alert", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board")), Depends(require_action("Action: Acknowledge RCA Alerts"))])
 def resolve_alert(alert_id: int = 0, node_name: str = "", user=Depends(get_current_user)):
+    """Resolve one accessible alert ID and record the operator-supplied node context."""
     try:
         svc.ensure_user_can_access_alerts(user, [alert_id])
     except ValueError as exc:
@@ -327,6 +349,7 @@ def resolve_alert(alert_id: int = 0, node_name: str = "", user=Depends(get_curre
 
 @router.post("/resolve-site", dependencies=[Depends(require_action("Tab: AIOps RCA -> Active Board"))])
 def resolve_site(background_tasks: BackgroundTasks, data: dict = Body(...), user=Depends(require_action("Action: Acknowledge RCA Alerts"))):
+    """Mark an accessible site up by resolving all unresolved alerts and clearing stale investigation state."""
     site_name = str(data.get("site_name") or "").strip()
     if not site_name:
         raise HTTPException(status_code=422, detail="site_name is required.")

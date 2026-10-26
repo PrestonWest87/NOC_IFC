@@ -1,3 +1,9 @@
+"""OpenAI-compatible LLM calls, map/reduce reports, and process-local progress state.
+
+Callers own persistence and authorization. Prompt assembly stays here so input
+limits, timeouts, untrusted-source handling, and fallback behavior are shared.
+"""
+
 import logging
 import re
 import threading
@@ -18,6 +24,7 @@ _brief_progress_store: dict[str, dict] = {}
 _brief_progress_lock = threading.Lock()
 
 def init_brief_progress(generation_id: str):
+    """Create a starting record in the process-local brief progress store."""
     with _brief_progress_lock:
         _brief_progress_store[generation_id] = {
             "stage": "starting",
@@ -29,6 +36,7 @@ def init_brief_progress(generation_id: str):
         }
 
 def update_brief_progress(generation_id: str, *, stage: str = None, message: str = None, total_items: int = None, processed_items: int = None, percent: int = None):
+    """Update supplied progress fields under the store lock and cap inferred progress at 99%."""
     with _brief_progress_lock:
         entry = _brief_progress_store.get(generation_id)
         if not entry:
@@ -47,10 +55,12 @@ def update_brief_progress(generation_id: str, *, stage: str = None, message: str
             entry["percent"] = min(99, int((entry["processed_items"] / entry["total_items"]) * 100))
 
 def get_brief_progress(generation_id: str) -> dict | None:
+    """Return a snapshot of one generation's progress, or `None` if it is unknown."""
     with _brief_progress_lock:
         return _brief_progress_store.get(generation_id)
 
 def clear_brief_progress(generation_id: str):
+    """Remove one generation's process-local progress record."""
     with _brief_progress_lock:
         _brief_progress_store.pop(generation_id, None)
 
@@ -103,6 +113,7 @@ def _query_ollama_context_window(endpoint: str, model: str) -> int | None:
     return None
 
 def get_effective_context_window(config):
+    """Resolve configured/model context size, using cached Ollama metadata when applicable."""
     manual = getattr(config, 'llm_context_window', 128000) or 128000
     api_key = getattr(config, 'llm_api_key', None) or getattr(config, 'llm_api_key', '')
     model = getattr(config, 'llm_model_name', '') or ''
@@ -126,6 +137,7 @@ def get_effective_context_window(config):
     return manual
 
 def get_llm_config(session):
+    """Return the first active `SystemConfig` row using the caller-owned session."""
     config = session.query(SystemConfig).filter_by(is_active=True).first()
     logger.debug("get_llm_config: found=%s endpoint=%s model=%s", config is not None,
                  config.llm_endpoint if config else 'N/A',
@@ -133,6 +145,7 @@ def get_llm_config(session):
     return config
 
 def call_llm(messages, config, temperature=0.1, max_tokens=None):
+    """Call the configured OpenAI-compatible chat endpoint and return text or a `[WARN]` string."""
     if isinstance(config, dict):
         config = SimpleNamespace(**config)
     headers = {"Content-Type": "application/json"}
@@ -171,14 +184,17 @@ def call_llm(messages, config, temperature=0.1, max_tokens=None):
         return f"[WARN] **AI SYSTEM ERROR:** {str(e)}"
 
 def chunk_list(data, size):
+    """Yield successive list slices of at most `size` elements."""
     for i in range(0, len(data), size):
         yield data[i:i + size]
 
 def truncate_text(text, max_chars=300):
+    """Clip text to a character bound and append an ellipsis when truncated."""
     if not text: return "No details provided."
     return text if len(text) <= max_chars else text[:max_chars] + "..."
 
 def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size=6, progress_callback=None, map_temperature=0.1, reduce_temperature=0.2, skip_reduce=False, skip_noise_filter=False, force_reduce=False):
+    """Map input chunks sequentially, filter unusable outputs, and optionally reduce once."""
     if not items: return None
 
     ctx = get_effective_context_window(config)
@@ -262,6 +278,7 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
         return batch_summaries[0]
 
 def generate_bluf(article, session):
+    """Generate four source-grounded BLUF bullets from an article using active LLM config."""
     config = get_llm_config(session)
     if not config: return None
 
@@ -287,6 +304,7 @@ def generate_bluf(article, session):
     return response.strip() if response else None
 
 def analyze_cascading_impacts(articles, session):
+    """Use map/reduce to summarize possible cross-article cascading impacts."""
     config = get_llm_config(session)
     if not config or not articles: return None
 
@@ -352,6 +370,7 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot, progre
 IMPORTANT: If the input contains NO cyber threats, CVEs, threat actors, security vulnerabilities, or CI-relevant content, respond with ONLY the word NO_THREATS and nothing else. Do NOT describe what articles are about. Do NOT summarize non-threat content. Just output: NO_THREATS"""
         reduce_p = "Compile an exhaustive, purely factual Cyber Threat Intelligence digest. Preserve all CVE IDs, specific threat actor names, targeted vendors, and cloud providers. Do not extrapolate risks; report only what is explicitly stated in the data. Provide reason why item is applicable."
         def _cyber_progress(done, total_chunks, total_items, processed):
+            """Map completed cyber chunks into the first half of overall progress."""
             if progress_callback:
                 pct = int((done / total_chunks) * 49) + 1
                 progress_callback(stage="cyber_map", message=f"Cyber intelligence map-reduce: chunk {done}/{total_chunks} ({total_items} items)", total_items=total_items, processed_items=processed, percent=pct)
@@ -377,6 +396,7 @@ IMPORTANT: If the input contains NO cyber threats, CVEs, threat actors, security
         map_p = "Extract precise factual details regarding weather severity, regional infrastructure hazards, and perimeter crimes (including distance and FBI categories). Be purely objective."
         reduce_p = "Compile an exhaustive physical risk digest. Categorize strictly into: 1) Severe Weather/Geospatial Hazards and 2) Local Perimeter Crimes. Retain exact distances, locations, and severity classifications. DO NOT embellish."
         def _phys_progress(done, total_chunks, total_items, processed):
+            """Map completed physical-input chunks into the second half of progress."""
             if progress_callback:
                 pct = int((done / total_chunks) * 49) + 50
                 progress_callback(stage="phys_map", message=f"Physical intelligence map-reduce: chunk {done}/{total_chunks} ({total_items} items)", total_items=total_items, processed_items=processed, percent=pct)
@@ -506,6 +526,7 @@ def _consolidate_hazards(hazards, arkansas_only=False):
     arkansas_counties = {county.strip() for county in arkansas_counties}
 
     def is_arkansas_location(value):
+        """Match an area description against the normalized Arkansas county set."""
         normalized = re.sub(r'\bcounty\b', '', value, flags=re.IGNORECASE)
         return any(re.search(rf'\b{re.escape(county)}\b', normalized, re.IGNORECASE) for county in arkansas_counties)
 
@@ -1076,6 +1097,7 @@ def generate_global_threat_brief(session, progress_callback=None):
     max_content = 600 if ctx < 4000 else 1200
 
     def _article_content(art):
+        """Prefer sufficiently long full text and truncate according to model context size."""
         content = getattr(art, 'full_content', None)
         if content and len(content) > 200:
             return truncate_text(content, max_content)
@@ -1136,6 +1158,7 @@ Every provider outage with affected services.
 Include EVERY bullet point from the input. Do not summarize, skip, or deduplicate. Specific details matter: exact CVE numbers, exact product names, exact actor names."""
 
     def _global_progress(done, total_chunks, total_items, processed):
+        """Map sequential global-intelligence chunks into the cyber-stage progress range."""
         if progress_callback:
             pct = int((done / total_chunks) * 89) + 5
             progress_callback(stage="cyber_map", message=f"Intelligence map: chunk {done}/{total_chunks}", total_items=total_items, processed_items=processed, percent=pct)
@@ -1188,6 +1211,7 @@ Be specific with every number, location name, and time. No generalizations.
 IMPORTANT: If multiple items describe the same type of hazard (e.g., multiple "Excessive Heat Warning" entries), COMBINE them into a single entry listing all affected locations. Do NOT repeat the same hazard type as separate entries."""
 
         def _phys_progress(done, total_chunks, total_items, processed):
+            """Map physical hazard/crime chunks into the final pre-synthesis progress range."""
             if progress_callback:
                 pct = int((done / total_chunks) * 8) + 90
                 progress_callback(stage="phys_map", message=f"Physical intel: chunk {done}/{total_chunks}", total_items=total_items, processed_items=processed, percent=pct)
@@ -1344,6 +1368,7 @@ Structure your output as:
 Do NOT include global threat landscape or external OSINT — focus ONLY on correlations to our specific internal assets."""
 
     def _corr_progress(done, total_chunks, total_items, processed):
+        """Map internal asset-correlation chunks into the correlation-stage progress range."""
         if progress_callback:
             pct = int((done / total_chunks) * 79) + 10
             progress_callback(stage="correlation", message=f"Asset correlation map-reduce: chunk {done}/{total_chunks} ({total_items} items)", total_items=total_items, processed_items=processed, percent=pct)
@@ -1450,6 +1475,7 @@ REQUIRED STRUCTURE:
     return response.strip()
 
 def generate_aggregated_shift_summary(session, logs, timeframe_label, target_role="All", generated_by="Unknown", generated_by_role="analyst"):
+    """Summarize bounded shift-log evidence without inventing operational facts."""
     handoff_title = timeframe_label if "handoff" in timeframe_label.lower() else f"{timeframe_label} Operational Handoff"
     config = get_llm_config(session)
     logger.debug("generate_aggregated_shift_summary: config_found=%s logs_count=%d timeframe=%s role=%s",
@@ -1525,6 +1551,7 @@ Provide a concise chronological list of the key transitions, preserving timestam
     return response.strip() if response else "Summary generation failed."
 
 def generate_briefing(articles, session):
+    """Produce a general two-paragraph briefing from the supplied article set."""
     config = get_llm_config(session)
     if not config or not articles: return None
 
@@ -1539,6 +1566,7 @@ def generate_briefing(articles, session):
     )
 
 def cross_reference_cves(cves, session):
+    """Compare supplied CVE records with configured technology-stack context via the LLM."""
     config = get_llm_config(session)
     if not config: return "ERROR: AI Engine is disabled."
     if not cves: return "CLEAR: Tech stack is clear. No active KEVs found."
@@ -1577,6 +1605,7 @@ def cross_reference_cves(cves, session):
     return f"MATCH DETECTED:\n\n{final_alert}"
 
 def generate_feed_overview(articles, focus_prompt, session):
+    """Generate a focused feed summary from the supplied articles and analyst prompt."""
     config = get_llm_config(session)
     if not config or not articles: return None
 
@@ -1592,6 +1621,7 @@ def generate_feed_overview(articles, focus_prompt, session):
     )
 
 def generate_executive_weather_brief(analytics, p1_count, sys_config):
+    """Draft a weather brief from supplied Regional Grid analytics when LLM is active."""
     if not sys_config or not sys_config.get('is_active'):
         return "AI is currently disabled in settings."
 
@@ -1623,6 +1653,7 @@ def generate_executive_weather_brief(analytics, p1_count, sys_config):
     ], sys_config, temperature=0.2)
 
 def build_custom_intel_report(articles, objective, session, progress_callback=None, target=""):
+    """Build a source-evidence report from selected articles with sequential map/reduce."""
     config = get_llm_config(session)
     if not config or not articles: return None
 
@@ -1666,6 +1697,7 @@ STRICT RULES: Use ONLY the supplied evidence. Do not hallucinate CVEs, dates, vi
 locations, capabilities, or relationships. If a requested detail is not supported, say so."""
 
     def _format_article(a):
+        """Format one selected article with bounded full-content/summary evidence."""
         content = getattr(a, 'full_content', None) or getattr(a, 'summary', '') or ''
         if content and len(content) > 200:
             text = truncate_text(content, 2000)
@@ -1681,6 +1713,7 @@ locations, capabilities, or relationships. If a requested detail is not supporte
     )
 
 def generate_rolling_summary(session):
+    """Generate a rolling 24-hour handoff from bounded article, hazard, and cloud inputs."""
     config = get_llm_config(session)
     logger.debug("generate_rolling_summary: config_found=%s", config is not None)
     if not config:
@@ -1718,6 +1751,7 @@ def generate_rolling_summary(session):
     return response.strip() if response else "Generation failed."
 
 def generate_dynamic_scoring_report(session, intel):
+    """Explain supplied cyber/physical scoring evidence; this helper does not calculate scores."""
     from datetime import datetime, timedelta
 
     config = get_llm_config(session)
@@ -1787,6 +1821,7 @@ def generate_dynamic_scoring_report(session, intel):
     return response.strip() if response else "Brief generation failed."
 
 def generate_siem_triage_summary(session, flat_results):
+    """Summarize a bounded flat SIEM event list while treating event text as untrusted input."""
     import json
     config = get_llm_config(session)
     if not config: return "[WARN] AI is currently disabled in settings."
@@ -1817,6 +1852,7 @@ def generate_siem_triage_summary(session, flat_results):
     return response.strip() if response else "Triage generation failed."
 
 def generate_elastic_dsl(session, nl_query):
+    """Legacy helper that asks the LLM to render a raw Elastic DSL query."""
     config = get_llm_config(session)
     if not config: return "{}"
 
@@ -1834,6 +1870,7 @@ def generate_elastic_dsl(session, nl_query):
     return '{"query": {"match_all": {}}}'
 
 def generate_daily_fusion_report(session):
+    """Generate the prior Central-time calendar day's report and return its date/content pair."""
     config = get_llm_config(session)
     if not config: return None
 
