@@ -1,636 +1,131 @@
-# NOC Intelligence Fusion Center — Frontend Documentation
+# Frontend Architecture and Workspace
 
-Enterprise-grade React single-page application for the Network Operations Center Intelligence Fusion Platform. Provides real-time dashboards, threat telemetry, geospatial visualization, AIOps correlation, keyword analysis, and shift management.
+The frontend is a TypeScript/React single-page application in `web/`. It uses Vite for development/building, HashRouter for client routing, TanStack Query for server state, Zustand for shared realtime UI state, Axios for REST calls, and MapLibre/deck.gl for maps. The source tree is authoritative; detailed source pages are under [`reference/web/`](reference/README.md#frontend).
 
----
+## Application setup
 
-## Table of Contents
+`web/src/main.tsx` imports the base theme, component styles, and theme overrides; calls `initTheme()` before rendering; and mounts `<App />` in `React.StrictMode`.
 
-1. [Technology Stack](#1-technology-stack)
-2. [Project Structure](#2-project-structure)
-3. [Development Setup](#3-development-setup)
-4. [Routing & Permissions](#4-routing--permissions)
-5. [Page Components](#5-page-components)
-6. [Shared Components](#6-shared-components)
-7. [Custom Hooks](#7-custom-hooks)
-8. [State Management](#8-state-management)
-9. [API Client](#9-api-client)
-10. [Theme System](#10-theme-system)
-11. [Timezone Handling](#11-timezone-handling)
-12. [Build & Deployment](#12-build--deployment)
+`App.tsx` wraps the application with `QueryClientProvider`, `HashRouter`, `AuthProvider`, `ThemeSync`, `RealtimeBridge`, and a page-level error boundary. The shared query defaults are 30-second stale time, no refetch-on-window-focus, refetch-on-reconnect, and one retry. Protected page modules are lazy-loaded under `Suspense`.
 
----
+## Routes and page access
 
-## 1. Technology Stack
+Routes are hash-based (for example `/#/regional-grid`). The backend page permission strings are the values in `src/core/permissions.py` and `web/src/utils/routeConfig.ts`.
 
-| Library | Version | Purpose |
-|---------|---------|---------|
-| React | 18.3.1 | UI framework |
-| TypeScript | 5.9.3 | Static typing |
-| Vite | 7.3.6 | Build tool & dev server |
-| React Router | 7.18.4 | Client-side routing (`HashRouter`) |
-| TanStack Query | 5.100.11 | Server-state management, caching, polling |
-| Zustand | 4.5.7 | Lightweight client-state store |
-| Axios | 1.20.0 | HTTP client |
-| MapLibre GL | 6.11.2 | Vector map rendering |
-| @vis.gl/react-maplibre | 8.1.3 | MapLibre-only React bindings |
-| `@deck.gl/core`, `@deck.gl/layers`, `@deck.gl/react`, `@deck.gl/widgets` | 9.3.2 | Geospatial data overlays and widgets |
-| Recharts | 3.8.1 | Charting library |
-| Lucide React | 1.16.0 | Icon set |
-| `@vitejs/plugin-react` | 5.2.0 | React Fast Refresh and JSX integration |
+| Hash route | Page | Page grant |
+|---|---|---|
+| `#/login` | Login | Public |
+| `#/register` | Registration invitation | Public |
+| `#/forgot-password` | Password reset request | Public |
+| `#/reset-password` | Password reset completion | Public token flow |
+| `#/verify-email` | Recovery-email verification | Public token flow |
+| `#/` | Global Dashboards | `Global Dashboards` |
+| `#/threat-telemetry` | Threat Telemetry | `Threat Telemetry` |
+| `#/regional-grid` | Regional Grid | `Regional Grid` |
+| `#/threat-hunting` | Threat Hunting & IOCs | `Threat Hunting & IOCs` |
+| `#/aiops-rca` | AIOps RCA | `AIOps RCA` |
+| `#/shift-logbook` | Shift Logbook | `Shift Logbook` |
+| `#/reporting` | Reporting & Briefings | `Reporting & Briefings` |
+| `#/settings` | Settings & Admin | `Settings & Admin` |
+| `#/keyword-analysis` | Keyword Analysis | `Keyword Analysis` |
 
-**Runtime config**: Vite dev server proxies `/api` and `/ws` to the FastAPI backend at `VITE_API_URL` (default `http://localhost:8101`).
+After successful login, the browser navigates to the first page in `user.allowed_pages` that maps to a frontend route. `ProtectedRoute` checks the exact page grant. A logged-in user lacking a page grant sees an access-denied message inside the normal layout; the guard does not silently log the user out or redirect to another page.
 
----
+Tabs are filtered by `web/src/utils/permissions.ts`. Some Settings views are self-service: Profile and Theme appear to any authenticated user who can enter Settings. Other Settings tabs require their exact `Tab: Settings -> ...` grant. Individual controls may need a distinct action grant. Server dependencies remain authoritative for all reads/writes. See [`PERMISSIONS.md`](PERMISSIONS.md) and [`API.md`](API.md).
 
-## 2. Project Structure
+## Authentication and REST client
 
-```
-web/
-├── index.html
-├── package.json
-├── vite.config.ts              # Proxy, HMR, MapLibre assets, Firefox compatibility
-├── tsconfig.json
-└── src/
-    ├── main.tsx                 # ReactDOM entry, global CSS, theme initialization
-    ├── App.tsx                  # QueryClientProvider, HashRouter, auth, and routes
-    ├── pages/                   # 14 routed page components
-    ├── components/              # Layout, maps, account, application settings, and shared UI
-    ├── hooks/                   # AIOps WebSocket hook
-    ├── utils/                   # API client, auth, routes/permissions, timezone, notifications
-    ├── store/                   # Zustand application state
-    ├── styles/                  # Base and component CSS
-    └── themes/                  # Theme overrides
-```
+`AuthContext` keeps the opaque API session token and public user object in `sessionStorage` (`noc_token`, `noc_user`). It refreshes with `GET /auth/me`; a transient network/API error retains the session, while an explicit 401 clears it. Logout requests server revocation and clears the browser state immediately. Recovery-email verification signals a user refresh in the current tab and same-origin tabs.
 
----
+`web/src/utils/api.ts` creates an Axios client with relative base URL `/api/v1`. Its request interceptor attaches `Authorization: Bearer ...` from session storage. Its response interceptor:
 
-## 3. Development Setup
+- On 401, clears credentials, emits `noc:unauthorized`, redirects to `#/login`, and rejects the original request.
+- On 403, emits `noc:permission-denied`, preserves the session, and exposes the structured permission message to the UI.
 
-### Prerequisites
+Production nginx proxies `/api/` and `/ws` to the API. The Vite dev server proxies the same paths to `VITE_API_URL` (default `http://localhost:8101`; Compose sets `http://api:8101` inside `web-dev`).
 
-- Node.js 20.19+ or 22.12+ (the production/dev Docker image uses Node 22)
-- npm or equivalent package manager
-- Backend API running on port 8101
+## Page guide
 
-### Local Development
+### Global Dashboards
+
+Four tabs: Operational Dashboard, Global Risk, Internal Risk, and Unified Brief. Operational Dashboard has Threat Triage, Infrastructure Status, and AI Analysis panels; its subpanel auto-rotates every ten seconds when enabled. Dashboard metrics/article queries poll at 15–300 second intervals according to their data source.
+
+Global Risk displays the executive CIS score, 14-day score trend, evidence, and Global Threat Brief. Internal Risk displays the latest snapshot, history, hardware/software correlations, and Internal Asset Risk Brief. Risk overrides and scheduler forms are in Settings > Application Settings, not on Dashboard. Unified, global, and internal brief generation returns a generation ID; the page polls every two seconds and keeps the ID in `sessionStorage` across SPA navigation. Brief broadcasts require `Action: Dispatch Exec Report`.
+
+### Threat Telemetry
+
+Four tabs: RSS Triage, CISA KEV, Cloud Services, and Perimeter Crime. RSS triage has Pinned, Live, Low, and Search sub-tabs; the page supports pagination, category/search filters, and permission-gated pin/boost/feedback/BLUF actions. KEV, cloud, and crime sync actions require `Action: Manually Sync Data` plus their tab grant. The crime feed is Little Rock CAD data geocoded and measured from the Little Rock headquarters point.
+
+**Category-label compatibility issue:** the page currently offers some legacy category labels that do not exactly equal current categorizer output. The source comparison is detailed in [`DOCUMENTATION_AUDIT.md`](DOCUMENTATION_AUDIT.md#source-level-mismatches-surfaced-during-the-audit); this can affect exact category filtering.
+
+### Regional Grid
+
+Six tabs: Geospatial Overlay, Executive Dashboard, Deep Hazard Analytics, Location Matrix, Weather Alerts Log, and Atmos Weather. The geospatial view combines MapLibre with deck.gl overlays for SPC, NWS, USGS, fire weather, WFCA wildfire incidents/perimeters/estimated FIRMS footprints, and site markers. The API compiles site/hazard intersections and returns a positional six-item response; the frontend reads positions 0, 3, 4, and 5 for processed geometry, toggled affected sites, all affected sites, and analytics. The route's response order is documented in [`ARCHITECTURE.md`](ARCHITECTURE.md#regional-map).
+
+Weather preferences are per authenticated user. Atmos Weather includes site forecast, NWS alert preferences, SPC outlooks, and an embedded radar view. Wildfire footprints are estimated detection geometry and are distinct from reported fire perimeters.
+
+### Threat Hunting & IOCs
+
+Three tabs: Live Global IOC Matrix, Deep Hunt & Detection Builder, and Elastic SIEM Report. The IOC matrix reads extracted indicators for the last three days by default, offers type filtering/CSV export, and includes external pivots for supported hash/IP/domain/CVE/MITRE indicators.
+
+Deep Hunt searches article title, summary, and full content by an OR combination of parsed terms over 1–30 days (the UI offers 7–30 days) and displays up to 15 of at most 30 matches. `buildDetectionPackage()` is a frontend template generator: it excerpts results, extracts CVE-shaped strings, and creates generic Splunk/Elastic query and YARA stub text. It does **not** call an LLM or validate generated detection rules.
+
+Elastic SIEM displays a local cache of high-severity events. Manual synchronization requires the SIEM tab and `Action: Manually Sync Data`; AI triage requires the legacy `Action: Trigger AI Functions` grant and sends at most 50 bounded events.
+
+### AIOps RCA
+
+Visible tabs are Active Board, Patterns, and Global; their catalog grants are `Tab: AIOps RCA -> Active Board`, `... -> Predictive Analytics`, and `... -> Global Correlation`. Dashboard polling is ten seconds when enabled; analysis polling is sixty seconds. AIOps sockets additionally require Active Board access.
+
+The map distinguishes:
+
+- **Up / Clear**: no unresolved alerts.
+- **Down / Action Required**: unresolved alert without a later workflow state.
+- **Needs Dispatch**, **Investigating**, and **Ticket Dispatched**: workflow annotations for unresolved incidents.
+- **Under Maintenance**: independent blue outline; it does not hide green health or an active alert state.
+
+Acknowledgment hides alerts from the uncorrelated alert list but does not resolve them; active issue counts continue to include acknowledged unresolved alerts. Mark Site Up calls `POST /rca/resolve-site`, resolves every unresolved site alert, clears Needs Dispatch and investigation state, and leaves maintenance metadata separate. Site dialogs let authorized users manage investigation, dispatch, Needs Dispatch, and maintenance/ETR. Co-located sites use a stable radial offset with spokes. The unused `AIOpsMap` helper still contains an older map behavior and is not imported by the routed AIOps page.
+
+### Shift Logbook
+
+The Active Shift view includes note entry, recent-day navigation, and report generation. History access enables the independent explorer with search, role/date filters, day/week views, and administrator CSV export. Soft delete/restore stores `is_deleted`; the current API does not collect a deletion reason. A summary uses the selected shift/day/week scope, appends the generated result when requested by the UI, and falls back to a deterministic summary if the LLM does not finish within thirty seconds.
+
+Auto-Draft requires both `AIOps RCA` page access and `Action: Run RCA Analysis`; it fetches the scoped board and analysis and appends the generated incident-duration lines to the unsaved form.
+
+### Reporting & Briefings
+
+Three tabs: Daily Fusion Briefing, Custom Report Builder, Shared Library. Daily Fusion can generate the previous local calendar day's report and broadcast supplied content. The custom builder searches using space/comma/semicolon-separated terms and quoted phrases, selects matching articles or explicit IDs, then starts an asynchronous report generation. The user may save or broadcast the final report. Broadcast recipient lists allow up to 20 comma/semicolon-separated email addresses and reject newlines.
+
+### Keyword Analysis
+
+Five tabs: Overview, Keyword Analysis, Category Breakdown, Timeline, and Cross-Reference. The page reads persisted analytics from `/keyword-analysis/*`; it does not re-run scoring in the browser. Recategorization processes stored articles in server batches and requires the legacy `Action: Trigger AI Functions` grant.
+
+### Settings & Admin
+
+Eleven UI sections: Profile, Theme, Facilities, Internal Assets, RSS Sources, ML Training, AI & SMTP, Application Settings, Users & Roles, Backup & Restore, and Danger Zone. The nine operational Settings sections use tab grants; Profile/Theme are self-service views. Tab visibility does not imply mutation permission.
+
+`UsersRolesTab` handles searchable user directories, invitations, display accounts, roles, account status, session revocation, and reviewed recovery requests. `ApplicationSettingsTab` separates global defaults/failed-login alerting, risk scoring, and scheduler settings by action grant. Backup and destructive controls are shown only for built-in administrators; the legacy JSON and `.db` migration tools are labeled as partial operations.
+
+## Shared components and state
+
+- `Layout` filters sidebar links by page permission and displays the individual-account recovery prompt. Display accounts are exempt.
+- `MapContainer` waits for a non-zero size using `ResizeObserver` and implements **window-fill CSS positioning**, not the browser Fullscreen API.
+- `ThemeSelector` offers 21 themes, stores the choice in localStorage, and posts it to the signed-in account. `ThemeSync` applies the saved account theme after user refresh.
+- `MarkdownContent` renders report/brief Markdown in the application UI.
+- Zustand's `useAppStore` holds the latest dashboard push payload, socket state, investigating-site list, and outbound message callback. TanStack Query holds endpoint data and is invalidated/merged by the WebSocket hook.
+
+`useAIOpsWebSocket` uses `ws`/`wss` on the current browser host and places the opaque token in the query string because the browser WebSocket API cannot attach a custom Authorization header. It reconnects with capped exponential backoff unless the server closes with policy code 1008. It handles `dashboard_update`, `INVESTIGATING_UPDATE`, and `RCA_UPDATE`; newly observed CRITICAL/HIGH IDs can trigger browser notifications.
+
+## Timezone and themes
+
+`web/src/utils/timezone.ts` treats server date strings without an explicit offset as UTC and formats in `America/Chicago`. Theme variables are layered across `styles/theme.css`, `themes/themes.css`, and `styles/components.css`; `standard` uses the base palette.
+
+## Development and production build
 
 ```bash
 cd web
 npm ci
-npm run dev        # Starts Vite on http://0.0.0.0:5173
+npm run dev
+npm run build
 ```
 
-The Vite dev server proxies:
-- `/api/*` → `http://localhost:8101/api/*`
-- `/ws` → `ws://localhost:8101/ws`
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `VITE_API_URL` | `http://localhost:8101` | Backend API base URL (used in proxy config) |
-
-> **Note**: `VITE_API_URL` configures the Vite proxy. The Axios client uses the relative base URL `/api/v1`, relying on the Vite proxy in development and nginx routing in production.
-
----
-
-## 4. Routing & Permissions
-
-### Route Definitions
-
-Defined in `src/utils/routeConfig.ts` and wired in `src/App.tsx`:
-
-| Route | Page Component | Permission Key |
-|-------|---------------|----------------|
-| `/login` | `LoginPage` | None (public) |
-| `/forgot-password` | `ForgotPasswordPage` | None (public; generic reviewed request) |
-| `/reset-password` | `ResetPasswordPage` | None (public; single-use token required) |
-| `/verify-email` | `VerifyRecoveryEmailPage` | None (public; approved verification token required) |
-| `/` | `DashboardPage` | `Global Dashboards` |
-| `/threat-telemetry` | `ThreatTelemetryPage` | `Threat Telemetry` |
-| `/regional-grid` | `RegionalGridPage` | `Regional Grid` |
-| `/threat-hunting` | `ThreatHuntingPage` | `Threat Hunting & IOCs` |
-| `/aiops-rca` | `AiopsRcaPage` | `AIOps RCA` |
-| `/shift-logbook` | `ShiftLogbookPage` | `Shift Logbook` |
-| `/reporting` | `ReportingPage` | `Reporting & Briefings` |
-| `/keyword-analysis` | `KeywordAnalysisPage` | `Keyword Analysis` |
-| `/settings` | `SettingsPage` | `Settings & Admin` |
-
-### Permission Model
-
-`PAGE_PERMISSION_MAP` in `web/src/utils/routeConfig.ts` maps URL paths to permission strings. `PAGE_ROUTE_MAP` is the reverse mapping (permission → route).
-
-### ProtectedRoute Guard
-
-`ProtectedRoute` in `web/src/App.tsx` wraps all authenticated pages:
-
-1. If no `user` in `AuthContext`, redirects to `/login`.
-2. If the route has a required permission (via `PAGE_PERMISSION_MAP`), checks the user's page grants.
-3. If the user lacks access, renders an access-denied explanation and retains the session.
-4. Renders children inside `<Layout>` (sidebar navigation), filtering links by page grants.
-
-API endpoints independently enforce page, tab, action, and site-type permissions. The role editor loads the permission catalog from `/permissions/catalog`; sensitive operations such as sending email, generating reports, changing risk overrides, scheduler editing, user administration, and recovery review have separate action grants. API 403s show an access notice without clearing the session; 401s clear the session and return to login.
-
-### HashRouter
-
-The app uses `HashRouter`, so all routes are hash-based (`/#/threat-telemetry`). This avoids server-side routing configuration and works with the nginx static file server in production.
-
----
-
-## 5. Page Components
-
-### LoginPage (`src/pages/LoginPage.tsx`)
-
-- Username/password form with `POST /auth/login`.
-- Displays a restricted-system notice stating that access is for authorized users and may be monitored, recorded, and audited.
-- Provides a generic forgot-password request. Reset links are sent only after a permitted user administrator approves the request.
-- On success, stores token and user object in `sessionStorage` via `AuthContext.login()`.
-- Redirects to the first page in `user.allowed_pages`, or `/` for admin users.
-
-### DashboardPage (`src/pages/DashboardPage.tsx`)
-
-Four-tab layout:
-
-| Tab | Description |
-|-----|-------------|
-| **Operational Dashboard** | Real-time alerts, metrics, CIS scoring overview |
-| **Global Risk** | Global risk assessment with scoring overrides |
-| **Internal Risk** | Internal risk panel with manual/hybrid/auto scoring modes |
-| **Unified Brief** | AI-generated briefing with map-reduce pipeline |
-
-Key behaviors:
-- **Auto-rotation**: Cycles between Operational Dashboard tabs on a timer.
-- **Brief generation**: Triggers `POST /dashboard/generate-unified-brief`, then polls `GET /dashboard/brief-generation-status?generation_id=...` for progress. The generation ID persists in `sessionStorage` across SPA navigation.
-- **Scoring overrides**: Forms for global/internal CIS scoring with manual/hybrid/auto modes and C/I/L override columns.
-- **Broadcast**: Email button calls `POST /email/broadcast-brief` to distribute the generated brief.
-
-### ThreatTelemetryPage (`src/pages/ThreatTelemetryPage.tsx`)
-
-Four-section layout:
-
-| Section | Data Source | Features |
-|---------|------------|----------|
-| **RSS Articles** | `GET /threat/articles` | Pagination, category filter, keyword search |
-| **CVEs** | `GET /threat/cves` | Table with CISA KEV status badges |
-| **Cloud Outages** | `GET /threat/cloud-outages` | Filterable outage table |
-| **Crime Incidents** | `GET /threat/crime-incidents` | Map visualization with incident markers |
-
-Manual sync buttons trigger `POST /threat/sync-*` endpoints to force data refresh.
-
-### RegionalGridPage (`src/pages/RegionalGridPage.tsx`)
-
-MapLibre GL-based geospatial view with toggleable overlay layers:
-
-| Layer | Description |
-|-------|-------------|
-| Radar | Weather radar composite |
-| SPC | Storm Prediction Center outlooks |
-| NWS Warnings | National Weather Service warnings |
-| NWS Watches | National Weather Service watches |
-| OOS | Out-of-service site markers |
-| Fire | Active fire detections |
-| Wildfires | Wildfire perimeter data |
-| Earthquake | USGS earthquake events |
-
-Features:
-- **Site intersections**: Computes which monitored sites fall within hazard polygons.
-- **Analytics dashboard**: Embedded executive dash analytics within the map container.
-- **Weather preferences**: User-configurable weather overlay defaults.
-
-### ThreatHuntingPage (`src/pages/ThreatHuntingPage.tsx`)
-
-- **IOC Matrix**: Displays extracted indicators of compromise with pivot links to OSINT sources.
-- **Deep Hunt Builder**: Custom query interface for article search with boolean operators.
-- **OSINT Pivot**: Integration with external threat intelligence lookups.
-
-### AiopsRcaPage (`src/pages/AiopsRcaPage.tsx`)
-
-Core AIOps correlation and incident response board:
-
-| Feature | Description |
-|---------|-------------|
-| **Active Alerts Board** | Filterable by `user.allowed_site_types`; color-coded by status |
-| **Global Correlation** | Scatterplot visualization of cross-domain alert correlation |
-| **Site Dialog** | Shows unresolved-alert health and offers Mark Site Up / Resolve Alerts, workflow choices, and maintenance controls; maintenance exposes ETR, notes, and a dedicated clear action |
-| **Status Tracking** | Operational map health plus independent investigating, needs-dispatch, dispatched, and maintenance annotations |
-| **Fullscreen Mode** | CSS fixed-position fullscreen (not Fullscreen API) |
-
-Map status colors and precedence:
-- **Up / Clear** is green whenever the site has no unresolved alerts; **Down / Action Required** is red when an active issue has no later workflow state. Acknowledged alerts remain operational issues until resolved.
-- **Needs Dispatch** is bright silver/white after an operator selects it for active alerts; ordinary down alerts remain red until that workflow state is selected.
-- **Investigating** is amber; **Ticket Dispatched** is purple and takes precedence over an investigation marker after the dispatch write completes.
-- **Under Maintenance** is shown as a thicker blue marker outline and status annotation; it does not mask green health or active alert colors. Authorized users can clear it from the site dialog even with no active incident. Existing ETR expiry remains available.
-- Co-located sites use a compact, stable radial spread with connector spokes and a center point; down markers no longer have a red pulse glow.
-- Dispatch coloring aggregates all current site alerts: a site is dispatched only when every active alert is marked dispatched.
-- Investigating is auto-cleared when a site's active alert count transitions from greater than zero to zero.
-
-### ShiftLogbookPage (`src/pages/ShiftLogbookPage.tsx`)
-
-- **Day-stepper navigation**: Previous/next day controls with date display.
-- **Independent explorer tab**: Browse historical entries without affecting the active day view.
-- **Soft delete**: Entries can be deleted with a required reason field.
-- **Auto-assign shift**: Populates shift from `user.default_shift` (name + title format).
-- **LLM summary**: Generates shift summary via backend LLM; falls back to text summary if generation exceeds 30 seconds (prevents 504 timeout).
-
-### ReportingPage (`src/pages/ReportingPage.tsx`)
-
-| Tab | Description |
-|-----|-------------|
-| **Daily Fusion** | Generate comprehensive daily fusion report |
-| **Report Builder** | Custom report with configurable sections |
-| **Saved Reports** | Library of previously generated reports |
-| **Broadcast** | Email distribution management |
-
-### KeywordAnalysisPage (`src/pages/KeywordAnalysisPage.tsx`)
-
-Protected route: `/keyword-analysis`. The page uses React Query to read persisted article and keyword analytics from `/api/v1/keyword-analysis/*`.
-
-| Tab | Purpose |
-|---|---|
-| **Overview** | Keyword/article totals, weight ranges, and used/unused keyword counts |
-| **Keyword Analysis** | Search and sort keyword weights, trigger counts, and score contribution |
-| **Category Breakdown** | Compare category volume and average score over a selected period |
-| **Timeline** | Plot article volume, keyword matches, match rate, and average score over time |
-| **Cross-Reference** | Compare keyword occurrences across article categories |
-
-The page also supports score-distribution buckets, category details, recent articles for a selected keyword, and an authorized all-article recategorization action. The overview query refreshes every 30 seconds; recategorization requires `Action: Trigger AI Functions`.
-
-### SettingsPage (`src/pages/SettingsPage.tsx`)
-
-Administrative interface with sections:
-
-Tab visibility follows the caller's `Tab: Settings -> ...` grants rather than an administrator-role check. Individual action permissions gate user administration, recovery review, ML training, risk changes, scheduler edits, and other mutations; legacy backup/destructive controls remain administrator-only and display a read-only notice to other tab-authorized users.
-
-| Section | Description |
-|---------|-------------|
-| **Facilities** | Manage monitored locations and site metadata |
-| **Internal Assets** | CSV import for hardware/software asset inventories |
-| **RSS Feeds** | Add/remove RSS sources with inline weight editing for keywords |
-| **AI/LLM** | Configure LLM connection, model selection, temperature |
-| **Users & Roles** | Searchable account directory, email invitations, display accounts, recovery requests, role assignment |
-| **Application Settings** | Risk-scoring overrides, bounded scheduler schedules, and global application defaults |
-| **Backup & Restore** | Administrator-only encrypted full SQLite snapshots, weekly retention, off-host download, validated staging, UI-managed maintenance restore with progress, and offline fallback; legacy partial migration tools remain available |
-
----
-
-## 6. Shared Components
-
-### Layout (`src/components/Layout.tsx`)
-
-Full-height sidebar navigation:
-
-- **Collapsed/expanded toggle**: Sidebar width transitions between 56px and 230px.
-- **Permission-filtered nav**: Only renders nav items where `item.label` is in `user.allowed_pages`.
-- **User info panel**: Displays `full_name` and `job_title` (or `role` fallback) at sidebar bottom.
-- **Recovery-email prompt**: Individual accounts without an approved recovery email receive a persistent prompt explaining administrator approval and mailbox verification; display accounts are exempt.
-- **Logout button**: Calls `AuthContext.logout()`.
-- **Lucide icons**: Each nav item has an associated icon (`Activity`, `Globe`, `Crosshair`, `Shield`, `Radio`, `BookOpen`, `FileText`, `Settings`).
-
-### AIOpsMap (`src/components/AIOpsMap.tsx`)
-
-Reusable MapLibre/DeckGL map component. The current routed pages compose their maps directly and do not import `AIOpsMap`; keep this reference in sync if a page begins using the helper.
-
-### MapContainer (`src/components/MapContainer.tsx`)
-
-Fullscreen-capable wrapper for map components:
-
-- Uses `ResizeObserver` to detect when the container has non-zero dimensions before rendering children (prevents MapLibre initialization errors).
-- **Window-fill fullscreen**: Toggles between relative positioning and fixed `100vw × 100vh` overlay with `z-index: 1000`.
-- Backdrop click exits fullscreen.
-
-### ThemeSelector (`src/components/ThemeSelector.tsx`)
-
-Theme picker rendering 21 preset buttons:
-
-| Theme ID | Label |
-|----------|-------|
-| `standard` | Standard (default dark) |
-| `noc-terminal` | NOC Terminal (green monochrome) |
-| `high-contrast` | High Contrast Dark (yellow on black) |
-| `cyberpunk` | Cyberpunk (pink/cyan on purple) |
-| `solarized-dark` | Solarized Dark |
-| `midnight-ocean` | Midnight Ocean (blue on navy) |
-| `arctic-command` | Arctic Command |
-| `ember-watch` | Ember Watch |
-| `forest-ops` | Forest Ops |
-| `amethyst-grid` | Amethyst Grid |
-| `slate-steel` | Slate Steel |
-| `paper-light` | Paper Light |
-| `nordic-frost` | Nordic Frost |
-| `dracula-console` | Dracula Console |
-| `synthwave` | Synthwave |
-| `desert-signal` | Desert Signal |
-| `olive-command` | Olive Command |
-| `mono-ops` | Monochrome Ops |
-| `rose-pine` | Rose Pine |
-| `oceanic-teal` | Oceanic Teal |
-| `copper-wire` | Copper Wire |
-
-The selector currently exposes 21 themes. It applies the theme via the `data-theme` attribute on `<body>` and saves it to `localStorage` under `noc_theme`. When a user is signed in, selecting a theme also persists it through `POST /api/v1/auth/update-theme`; `ThemeSync` applies the account preference after login.
-
----
-
-## 7. Custom Hooks
-
-### useAIOpsWebSocket (`src/hooks/useAIOpsWebSocket.ts`)
-
-Manages the persistent WebSocket connection to the backend for users with AIOps RCA page access:
-
-**Connection**:
-- Connects to `ws(s)://{host}/ws?token=...` based on current protocol. The backend periodically revalidates the session and filters site data by the user's permitted site types.
-- Auto-reconnect with exponential backoff: `min(1000 × 2^attempt, 30000)` ms.
-
-**Message handling**:
-- `dashboard_update`: Standard payload with alerts, events, grid data. Stored in Zustand via `setDashboard()`. Triggers critical notification for new `CRITICAL`/`HIGH` severity alerts.
-- `INVESTIGATING_UPDATE`: UI state echo — updates `investigatingSites` in Zustand.
-- `RCA_UPDATE`: Database resync request — invalidates TanStack Query caches for `rca-dashboard` and `rca-analyze` keys.
-
-**Bidirectional control**:
-- Exposes `sendMessage(msg)` globally via Zustand's `setSendMessage()`, allowing any page to broadcast JSON commands over the WebSocket.
-
-**Return value**: `{ data: DashboardPayload | null, connected: boolean }`
-
----
-
-## 8. State Management
-
-### AuthContext (`src/utils/AuthContext.tsx`)
-
-React Context providing authentication state:
-
-```typescript
-interface AuthContextType {
-  user: User | null;
-  token: string;
-  login: (username: string, password: string) => Promise<User>;
-  logout: () => void;
-  refreshUser: () => Promise<void>;
-}
-```
-
-- **Persistence**: `user` and `token` stored in `sessionStorage` (keys: `noc_user`, `noc_token`).
-- **Auto-refresh**: `refreshUser()` calls `GET /auth/me` on mount to validate/refresh the session.
-- **401 handling**: Axios interceptor clears the session and redirects to `#/login` on 401 responses.
-- **403 handling**: Keeps the session active and displays an accessible permission-specific notice.
-
-**User interface** (`web/src/utils/AuthContext.tsx`):
-
-```typescript
-interface User {
-  id?: number;
-  username: string;
-  full_name?: string;
-  job_title?: string;
-  contact_info?: string;
-  account_type?: "individual" | "display";
-  email?: string | null;
-  email_verified_at?: string | null;
-  recovery_email_status?: string;
-  is_active?: boolean;
-  created_at?: string | null;
-  last_login_at?: string | null;
-  last_activity_at?: string | null;
-  default_shift?: string;
-  role?: string;
-  allowed_pages?: string[];      // Page-level permissions
-  allowed_actions?: string[];    // Action-level permissions
-  allowed_site_types?: string[]; // Site type filter for AIOps
-}
-```
-
-### TanStack Query
-
-Server-state management for all API data fetching:
-
-- **Cache keys**: Used consistently across components and WebSocket invalidation (e.g., `["rca-dashboard"]`, `["rca-analyze"]`).
-- **Polling**: Brief generation status polled with `refetchInterval`.
-- **Invalidation**: WebSocket `RCA_UPDATE` messages trigger `queryClient.invalidateQueries()` for affected keys.
-
-### Zustand Store (`src/store/useAppStore.ts`)
-
-Lightweight global store for UI-level state:
-
-```typescript
-interface AppState {
-  dashboard: DashboardPayload | null;  // Latest WebSocket payload
-  connected: boolean;                  // WebSocket connection status
-  investigatingSites: string[];        // Sites in investigating state
-  sendMessage: (msg: any) => void;     // WebSocket send function
-  // Setters...
-}
-```
-
-- `setInvestigatingSite()`: Toggles site in/out of the investigating list (deduplicates via `Set`).
-- `sendMessage`: Injected by `useAIOpsWebSocket` hook; used by pages to broadcast commands.
-
----
-
-## 9. API Client
-
-### Axios Instance (`src/utils/api.ts`)
-
-```typescript
-const api = axios.create({
-  baseURL: "/api/v1",
-});
-```
-
-**Request interceptor** (`web/src/utils/api.ts`):
-- Attaches `Authorization: Bearer <token>` from `sessionStorage` to every request.
-
-**Response interceptor** (`web/src/utils/api.ts`):
-- On 401: clears `noc_token` and `noc_user` from `sessionStorage`, redirects to `#/login`.
-- On 403: retains the session and emits an accessible permission notice with the missing grant.
-- All other errors propagate normally.
-
-**Usage pattern**:
-```typescript
-import api from "../utils/api";
-
-const { data } = await api.get("/dashboard/metrics");
-const { data } = await api.post("/auth/login", { username, password });
-```
-
-**Production routing**: In production, nginx proxies `/api/v1/*` to the FastAPI backend. The Axios base URL remains relative (`/api/v1`), so no configuration change is needed between environments.
-
----
-
-## 10. Theme System
-
-### Architecture
-
-Three-layer CSS custom property system:
-
-1. **Base** (`src/styles/theme.css`): `:root` defaults — the standard dark theme.
-2. **Overrides** (`src/themes/themes.css`): `[data-theme="..."]` selectors that redefine the same variables.
-3. **Components** (`src/styles/components.css`): Component-level styles consuming the variables.
-
-### Variable Reference
-
-**Backgrounds**:
-| Variable | Default | Usage |
-|----------|---------|-------|
-| `--bg-primary` | `#0a0e1a` | Page background |
-| `--bg-secondary` | `#111827` | Sidebar, secondary panels |
-| `--bg-tertiary` | `#1e293b` | Hover states, nested panels |
-| `--bg-card` | `#1a2332` | Card/panel backgrounds |
-| `--bg-card-hover` | `#1e293b` | Card hover state |
-| `--bg-input` | `#0f172a` | Form input backgrounds |
-
-**Text**:
-| Variable | Default | Usage |
-|----------|---------|-------|
-| `--text-primary` | `#e2e8f0` | Headings, primary content |
-| `--text-secondary` | `#94a3b8` | Body text, descriptions |
-| `--text-muted` | `#64748b` | Labels, timestamps |
-
-**Borders**:
-| Variable | Default | Usage |
-|----------|---------|-------|
-| `--border-primary` | `#2d3a50` | Card borders, table rules |
-| `--border-secondary` | `#1e293b` | Subtle dividers |
-
-**Accent Colors**:
-| Variable | Default | Usage |
-|----------|---------|-------|
-| `--accent-blue` | `#3b82f6` | Primary actions, links |
-| `--accent-cyan` | `#06b6d4` | Secondary highlights |
-| `--accent-green` | `#01a46d` | Success states |
-| `--accent-yellow` | `#eab308` | Warning states |
-| `--accent-orange` | `#f97316` | Elevated warnings |
-| `--accent-red` | `#ef4444` | Error/critical states |
-| `--accent-purple` | `#a855f7` | Special highlights |
-| `--accent-pink` | `#ec4899` | Special highlights |
-
-**Risk Level Colors** (CIS-aligned):
-| Variable | Default | Risk Level |
-|----------|---------|------------|
-| `--risk-green` | `#01a46d` | GREEN — Normal |
-| `--risk-blue` | `#377fc7` | BLUE — Elevated |
-| `--risk-yellow` | `#eab308` | YELLOW — Guarded |
-| `--risk-orange` | `#f97316` | ORANGE — High |
-| `--risk-red` | `#ef4444` | RED — Severe |
-
-Each risk level also has a `--shade-{color}` variant at 15% opacity for background fills.
-
-**Typography**:
-| Variable | Default |
-|----------|---------|
-| `--font-sans` | `system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif` |
-| `--font-mono` | `'Courier New', Courier, monospace` |
-
-**Spacing & Shadows**:
-| Variable | Default |
-|----------|---------|
-| `--radius-sm` | `4px` |
-| `--radius-md` | `8px` |
-| `--radius-lg` | `12px` |
-| `--shadow-sm` | `0 1px 2px rgba(0,0,0,0.3)` |
-| `--shadow-md` | `0 4px 6px rgba(0,0,0,0.4)` |
-| `--shadow-lg` | `0 10px 25px rgba(0,0,0,0.5)` |
-
-### Theme Overrides
-
-Twenty-one themes are exposed by `ThemeSelector`; the non-standard palettes are defined in `src/themes/themes.css` via `[data-theme="..."]` selectors. The base `standard` palette is defined in `src/styles/theme.css`. The active theme is applied by setting `document.body.setAttribute("data-theme", id)`.
-
-| Theme | Character |
-|-------|-----------|
-| `standard` | Default dark — no override needed; uses `:root` |
-| `noc-terminal` | Green monochrome on black — all colors map to `#00ff00` |
-| `high-contrast` | Yellow on black — all colors map to `#FFFF00` |
-| `cyberpunk` | Pink/cyan accents on deep purple |
-| `solarized-dark` | Solarized palette — muted earth tones |
-| `midnight-ocean` | Blue/cyan accents on deep navy |
-| `arctic-command` | Arctic Command |
-| `ember-watch` | Ember Watch |
-| `forest-ops` | Forest Ops |
-| `amethyst-grid` | Amethyst Grid |
-| `slate-steel` | Slate Steel |
-| `paper-light` | Paper Light |
-| `nordic-frost` | Nordic Frost |
-| `dracula-console` | Dracula Console |
-| `synthwave` | Synthwave |
-| `desert-signal` | Desert Signal |
-| `olive-command` | Olive Command |
-| `mono-ops` | Monochrome Ops |
-| `rose-pine` | Rose Pine |
-| `oceanic-teal` | Oceanic Teal |
-| `copper-wire` | Copper Wire |
-
----
-
-## 11. Timezone Handling
-
-### Centralized Utilities (`src/utils/timezone.ts`)
-
-All timestamps are displayed in **America/Chicago** timezone. The module provides:
-
-| Function | Returns | Example Output |
-|----------|---------|----------------|
-| `formatInChicago(d, options?, fallback?)` | Full datetime string | `Jun 30, 2026, 10:35 PM` |
-| `formatDateInChicago(d, fallback?)` | Date only | `Jun 30, 2026` |
-| `formatTimeInChicago(d, fallback?)` | Time only | `10:35 PM` |
-| `formatShortInChicago(d, fallback?)` | Short datetime | `Jun 30, 2026, 10:35 PM` |
-| `chicagoDateString(d?)` | ISO date string | `2026-06-30` |
-| `chicagoNow()` | Current time in Chicago | `Date` object |
-
-### UTC Handling
-
-The `ensureUtcDate()` helper in `web/src/utils/timezone.ts` addresses naive datetime strings from SQLite (for example, timestamps without a timezone indicator) by treating them as UTC rather than local system time.
-
-The function appends `Z` to any datetime string that lacks a timezone marker (`Z` or `±HH:MM` offset), forcing UTC interpretation before converting to America/Chicago for display.
-
----
-
-## 12. Build & Deployment
-
-### Development
-
-```bash
-cd web && npm run dev    # Vite dev server with HMR on port 5173
-```
-
-HMR is enabled by default. The file watcher uses polling for Docker volume-mount compatibility, configured in `web/vite.config.ts`.
-
-### Production Build
-
-```bash
-cd web && npm run build  # tsc -b && vite build
-```
-
-Output goes to `web/dist/` which is served by nginx in the Docker container.
-
-### Docker
-
-```bash
-# Full production build
-docker compose up --build -d
-
-# Dev profile (Vite dev server instead of nginx)
-docker compose --profile dev up --build -d
-```
-
-The `web` container mounts the `web/` source directory, so changes to frontend files are reflected instantly via Vite HMR in dev mode. Production builds require `docker compose up --build -d --force-recreate web`.
-
-### Vite Configuration (`web/vite.config.ts`)
-
-| Setting | Value | Purpose |
-|---------|-------|---------|
-| `server.port` | 5173 | Dev server port |
-| `server.host` | `0.0.0.0` | Listen on all interfaces |
-| `server.allowedHosts` | `["test.weasts.net"]` | Hostname allowlist |
-| `server.proxy["/api"]` | `VITE_API_URL` | Proxy API requests to backend |
-| `server.proxy["/ws"]` | `ws://...` | Proxy WebSocket to backend |
-| `watch.usePolling` | `true` | Polling-based file watching (Docker) |
-| `watch.interval` | 500ms | Poll interval |
-
-The `maplibre-assets` Vite plugin emits and serves MapLibre's worker and shared module, removes a Firefox-only legacy CSS selector, and protects MapLibre's selection reset from an undefined inline value. The dependency optimizer uses standard WebGL renderer information in Firefox instead of querying the deprecated unmasked-renderer extension. See [`reference/config/vite_config.md`](reference/config/vite_config.md) for implementation details.
-
-### Scripts
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start Vite dev server |
-| `npm run build` | TypeScript check + production build |
-| `npm run preview` | Preview production build locally |
+The Vite development server listens on port 5173 and uses polling for Docker file mounts. Production `web/Dockerfile` compiles to `dist/` and serves the static bundle through nginx on container port 5173 (host port 8501). Production frontend changes require rebuilding/recreating `web`.

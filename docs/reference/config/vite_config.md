@@ -14,7 +14,7 @@ The `maplibre-assets` plugin serves MapLibre's module worker and shared module d
 
 | Option | Value | Description |
 |--------|-------|-------------|
-| `plugins` | `[react()]` | Official Vite plugin for React — enables JSX transform, Fast Refresh (HMR), and Babel-based compilation. Imported from `@vitejs/plugin-react`. |
+| `plugins` | `[react(), maplibreAssets(), lumaFirefoxRendererInfo()]` | React transform/HMR plus MapLibre asset handling and Firefox compatibility fixes. |
 | `maplibre-assets` | MapLibre compatibility and worker plugin | Serves `maplibre-gl-worker.mjs` and `maplibre-gl-shared.mjs` in development, emits them together under `assets/` in production builds, and applies the Firefox CSS/drag-selection compatibility fixes. |
 | `optimizeDeps.esbuildOptions.plugins` | Browser compatibility optimizer | Avoids Firefox's deprecated `WEBGL_debug_renderer_info` query while retaining standard `VENDOR`/`RENDERER` device information. |
 
@@ -23,6 +23,10 @@ The `maplibre-assets` plugin serves MapLibre's module worker and shared module d
 | Option | Value | Default | Description |
 |--------|-------|---------|-------------|
 | `server.port` | `5173` | `5173` | Port the Vite dev server listens on. Must match the port exposed in `Dockerfile` and mapped in `docker-compose.yml`. |
+| `server.host` | `0.0.0.0` | — | Binds the dev server to all container interfaces so the published Compose port is reachable. |
+| `server.allowedHosts` | `["test.weasts.net"]` | — | Explicit extra host accepted by Vite's dev host validation. |
+| `server.watch.usePolling` | `true` | `false` | Enables container bind-mount change detection. |
+| `server.watch.interval` | `500` ms | `100` ms | Poll interval used with `usePolling`. |
 
 ### `server.proxy`
 
@@ -48,14 +52,14 @@ Two proxy rules forward browser requests to the backend during development:
 const apiUrl = process.env.VITE_API_URL || "http://localhost:8101";
 ```
 
-- **Development (`web-dev`):** `VITE_API_URL=http://api:8101` → proxy targets Docker internal service name.
-- **Production (`web`):** `VITE_API_URL=http://localhost:8101` → proxy targets host-localhost. In production, Nginx (not Vite) handles proxying via `nginx.conf`.
+- **Development (`web-dev`):** `VITE_API_URL=http://api:8101` → the running Vite dev server proxies to the Docker-internal API service.
+- **Production (`web`):** Vite is not running. The container serves the already-built static frontend and Nginx handles `/api/` and `/ws`; the Compose `VITE_API_URL=http://localhost:8101` runtime variable is not consumed by that static bundle or Nginx configuration.
 
 ## Environment Variables
 
 | Variable | Required | Default | Scope | Description |
 |----------|----------|---------|-------|-------------|
-| `VITE_API_URL` | No | `http://localhost:8101` | Build/Dev | Backend API base URL. Used to construct both HTTP and WebSocket proxy targets. Must include protocol and port. |
+| `VITE_API_URL` | No | `http://localhost:8101` | Vite dev server | Target used to construct development HTTP and WebSocket proxy addresses. The production React client uses relative `/api/v1` and `/ws` URLs, with Nginx as its proxy. |
 
 ## Dependencies
 

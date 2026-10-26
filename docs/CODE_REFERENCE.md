@@ -33,6 +33,7 @@ The detailed module pages live under `docs/reference/`. The current source-to-re
 | Workers | `src/workers/*.py` | `reference/workers/` |
 | Webhook | `src/webhook_listener.py` | `WEBHOOK.md`, `reference/api/webhook_listener.md` |
 | ML training | `src/train_model.py` | `reference/train_model.md` |
+| Operational scripts | `scripts/*.py` | `reference/scripts/` and `reference/core/backup_restore.md` |
 
 ## Frontend Modules
 

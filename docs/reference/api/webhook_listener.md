@@ -1,44 +1,41 @@
 # Module: `src.webhook_listener`
 
-FastAPI SolarWinds gateway running on port `8100`. It accepts webhook requests separately from the authenticated API so public monitoring infrastructure does not need access to the main application surface.
+Standalone SolarWinds gateway on port 8100. Lifespan startup runs `init_db()` before request handling unless a coordinated restore marker is active; a status task publishes worker/webhook drain acknowledgements every 0.5 seconds for UI restore coordination.
 
-## Configuration
+## `GET /health`
 
-| Setting | Behavior |
-|---|---|
-| `WEBHOOK_HMAC_SECRET` | Enables HMAC validation when set. |
-| `WEBHOOK_SIGNATURE_HEADER` | Signature header; default `X-SolarWinds-Signature`. |
-| `WEBHOOK_TIMESTAMP_HEADER` | Timestamp header; default `X-SolarWinds-Timestamp`. |
-| `WEBHOOK_REPLAY_WINDOW_SECONDS` | Timestamp/replay window; default 300 seconds. |
-| `WEBHOOK_MAX_BODY_BYTES` | Maximum request body; default 1 MiB. |
-| `ALLOW_UNSIGNED_WEBHOOKS` | Explicit migration exception for unsigned requests. |
+Unauthenticated liveness endpoint. Returns `{"status":"ok"}` and does not query the database.
 
-## Functions
+## Request validation: `_verify_webhook(request, body)`
 
-### `health() -> dict`
+- If no HMAC secret is configured, unsigned traffic is accepted only when `ALLOW_UNSIGNED_WEBHOOKS=true`; otherwise the route returns 503.
+- With a secret, the configured signature header is mandatory. With the default replay window, the configured numeric timestamp header is also mandatory and must be within the configured window.
+- Compares HMAC-SHA256 signatures in constant time; timestamped requests accept a `timestamp + "." + body` signature and the legacy body-only form.
+- Tracks timestamp/signature pairs in a process-local ordered cache, removes old entries, and bounds it to 10,000 entries.
 
-`GET /health` returns `{"status": "ok"}` without authentication.
+Body byte size is enforced in `receive_alert()` before `_verify_webhook()`; invalid JSON, non-object/empty JSON, and more than 100 top-level keys are rejected before queueing.
 
-### `_verify_webhook(request, body) -> None`
+## `classify_device(text_corpus, node_type_hint=None)`
 
-Validates request size, signature, and timestamp. HMAC is calculated over the request body and timestamp using the configured secret. It rejects missing/invalid signatures, malformed timestamps, timestamps outside the replay window, and repeated signatures tracked in the in-memory replay cache. It raises an HTTP error on failure.
+First normalizes a supplied type hint using `EnterpriseAIOpsEngine.normalize_domain_hint()`. Otherwise scans the combined text for Internet, communications, power, compute, or SCADA fingerprints. The fallback is the string `Network Node`. The engine's canonical Internet key is `INTERNET`; `PRIMARY_INTERNET` is accepted as an input alias.
 
-### `classify_device(text_corpus, node_type_hint=None) -> str`
+## `smart_extract(payload)`
 
-Lowercases the combined node/device text and matches keyword fingerprints against the seven-domain infrastructure ontology. An explicit usable hint is considered with the same normalization rules. It returns the best domain or the fallback classification.
+Reads `Node_Details`, `Performance_Metrics`, and `Custom_Properties_Universal`; returns a normalized dict containing node/IP, severity, alert level, event type, status, resolution flag, device type, event category, site group, and primary/secondary communications. Missing IPv4 values may be recovered from the serialized payload. Resolution terms are matched on word boundaries. The function does not persist data.
 
-### `smart_extract(payload) -> dict`
+## `process_payload_background(raw_payload)`
 
-Normalizes supported SolarWinds payload shapes into the fields needed by the alert model: node name, IP, status, severity, alert level, event type, custom properties, and raw payload. The alert-level chain includes direct `Alert_Level`, nested universal custom properties, and normalized values.
+Creates its own SQLAlchemy session, normalizes/classifies, adds `Normalized_Alert_Level` to the payload, and:
 
-### `process_payload_background(raw_payload) -> None`
+- Resolves all currently unresolved rows for the same node name and writes a `Webhook`/`Resolution` timeline event; or
+- Inserts a new `SolarWindsAlert` with the raw JSON and a `Webhook`/`Alert` timeline event.
 
-Runs after the HTTP response. It extracts and classifies the alert, adds `Normalized_Alert_Level`, detects resolution terms with word-boundary matching, creates or resolves `SolarWindsAlert`, and writes `TimelineEvent` records. Database sessions are created inside the background operation.
+The timeline records carry structured `site_name`. Exceptions roll back, log, and are swallowed by the background handler. The function itself does not run AIOps clustering or escalation.
 
-### `receive_alert(request, background_tasks)`
+## `receive_alert(request, background_tasks)`
 
-`POST /webhook/solarwinds`. Reads and limits the body, validates the webhook, parses JSON, queues `process_payload_background` with FastAPI `BackgroundTasks`, and returns an acceptance response before correlation completes.
+`POST /webhook/solarwinds`. It checks the restore gate and byte limit, verifies signing, parses and validates the JSON object, increments the pending-task count, and queues `_process_payload_with_restore_tracking()`. The current decorator has no `status_code=202`, so success is HTTP 200 with an accepted JSON body. Acceptance means queued, not persisted.
 
-## Operational Expectations
+## Relevant settings
 
-A successful HTTP response confirms request acceptance, not necessarily completed persistence. Check webhook logs and the database-backed AIOps board for processing results. Restrict port `8100` at the firewall and prefer signed requests in production.
+`WEBHOOK_HMAC_SECRET`, `WEBHOOK_SIGNATURE_HEADER`, `WEBHOOK_TIMESTAMP_HEADER`, `WEBHOOK_REPLAY_WINDOW_SECONDS`, `WEBHOOK_MAX_BODY_BYTES`, `ALLOW_UNSIGNED_WEBHOOKS`, and the restore coordination paths are described in [`docs/WEBHOOK.md`](../../WEBHOOK.md) and [`docs/reference/config/env_example.md`](../config/env_example.md).

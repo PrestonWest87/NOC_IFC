@@ -1,301 +1,37 @@
-# Module: `src.api.routes.threat`
+# Route module: `src.api.routes.threat`
 
-Threat intelligence routes for CVEs, cloud outages, crime incidents, article management, feed fetching, CISA KEV sync, cloud status sync, elastic cache sync, and SIEM triage generation. Prefix: `/api/v1/threat`.
+Prefix: `/api/v1/threat`. Every route requires page permission `Threat Telemetry`; data-view and manual-sync endpoints also require the tab/action grants below.
 
----
+## Read endpoints
 
-## Endpoint: `GET /cves`
+| Method/path | Additional grant | Parameters/behavior |
+|---|---|---|
+| `GET /cves` | `Tab: Threat Telemetry -> CISA KEV` | `limit` 1–200 (default 50), `days_back` 1–365 (default 30); returns CISA KEV rows. |
+| `GET /cloud-outages` | `Tab: Threat Telemetry -> Cloud Services` | `active_only` default true; `days_back` 1–90 (default 7); there is no `limit` query parameter on this route. |
+| `GET /crime-incidents` | `Tab: Threat Telemetry -> Perimeter Crime` | `hours_back` 1–168 (default 24), `max_distance` at least 0.1 miles (default 1.0). Stored distance is measured from the Little Rock headquarters point by the current crime worker. |
+| `GET /articles` | `Tab: Threat Telemetry -> RSS Triage` | `category` is `live|pinned|low|search`; page starts at 1; `page_size` 5–100; optional `cat_filter`, `search_term`, and `min_score>=0`. Returns `{items,total,total_pages,page}`. |
+| `GET /articles/{article_id}` | RSS Triage tab | Returns article detail, matched keyword weights, summed keyword contribution, and extracted IOCs; missing article currently returns `{error:"Article not found"}` in a normal response. |
 
-### Purpose
-Returns CVE (Common Vulnerabilities and Exposures) entries with configurable lookback and limit.
+Article category filter options are rendered by `ThreatTelemetryPage.tsx`. Their exact strings currently lag some category labels emitted by the backend categorizer; see [`DOCUMENTATION_AUDIT.md`](../../../DOCUMENTATION_AUDIT.md#source-level-mismatches-surfaced-during-the-audit).
 
-### Parameters
-| Parameter    | Type  | Default | Constraints  | Description                           |
-|--------------|-------|---------|--------------|---------------------------------------|
-| `limit`      | `int` | `50`    | 1-200        | Maximum number of CVEs to return.     |
-| `days_back`  | `int` | `30`    | 1-365        | Days of CVE history to include.       |
+## Manual synchronization
 
-### Returns
-List of CVE objects.
+Each manual sync requires the relevant tab plus `Action: Manually Sync Data`.
 
-### Raises
-Returns HTTP 502 when the Elasticsearch sync fails and HTTP 503 when synchronization is skipped because `ELASTIC_URL` is not configured.
+| Method/path | Tab | Behavior |
+|---|---|---|
+| `POST /fetch-feeds` | RSS Triage | Runs the scheduler's RSS fetch cycle synchronously; returns a status/message object. |
+| `POST /sync-cisa-kev` | CISA KEV | Calls `fetch_cisa_kev()` synchronously. |
+| `POST /sync-cloud-status` | Cloud Services | Calls `fetch_cloud_outages()` synchronously. |
+| `POST /fetch-crime-data` | Perimeter Crime | Calls `force_fetch_crime_data()` and returns status from its boolean result. |
 
-### Flow
-Direct delegation to `svc.get_cves()`.
+## Elastic compatibility endpoints
 
-### Dependencies
-- `src.services.get_cves()`
+These routes are mounted under Threat Telemetry for compatibility, but additionally require the `Threat Hunting & IOCs` page and `Tab: Reporting -> Elastic SIEM Report`.
 
----
+| Method/path | Additional grant | Behavior |
+|---|---|---|
+| `POST /sync-elastic-cache?hours_back=24` | `Action: Manually Sync Data` | `hours_back` 1–168; calls the Elastic worker. Returns imported count; HTTP 502 on sync error and HTTP 503 when sync is skipped because `ELASTIC_URL` is blank. |
+| `POST /generate-siem-triage` | Legacy `Action: Trigger AI Functions` | JSON `{events:[...]}` with 1–50 bounded event records. Each optional field has a maximum length; serialized payload over 100 KB returns HTTP 413. |
 
-## Endpoint: `GET /cloud-outages`
-
-### Purpose
-Returns cloud service provider outage records, optionally filtering to only active outages.
-
-### Parameters
-| Parameter      | Type    | Default | Constraints | Description                             |
-|----------------|---------|---------|-------------|-----------------------------------------|
-| `active_only`  | `bool`  | `True`  | —           | If true, returns only unresolved outages.|
-| `days_back`    | `int`   | `7`     | 1-90        | Days of outage history to include.      |
-
-### Returns
-List of cloud outage objects.
-
-### Raises
-None.
-
-### Flow
-Direct delegation to `svc.get_cloud_outages()`.
-
-### Dependencies
-- `src.services.get_cloud_outages()`
-
----
-
-## Endpoint: `GET /crime-incidents`
-
-### Purpose
-Returns recent crime incidents within a configurable time window and distance radius.
-
-### Parameters
-| Parameter      | Type    | Default | Constraints | Description                             |
-|----------------|---------|---------|-------------|-----------------------------------------|
-| `hours_back`   | `int`   | `24`    | 1-168       | Hours of crime history to include.      |
-| `max_distance` | `float` | `1.0`   | >=0.1       | Maximum distance in miles from sites.   |
-
-### Returns
-List of crime incident objects.
-
-### Raises
-None.
-
-### Flow
-Direct delegation to `svc.get_recent_crimes()`.
-
-### Dependencies
-- `src.services.get_recent_crimes()`
-
----
-
-## Endpoint: `GET /articles`
-
-### Purpose
-Returns paginated articles with filtering by category type, sub-category, search term, and minimum score.
-
-### Parameters
-| Parameter     | Type   | Default   | Constraints                     | Description                                    |
-|---------------|--------|-----------|---------------------------------|------------------------------------------------|
-| `category`    | `str`  | `"live"`  | `^(live\|pinned\|low\|search)$` | Top-level article category.                    |
-| `cat_filter`  | `str`  | `"All"`   | —                               | Sub-category filter (e.g., threat type).       |
-| `page`        | `int`  | `1`       | >=1                             | Page number.                                   |
-| `page_size`   | `int`  | `20`      | 5-100                           | Articles per page.                             |
-| `search_term` | `str`  | `None`    | —                               | Optional search query string.                  |
-| `min_score`   | `int`  | `0`       | >=0                             | Minimum relevance score filter.                |
-
-### Returns
-```json
-{
-  "items": [...],
-  "total": <int>,
-  "total_pages": <int>,
-  "page": <int>
-}
-```
-
-### Raises
-None.
-
-### Flow
-Calls `svc.get_paginated_articles()` with all filter parameters and returns the paginated result.
-
-### Dependencies
-- `src.services.get_paginated_articles()`
-
----
-
-## Endpoint: `POST /fetch-feeds`
-
-### Purpose
-Manually triggers an RSS feed fetch operation.
-
-### Parameters
-None.
-
-### Returns
-```json
-{
-  "status": "ok",
-  "message": "Elastic cache synced.",
-  "result": {"status": "ok", "imported": 0}
-}
-```
-
-### Raises
-Returns HTTP 502 when the Elasticsearch sync fails and HTTP 503 when synchronization is skipped because `ELASTIC_URL` is not configured.
-
-### Flow
-1. Imports `fetch_feeds` from `src.scheduler`.
-2. Calls it with `source="API Trigger"`.
-3. Returns success, or catches any exception and returns error message.
-
-### Dependencies
-- `src.scheduler.fetch_feeds()`
-
----
-
-## Endpoint: `POST /sync-cisa-kev`
-
-### Purpose
-Manually syncs the CISA Known Exploited Vulnerabilities (KEV) catalog.
-
-### Parameters
-None.
-
-### Returns
-```json
-{
-  "status": "ok" | "error",
-  "message": "<description>"
-}
-```
-
-### Raises
-None.
-
-### Flow
-1. Imports `fetch_cisa_kev` from `src.workers.cve_worker`.
-2. Calls the fetch function.
-3. Returns success, or catches any exception and returns error message.
-
-### Dependencies
-- `src.workers.cve_worker.fetch_cisa_kev()`
-
----
-
-## Endpoint: `POST /sync-cloud-status`
-
-### Purpose
-Manually triggers a sync of cloud provider status/outage data.
-
-### Parameters
-None.
-
-### Returns
-```json
-{
-  "status": "ok" | "error",
-  "message": "<description>"
-}
-```
-
-### Raises
-None.
-
-### Flow
-1. Imports `fetch_cloud_outages` from `src.workers.cloud_worker`.
-2. Calls the fetch function.
-3. Returns success, or catches any exception and returns error message.
-
-### Dependencies
-- `src.workers.cloud_worker.fetch_cloud_outages()`
-
----
-
-## Endpoint: `POST /fetch-crime-data`
-
-### Purpose
-Manually triggers a fetch of crime incident data.
-
-### Parameters
-None.
-
-### Returns
-```json
-{
-  "status": "ok" | "error",
-  "message": "<description>"
-}
-```
-
-### Raises
-None.
-
-### Flow
-Calls `svc.force_fetch_crime_data()` and returns success or error based on the boolean result.
-
-### Dependencies
-- `src.services.force_fetch_crime_data()`
-
----
-
-## Endpoint: `POST /sync-elastic-cache`
-
-### Purpose
-Manually triggers synchronization of the Elasticsearch cache for recent data.
-
-### Parameters
-| Parameter    | Type  | Default | Constraints | Description                           |
-|--------------|-------|---------|-------------|---------------------------------------|
-| `hours_back` | `int` | `24` | 1–168 | Hours of data to include in the sync. |
-
-### Returns
-```json
-{
-  "status": "ok" | "error",
-  "message": "<description>"
-}
-```
-
-### Raises
-None.
-
-### Flow
-1. Imports the worker's `run_elastic_sync` entry point.
-2. Synchronizes bounded, high-severity events into the local cache.
-3. Returns the worker result, HTTP 502 on a sync error, or HTTP 503 when the worker skips because `ELASTIC_URL` is blank.
-
-### Dependencies
-- `src.workers.elastic_worker.run_elastic_sync()`
-
----
-
-## Endpoint: `POST /generate-siem-triage`
-
-### Purpose
-Generates an AI-powered SIEM triage summary for a given set of security events.
-
-### Parameters
-| Parameter | Type               | Description                                   |
-|-----------|--------------------|-----------------------------------------------|
-| `data`    | object             | JSON body containing 1-50 bounded event objects. |
-
-### Returns
-```json
-{
-  "summary": "<generated triage summary or fallback message>"
-}
-```
-
-### Raises
-Returns HTTP 413 when the serialized event payload exceeds 100 KB.
-
-### Flow
-1. Imports `generate_siem_triage_summary` from `src.utils.llm`.
-2. Opens a database session.
-3. Calls the triage generator with the session and events list.
-4. Returns the generated summary or a controlled failure message.
-
-### Dependencies
-- `src.utils.llm.generate_siem_triage_summary()`
-- `src.core.db.SessionLocal`
-## Current Source Corrections
-
-The router prefix is `/api/v1/threat` and every route requires the `Threat Telemetry` page permission. Elastic cache sync and SIEM triage additionally require the `Threat Hunting & IOCs` page and `Tab: Reporting -> Elastic SIEM Report`; manual sync requires `Action: Manually Sync Data`, and triage requires `Action: Trigger AI Functions`.
-
-Current endpoint details:
-
-- `GET /articles/{article_id}` returns one article detail record or a not-found error.
-- `GET /cloud-outages` filters by `active_only` and `days_back`; it does not accept a `limit` parameter.
-- `POST /sync-elastic-cache` is retained for Threat Telemetry clients; the Threat Hunting UI uses the equivalent `/hunting` endpoints so page and tab permissions align.
+The Threat Hunting UI calls the corresponding `/hunting/*` endpoints to keep its page/tab authorization aligned. See [`API.md`](../../../API.md#threat-endpoints-threat).

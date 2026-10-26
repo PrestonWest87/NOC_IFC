@@ -1,91 +1,64 @@
 # SolarWinds Webhook Gateway
 
-## Overview
+The standalone FastAPI gateway in `src/webhook_listener.py` listens on port 8100. It validates and normalizes incoming SolarWinds-style events, then writes alert and timeline records through a FastAPI background task. The one-minute escalation job and AIOps routes process persisted alerts afterward; the webhook handler itself does not run root-cause analysis.
 
-FastAPI gateway on port **8100** (`src/webhook_listener.py`). Receives
-SolarWinds Orion webhook POSTs, normalizes payloads, classifies devices against
-a 7-domain ontology, and persists alerts to the database. Runs as a standalone
-container.
+## Endpoint and successful response
 
----
-
-## Endpoint
-
-```
+```text
 POST /webhook/solarwinds
+Content-Type: application/json
 ```
 
-Accepts a JSON body from SolarWinds Orion alert actions. Returns `202 Accepted`
-immediately while processing continues in the background.
+The route currently returns HTTP **200** with a JSON body like `{"status":"accepted","message":"Payload queued for AI processing."}` once the payload is queued. The message text is legacy wording: persistence is performed by `process_payload_background`; an accepted response does not guarantee the background database write completed.
 
----
+## Validation and signing
 
-## Processing Flow
+1. Rejects while a restore maintenance marker is active (503).
+2. Enforces `WEBHOOK_MAX_BODY_BYTES` against both `Content-Length` when supplied and the actual body bytes (413 when too large).
+3. Parses a non-empty JSON object with no more than 100 top-level fields (400 for invalid JSON, 422 for the wrong object shape/field count).
+4. If `WEBHOOK_HMAC_SECRET` is set, requires the configured signature header. With the default positive replay window it also requires a numeric Unix timestamp header within `WEBHOOK_REPLAY_WINDOW_SECONDS`.
+5. Compares HMAC-SHA256 in constant time. With a timestamp, it accepts the timestamp-prefixed `timestamp + "." + body` signing form and the legacy body-only form. It rejects a repeated `timestamp:signature` pair from the in-process 10,000-entry replay cache (409).
+6. If no HMAC secret is configured, unsigned requests are rejected with 503 unless the explicit migration exception `ALLOW_UNSIGNED_WEBHOOKS=true` is enabled.
 
-1. **Receive** — parse JSON body via `request.json()`. Return `400` on failure.
-2. **Queue background task** — FastAPI `BackgroundTasks` runs the remaining steps
-   asynchronously so the webhook caller gets an immediate `202`.
-3. **Normalize** — `smart_extract()` extracts and standardises:
-   - **Node details**: `node_name`, `ip_address`, `severity`, `alert_level`,
-     `event_type`, `status`.
-   - **Device type** from `MachineType` or
-     `Custom_Properties_Universal.Node_Type`.
-   - **Site group** from `Custom_Properties_Universal.Site` or `City`.
-   - **Primary / secondary comms** for fleet correlation.
-   - **Resolution detection** via keywords: `resolved`, `up`, `ok`, `clear`,
-     `operational`, `recovered`.
-   - **IP fallback** — regex extraction from the raw payload when `ip_address`
-     is `"Unknown"`.
-4. **Classify** — `classify_device()` fingerprints the device against the 7
-   ontology domains (see below).
+`WEBHOOK_SIGNATURE_HEADER`, `WEBHOOK_TIMESTAMP_HEADER`, `WEBHOOK_REPLAY_WINDOW_SECONDS`, `WEBHOOK_MAX_BODY_BYTES`, `WEBHOOK_HMAC_SECRET`, and `ALLOW_UNSIGNED_WEBHOOKS` are documented in [the environment reference](reference/config/env_example.md). The nonce cache is process-local, so request signing and network isolation remain important.
 
----
+## Payload normalization
 
-## Device Classification Ontology
+`smart_extract(payload)` reads:
 
-| Domain | Matching Keywords |
-|--------|-------------------|
-| `PRIMARY_INTERNET` | vsat, cellular, sd-wan, modem, radio, isp, internet |
-| `COMMS_EQUIPMENT` | fw, firewall, asa, palo, fortigate, meraki, rtr, router, gateway, switch, nexus, catalyst, ap, wireless |
-| `POWER_SUPPLIES` | ups, pdu, ats, battery, generator, hvac, ac unit, dc power |
-| `COMPUTE` | vm, host, server, storage, san, nas, esxi |
-| `SCADA` | rtu, plc, meter, substation, plant, relay |
-| `FACILITIES` | Match by location type or fallback |
-| `Network Node` | Default fallback when no other domain matches |
+| Normalized field | Source fields |
+|---|---|
+| Node | `Node_Details.NodeName`, `Node_Details.SysName`, `entity_caption` |
+| IP | `Node_Details.IP_Address`; if absent, first IPv4-shaped value found in the serialized payload |
+| Device hint | `Node_Details.MachineType`, `Custom_Properties_Universal.Node_Type`, `entity_type` |
+| Severity/alert level | top-level and universal custom properties |
+| Event type | `AlertName`, `check`, `class`, `description` |
+| Status | node status description or top-level description |
+| Site | `Custom_Properties_Universal.Site`, then `City` |
+| Communications metadata | `Primary_Comms` and `Secondary_Comms` |
 
----
+Resolution detection uses word-boundary matches for `resolved`, `up`, `ok`, `clear`, `operational`, or `recovered` in normalized status/description. The alert level is copied into `raw_payload.Normalized_Alert_Level` for later escalation.
 
-## Alert Resolution Logic
+### Device domain keys
 
-When the incoming status contains a resolution keyword (`resolved`, `up`, `ok`,
-`clear`, `operational`, `recovered`), all **active (non-Resolved)** alerts for
-the same `node_name` are updated:
+The classifier first passes an explicit device hint through `EnterpriseAIOpsEngine.normalize_domain_hint()`. If that produces no canonical key, keyword matching can return `INTERNET`, `COMMS_EQUIPMENT`, `POWER_SUPPLIES`, `COMPUTE`, or `SCADA`; unmatched text falls back to `Network Node`. Hints can also normalize to `RTU` or `FACILITIES`. The engine's canonical internet key is `INTERNET`; `PRIMARY_INTERNET` is a compatibility alias, not the engine's canonical output.
 
-- `status` → `"Resolved"`
-- `resolved_at` → `datetime.utcnow()`
-- A `TimelineEvent(type=Resolution)` is created to record the event.
+## Persistence and resolution
 
----
+- For a resolution event, the background task marks every unresolved alert with the same node name `Resolved`, sets `resolved_at`, adds a site-scoped `TimelineEvent`, and commits.
+- For a new event, it creates `SolarWindsAlert` with normalized fields and the original JSON in `raw_payload`, then creates a site-scoped alert timeline row and commits.
+- Any background exception rolls back and is logged; it cannot change the already-returned HTTP response.
 
-## New Alert Logic
+## Response/error summary
 
-For non-resolution alerts a new `SolarWindsAlert` record is created with:
+| Condition | HTTP response |
+|---|---|
+| Accepted and queued | 200, `status="accepted"` |
+| Invalid JSON | 400 |
+| Missing/invalid/expired signature or replayed request | 401 / 409 |
+| Body too large | 413 |
+| Invalid JSON object shape / more than 100 fields | 422 |
+| Signing is not configured and unsigned exception is disabled | 503 |
+| Unhandled gateway failure before acceptance | 500 |
 
-- All normalised fields from `smart_extract()`.
-- Original payload preserved in the `raw_payload` JSON column.
-- `mapped_location` set from the extracted site group.
-- `is_correlated = False` (correlation runs downstream in the AIOps engine).
-- A `TimelineEvent(type=Alert)` is created to record the event.
-
----
-
-## Error Handling
-
-| Condition | Response |
-|-----------|----------|
-| Invalid JSON in request body | `400 Bad Request` |
-| Unhandled exception during processing | `500 Internal Server Error` |
-| Database write failure | Rollback + `500` |
-
-Comprehensive logging is emitted at every processing step for audit and
-debugging purposes.
+`GET /health` is an unauthenticated liveness response. Restrict host port 8100 to approved sender networks and use signed requests in production.

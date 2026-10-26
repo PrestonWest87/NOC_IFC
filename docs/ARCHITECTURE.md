@@ -48,7 +48,7 @@ The API, worker, and webhook share `./data` as `/app/data`. SQLite is the only s
 
 ### API application
 
-`src/api/main.py` creates the FastAPI application, installs `authentication_middleware`, configures CORS from `CORS_ORIGINS`, includes 17 routers, initializes the database during lifespan startup, and starts the 10-second WebSocket broadcaster. `/health` is a liveness response; `/ready` verifies a database query and returns `503` when the database is unavailable.
+`src/api/main.py` creates the FastAPI application, installs `authentication_middleware`, configures CORS from `CORS_ORIGINS`, includes 17 routers, initializes the database during lifespan startup, and starts the 10-second WebSocket broadcaster. `/health` is a liveness response; `/ready` verifies a database query and returns `503` when the database is unavailable. The current OpenAPI schema exposes 177 paths and 189 HTTP operations; `docs/API.md` inventories the operations.
 
 The 17 router modules are `auth`, `dashboard`, `threat`, `regional`, `hunting`, `rca`, `aiops`, `logbook`, `reporting`, `settings`, `settings_admin` (mounted as `/admin`), `llm`, `email`, `keyword_analysis`, `permissions`, `user_admin`, and `application_settings`.
 
@@ -63,23 +63,25 @@ The API uses `src.core.db`; the scheduler imports the compatibility surface from
 - `HybridScorer` combines configured keyword weights with the persisted ML model when available.
 - `categorize_text` assigns article categories using the categorizer rules.
 - `EnterpriseIOCExtractor` refangs and extracts indicators, validates IPs, and attaches context.
-- `EnterpriseAIOpsEngine` maps devices into the ontology, clusters alerts by site, finds fleet outages, identifies patient zero, calculates root cause, and produces chronic insights.
+- `EnterpriseAIOpsEngine` maps devices into the ontology, clusters alerts by site, finds fleet outages, identifies patient zero, calculates root cause, and produces chronic insights. Its canonical Internet-domain key is `INTERNET`; `PRIMARY_INTERNET` is accepted as a normalized compatibility alias. Unclassified devices return `UNKNOWN_DOMAIN` from the engine.
 - `src/utils/llm.py` handles context-window limits, chunking, map/reduce prompts, progress state, and brief assembly.
 
 ## Data Flow
 
 ### RSS and enrichment
 
-1. `fetch_feeds` reads active `FeedSource` rows.
-2. `fetch_all_feeds_chunked` downloads five feeds concurrently per chunk with a 15-second request timeout.
-3. `parse_and_score_feed` rejects known links, scores title/summary text, categorizes it, and extracts IOCs for sufficiently relevant cyber articles.
-4. `bulk_save_to_db` inserts each article in a nested transaction so one duplicate does not discard a batch.
-5. `enrich_pending_articles` separately fetches full article content, limits stored content to 200,000 characters, and retries each item at most three times.
-6. `deduplicate_articles` performs post-cycle cleanup.
+1. `fetch_feeds` reads active `FeedSource` rows and links published in the preceding seven days.
+2. `fetch_all_feeds_chunked` downloads up to five feeds concurrently per chunk with a 15-second request timeout.
+3. `parse_and_score_feed` scores the title plus summary with `HybridScorer`, assigns the category returned by the current regex categorizer, and extracts IOCs only when score is at least 50 and category starts with `Cyber`.
+4. `bulk_save_to_db` persists each article and its IOC rows in a per-article nested transaction, then commits the cycle's successful inserts.
+5. `enrich_pending_articles` separately fetches full text for articles scoring at least 40, with at most three attempts and a 200,000-character storage bound.
+6. `deduplicate_articles` runs after each feed cycle. It removes recent exact-link duplicates and title pairs over the 85% RapidFuzz ratio threshold within source-domain/hour/title-length buckets.
+
+The current categorizer emits nine exact labels. Some existing consumers still compare against three older category names (`Cloud & IT Infra`, `Physical Security`, and `Severe Weather`); see [the audit record](DOCUMENTATION_AUDIT.md) for this source-level mismatch.
 
 ### SolarWinds
 
-`POST /webhook/solarwinds` accepts JSON, enforces body size and optional HMAC/timestamp checks, extracts fields from supported payload shapes, classifies the device, detects resolution language, and processes persistence in a FastAPI background task. The response is intentionally returned before the full correlation operation completes.
+`POST /webhook/solarwinds` accepts JSON, enforces body size and configured HMAC/timestamp checks, extracts fields from supported payload shapes, classifies the device, detects resolution language, and persists the alert/timeline event in a FastAPI background task. The route currently returns HTTP 200 with `{"status":"accepted"}` before background persistence finishes; it does not set HTTP 202. Scheduler escalation and the AIOps engine process persisted active alerts downstream.
 
 ### Regional map
 
@@ -87,9 +89,9 @@ Workers cache hazard GeoJSON. The regional route compiles layers, view state, di
 
 ## Authentication and Authorization
 
-The API middleware reads the session token supplied by the frontend client and attaches the authenticated user to protected requests. Login creates a database-backed session token; this is not JWT authentication. 401 responses invalidate the frontend session; 403 responses return a structured missing-permission code and preserve it. The WebSocket endpoint requires `?token=<session token>`, AIOps page access, periodically revalidates the session, and filters dashboard data by allowed site types.
+The API middleware reads a Bearer session token supplied by the frontend and attaches the authenticated user to protected requests; legacy `token` and `session_token` query parameters remain accepted. Login creates an opaque database-backed session token; this is not JWT authentication. 401 responses invalidate the frontend session; 403 responses return structured permission details and preserve it. The WebSocket endpoint requires `?token=<session token>`, the `AIOps RCA` page and `Tab: AIOps RCA -> Active Board`, periodically revalidates the session/grants, filters payloads by allowed site types, and authorizes client commands separately.
 
-RBAC is represented by role page permissions, action permissions, tab permissions, and allowed site types. `src/core/permissions.py` is the canonical permission catalog used by the role editor; frontend permission utilities mirror its keys. Sensitive operations have distinct grants for report generation, email, risk overrides, scheduler changes, user management, and recovery review. Backend route dependencies remain authoritative; the frontend hides/labels controls for usability.
+RBAC is represented by role page permissions, action permissions, tab permissions, and allowed site types. `src/core/permissions.py` is the canonical permission catalog used by the role editor; frontend permission utilities mirror its keys. Sensitive operations have distinct grants for report generation, report dispatch, arbitrary email, risk overrides, scheduler changes, user/role management, and recovery review. The full key list and built-in role rules are in [Permissions](PERMISSIONS.md). Backend route dependencies remain authoritative; the frontend hides/labels controls for usability.
 
 Individual accounts are created through email invitations. Administrator-created display accounts may omit email and use administrator-assisted recovery. Recovery-email changes and password resets are queued for permission-based user-administrator review; approved recovery addresses must also be mailbox-verified.
 
@@ -107,7 +109,7 @@ After migrations, SQLite startup enables WAL. Each NullPool connection receives 
 
 - External fetch errors are logged and do not stop the scheduler loop.
 - `run_threaded` limits concurrent jobs to two and prevents the same named job from overlapping.
-- LLM brief generation stores progress by generation ID so the UI can poll and resume.
+- LLM brief generation stores progress by generation ID so the UI can poll across SPA navigation while the API process remains alive; progress is not durable across an API restart.
 - Email failures are logged and do not roll back unrelated database work.
 - API readiness fails closed when `SELECT 1` cannot execute.
 

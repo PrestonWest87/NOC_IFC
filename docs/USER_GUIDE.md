@@ -1,480 +1,152 @@
 # NOC Intelligence Fusion Center — User Guide
 
-## Overview
+This guide explains the current browser workspace. Available pages, tabs, site types, and actions depend on your assigned role. The API enforces those grants even when a control is visible in a stale browser session. See [Permissions](PERMISSIONS.md) for the exact keys.
 
-The NOC Intelligence Fusion Center is a web-based HUD (Heads-Up Display) for Network Operations Center analysts, engineers, and management. It aggregates multi-domain telemetry into a unified operational picture with AI-powered analysis and automated response capabilities.
+## Sign in and account recovery
 
-### Primary User Roles
-
-| Role | Typical User | Capabilities |
-|------|-------------|--------------|
-| **Admin** | NOC Manager, System Admin | Full access to all pages, settings, user management, RBAC configuration |
-| **Analyst** | NOC Analyst, Shift Lead | All operational pages, article pinning/boosting, shift logs, report generation |
-| **Custom** | IT Engineer, Executive | Configurable page/action permissions per organizational need |
-
----
+- Sign in with the username/password issued for your account. Sessions are database-backed and scoped to the current browser session.
+- Individual accounts are created by email invitation; the invitee sets their password. Display accounts are administrator-created and may have no email.
+- Password-reset requests are reviewed by a permitted user administrator. A reset email is sent only after approval and only when the account has a verified recovery address. Display and email-less accounts use administrator-assisted recovery.
+- Recovery-email changes are reviewed first and then require mailbox verification. Individual accounts without a verified recovery email see a persistent prompt; display accounts are exempt.
+- A `401` means the session is no longer valid and returns you to sign-in. A `403` means the session is still valid but the specific page/tab/action grant is missing; ask an administrator to update your role.
 
 ## Navigation
 
-### Sidebar Layout
-
-The application uses a collapsible sidebar navigation with 9 main sections:
-
-```
-+---------------------------+
-|  NOC Fusion Center        |
-|  ──────────────────────── |
-|  ◉ Global Dashboards      |  ← Home / default landing
-|  ◎ Threat Telemetry       |  ← RSS, CVEs, cloud, crime
-|  ◈ Regional Grid          |  ← Maps, weather, hazards
-|  ⚡ Threat Hunting        |  ← IOCs, OSINT, deep hunt
-|  ◆ AIOps RCA              |  ← Root cause analysis, dispatch
-|  ☰ Shift Logbook          |  ← Shift entries, handoffs
-|  📋 Reporting             |  ← Briefings, custom reports
-|  🔎 Keyword Analysis      |  ← Scoring and category analytics
-|  ⚙ Settings               |  ← Admin configuration
-+---------------------------+
-```
-
-Each section contains multiple tabs. The visible tabs depend on the user's role-based permissions.
-
----
-
-## Page Guides
-
-### 1. Global Dashboards (`/`)
-
-Four dashboards providing a top-down operational view:
-
-#### Operational Dashboard
-- **KPI Panels**: 24-hour metrics showing alert counts, active sites, and system health
-- **Threat Triage**: Auto-rotating display of high-scoring intelligence articles with score badges
-- **Infrastructure Status**: Monitored location status indicators with color-coded risk levels
-- **AI Analysis**: LLM-generated summary of current threat landscape
-
-#### Global Risk
-- **Threat Matrix**: Executive-level view of unified threat posture
-- **14-Day Trend**: Historical comparison using MS-ISAC/CIS Alert Framework (GREEN through RED)
-- **Risk Escalation**: Automatic detection of risk level increases with email alerting
-
-#### Internal Asset Posture
-- **Asset Inventory**: Hardware and software asset tracking against active OSINT threats
-- **Vulnerability Summary**: Aggregated CVSS scores and exploit availability
-- **Historical Trends**: Risk score changes over time
-
-#### Unified Brief
-- **AI Brief**: Autonomous Map-Reduce narrative merging global OSINT threat data with internal asset risk
-- **Email Broadcast**: Send the current brief to `RISK_ALERT_RECIPIENTS`
-
-### How to Use
-1. Monitor KPI panels for anomaly spikes
-2. Review threat triage for high-scoring articles (red/orange score badges)
-3. Click any article to expand and read full summary
-4. Pin important articles for team visibility
-5. Review Global Risk dashboard during shift handoffs
-6. Broadcast Unified Brief to management via email button
-
----
-
-### 2. Threat Telemetry (`/threat-telemetry`)
-
-Four intelligence feeds in one page:
-
-#### RSS Triage
-- **Sub-tabs**: Pinned | Live | Low | Search
-- **Category Filter**: Filter by intelligence category (Cyber, ICS/OT, Weather, etc.)
-- **Pagination**: Independent per-tab with configurable page size
-- **Score Badges**: Color-coded relevance scores (red >= 70, orange >= 50, yellow >= 30)
-- **Actions**: Pin articles, submit feedback for ML training, view extracted IOCs
-- **Search**: Full-text search across all ingested articles
-
-#### CISA KEV
-- **Catalog**: Offline CISA Known Exploited Vulnerabilities database
-- **Search**: By CVE ID, vendor, product, or keyword
-- **Date Filtering**: Sort by date added to catalog
-
-#### Cloud Services
-- **Status Cards**: 18+ cloud provider current outage status
-- **Provider Filters**: Toggle providers on/off
-- **Details**: Expand to view outage description, affected services, and resolution status
-
-#### Perimeter Crime
-- **Incident Table**: Geofenced law enforcement CAD data
-- **Severity Badges**: Color-coded by severity (High/Critical/Low/Info)
-- **Dynamic Filtering**: Adjustable radius from monitored locations
-
-### How to Use
-1. Monitor the Live tab for real-time threat intelligence
-2. Use category filters to focus on relevant domains
-3. Pin high-value intelligence for team review
-4. Cross-reference CISA KEV entries with internal assets
-5. Check cloud status during reported outages
-6. Monitor perimeter crime for facility security awareness
-
----
-
-### 3. Regional Grid (`/regional-grid`)
-
-Six tabs for geospatial situational awareness:
-
-#### Geospatial Overlay
-- **Map**: Deck.gl interactive map with MapLibre dark basemap
-- **Layers**: Toggle SPC convective outlooks, NWS warnings/watches, WFCA active wildfires, and red flag warnings. WFCA reported perimeters and estimated satellite footprints are drawn as polygons when available; otherwise the incident is shown as a point.
-- **Wildfire filtering**: Fires at or below one acre are shown and alerted only when within one mile of a monitored site; fire tooltips include source update time
-- **Site Overlays**: NOC facility markers with alert status indicators
-- **PDS Detection**: Particularly Dangerous Situation alerts highlighted
-- **Controls**: Layer toggles in right sidebar
+The sidebar contains up to nine pages: Global Dashboards, Threat Telemetry, Regional Grid, Threat Hunting & IOCs, AIOps RCA, Shift Logbook, Reporting & Briefings, Keyword Analysis, and Settings & Admin. The sidebar hides pages not granted to your account. Pages can also contain tabs that are separately permissioned.
 
-#### Executive Dashboard
-- **Analytics**: Infrastructure exposure by district, priority, and threat type
-- **Risk Matrices**: Quantified site-level weather risk
-- **Bubble Charts**: At-risk site visualization
-- **Highest Risk**: Auto-identified highest-risk locations
-
-#### Deep Hazard Analytics
-- **Point-in-Polygon**: Shapely intersection calculations between facilities and weather geometries
-- **Affected Sites**: Detailed list of sites under each active warning
-
-#### Location Matrix
-- **Table**: Raw data view of all monitored locations with current SPC risk and NWS alerts
-
-#### Weather Alerts Log
-- **Raw Feed**: Chronological log of all NWS alerts with severity classification
-
-#### Atmos Weather
-- **Forecast**: Weather forecast data for monitored locations
-
-### How to Use
-1. Use the Geospatial Overlay as your primary situational awareness view
-2. Enable/disable layers based on current threat type
-3. Click on facility markers for detailed site information
-4. Reference Executive Dashboard for management briefings
-5. Use Deep Hazard Analytics during severe weather events
-6. Check the Alerts Log for NWS bulletin details
-
----
-
-### 4. Threat Hunting (`/threat-hunting`)
-
-Three tools for proactive threat investigation:
-
-#### Live IOC Matrix
-- **Extracted IOCs**: Autonomously extracted indicators from ingested articles
-- **IOC Types**: IPv4, SHA256, SHA1, MD5, domains, URLs, CVE IDs, MITRE ATT&CK, email, BTC, file paths
-- **Type-Specific Colors**: Visual differentiation by IOC type
-- **OSINT Pivots**: Click any IOC to search VirusTotal, Shadon, or other external tools
-- **CSV Export**: Export IOC matrix for external analysis
-
-#### Deep Hunt & Detection Builder
-- **Input**: Target entity (IP, domain, hash) and optional TTP description
-- **LLM Analysis**: Generates custom Splunk/SIEM queries, MITRE ATT&CK mappings, and YARA rules
-- **Results**: Download or copy generated detection content
-
-#### Elastic SIEM Report
-- **Integration**: Connect to Elasticsearch for synced security events
-- **Query Builder**: Natural-language to Elastic DSL query conversion
-
-### How to Use
-1. Review the IOC matrix for indicators related to active threats
-2. Click IOCs for instant OSINT enrichment via external tools
-3. Export IOC matrix for incident response documentation
-4. Use Deep Hunt builder for targeted threat hypotheses
-5. Feed generated SIEM queries into your detection infrastructure
-
----
-
-### 5. Keyword Analysis (`/keyword-analysis`)
-
-Keyword Analysis explains what is driving article scores and categories. It is intended for analysts, shift leads, and administrators tuning or validating intelligence triage. Access requires the `Keyword Analysis` page permission; the default analyst role may need an administrator to grant it.
-
-#### Overview
-- Total keyword and article counts.
-- Average, minimum, and maximum keyword weights.
-- Used versus unused keywords.
-- Articles with and without persisted keyword matches.
-
-#### Keyword Analysis
-- Search the configured keyword list.
-- Sort by weight, trigger count, or average score contribution.
-- Review the articles associated with a selected keyword.
-- Use the configured keyword weights to understand why articles receive attention.
-
-#### Category Breakdown
-- Compare article volume and average score by category.
-- Filter category results by a selected number of days.
-- Open category details to review top keywords, sources, and recent articles.
-
-#### Timeline and Cross-Reference
-- Track total articles, matched articles, match rate, and average score over time.
-- View score distributions in configurable score buckets.
-- Compare keyword occurrences across article categories.
-
-#### Recategorization
-
-The recategorization action applies the current categorizer rules to the stored article corpus and reports the total number of changed records. It requires `Action: Trigger AI Functions` and should be run deliberately because it processes all stored articles.
-
-### 6. AIOps RCA (`/aiops-rca`)
-
-Three tabs for root cause analysis and response:
-
-#### Active Board
-- **Map**: Auto-focusing Deck.gl map showing alerting locations
-- **Correlation Cards**: Per-site alert clusters with severity, count, and timeline
-- **Investigation Locks**: Toggle investigation state for sites under active review
-- **Acknowledge**: Clear acknowledged alerts from the board
-- **5-Second Polling**: Auto-refresh for real-time alert visibility
-
-#### Patterns
-- **Predictive Analytics**: State-flapping node detection
-- **Chronic Degradation**: 60-day trend analysis for recurring issues
-- **Insight Cards**: Generated by `generate_chronic_insights()` from the correlation engine
-
-#### Global Correlation
-- **Engine**: Deterministic causal analysis linking external intelligence to telemetry drops
-- **Fleet Detection**: Identifies massive carrier/infrastructure outages
-
-#### Site Maintenance & Dispatch
-- **Mark Site Up**: From the map's site dialog, resolve all unresolved alerts for a site and restore green operational health
-  - Requires `Action: Acknowledge RCA Alerts` and access to the site's type
-  - Maintenance remains visible separately; this action does not clear maintenance
-- **Maintenance Form**: Set sites into maintenance mode with ETR and reason, or clear maintenance from the site dialog even when no incident is active
-  - Requires `Action: Manage Site Maintenance`
-  - The maintenance-expiry scheduler clears expired ETRs; an authorized operator can also clear maintenance at any time
-  - Tracks who modified status and when
-- **Dispatch Controls**: Generate and send ticket emails
-  - Requires `Action: Dispatch RCA Tickets`
-  - Ticket text includes priority, district, SLA target, patient zero, and alert details
-  - Manual dispatch sends email via SMTP with proper formatting
-- **Ticket Generation**: Preview ticket text before sending
-
-### How to Use
-1. Monitor the Active Board for new alert clusters
-2. Click clusters to view detailed alert information
-3. Lock sites under investigation to coordinate team response
-4. Use the Analyze button to run root cause analysis
-5. Set sites to maintenance mode for planned work
-6. Generate and dispatch tickets for actionable incidents
-7. Review Patterns tab for recurring issues
-8. Check Global Correlation for upstream cause identification
-
----
-
-### 7. Shift Logbook (`/shift-logbook`)
-
-Two-column layout for shift documentation:
-
-#### Left Column — Entry Form
-- **Analyst/Auto-fill**: Name and role from user profile
-- **Shift Period**: Morning, Afternoon, or Night
-- **Content**: Free-text entry for shift notes and handoff information
-- **Date Override**: For historical entries
-- **Auto-Draft**: Automatically populates active outage information from AIOps
-
-#### Right Column — Explorer
-- **Recent Entries**: Chronological list of recent log entries
-- **Day/Week Navigation**: Calendar interface for browsing historical entries
-- **Soft Delete**: Entries can be hidden without permanent deletion
-- **CSV Export**: Download entries for external reporting
-
-#### Summary Generation
-- **End-of-Morning / End-of-Day**: AI-generated handoff reports summarizing active issues
-- **Executive Summaries**: Aggregated analysis over current week or month periods targeting organizational roles
-
-### How to Use
-1. Start each shift by selecting your name and shift period
-2. Document significant events, handoff notes, and ongoing issues
-3. Use auto-draft to capture active outage context
-4. Generate end-of-shift summaries for the next shift
-5. Browse previous entries in the explorer
-6. Export shift data for compliance documentation
-
----
-
-### 8. Reporting (`/reporting`)
-
-Three tabs for intelligence reporting:
-
-#### Daily Fusion Briefing
-- **Generation**: AI-synthesized daily intelligence report
-- **Display**: Formatted markdown converted to HTML
-- **Broadcast**: Email distribution to configured recipients
-- **Archive**: Historical brief storage and retrieval
-
-#### Custom Report Builder
-- **Article Selection**: Multi-select interface for manual article aggregation
-- **AI Pipeline**: Selected articles fed to LLM for targeted synthesis
-- **Custom Instructions**: Optional guidance for the LLM generation
-
-#### Shared Library
-- **Storage**: Save and organize generated reports
-- **Retrieval**: Search and view historical reports
-- **Management**: Delete outdated or superseded reports
-
-### How to Use
-1. Generate the Daily Fusion Brief at the start of each day
-2. Broadcast to management via the email button
-3. Use Custom Report Builder for incident-specific intelligence packages
-4. Save important reports to the Shared Library
-5. Reference archived briefs for trend analysis
-
----
-
-### 9. Settings (`/settings`)
-
-Eleven tabs for profile, appearance, operations, and system administration:
-
-#### Profile
-- Update personal information (name, job title, contact info, default shift)
-
-#### Theme
-- 21 visual themes, including Standard, High Contrast, Paper Light, and the NOC Terminal and incident-response palettes
-- Persisted in browser `localStorage` and to the signed-in user's account preference
-
-#### Facilities
-- Add, edit, or delete monitored locations
-- Set coordinates, location type, district, and priority
-- Bulk import via JSON
-
-#### Internal Assets
-- Hardware and software inventory management
-- Bulk import via CSV
-
-#### RSS Sources
-- Add, edit, or delete RSS/Atom feed sources
-- Toggle active/inactive status
-- View last fetch time
-
-#### ML Training
-- Keyword weighting interface (70 default keywords)
-- Model retraining from analyst feedback
-- Requires at least 10 labeled articles
-
-#### AI & SMTP
-- LLM endpoint, API key, and model configuration
-- SMTP server configuration for email features
-
-#### Application Settings
-- Risk scoring mode, baselines, overrides, offsets, and countermeasures
-- Per-job scheduler timing within validated bounds
-- Global application defaults and failed-login alert settings
-
-#### Users & Roles
-- Search and filter the account directory by identity, account type, role, status, recovery-email state, and last access
-- Invite individuals by email; the user sets their own password
-- Create email-optional display accounts for TV/wall screens
-- Change roles, classify accounts, disable/reactivate accounts, revoke sessions, and perform assisted display-account resets
-- Review password-reset and recovery-email requests
-- Individual users without an approved recovery email receive a prompt explaining the approval and verification process
-- For first-admin setup, `DEFAULT_ADMIN_EMAIL` is a trusted bootstrap option; setting it for an existing email-less `admin` account and restarting the API or worker verifies the address and completes a matching pending setup request.
-
-#### Backup & Restore
-- Create and download complete encrypted SQLite snapshots; they include every database table and the trained model when present.
-- Backup history labels manual, scheduled, and pre-restore safety snapshots separately. Restore clears staged restore packages after successful installation while retaining permanent backups.
-- Automatic full backups run Sunday at 00:00 `America/Chicago`; the latest three scheduled packages are retained. Manual packages remain until explicitly deleted.
-- Upload a `.nocbackup` file to authenticate and validate it, then choose **Restore now**. The UI coordinates the maintenance window, reports progress, applies migrations, creates a pre-restore safety backup, revokes sessions and outstanding links while retaining request/audit history, and clears all staged restore files on success.
-- Configure the backup encryption keys in the deployment environment and retain them separately from the host and backup files. `.env` secrets are not included in the package.
-- Legacy JSON exports/imports and `.db` row imports remain available under “Legacy partial data migration tools”; they are not full backups or restore methods.
-
-#### Danger Zone
-- Database garbage collection
-- Telemetry purging
-- Taxonomy migration tools
-- Full database reset (nuke)
-
-### How to Use
-1. Configure AI & SMTP and Application Settings for the capabilities your organization uses
-2. Add your facilities and internal assets
-3. Customize RSS sources for your intelligence requirements
-4. Invite individual users by email; create display accounts separately for wall screens
-5. Set up custom roles and explicitly grant report generation, email, risk-override, scheduler, and recovery-review actions as needed
-6. Schedule and verify complete SQLite file-level backups; Settings JSON exports are partial data tools, not disaster-recovery backups.
-7. Monitor ML training to improve article scoring accuracy
-
----
-
-## WebSocket Real-Time Features
-
-The application maintains a persistent WebSocket connection to the backend:
-
-- **Connection**: Auto-established on page load to `ws://localhost:8101/ws`
-- **Updates**: Receives `dashboard_update` payloads every 10 seconds with current alert data
-- **Reconnection**: Exponential backoff if connection drops
-- **Browser Notifications**: CRITICAL/HIGH severity alerts trigger desktop notifications
-- **Bi-directional**: Send commands through the WebSocket for synchronized team actions
-
-### WebSocket Commands
-
-| Command | Effect |
-|---------|--------|
-| `{"type": "INVESTIGATING_UPDATE", "site": "SiteName", "is_investigating": true}` | Lock site for investigation (visible to all users) |
-| `{"type": "RCA_UPDATE"}` | Manually trigger a dashboard refresh for all connected clients |
-
----
-
-## Risk Level Reference
-
-The application uses the MS-ISAC/CIS Alert Framework:
-
-```
-GREEN  → Normal operations, baseline threat posture
-BLUE   → Elevated vigilance, minor anomalies detected
-YELLOW → Significant threat, heightened monitoring required
-ORANGE → High risk, active threat present, prepare response
-RED    → Critical, confirmed compromise or imminent threat
-```
-
-These levels appear throughout the application:
-- Dashboard risk panels
-- Article score badges
-- Site status indicators
-- Alert severity classification
-- Unified brief tone assessment
-- Tiered escalation priority mapping
-
----
-
-## Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl+Shift+N` | Toggle sidebar collapse |
-| `Ctrl+Shift+1-8` | Navigate to sidebar items (order as listed) |
-| `Ctrl+Shift+R` | Refresh current page data |
-| `Escape` | Close open modals |
-
----
-
-## Best Practices
-
-### Shift Change Procedure
-1. Review current dashboard metrics and Global Risk level
-2. Check Active Board for unresolved alerts
-3. Read recent shift logbook entries
-4. Generate end-of-shift summary
-5. Document key events in current shift entry
-6. Broadcast Unified Brief for management awareness
-
-### Incident Response Workflow
-1. Alert appears on Active Board (AIOps RCA)
-2. Lock site for investigation
-3. Run RCA analysis to identify root cause
-4. Check Global Correlation for upstream causes
-5. Set site to maintenance if needed
-6. Generate and dispatch ticket
-7. Document in shift logbook
-8. Acknowledge alerts upon resolution
-
-### Daily Routine
-1. **Start of Day**: Review overnight alerts, check cloud/weather status
-2. **Morning Brief**: Generate and broadcast Unified Brief
-3. **Ongoing**: Monitor RSS feeds, triage articles, pin important intel
-4. **Mid-Day**: Run threat hunting queries, check internal risk posture
-5. **End of Day**: Generate shift summary, document handoff notes
-
-### Intelligence Analysis
-1. Review RSS Live tab for new high-scoring articles
-2. Pin articles relevant to current operations
-3. Review extracted IOCs for actionable indicators
-4. Cross-reference CISA KEV with internal hardware assets
-5. Use Deep Hunt builder for specific threat hypotheses
-6. Archive important intelligence via Custom Report Builder
+## Global Dashboards (`#/`)
+
+### Operational Dashboard
+
+Shows 24-hour high-score article, CISA KEV, weather-hazard, and unresolved cloud-outage counts. The Threat Triage panel separates pinned from live articles; Infrastructure Status shows KEVs, cloud status, and hazards; AI Analysis shows the rolling shift handoff and authorized security-audit action. The subpanels rotate every ten seconds while Auto-Rotate is enabled.
+
+Article actions include Pin/Unpin, +15 Score, Keep, Dismiss, and BLUF where the matching action grants are present. Keep/Dismiss writes analyst feedback; the first label on an article can adjust matched keyword weights. Pin/score/feedback actions require their corresponding grants.
+
+### Global Risk
+
+Displays the current external cyber/physical CIS posture, a 14-day score trend, scoring evidence, and the Global Threat Brief. The brief is generated daily at 02:00 Central by default and can be regenerated on demand with `Action: Generate Reports`. It combines OSINT, CISA KEVs, cloud/hazard context, and nearby headquarters-relative crime data. A brief is external-intelligence correlation, not evidence of an internal compromise.
+
+### Internal Risk
+
+Displays the latest asset-risk snapshot, hardware/software OSINT matches, score history, and the Internal Asset Risk Brief. Snapshot calculation runs every two hours by default; the manual calculation requires `Action: Generate Risk Snapshot`. The asset brief runs every three hours by default and requires `Action: Generate Reports` when started manually.
+
+### Unified Brief
+
+Generates a combined cyber, physical, cloud, weather, crime, and internal-asset brief. Generation is asynchronous; its progress bar polls by generation ID, which is kept in the current browser session across SPA navigation. Broadcasting any saved dashboard brief requires `Action: Dispatch Exec Report` and valid SMTP configuration.
+
+Risk-scoring controls are in **Settings > Application Settings**, not on the dashboard. See [Operations Reference](OPERATIONS_REFERENCE.md) for the current automatic schedule.
+
+## Threat Telemetry (`#/threat-telemetry`)
+
+### RSS Triage
+
+Pinned, Live, Low, and Search sub-tabs provide article pagination and category/search filters. Opening an article can show full-content enrichment, matched keyword weights, and extracted IOCs. Pin, score boost, and feedback controls each require their own action grant. Manual feed fetch requires `Action: Manually Sync Data`.
+
+The page's current category dropdown still contains some pre-renaming labels. The backend categorizer now emits `Cloud & IT Infrastructure`, `Physical Security & Crime`, and `Severe Weather & Natural Hazards`; exact legacy dropdown values may not match those rows. This source-level mismatch is recorded in the [audit](DOCUMENTATION_AUDIT.md#source-level-mismatches-surfaced-during-the-audit).
+
+### CISA KEV
+
+Browse the locally synchronized CISA Known Exploited Vulnerabilities records. Manual refresh requires the tab grant plus `Action: Manually Sync Data`.
+
+### Cloud Services
+
+Review active and resolved status-feed items. Provider status is polled from configured RSS/Atom feeds; scheduled sync runs every eight minutes by default. Manual sync requires the same manual-sync action.
+
+### Perimeter Crime
+
+Displays incidents from the Little Rock police CAD feed. Addresses are geocoded when possible and fallback locations are marked approximate. Incident distance and the perimeter notification threshold are measured from the Little Rock headquarters point, not from each monitored facility. The page offers a display radius filter and an authorized manual fetch.
+
+## Regional Grid (`#/regional-grid`)
+
+Six tabs provide a geospatial overlay, executive dashboard, deep hazard analytics, location matrix, weather-alert log, and Atmos Weather view. Map layers include SPC outlooks, NWS warnings/watches, USGS earthquakes, wildfire-weather risk, WFCA active incidents/perimeters, and recent satellite-footprint estimates.
+
+- Site markers are intersected with currently selected hazard geometry; filters control which data is shown.
+- WFCA reported perimeters are distinct from FIRMS-derived estimated satellite footprints. Small fires at or below one acre are omitted when farther than one mile from monitored sites; alerts for those small fires use the same one-mile rule. Larger-fire proximity alerts use five miles.
+- Atmos Weather can show a selected site's NWS forecast and save the signed-in user's weather-alert preferences.
+- Manual hazard sync requires an eligible regional tab and `Action: Manually Sync Data`.
+
+The map compiler returns a six-position response consumed by index. See [Architecture](ARCHITECTURE.md#regional-map) before changing map integrations.
+
+## Threat Hunting & IOCs (`#/threat-hunting`)
+
+### Live Global IOC Matrix
+
+Shows extracted IPs, domains, URLs, hashes, CVEs, MITRE ATT&CK IDs, and other supported rules from recent articles. Filter by type, expand source articles, export CSV, or open supported external pivots.
+
+### Deep Hunt & Detection Builder
+
+Enter a search target and lookback range to search up to 30 stored articles. The UI displays up to 15 matches and builds a template detection package containing article excerpts, CVE-shaped strings, generic Splunk/Elastic query patterns, and a YARA stub. This package is generated in frontend code; it is not an LLM-authored or validated production detection rule. Review and test any query/rule in the target SIEM before operational use.
+
+### Elastic SIEM Report
+
+Displays locally cached high-severity Elasticsearch events. Manual cache sync requires `Action: Manually Sync Data`; AI triage requires the legacy `Action: Trigger AI Functions` grant and sends at most 50 bounded event records.
+
+## AIOps RCA (`#/aiops-rca`)
+
+The page has Active Board, Patterns, and Global tabs. Dashboard refresh defaults to ten seconds; root-cause analysis refresh defaults to sixty seconds. Both page and tab grants are needed, and server-side site-type scope filters locations, alerts, timeline events, and permitted mutations.
+
+### Site health versus workflow
+
+| Display | Meaning |
+|---|---|
+| Up / Clear (green) | No unresolved alert remains for the site. |
+| Down / Action Required (red) | At least one unresolved alert remains without a later workflow label. |
+| Needs Dispatch | An operator explicitly marked active alerts for dispatch. |
+| Investigating | An authorized operator marked the active incident under investigation. |
+| Ticket Dispatched | Current active site alerts are marked dispatched. |
+| Under Maintenance | Separate blue outline/annotation with ETR/reason; it does not hide active alert colors or suppress escalation. |
+
+Acknowledgement marks alerts correlated and removes them from the uncorrelated alert list, but it does not resolve their underlying status; the site remains operationally down while unresolved alerts exist. **Mark Site Up** resolves every unresolved alert for the site and clears stale Needs Dispatch/investigating state. It does not clear a maintenance window. Maintenance can be cleared from the site dialog even when no incident is active; expiry clears it after the ETR date ends in Central time.
+
+Available controls are separately permissioned: RCA analysis, acknowledgement/Mark Site Up, dispatch/ticket email, investigation, and maintenance. An acknowledged alert is not the same as a resolved alert. The current map offsets co-located sites with connector spokes and does not use the earlier red alert pulse.
+
+## Shift Logbook (`#/shift-logbook`)
+
+Create notes with Morning, Afternoon, Evening, or No Shift; No Shift can take a custom date. Identity comes from the signed-in user and non-administrators cannot assign another role. Recent Entries is separate from History; History grants unlock the searchable/date-filtered explorer with day/week views. Administrators can export filtered, non-deleted records as CSV.
+
+Entries are soft-deleted/restored through `is_deleted`; the API does not store a deletion reason. Cross-user changes require `Action: Manage Shift Logs`. Summary generation supports current shift/day and trailing-week scopes; the UI appends the generated report. If LLM summary generation exceeds 30 seconds or fails, a deterministic source-based summary is returned.
+
+Auto-Draft reads scoped AIOps data and requires both AIOps page access and `Action: Run RCA Analysis`.
+
+## Reporting & Briefings (`#/reporting`)
+
+- **Daily Fusion Briefing:** generate/archive the previous local calendar day's report and optionally broadcast supplied content.
+- **Custom Report Builder:** search article title/summary/full content, select matches or article IDs, provide an objective, then poll asynchronous generation. You can save or email the resulting report.
+- **Shared Library:** list, open, and delete saved reports.
+
+Generation requires `Action: Generate Reports`; report broadcasts, saving through the current report-builder route, and library deletion require `Action: Dispatch Exec Report`. Email recipient lists accept comma/semicolon-separated addresses, reject line breaks, and are limited to 20 addresses.
+
+## Keyword Analysis (`#/keyword-analysis`)
+
+Overview, keyword ranking, category breakdown, timeline, score distribution, and category/keyword cross-reference views explain persisted scoring data. This page requires the `Keyword Analysis` page permission. Corpus-wide recategorization requires the legacy `Action: Trigger AI Functions` grant and commits changed records in batches.
+
+## Settings & Admin (`#/settings`)
+
+The UI contains Profile, Theme, Facilities, Internal Assets, RSS Sources, ML Training, AI & SMTP, Application Settings, Users & Roles, Backup & Restore, and Danger Zone. Profile and Theme are self-service views once the Settings page is granted. The other sections use independent tab permissions; data changes require additional action permissions or the built-in administrator role.
+
+### Users & Roles
+
+Invite an individual by email or create a display account separately. The directory shows account type, recovery-email state, role, status, last sign-in, and last activity. Authorized managers can edit profile/role/account type, disable/reactivate accounts, revoke sessions, resend/revoke invitations, and review reset/email-change requests. Role editors can only delegate grants and site types they themselves hold; administrator/elevated user-admin accounts are protected from delegated management.
+
+### Application Settings
+
+The page separates global URL/technology/ASN and failed-login alert settings, risk scoring, and the dynamic 20-job scheduler. Each section has a distinct action grant. Scheduler edits are range/type validated and the worker applies saved revisions within 30 seconds. Escalation and encrypted backup cannot be disabled.
+
+### Backup & Restore and Danger Zone
+
+Full backup/restore and destructive controls are administrator-only in the UI. Encrypted `.nocbackup` packages include a consistent SQLite snapshot and the model artifact when present; `.env` is external. A UI restore pauses/drains API, worker, webhook, and WebSocket writers, validates/migrates the staged package, creates a pre-restore backup, atomically installs it with rollback handling, and invalidates restored sessions/links. JSON and `.db` tools are legacy partial imports/exports, not full backups. See [Maintenance](MAINTENANCE.md).
+
+## Realtime behavior and safe interpretation
+
+The authenticated WebSocket sends `dashboard_update` data every ten seconds when clients are connected. Client commands `INVESTIGATING_UPDATE` and `RCA_UPDATE` both require `Action: Dispatch RCA Tickets`; site updates are filtered by each recipient's site scope. Browser notifications may be requested for newly observed CRITICAL/HIGH AIOps alert IDs.
+
+Risk tiers are ordered `GREEN < BLUE < YELLOW < ORANGE < RED`, with display names Low, Guarded, Elevated, High, and Severe. External OSINT/LLM correlations are situational awareness; they are not confirmation of a compromise. Verify relevant findings against internal telemetry and vendor advisories.
+
+## Suggested shift routine
+
+1. Review the Operational Dashboard, recent shift logs, and unresolved AIOps alerts.
+2. Confirm the site's unresolved alert count before treating an acknowledgement as recovery.
+3. Review current hazards, cloud events, and headquarters-relative local incidents.
+4. Use scoped RCA/dispatch/maintenance actions only when authorized.
+5. Record actions and handoff state in the logbook.
+6. Generate and broadcast briefings only when appropriate permissions and SMTP are configured.

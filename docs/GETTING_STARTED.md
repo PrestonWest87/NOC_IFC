@@ -23,7 +23,7 @@ cd noc-ifc
 cp .env.example .env
 ```
 
-Edit `.env` and set at minimum:
+The application defaults to the shared SQLite path below. Set it explicitly only if you need a different location:
 
 ```bash
 DATABASE_URL=sqlite:////app/data/noc_fusion.db
@@ -73,7 +73,7 @@ For hot-reload development:
 docker compose --profile dev up --build -d
 ```
 
-The `dev` profile starts a `web-dev` container with Vite's HMR (Hot Module Replacement) instead of the production nginx build. Frontend changes are picked up instantly via a volume mount.
+The `dev` profile adds a `web-dev` container with Vite's HMR (Hot Module Replacement); it does not remove the production `web` container. Use port 5173 for the HMR frontend. Frontend changes are picked up instantly via a volume mount.
 
 ### Standalone Frontend Development
 
@@ -89,13 +89,13 @@ This starts Vite dev server on port 5173 with proxy configuration for `/api` →
 
 ## Environment Configuration
 
-The checked-in `.env.example` is the complete environment template, and [the environment reference](reference/config/env_example.md) maps each variable to its reader and purpose. The API, worker, and webhook load `.env` through Docker Compose. The frontend uses the `VITE_API_URL` value defined in `docker-compose.yml`; it is not read by the Python settings class. The following optional list is a quick selection, not an exhaustive inventory.
+The checked-in `.env.example` is the complete environment template, and [the environment reference](reference/config/env_example.md) maps each variable to its reader and purpose. The API, worker, and webhook load `.env` through Docker Compose. The `web-dev` Vite server uses the Compose `VITE_API_URL` value for its development proxy; production serves a static bundle and proxies same-origin `/api/` and `/ws` requests through Nginx. The following optional list is a quick selection, not an exhaustive inventory.
 
-### Required Variables
+### Database Variable
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `sqlite:////app/data/noc_fusion.db` | SQLite database file shared by the API, worker, and webhook. |
+| `DATABASE_URL` | `sqlite:////app/data/noc_fusion.db` | Optional override for the default shared SQLite database file used by the API, worker, and webhook. |
 
 ### Optional Variables
 

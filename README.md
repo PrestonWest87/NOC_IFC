@@ -77,7 +77,7 @@ The IFC uses a common infrastructure vocabulary for correlation:
 
 | Domain | Examples |
 |---|---|
-| `PRIMARY_INTERNET` | VSAT, cellular, SD-WAN, modem, radio, ISP links |
+| `INTERNET` | VSAT, cellular, SD-WAN, modem, radio, ISP links (`PRIMARY_INTERNET` is a compatibility alias) |
 | `COMMS_EQUIPMENT` | Firewalls, routers, switches, gateways, wireless equipment |
 | `POWER_SUPPLIES` | UPS, PDU, ATS, batteries, generators, HVAC controls |
 | `RTU` | Remote terminal units and field controllers |
@@ -85,7 +85,7 @@ The IFC uses a common infrastructure vocabulary for correlation:
 | `COMPUTE` | Servers, virtual machines, storage, SAN, NAS, and hosts |
 | `FACILITIES` | Access control, cameras, buildings, and physical systems |
 
-This classification lets the system compare alerts across sites and infrastructure layers. For example, multiple communications alerts at several sites may indicate a provider or fleet outage rather than unrelated local failures.
+This classification lets the system compare alerts across sites and infrastructure layers. The engine's canonical Internet domain is `INTERNET`; `PRIMARY_INTERNET` is accepted as a compatibility alias when normalizing incoming hints. For example, multiple communications alerts at several sites may indicate a provider or fleet outage rather than unrelated local failures.
 
 ## Information Sources
 
@@ -100,7 +100,7 @@ The system can use the following source categories:
 - Cloud provider status pages.
 - BGP, routing, and network telemetry sources.
 - Elasticsearch events for SIEM-oriented workflows.
-- Crime and perimeter data near monitored sites.
+- Little Rock police CAD incidents, geocoded and measured from the configured Little Rock headquarters point; proximity notifications use the configured headquarters distance, not each monitored site's coordinates.
 - Hardware and software asset inventories.
 - OpenAI-compatible or local LLM providers configured in Settings.
 - SMTP for reports, alerts, tickets, and notifications.
@@ -238,7 +238,7 @@ Tiered escalation uses Central Time business hours, Monday through Friday from 0
 - Day-shift versus after-hours routing.
 - Cascade and fleet-outage context.
 - Repeated node flapping and cooldown windows.
-- Site maintenance and temporary mute state.
+- Routine after-hours site cooldowns. Maintenance is separate and does not suppress alert escalation.
 - Ticket, notification, and on-page destinations.
 
 The system does not dispatch tickets unless `REMEDYFORCE_TICKET_EMAIL` is configured. Email delivery also requires a valid, enabled SMTP configuration in Settings.
@@ -252,7 +252,7 @@ Users authenticate with database-backed session tokens. The system is not using 
 - Action permissions for operations such as dispatching RCA tickets.
 - Allowed site types for facility-level access.
 
-Important permission strings are exact and case-sensitive:
+Permission keys are exact and case-sensitive. The complete page, tab, action, and site-type catalog, built-in role grants, and enforcement boundaries are in [Permissions](./docs/PERMISSIONS.md). Examples:
 
 - `Action: Dispatch RCA Tickets`
 - `Action: Manage Site Maintenance`
@@ -282,12 +282,19 @@ curl http://localhost:8100/health
 
 ```bash
 # View service state
+docker compose ps
 
 # Follow individual service logs
+docker compose logs -f api
+docker compose logs -f worker
+docker compose logs -f webhook
+docker compose logs -f web
 
 # Restart one service
+docker compose restart api
 
 # Rebuild the frontend
+docker compose up --build -d --force-recreate web
 
 # Check API and database readiness
 curl http://localhost:8101/health
@@ -317,6 +324,7 @@ The detailed documentation is organized under [`docs/`](./docs/):
 | Install and configure | [Getting Started](./docs/GETTING_STARTED.md) |
 | Deploy and harden | [Deployment](./docs/DEPLOYMENT.md) |
 | Understand the system | [Architecture](./docs/ARCHITECTURE.md) |
+| Review page, tab, action, and site-type access | [Permissions](./docs/PERMISSIONS.md) |
 | Use the workspace | [User Guide](./docs/USER_GUIDE.md) |
 | Review REST endpoints | [API Reference](./docs/API.md) |
 | Understand data storage | [Database Schema](./docs/DATABASE_SCHEMA.md) |
@@ -328,6 +336,8 @@ The detailed documentation is organized under [`docs/`](./docs/):
 | Maintain, back up, and recover production | [Maintenance Guide](./docs/MAINTENANCE.md) |
 | Follow ingestion and trigger flows | [Data Flows](./docs/DATA_FLOWS.md), [Trigger Flows](./docs/TRIGGER_ACTION_FLOWS.md) |
 | Find function-level detail | [Code Reference](./docs/CODE_REFERENCE.md) |
+| Review the documentation audit | [Documentation Audit](./docs/DOCUMENTATION_AUDIT.md) |
+| Plan future source docstrings/comments | [In-Code Documentation Plan](./docs/IN_CODE_DOCUMENTATION_PLAN.md) |
 | Review changes | [Changelog](./CHANGELOG.md) |
 
 `docs/` is the only documentation root. The `docs/reference/` tree contains detailed module, service, worker, frontend, and configuration references.

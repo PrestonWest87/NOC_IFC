@@ -3,7 +3,7 @@
 > **Source of truth:** `src/models/schema.py` (SQLAlchemy declarative models)
 > **Engine:** SQLite via `DATABASE_URL`
 > **Driver:** SQLAlchemy 2.x with `NullPool`
-> **Last verified:** 2026-10-05
+> **Last verified:** 2026-10-26
 
 The mapped table names, column names, SQLAlchemy types, and nullability in this reference reflect the model metadata in `src/models/schema.py`.
 
@@ -221,7 +221,7 @@ The legacy ER diagram is conceptual: its `(FK→)` labels do not distinguish enf
 
 ## 2. Complete Table Reference
 
-Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page delivery state. Other migration-only compatibility columns are described in Section 3.
+Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state. Other migration-only compatibility columns are described in Section 3.
 
 ### 2.1 `users` — User Accounts
 
@@ -283,7 +283,7 @@ Column types and nullability reflect the current SQLAlchemy mappings in `src/mod
 | `word` | String | YES | — | YES (unique) | UNIQUE |
 | `weight` | Integer | YES | `10` | — | 0–100 scoring weight |
 
-> **Critical:** 70 keywords are seeded at init. `rescore_all_articles()` runs after every seed to rescale `articles.score`.
+> **Critical:** Bootstrap inserts missing default keywords but preserves existing weights. Existing articles are not rescored during ordinary startup; a full rescore is opt-in through `RESCORE_ON_STARTUP=true` or an explicit administrative maintenance action.
 
 ### 2.6 `system_config` — Singleton Configuration Store
 
@@ -904,7 +904,7 @@ After migrations, startup enables persistent WAL mode. The SQLAlchemy connection
 
 ## 5. Startup Migration and Bootstrap Sequence
 
-`init_db()` in `src/core/db.py` is called before the API lifespan starts its broadcaster, before scheduler jobs are registered, and before the webhook app is created.
+`init_db()` in `src/core/db.py` runs during API and webhook lifespan startup and before the scheduler registers jobs. It completes before the API broadcaster/work or the webhook accepts requests. During a coordinated restore, the API/worker/webhook pause or skip normal initialization until restore recovery permits it.
 
 ### Phase 1 — Check and apply Alembic revisions
 
@@ -978,7 +978,7 @@ The SQLite connection setup does not enable `PRAGMA foreign_keys`, so applicatio
 
 ### JSON Columns for Flexible Data
 
-Used in four tables:
+Used in five tables:
 
 | Table | Column | Contents |
 |---|---|---|
@@ -986,6 +986,7 @@ Used in four tables:
 | `articles` | `keywords_found` | Matched keyword list |
 | `solarwinds_alerts` | `raw_payload` | Full webhook JSON |
 | `geojson_cache` | `data` | GeoJSON FeatureCollection |
+| `account_audit_events` | `event_detail` | Structured account/security audit details |
 
 SQLite stores JSON as TEXT. Queries use string matching, not native JSON operators.
 
@@ -1017,7 +1018,7 @@ Shift log entries use `is_deleted = True` rather than physical deletion. The API
 
 ### Timestamp Conventions
 
-All timestamps are stored as UTC `datetime` objects. The frontend converts to `America/Chicago` via `web/src/utils/timezone.ts`. The `sw_timestamp` column in `solarwinds_alerts` is stored as a raw **String** from the webhook payload (not parsed to DateTime) to preserve the original format.
+Most application timestamps are written as naive UTC `datetime` values and the frontend interprets timezone-less server timestamps as UTC before displaying them in `America/Chicago` via `web/src/utils/timezone.ts`. Some fields are intentionally different: scheduler daily/weekly settings store `America/Chicago`; `SolarWindsAlert.sw_timestamp` preserves the source as a raw **String**; and the risk-alert cooldown helper writes a Central-time-aware value into a SQLite `DateTime` column (SQLite does not preserve the timezone offset). Do not assume every legacy timestamp column has an enforced UTC timezone.
 
 ---
 

@@ -19,4 +19,4 @@ All handlers open a `SessionLocal` session and close it in `finally`. Filters ar
 
 ## `POST /recategorize`
 
-`recategorize_all` loads every article, calls `categorize_text` on title plus summary, counts changed categories, commits once, and returns `{status, total, changed}`. A failure before commit is not silently converted to success; the session is always closed.
+`recategorize_all` walks article IDs in ascending batches of 250, calls `categorize_text` on title plus summary, commits each batch containing changes, and returns `{status, total, changed}`. The action can therefore leave earlier committed batches applied if a later batch fails. The session is always closed.

@@ -1,150 +1,44 @@
-# Module: `src.api.routes.auth`
+# Route module: `src.api.routes.auth`
 
-Authentication and user profile management routes. Prefix: `/api/v1/auth`.
+Router prefix: `/api/v1/auth`. Login, registration, password-reset request/completion, and recovery-email verification are public. Profile, theme, logout, recovery-email request, and verification resend use the authenticated session. Passwords and tokens are not returned by `_public_user()`.
 
----
+## Request models
 
-## Pydantic Models
+| Model | Fields |
+|---|---|
+| `LoginRequest` | Required `username`, `password`. |
+| `RegistrationRequest` | Required `token`, `password`; optional/defaulted `full_name`, `job_title`, `contact_info`, `default_shift="No Shift"`, `theme="standard"`. |
+| `ProfileUpdate` | `full_name`, `job_title`, `contact_info`, `default_shift`, `old_password`, `new_password`; all default to empty strings. |
+| `PasswordResetRequest` | `identifier` (username or approved email). |
+| `PasswordResetCompletion` | `token`, `new_password`. |
+| `RecoveryEmailRequest` | `email`. |
 
-### `LoginRequest`
-| Field      | Type     | Description                |
-|------------|----------|----------------------------|
-| `username` | `str`    | User login name.           |
-| `password` | `str`    | User password (plaintext). |
+## Route reference
 
-### `ProfileUpdate`
-| Field            | Type     | Description                    |
-|------------------|----------|--------------------------------|
-| `full_name`      | `str`    | Updated full name.             |
-| `job_title`      | `str`    | Updated job title.             |
-| `contact_info`   | `str`    | Updated contact information.   |
-| `default_shift`  | `str`    | Updated default shift period.  |
-| `old_password`   | `str`    | Current password for verification. |
-| `new_password`   | `str`    | Desired new password.          |
+| Method/path | Auth | Behavior and notable errors |
+|---|---|---|
+| `POST /login` | Public | Calls `authenticate_user`; returns `{user, token}`. Invalid credentials use a generic 401. If failed-login alerts are enabled with valid recipients, the request records the sanitized username/IP and queues an alert when the configured threshold is claimed. |
+| `GET /register/validate?token=...` | Public | Returns pending invitation details or 400 if the invite is missing, expired, used, or revoked. |
+| `POST /register` | Public | Completes an email-bound invite, sets mailbox verification at completion, creates a session, and returns `{user, token}`. Password must be at least 12 characters; invalid invite/theme/policy returns 400. |
+| `POST /request-password-reset` | Public | Always returns a generic accepted message. Matching active accounts with reviewed recovery can enter the admin queue; unmatched identifiers are stored only as a hash for rate limiting. |
+| `POST /reset-password` | Public | Accepts `{token,new_password}`. Requires a valid one-hour, single-use token and 12+ character password; success revokes every session for that account. |
+| `GET /verify-recovery-email?token=...` | Public | Consumes an approved 24-hour verification token and changes the account's verified recovery address; invalid/expired token returns 400. |
+| `POST /request-recovery-email` | Authenticated | Submits `{email}` as `pending_review`, rejects collisions/duplicate pending requests, and queues notice to eligible verified reviewers. A reviewer cannot approve their own request. |
+| `POST /resend-recovery-email-verification` | Authenticated | Reissues the verification message for an approved pending request. Resend is rate-limited to one per five minutes; invalid state returns 409. |
+| `GET /me` | Authenticated | Returns the authenticated public user object, including current grants and recovery-email state. |
+| `POST /logout` | Authenticated | Revokes only the token used by this request. |
+| `POST /update-profile` | Authenticated | Updates name/title/contact/default shift. A password change requires the old password and the shared 12-character minimum; failure returns 400. Recovery-email changes use the separate reviewed workflow. |
+| `POST /update-theme` | Authenticated | Accepts `{theme}` from the 21 supported theme IDs and persists it on the account; invalid themes return 400. |
 
----
+## Recovery and anti-enumeration behavior
 
-## Endpoint: `POST /login`
+- Reset requests are rate-limited to at most 10 requests per source IP per hour and 5 per identifier hash per hour. A matching pending request less than 30 minutes old is reused rather than duplicated.
+- The public reset response does not disclose whether an identifier exists or whether that account has a verified recovery address.
+- Active verified recovery reviewers are selected by the appropriate review action plus Settings page and Users & Roles tab access. The request owner is excluded from their own reviewer notification set.
+- A denial requires a reason. Approval of an email change only creates a pending-verification token; it does not immediately replace the approved address.
+- Display accounts and individual accounts without a verified recovery address require administrator-assisted recovery.
+- Tokens are random, stored only as SHA-256 hashes, expire, and are single-use. Password reset invalidates all sessions and other outstanding reset tokens.
 
-### Purpose
-Authenticates a user by username and password, returning a user object and session token.
+## Last activity
 
-### Parameters
-| Parameter | Type            | Description              |
-|-----------|-----------------|--------------------------|
-| `req`     | `LoginRequest`  | Login credentials (body).|
-
-### Returns
-```json
-{
-  "user": { ... },
-  "token": "<session_token>"
-}
-```
-
-### Raises
-- `HTTPException 401` — if credentials are invalid.
-
-### Flow
-1. Calls `svc.authenticate_user(req.username, req.password)`.
-2. If credentials fail, records the submitted username and client IP when failed-login alerts are enabled.
-3. When the configured threshold is reached within its time window, schedules one background email for the configured recipient list with the attempted usernames and source IPs.
-4. Returns the same generic 401 for invalid credentials; otherwise returns the user dict and token.
-
-### Dependencies
-- `src.services.authenticate_user()`
-- `src.services.record_failed_login_attempt()`
-
----
-
-## Endpoint: `GET /me`
-
-### Purpose
-Retrieves the authenticated user's profile by session token.
-
-### Authentication
-Uses the authenticated request context. Send `Authorization: Bearer <session-token>`; the legacy `token` and `session_token` query parameters remain accepted for compatibility.
-
-### Returns
-The user object dictionary.
-
-### Raises
-- `HTTPException 401` — if there is no valid session or the account is inactive.
-
-### Flow
-1. Authentication middleware resolves the bearer token or legacy query token and attaches the active user.
-2. `get_current_user` returns that request-state user (or resolves a token for direct dependency callers).
-3. The route returns `_public_user(user)`, excluding password and session-token fields.
-
-### Dependencies
-- `src.services.get_user_by_token()`
-
----
-
-## Endpoint: `POST /logout`
-
-### Purpose
-Revokes the current authenticated session. The authenticated user and session token are taken from the request context.
-
-### Returns
-```json
-{ "status": "ok" }
-```
-
-### Raises
-None.
-
-### Flow
-1. Calls `svc.logout_user(user.username, request.state.auth_token)`.
-2. Returns success status.
-
-### Dependencies
-- `src.services.logout_user()`
-
----
-
-## Endpoint: `POST /update-profile`
-
-### Purpose
-Updates a user's profile fields and optionally changes the password.
-
-### Parameters
-| Parameter  | Type             | Description                       |
-|------------|------------------|-----------------------------------|
-| `body`     | `ProfileUpdate`  | Profile update fields (body).     |
-
-### Returns
-```json
-{
-  "status": "ok",
-  "message": "<description>"
-}
-```
-
-### Raises
-- `HTTPException 400` — if the update fails (e.g., wrong old password, validation error).
-
-### Flow
-1. Calls `svc.update_user_profile()` with all fields from the request body.
-2. If the operation returns `(False, msg)`, raises 400 with the message.
-3. Otherwise returns success.
-
-### Dependencies
-- `src.services.update_user_profile()`
-## Current Source Surface
-
-Public endpoints are login, registration validation, and registration. Protected endpoints use `get_current_user`.
-
-- `POST /login` returns a database-backed session token and public user object.
-- `GET /register/validate` checks an invitation token without authenticating the caller.
-- `POST /register` completes an invitation-based account with profile, password, shift, and theme data.
-- `POST /request-password-reset` accepts a username/email identifier and returns a generic response while placing matching requests in the review queue.
-- `POST /reset-password` consumes the approved, single-use reset token and revokes active sessions.
-- `GET /verify-recovery-email` consumes the approved mailbox-verification token.
-- `POST /request-recovery-email` submits an authenticated user's address for review; `POST /resend-recovery-email-verification` sends a new link to the pending address.
-- `GET /me` returns the current user/permission payload.
-- `POST /logout` revokes the current session.
-- `POST /update-profile` validates profile/password changes.
-- `POST /update-theme` persists the selected user theme.
-
-Reset and email-verification routes return controlled errors for invalid/expired tokens. Password-reset requests are not sent directly to users; a permitted user administrator must approve a matching request first.
+Successful sign-in writes `last_login_at` and `last_activity_at`. `get_user_by_token()` updates activity no more than once per five minutes. The browser presents these values in America/Chicago; the API returns timestamp values in its user object.

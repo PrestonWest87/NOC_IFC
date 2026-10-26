@@ -197,7 +197,7 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `last_risk_alert_time` | `DateTime` | `nullable` | Last risk alert sent time |
 | `sys_countermeasures` | `Integer` | `3` | System countermeasures count |
 | `net_countermeasures` | `Integer` | `3` | Network countermeasures count |
-| `scoring_mode` | `String` | `"auto"` | Scoring mode (auto/manual/override) |
+| `scoring_mode` | `String` | `"auto"` | Scoring mode (`auto`, `manual`, or `hybrid`) |
 | `cyber_criticality_override` | `Integer` | `0` | Override for cyber criticality |
 | `cyber_lethality_override` | `Integer` | `0` | Override for cyber lethality |
 | `physical_criticality_override` | `Integer` | `0` | Override for physical criticality |
@@ -242,7 +242,7 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `severity` | `String` | — | — | Alert severity level |
 | `node_name` | `String` | — | Y | Device/node hostname |
 | `ip_address` | `String` | — | — | Device IP address |
-| `status` | `String` | — | Y | Alert status (Active, Resolved, Acknowledged) |
+| `status` | `String` | — | Y | Alert status supplied/managed as active or `Resolved`; acknowledgement is tracked separately with `is_correlated` and acknowledgment actor/time |
 | `sw_timestamp` | `String` | — | — | Original SolarWinds timestamp |
 | `details` | `Text` | — | — | Alert details/description |
 | `node_link` | `String` | — | — | SolarWinds node URL |
@@ -301,7 +301,7 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `published_date` | `DateTime` | `utcnow` | Y | Publication timestamp |
 | `source` | `String` | — | Y | Feed source name |
 | `score` | `Float` | `0.0` | Y | Hybrid relevance score (0-100) |
-| `category` | `String` | `"General"` | Y | Classified category (8 categories) |
+| `category` | `String` | `"General"` | Y | Classified category (nine current regex categories; see `src/services/categorizer.py`) |
 | `keywords_found` | `JSON` | — | — | List of matched keywords |
 | `is_bubbled` | `Boolean` | `False` | — | Whether article exceeds alert threshold (>=45) |
 | `story_group` | `String` | `nullable` | — | Story grouping identifier |
@@ -326,7 +326,7 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `analyst` | `String` | — | Y | Analyst name |
 | `author_role` | `String` | — | Y | Role of the author (analyst, admin) |
 | `shift_date` | `DateTime` | `utcnow` | Y | Date of the shift |
-| `shift_period` | `String` | — | — | Morning, Afternoon, or Night |
+| `shift_period` | `String` | — | — | Application-accepted values are Morning, Afternoon, Evening, or No Shift; the database column itself has no enum constraint |
 | `content` | `Text` | — | — | Free-text log content |
 | `created_at` | `DateTime` | `utcnow` | — | Entry creation timestamp |
 | `is_deleted` | `Boolean` | `False` | Y | Soft-delete flag |
@@ -423,7 +423,7 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `category` | `String` | — | — | Incident category/type |
 | `raw_title` | `String` | — | — | Original incident description |
 | `timestamp` | `DateTime` | — | Y | Incident timestamp |
-| `distance_miles` | `Float` | — | — | Distance from monitored location |
+| `distance_miles` | `Float` | — | — | Distance from the Little Rock headquarters point used by the crime worker |
 | `severity` | `String` | — | — | Classified severity (High/Critical/Low/Info) |
 | `lat` | `Float` | — | — | Latitude |
 | `lon` | `Float` | — | — | Longitude |

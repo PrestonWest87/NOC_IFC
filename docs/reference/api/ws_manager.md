@@ -1,30 +1,21 @@
 # Module: `src.api.ws_manager`
 
-`ConnectionManager` is the in-process WebSocket registry used by `src.api.main` and background-triggered RCA updates.
+`ConnectionManager` is the process-local registry for authenticated AIOps WebSocket clients. It does not persist connections or fan out across multiple API processes.
 
-## `ConnectionManager`
+## State
 
-### `__init__(self)`
+- `active_connections`: current `fastapi.WebSocket` instances.
+- `connection_users`: current authenticated user object for each registered socket. `src.api.main` uses it to authorize and transform outgoing data per connection.
 
-Initializes `active_connections` as an empty list of FastAPI `WebSocket` objects. The list is process-local and is not persisted.
+## Methods
 
-### `connect(self, websocket: WebSocket) -> None`
+| Method | Behavior |
+|---|---|
+| `connect(websocket, user=None)` | Accepts the socket, registers it once, stores its user, and logs the count. |
+| `update_user(websocket, user)` | Replaces the registered user object after API revalidation, if the socket remains active. |
+| `disconnect(websocket)` | Removes a socket and its user mapping; repeated calls are safe. |
+| `close_all(code=1012, reason="Service maintenance")` | Closes and unregisters every current connection, used before database-file replacement. |
+| `broadcast_json(data, transform=None)` | Concurrently sends one JSON message to a snapshot of connections. If supplied, `transform(data, user)` may return a per-user payload or `None` to suppress delivery. Each socket send has a three-second timeout; failed sockets are removed after the send gather completes. |
+| `count` | Number of active connections. Used by `/health` and the broadcaster's no-client fast path. |
 
-Async method. Awaits `websocket.accept()`, then adds the socket only if it is not already registered. Duplicate connection objects are ignored. It logs the resulting connection count.
-
-### `disconnect(self, websocket: WebSocket) -> None`
-
-Removes a socket only when it is present. Repeated cleanup calls are safe and do not raise `ValueError`.
-
-### `broadcast_json(self, data: dict[str, Any]) -> None`
-
-Async method that serializes `data` with `json.dumps(..., default=str)` and sends the same text payload concurrently to a snapshot of active connections.
-
-- Each send is wrapped in `asyncio.wait_for(..., timeout=3)`.
-- `asyncio.gather` waits for all send attempts.
-- A failed or timed-out connection is returned by the send helper and removed after the gather completes.
-- Failures on one connection do not prevent attempts to other connections.
-
-### `count -> int`
-
-Property returning `len(active_connections)`. Used by `/health` and the broadcaster’s no-client fast path.
+Messages use `json.dumps(..., default=str)`. One send failure does not prevent attempts to other sockets. Registry operations are in-process; multi-replica fan-out requires a separate pub/sub system.
