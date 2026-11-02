@@ -5038,7 +5038,12 @@ def trigger_global_brief(progress_generation_id=None):
 
 def trigger_internal_brief(progress_generation_id=None):
     """Force-generate the internal asset risk brief tuned to OSINT correlations."""
-    from src.utils.llm import generate_internal_risk_brief, update_brief_progress
+    from src.utils.llm import (
+        InternalRiskBriefGenerationError,
+        generate_internal_risk_brief,
+        is_internal_risk_brief_failure_notice,
+        update_brief_progress,
+    )
     from src.services import save_global_config
     from src.database import InternalRiskSnapshot
     logger = logging.getLogger(__name__)
@@ -5051,21 +5056,41 @@ def trigger_internal_brief(progress_generation_id=None):
 
     _progress(stage="gathering", message="Gathering internal asset data...", percent=0)
 
-    with SessionLocal() as session:
-        latest_internal = session.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
-        if not latest_internal:
-            _progress(stage="error", message="No internal risk snapshot available.", percent=0)
-            return {"status": "error", "message": "No internal risk snapshot available. Trigger an internal risk calculation first."}
-        brief_text = generate_internal_risk_brief(session, latest_internal, progress_callback=_progress)
+    try:
+        with SessionLocal() as session:
+            latest_internal = (
+                session.query(InternalRiskSnapshot)
+                .order_by(InternalRiskSnapshot.timestamp.desc())
+                .first()
+            )
+            if not latest_internal:
+                raise InternalRiskBriefGenerationError(
+                    "No internal risk snapshot available. Trigger an internal risk calculation first."
+                )
+            brief_text = generate_internal_risk_brief(
+                session, latest_internal, progress_callback=_progress
+            )
+    except InternalRiskBriefGenerationError as exc:
+        message = str(exc)
+        logger.warning("trigger_internal_brief: generation did not produce a report: %s", message)
+        _progress(stage="error", message=message, percent=0)
+        return {"status": "error", "message": message}
+    except Exception:
+        logger.exception("trigger_internal_brief: unexpected generation failure")
+        message = "Internal brief generation failed unexpectedly; no report was saved."
+        _progress(stage="error", message=message, percent=0)
+        return {"status": "error", "message": message}
 
-    if brief_text and "AI is currently disabled" not in brief_text and "generate_internal_risk_brief" not in str(type(brief_text)):
-        save_global_config({"internal_brief": brief_text, "internal_brief_time": datetime.utcnow()})
-        logger.info("trigger_internal_brief: saved successfully (len=%d)", len(brief_text))
-        _progress(stage="complete", message="Internal brief generation complete.", percent=100)
-        return {"status": "ok", "brief": brief_text}
-    logger.warning("trigger_internal_brief: generation failed or AI disabled")
-    _progress(stage="error", message=brief_text or "AI is disabled or generation failed.", percent=0)
-    return {"status": "error", "message": brief_text or "AI is disabled or generation failed."}
+    if is_internal_risk_brief_failure_notice(brief_text) or "[WARN]" in brief_text:
+        message = "Internal brief generation returned incomplete output; no report was saved."
+        logger.error("trigger_internal_brief: %s", message)
+        _progress(stage="error", message=message, percent=0)
+        return {"status": "error", "message": message}
+
+    save_global_config({"internal_brief": brief_text, "internal_brief_time": datetime.utcnow()})
+    logger.info("trigger_internal_brief: saved successfully (len=%d)", len(brief_text))
+    _progress(stage="complete", message="Internal brief generation complete.", percent=100)
+    return {"status": "ok", "brief": brief_text}
 
 def trigger_rolling_summary():
     """Force-generate and save the rolling shift handover summary."""
@@ -5137,6 +5162,7 @@ def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning
     When requested, the completed summary is appended as a new shift-log entry.
     """
     import threading
+    from types import SimpleNamespace
     from src.utils.llm import generate_aggregated_shift_summary
     from src.database import ShiftLogEntry
     from zoneinfo import ZoneInfo
@@ -5147,30 +5173,57 @@ def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning
         query = session.query(ShiftLogEntry).filter(ShiftLogEntry.is_deleted == False)
         if role_filter != "All":
             query = query.filter(ShiftLogEntry.author_role == role_filter.lower())
-        if shift_period and timeframe != "fullday":
-            query = query.filter(ShiftLogEntry.shift_period == shift_period)
-        elif timeframe == "fullday":
-            shift_period = "End of Day"
+        exclude_generated_summaries = or_(
+            ShiftLogEntry.shift_period.is_(None),
+            ShiftLogEntry.shift_period.notin_(("End of Day", "End of Week")),
+        )
 
         now_chicago = datetime.now(ZoneInfo("America/Chicago"))
+        now_utc = now_chicago.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+        default_labels = {"Morning Shift", "Afternoon Shift", "Evening Shift", "No Shift Shift"}
         if timeframe == "fullday":
+            shift_period = "End of Day"
+            if not timeframe_label or timeframe_label in default_labels:
+                timeframe_label = "End-of-Day Operational Handoff"
             today_start_chicago = now_chicago.replace(hour=0, minute=0, second=0, microsecond=0)
             today_start_utc = today_start_chicago.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
-            query = query.filter(ShiftLogEntry.created_at >= today_start_utc)
-            if not timeframe_label or timeframe_label == shift_period + " Shift":
-                timeframe_label = "End of Day"
+            query = query.filter(
+                ShiftLogEntry.created_at >= today_start_utc,
+                ShiftLogEntry.created_at < now_utc,
+                exclude_generated_summaries,
+            )
         elif timeframe == "week":
+            shift_period = "End of Week"
+            if not timeframe_label or timeframe_label in default_labels:
+                timeframe_label = "End-of-Week Operational Handoff"
             week_start_chicago = now_chicago - timedelta(days=7)
             week_start_utc = week_start_chicago.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
-            query = query.filter(ShiftLogEntry.created_at >= week_start_utc)
-            if not timeframe_label or timeframe_label == shift_period + " Shift":
-                timeframe_label = "Current Week"
+            query = query.filter(
+                ShiftLogEntry.created_at >= week_start_utc,
+                ShiftLogEntry.created_at < now_utc,
+                exclude_generated_summaries,
+            )
         else:
+            if shift_period:
+                query = query.filter(ShiftLogEntry.shift_period == shift_period)
             today_start_chicago = now_chicago.replace(hour=0, minute=0, second=0, microsecond=0)
             today_start_utc = today_start_chicago.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
-            query = query.filter(ShiftLogEntry.created_at >= today_start_utc)
+            query = query.filter(
+                ShiftLogEntry.created_at >= today_start_utc,
+                ShiftLogEntry.created_at < now_utc,
+            )
 
-        logs = query.order_by(ShiftLogEntry.created_at.desc()).limit(200).all()
+        log_rows = query.order_by(ShiftLogEntry.created_at.desc()).limit(200).all()
+        # Copy scalar fields before the session closes; the background worker
+        # owns a separate DB session and never shares a SQLAlchemy Session across threads.
+        logs = [
+            SimpleNamespace(
+                analyst=entry.analyst,
+                created_at=entry.created_at,
+                content=entry.content,
+            )
+            for entry in log_rows
+        ]
         logger.info("trigger_shift_summary: fetched %d logs", len(logs))
 
         if not logs:
@@ -5183,7 +5236,15 @@ def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning
         def run_llm():
             """Capture LLM output/error for the parent thread and always signal completion."""
             try:
-                llm_result[0] = generate_aggregated_shift_summary(session, logs, timeframe_label, target_role=role_filter, generated_by=generated_by, generated_by_role=generated_by_role)
+                with SessionLocal() as llm_session:
+                    llm_result[0] = generate_aggregated_shift_summary(
+                        llm_session,
+                        logs,
+                        timeframe_label,
+                        target_role=role_filter,
+                        generated_by=generated_by,
+                        generated_by_role=generated_by_role,
+                    )
             except Exception as e:
                 llm_error[0] = e
             finally:
@@ -5193,16 +5254,33 @@ def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning
         t.start()
         ok = done.wait(timeout=30)
 
-        if ok and not llm_error[0] and llm_result[0] and "[WARN]" not in llm_result[0] and "Summary generation failed" not in llm_result[0]:
-            summary = llm_result[0]
+        response = llm_result[0]
+        response_text = response.strip() if isinstance(response, str) else ""
+        failure_markers = (
+            "batch processing failure notice",
+            "skeleton report",
+            "must not be circulated as a complete risk assessment",
+        )
+        response_lower = response_text.casefold()
+        invalid_response = (
+            not response_text
+            or response_lower.startswith(("[warn]", "summary generation failed", "ai failed to process batch"))
+            or any(marker in response_lower for marker in failure_markers)
+        )
+        fallback_message = None
+        if ok and not llm_error[0] and not invalid_response:
+            summary = response_text
             logger.info("trigger_shift_summary: LLM success (len=%d)", len(summary))
         else:
             if not ok:
+                fallback_message = "LLM summary timed out; a deterministic source-only summary was generated."
                 logger.warning("trigger_shift_summary: LLM timed out (>30s), using fallback")
             elif llm_error[0]:
                 logger.error("trigger_shift_summary: LLM exception: %s", llm_error[0])
+                fallback_message = "LLM summary processing failed; a deterministic source-only summary was generated."
             else:
                 logger.warning("trigger_shift_summary: LLM failed or unavailable, using fallback")
+                fallback_message = "LLM summary was incomplete or unavailable; a deterministic source-only summary was generated."
             summary = _build_fallback_summary(logs, timeframe_label, role_filter, generated_by, generated_by_role)
 
     if auto_append:
@@ -5213,7 +5291,12 @@ def trigger_shift_summary(role_filter: str = "All", shift_period: str = "Morning
             content=summary,
         )
         logger.info("trigger_shift_summary: auto-appended to shift log")
-    return {"status": "ok", "summary": summary}
+    return {
+        "status": "ok",
+        "summary": summary,
+        "used_fallback": fallback_message is not None,
+        "message": fallback_message,
+    }
 
 def add_bulk_keywords(raw_text):
     """Insert missing newline-delimited keywords, defaulting invalid weights to ten."""

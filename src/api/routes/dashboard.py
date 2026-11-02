@@ -12,7 +12,13 @@ from fastapi import APIRouter, Query, Body, Depends, HTTPException
 from typing import Any
 
 from src import services as svc
-from src.utils.llm import init_brief_progress, get_brief_progress, update_brief_progress, clear_brief_progress
+from src.utils.llm import (
+    clear_brief_progress,
+    get_brief_progress,
+    init_brief_progress,
+    is_internal_risk_brief_failure_notice,
+    update_brief_progress,
+)
 from src.api.auth_guard import get_current_user, has_action_permission, require_page, require_action
 from src.core import restore_control
 
@@ -114,6 +120,11 @@ def dashboard_briefs(user=Depends(get_current_user)):
             if has_action_permission(user, permission):
                 for field in fields:
                     value = getattr(config, field)
+                    if (
+                        permission == "Tab: Dashboards -> Internal Risk"
+                        and is_internal_risk_brief_failure_notice(config.internal_brief)
+                    ):
+                        value = None
                     result[field] = value.isoformat() if hasattr(value, "isoformat") else value
         return result
 

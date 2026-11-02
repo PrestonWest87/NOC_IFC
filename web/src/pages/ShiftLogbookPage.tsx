@@ -122,6 +122,7 @@ export function ShiftLogbookPage() {
   const [summaryShiftPeriod, setSummaryShiftPeriod] = useState("Morning");
   const [summaryTimeframe, setSummaryTimeframe] = useState("shift");
   const [summaryResult, setSummaryResult] = useState<string | null>(null);
+  const [summaryNotice, setSummaryNotice] = useState<string | null>(null);
 
   const [explorerSearch, setExplorerSearch] = useState("");
   const [explorerRoleFilter, setExplorerRoleFilter] = useState("All");
@@ -137,17 +138,21 @@ export function ShiftLogbookPage() {
         auto_append: true,
         timeframe: summaryTimeframe,
       }),
+    onMutate: () => setSummaryNotice(null),
     onSuccess: (res) => {
       const d = res.data;
       if (d.status === "ok") {
         setSummaryResult(d.summary);
+        setSummaryNotice(d.used_fallback ? d.message || "AI was unavailable; a source-only summary was generated." : null);
         queryClient.invalidateQueries({ queryKey: ["logbook"] });
       } else {
         setSummaryResult(d.message || "Generation failed.");
+        setSummaryNotice(null);
       }
     },
     onError: (e: any) => {
       setSummaryResult(getApiErrorMessage(e, "Summary generation failed."));
+      setSummaryNotice(null);
     },
   });
 
@@ -609,6 +614,14 @@ export function ShiftLogbookPage() {
                 {generateSummaryMut.isPending ? "Generating..." : "Generate & Append Report"}
               </button>}
             </div>
+            {summaryNotice && (
+              <div role="status" aria-live="polite" style={{
+                marginTop: "0.5rem", padding: "0.55rem 0.7rem", borderRadius: "var(--radius-sm)",
+                color: "var(--text-secondary)", background: "var(--bg-tertiary)", fontSize: "0.76rem",
+              }}>
+                {summaryNotice}
+              </div>
+            )}
             {summaryResult && (
                <div style={{ background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", padding: "0.75rem", fontSize: "0.78rem", color: "var(--text-primary)", maxHeight: "300px", overflow: "auto", lineHeight: 1.5, marginTop: "0.5rem" }}>
                  <MarkdownContent content={summaryResult} />

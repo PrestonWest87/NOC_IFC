@@ -9,6 +9,7 @@ import re
 import threading
 import requests
 import json
+import time
 from types import SimpleNamespace
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -18,7 +19,35 @@ from src.models.schema import SystemConfig, Article, CveItem, RegionalHazard, Cl
 logger = logging.getLogger(__name__)
 LOCAL_TZ = ZoneInfo("America/Chicago")
 
-_ollama_ctx_cache: dict[str, int] = {}
+_ollama_ctx_cache: dict[str, int | None] = {}
+_ollama_ctx_cache_expirations: dict[str, float] = {}
+
+
+class InternalRiskBriefGenerationError(RuntimeError):
+    """Raised when a complete, source-grounded internal risk brief is unavailable."""
+
+
+_INTERNAL_BRIEF_FAILURE_NOTICE_MARKERS = (
+    "batch processing failure notice",
+    "skeleton report",
+    "must not be circulated as a complete risk assessment",
+    "asset-level findings that should populate this brief are not available",
+    "internal brief generation failed",
+    "internal asset correlation failed; no complete brief was saved",
+    "no internal asset or recent cve data is available for analysis",
+    "ai failed to process batch",
+)
+
+
+def is_internal_risk_brief_failure_notice(content):
+    """Identify failure/skeleton text so it cannot be shown or broadcast as a report."""
+    if not isinstance(content, str) or not content.strip():
+        return True
+    normalized = content.casefold()
+    return (
+        any(marker in normalized for marker in _INTERNAL_BRIEF_FAILURE_NOTICE_MARKERS)
+        or bool(re.search(r"upstream\s+aiops\s+batch[\s\S]{0,240}failed\s+to\s+process", normalized))
+    )
 
 _brief_progress_store: dict[str, dict] = {}
 _brief_progress_lock = threading.Lock()
@@ -85,24 +114,46 @@ MODEL_CONTEXT_WINDOWS = {
 }
 
 def _query_ollama_context_window(endpoint: str, model: str) -> int | None:
-    """Query Ollama /api/show for the model's context length. Returns None on failure."""
+    """Query Ollama /api/show for context size; briefly cache missing/unreachable metadata."""
     cache_key = f"{endpoint}|{model}"
     if cache_key in _ollama_ctx_cache:
-        return _ollama_ctx_cache[cache_key]
+        expires_at = _ollama_ctx_cache_expirations.get(cache_key)
+        if expires_at is None or time.monotonic() < expires_at:
+            return _ollama_ctx_cache[cache_key]
+        _ollama_ctx_cache.pop(cache_key, None)
+        _ollama_ctx_cache_expirations.pop(cache_key, None)
     try:
         base = endpoint.rstrip("/").replace("/v1", "").replace("/chat/completions", "")
         url = f"{base}/api/show"
         resp = requests.post(url, json={"name": model}, timeout=10)
         resp.raise_for_status()
         info = resp.json().get("model_info", {})
-        # Iterate known context_length keys from different model architectures
-        for key in ("llama.context_length", "mistral.context_length", "qwen2.context_length",
-                     "deepseek2.context_length", "gemma2.context_length", "phi3.context_length",
-                     "mixtral.context_length", "yi.context_length", "command-r.context_length",
-                     "dbrx.context_length", "nemotron.context_length"):
+        # Prefer known architecture keys, then accept new Ollama architecture names.
+        preferred_keys = (
+            "llama.context_length", "mistral.context_length", "qwen3.context_length",
+            "qwen3.8.context_length", "qwen2.context_length", "deepseek2.context_length",
+            "gemma2.context_length", "phi3.context_length", "mixtral.context_length",
+            "yi.context_length", "command-r.context_length", "dbrx.context_length",
+            "nemotron.context_length",
+        )
+        context_keys = list(preferred_keys)
+        if isinstance(info, dict):
+            context_keys.extend(sorted(
+                key for key in info
+                if key.endswith(".context_length") and key not in preferred_keys
+            ))
+            if "context_length" in info:
+                context_keys.append("context_length")
+        for key in context_keys:
             if key in info:
-                val = int(info[key])
+                try:
+                    val = int(info[key])
+                except (TypeError, ValueError):
+                    continue
+                if val <= 0:
+                    continue
                 _ollama_ctx_cache[cache_key] = val
+                _ollama_ctx_cache_expirations.pop(cache_key, None)
                 logger.debug("Ollama /api/show: model=%s context_length=%d (key=%s)", model, val, key)
                 return val
         logger.warning("Ollama /api/show: no known context_length key in model_info for %s", model)
@@ -110,6 +161,8 @@ def _query_ollama_context_window(endpoint: str, model: str) -> int | None:
         logger.warning("Ollama /api/show: connection refused to %s — is Ollama running?", base)
     except Exception as e:
         logger.warning("Ollama /api/show: error for %s: %s", model, e)
+    _ollama_ctx_cache[cache_key] = None
+    _ollama_ctx_cache_expirations[cache_key] = time.monotonic() + 60
     return None
 
 def get_effective_context_window(config):
@@ -170,6 +223,9 @@ def call_llm(messages, config, temperature=0.1, max_tokens=None):
         response = requests.post(url, headers=headers, json=payload, timeout=300)
         response.raise_for_status()
         result = response.json()['choices'][0]['message']['content']
+        if not isinstance(result, str) or not result.strip():
+            logger.error("call_llm: endpoint returned an empty message (model=%s)", config.llm_model_name)
+            return "[WARN] **AI RESPONSE ERROR:** The endpoint returned an empty response."
         logger.debug("call_llm: success, response_length=%d", len(result))
         return result
 
@@ -193,8 +249,8 @@ def truncate_text(text, max_chars=300):
     if not text: return "No details provided."
     return text if len(text) <= max_chars else text[:max_chars] + "..."
 
-def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size=6, progress_callback=None, map_temperature=0.1, reduce_temperature=0.2, skip_reduce=False, skip_noise_filter=False, force_reduce=False):
-    """Map input chunks sequentially, filter unusable outputs, and optionally reduce once."""
+def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size=6, progress_callback=None, map_temperature=0.1, reduce_temperature=0.2, skip_reduce=False, skip_noise_filter=False, force_reduce=False, require_all_chunks=False):
+    """Map input chunks and optionally reduce, with optional all-chunk integrity enforcement."""
     if not items: return None
 
     ctx = get_effective_context_window(config)
@@ -221,7 +277,7 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
         ], config, temperature=map_temperature)
         chunk_elapsed = time.time() - chunk_start
 
-        if resp and "[WARN]" not in resp:
+        if isinstance(resp, str) and resp.strip() and "[WARN]" not in resp:
             stripped = resp.strip()
             if skip_noise_filter:
                 logger.debug("_map_reduce_summarize: chunk %d/%d OK in %.1fs, response_length=%d", idx + 1, total_chunks, chunk_elapsed, len(resp))
@@ -247,11 +303,17 @@ def _map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, conf
                     logger.debug("_map_reduce_summarize: chunk %d/%d OK in %.1fs, response_length=%d", idx + 1, total_chunks, chunk_elapsed, len(resp))
                     batch_summaries.append(resp)
         else:
-            logger.error("_map_reduce_summarize: chunk %d/%d FAILED in %.1fs: %s", idx + 1, total_chunks, chunk_elapsed, (resp[:300] if resp else "empty"))
+            failure_excerpt = resp[:300] if isinstance(resp, str) and resp else "empty or non-text response"
+            logger.error("_map_reduce_summarize: chunk %d/%d FAILED in %.1fs: %s", idx + 1, total_chunks, chunk_elapsed, failure_excerpt)
+            if require_all_chunks:
+                return (
+                    f"[WARN] AI batch processing stopped because chunk "
+                    f"{idx + 1}/{total_chunks} failed: {failure_excerpt[:200]}"
+                )
 
     if not batch_summaries: 
         logger.error("_map_reduce_summarize: all chunks failed, returning error")
-        return "AI failed to process batch."
+        return "[WARN] AI batch processing produced no usable summaries." if require_all_chunks else "AI failed to process batch."
 
     if skip_reduce:
         logger.debug("_map_reduce_summarize: skip_reduce=True, returning %d map outputs (total %d chars)", len(batch_summaries), sum(len(s) for s in batch_summaries))
@@ -1259,7 +1321,7 @@ def generate_internal_risk_brief(session, internal_snapshot, progress_callback=N
     config = get_llm_config(session)
     if not config:
         logger.warning("generate_internal_risk_brief: AI is disabled, skipping")
-        return "AI is currently disabled in settings."
+        raise InternalRiskBriefGenerationError("AI is currently disabled in settings.")
 
     logger.debug("generate_internal_risk_brief: starting generation")
     if progress_callback:
@@ -1267,7 +1329,9 @@ def generate_internal_risk_brief(session, internal_snapshot, progress_callback=N
 
     if not internal_snapshot:
         logger.warning("generate_internal_risk_brief: no internal snapshot available")
-        return "No internal risk snapshot available. Trigger an internal risk calculation first."
+        raise InternalRiskBriefGenerationError(
+            "No internal risk snapshot available. Trigger an internal risk calculation first."
+        )
 
     import json
     hw_data = json.loads(internal_snapshot.hw_data_json) if internal_snapshot.hw_data_json else []
@@ -1314,9 +1378,9 @@ def generate_internal_risk_brief(session, internal_snapshot, progress_callback=N
     combined_payload = asset_payload + cve_payload
 
     if not combined_payload:
-        if progress_callback:
-            progress_callback(stage="complete", message="No asset data to analyze.", percent=100)
-        return "No internal assets or CVE data available for analysis."
+        raise InternalRiskBriefGenerationError(
+            "No internal asset or recent CVE data is available for analysis."
+        )
 
     if progress_callback:
         progress_callback(stage="correlation", message=f"Running OSINT correlation analysis ({len(combined_payload)} items)...", total_items=len(combined_payload), processed_items=0, percent=10)
@@ -1374,14 +1438,27 @@ Do NOT include global threat landscape or external OSINT — focus ONLY on corre
             progress_callback(stage="correlation", message=f"Asset correlation map-reduce: chunk {done}/{total_chunks} ({total_items} items)", total_items=total_items, processed_items=processed, percent=pct)
 
     correlation_digest = _map_reduce_summarize(
-        combined_payload, lambda x: x, map_p, reduce_p, config, chunk_size=15, progress_callback=_corr_progress
+        combined_payload,
+        lambda x: x,
+        map_p,
+        reduce_p,
+        config,
+        chunk_size=15,
+        progress_callback=_corr_progress,
+        skip_noise_filter=True,
+        require_all_chunks=True,
     )
 
-    if not correlation_digest or "[WARN]" in correlation_digest:
+    if (
+        not correlation_digest
+        or "[WARN]" in correlation_digest
+        or correlation_digest.strip() == "AI failed to process batch."
+    ):
         logger.error("generate_internal_risk_brief: map-reduce failed: %s", (correlation_digest or "None")[:200])
-        if progress_callback:
-            progress_callback(stage="error", message="Correlation processing failed.", percent=0)
-        return "Internal brief generation failed during correlation analysis."
+        detail = (correlation_digest or "No correlation result returned.").replace("[WARN]", "").strip()
+        raise InternalRiskBriefGenerationError(
+            f"Internal asset correlation failed; no complete brief was saved. {detail}"
+        )
 
     master_sys_prompt = f"""You are a senior infrastructure security analyst preparing an Internal Asset Risk Brief for executive and technical leadership.
 
@@ -1454,20 +1531,28 @@ REQUIRED STRUCTURE:
     except Exception as e:
         elapsed = time.time() - synthesis_start
         logger.error("generate_internal_risk_brief: synthesis EXCEPTION after %.1fs: %s", elapsed, str(e), exc_info=True)
-        if progress_callback:
-            progress_callback(stage="error", message=f"LLM synthesis exception after {elapsed:.0f}s: {str(e)}", percent=0)
-        return "Internal brief generation failed during synthesis."
+        raise InternalRiskBriefGenerationError(
+            f"Internal brief synthesis failed after {elapsed:.0f}s; no report was saved."
+        ) from e
 
     elapsed = time.time() - synthesis_start
     logger.info("generate_internal_risk_brief: LLM responded in %.1fs, response_type=%s", elapsed, type(response).__name__)
 
-    if response and "[WARN]" not in response:
+    if isinstance(response, str) and response.strip() and "[WARN]" not in response:
         logger.info("generate_internal_risk_brief: success, response_length=%d", len(response))
     else:
-        logger.error("generate_internal_risk_brief: LLM returned error after %.1fs: %s", elapsed, response[:500] if response else "None (empty response)")
-        if progress_callback:
-            progress_callback(stage="error", message=f"LLM synthesis failed after {elapsed:.0f}s: {(response[:200] if response else 'empty response')}", percent=0)
-        return "Internal brief generation failed during synthesis."
+        response_excerpt = response[:500] if isinstance(response, str) and response else "None (empty response)"
+        logger.error("generate_internal_risk_brief: LLM returned error after %.1fs: %s", elapsed, response_excerpt)
+        detail = response.strip()[:250] if isinstance(response, str) and response.strip() else "empty response"
+        raise InternalRiskBriefGenerationError(
+            f"Internal brief synthesis failed after {elapsed:.0f}s; no report was saved. {detail}"
+        )
+
+    if is_internal_risk_brief_failure_notice(response):
+        logger.error("generate_internal_risk_brief: model returned an explicit incomplete-report notice")
+        raise InternalRiskBriefGenerationError(
+            "The model returned an incomplete batch/failure notice instead of a complete internal risk brief; no report was saved."
+        )
 
     if progress_callback:
         progress_callback(stage="complete", message="Internal brief generation complete.", percent=100)
@@ -1493,13 +1578,51 @@ def generate_aggregated_shift_summary(session, logs, timeframe_label, target_rol
 Do not infer an incident, impact, cause, urgency, motive, relationship, or unresolved state. Do not turn jokes, conversations, names, role-play, personal comments, or nonsense into operational incidents. If a record is not clearly operational, classify it as NON-OPERATIONAL and quote it briefly without interpretation. Use UNRESOLVED only when the source explicitly says open, pending, unresolved, outstanding, awaiting, monitoring, or follow-up. Preserve exact timestamps and never use placeholders such as '[time]'. Never invent a ticket, escalation, owner, recommendation, or priority."""
     reduce_p = """Combine the extracted facts into a coherent chronological operational narrative. Group related entries into the same incident or workstream, explain how the situation changed over the period, and preserve ticket numbers, asset names, durations, decisions, and unresolved dependencies. Separate completed actions from pending work. Do not characterize team performance or add facts not present in the logs."""
 
-    logger.debug("generate_aggregated_shift_summary: running map-reduce on %d logs (chunk_size=20)", len(logs))
+    context_window = max(1, get_effective_context_window(config))
+    chunk_size = max(1, min(20, context_window // 1600))
+    max_log_chars = max(400, min(1600, int(context_window * 0.1)))
+
+    def _format_shift_log(log):
+        """Bound each untrusted log entry before it is placed in a context-sized batch."""
+        content = str(log.content or "")
+        bounded_content = content[:max_log_chars]
+        if len(content) > max_log_chars:
+            bounded_content += " [entry truncated for summary context]"
+        record_type = (
+            "OPERATIONAL"
+            if any(marker in content.lower() for marker in (
+                "outage", "incident", "alert", "ticket", "maintenance", "dispatch",
+                "escalat", "service", "site", "server", "network", "circuit",
+                "resolved", "pending", "follow-up",
+            ))
+            else "NON-OPERATIONAL"
+        )
+        timestamp = (
+            log.created_at.replace(tzinfo=ZoneInfo("UTC"))
+            .astimezone(LOCAL_TZ)
+            .strftime("%Y-%m-%d %H:%M %Z")
+            if log.created_at else "Timestamp not available"
+        )
+        return f"[RECORD_TYPE: {record_type}] [{timestamp}] {log.analyst}: {bounded_content}"
+
+    logger.debug(
+        "generate_aggregated_shift_summary: running map-reduce logs=%d chunk_size=%d max_log_chars=%d",
+        len(logs), chunk_size, max_log_chars,
+    )
     log_digest = _map_reduce_summarize(
         logs,
-        lambda l: f"[RECORD_TYPE: {'OPERATIONAL' if any(marker in (l.content or '').lower() for marker in ('outage', 'incident', 'alert', 'ticket', 'maintenance', 'dispatch', 'escalat', 'service', 'site', 'server', 'network', 'circuit', 'resolved', 'pending', 'follow-up')) else 'NON-OPERATIONAL'}] [{(l.created_at.replace(tzinfo=ZoneInfo('UTC')).astimezone(LOCAL_TZ).strftime('%Y-%m-%d %H:%M %Z') if l.created_at else 'Timestamp not available')}] {l.analyst}: {l.content}",
-        map_p, reduce_p, config, chunk_size=20
+        _format_shift_log,
+        map_p,
+        reduce_p,
+        config,
+        chunk_size=chunk_size,
+        skip_noise_filter=True,
+        require_all_chunks=True,
     )
     logger.debug("generate_aggregated_shift_summary: map-reduce digest_length=%d", len(log_digest) if log_digest else 0)
+    if not isinstance(log_digest, str) or not log_digest.strip() or log_digest.lstrip().startswith("[WARN]"):
+        logger.error("generate_aggregated_shift_summary: one or more log batches failed")
+        return "[WARN] Shift-log batch processing failed; no complete AI summary was generated."
 
     master_sys_prompt = f"""You are the senior NOC operations lead writing the {timeframe_label} handoff for the {target_role.upper()} team. The report was triggered by {generated_by} in the {generated_by_role} role; include the exact lines '**Prepared by:** {generated_by}' and '**Prepared for role:** {generated_by_role}'. Do not substitute another person or role.
 
@@ -1543,12 +1666,16 @@ Provide a concise chronological list of the key transitions, preserving timestam
         {"role": "user", "content": f"--- LOG DIGEST ---\n{log_digest}"}
     ], config, temperature=0.6)
 
-    if response and "[WARN]" not in response:
+    if isinstance(response, str) and response.strip() and not response.lstrip().startswith("[WARN]"):
         logger.info("generate_aggregated_shift_summary: success, response_length=%d", len(response))
     else:
-        logger.error("generate_aggregated_shift_summary: LLM error: %s", response[:200] if response else "None")
+        logger.error(
+            "generate_aggregated_shift_summary: LLM synthesis failed: %s",
+            response[:200] if isinstance(response, str) and response else "empty or non-text response",
+        )
+        return "[WARN] Shift-summary synthesis failed; no complete AI summary was generated."
 
-    return response.strip() if response else "Summary generation failed."
+    return response.strip()
 
 def generate_briefing(articles, session):
     """Produce a general two-paragraph briefing from the supplied article set."""

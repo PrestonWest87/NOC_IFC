@@ -122,6 +122,10 @@ Important thresholds in the current source:
 
 `generate_and_save_internal_risk_snapshot()` stores the result plus JSON hardware/software arrays and mirrors its tier to `SystemConfig.last_internal_risk`. The timer is every two hours by default; that cadence is independent of the on-demand endpoint.
 
+The Internal Asset Risk Brief uses the latest snapshot's stored matched-asset rows plus up to 200 KEVs from the previous 24 hours. It requires every sequential LLM map batch and the final synthesis to succeed. Empty/error responses, partial batches, and explicit model-generated failure notices stop generation; the last successful brief remains saved and progress reports an error. The dashboard and email paths also withhold recognizable failure/skeleton content left by earlier generations. The generated report does not replace deterministic snapshot metrics.
+
+The Shift Logbook's shift, end-of-day, and trailing-week handoff reports use the same complete-batch rule. End-of-day/week scopes include all shift periods and filter earlier generated rollups; if AI batches or synthesis fail, the API returns a deterministic chronological source-only summary with a visible fallback notice.
+
 ## 5. LLM reports and progress
 
 The LLM client uses an OpenAI-compatible `/chat/completions` endpoint configured in `SystemConfig`. Calls have a 300-second timeout and return `[WARN]` text on failure. The map/reduce implementation processes chunks sequentially, scales the base chunk size by model context, and may skip noise or the reduce step depending on caller options. Progress is stored in process memory, not a durable table.
@@ -134,9 +138,11 @@ The LLM client uses an OpenAI-compatible `/chat/completions` endpoint configured
 | Rolling handoff | Last 24 hours; up to 15 score-50+ articles, 20 hazards, 15 cloud records | `SystemConfig.rolling_summary`; every 30 minutes |
 | Daily Fusion | Previous America/Chicago calendar day; articles score ≥80 (max 15), KEVs (20), hazards (15), cloud rows (15) | `daily_briefings`; daily at 06:00 Central; final LLM failure returns a domain-summary fallback |
 | Custom intelligence report | Selected IDs or up to 30 OR-matched articles; title/summary/full content fed to source-evidence prompt | In-memory generation status/results; user explicitly saves to `saved_reports` |
-| Shift handoff summary | Up to 200 non-deleted filtered logs; untrusted source text | Returned to UI and optionally appended as a log; 30-second wrapper timeout uses deterministic fallback |
+| Shift handoff summary | Up to 200 non-deleted filtered logs; untrusted source text | Returned to UI and optionally appended as a log; strict complete batches; 30-second/provider failure uses a labeled deterministic fallback |
 
 The global-threat assembler classifies map outputs into CI sectors, actors, CVEs, and US/global groups in Python; it skips the reduce request and may use one final LLM call for the BLUF. The internal brief is an LLM analysis of stored asset correlations, not a replacement for deterministic score calculation. The unified brief adds OSINT-correlation and AI-generated-content disclaimers.
+
+The Logbook's shift, end-of-day, and trailing-seven-day summaries use one shared path. End-of-day/week scopes include every shift period and exclude earlier generated rollups. The 30-second LLM worker uses copied log fields and its own database session; timeout/provider/partial-batch failures return a deterministic source-only summary with an explicit fallback notice.
 
 ## 6. Webhook, AIOps, and notifications
 

@@ -45,6 +45,7 @@ A two-column layout:
 | `summaryRole` | `string` | `"All"` or user role | Role filter for summary generation |
 | `summaryShiftPeriod` | `string` | `"Morning"` | Shift period for summary |
 | `summaryResult` | `string \| null` | `null` | Generated summary text |
+| `summaryNotice` | `string \| null` | `null` | Explains when a source-only fallback was used |
 
 #### Data Queries
 | Query Key | Endpoint | Interval | Description |
@@ -59,7 +60,7 @@ A two-column layout:
 | `saveMutation` | `POST /logbook/entries` | Invalidates logbook, clears content |
 | `deleteMutation` | `PATCH /logbook/entries/{id}` (is_deleted=true) | Invalidates logbook |
 | `restoreMutation` | `PATCH /logbook/entries/{id}` (is_deleted=false) | Invalidates logbook |
-| `generateSummaryMut` | `POST /logbook/generate-summary` | Sets summaryResult, invalidates logbook |
+| `generateSummaryMut` | `POST /logbook/generate-summary` | Sets summaryResult and fallback notice, invalidates logbook |
 
 #### Key Handlers
 
@@ -67,7 +68,7 @@ A two-column layout:
 
 **`autoDraftMutation`**: Fetches `GET /rca/dashboard` and `POST /rca/analyze`, parses clustered incidents, calculates downtime durations, and appends formatted lines to the content textarea.
 
-**`generateSummaryMut`**: Posts to `/logbook/generate-summary` with role filter, shift period, and auto_append flag.
+**`generateSummaryMut`**: Posts to `/logbook/generate-summary` with role filter, shift period, timeframe, and auto_append flag. If AI generation times out or returns incomplete output, it shows an accessible notice that a deterministic source-only fallback was appended.
 
 #### Derived Data
 - `filteredEntries`: Memoized filter of entries by search query, date range, and reverse chronological order.

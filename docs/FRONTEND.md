@@ -87,7 +87,7 @@ Acknowledgment hides alerts from the uncorrelated alert list but does not resolv
 
 ### Shift Logbook
 
-The Active Shift view includes note entry, recent-day navigation, and report generation. History access enables the independent explorer with search, role/date filters, day/week views, and administrator CSV export. Soft delete/restore stores `is_deleted`; the current API does not collect a deletion reason. A summary uses the selected shift/day/week scope, appends the generated result when requested by the UI, and falls back to a deterministic summary if the LLM does not finish within thirty seconds.
+The Active Shift view includes note entry, recent-day navigation, and report generation. History access enables the independent explorer with search, role/date filters, day/week views, and administrator CSV export. Soft delete/restore stores `is_deleted`; the current API does not collect a deletion reason. A summary uses the selected shift/day/week scope, appends the generated result when requested by the UI, and displays a status notice when a deterministic source-only fallback is used after LLM failure or the 30-second deadline.
 
 Auto-Draft requires both `AIOps RCA` page access and `Action: Run RCA Analysis`; it fetches the scoped board and analysis and appends the generated incident-duration lines to the unsaved form.
 

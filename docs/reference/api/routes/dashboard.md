@@ -26,9 +26,11 @@ Prefix: `/api/v1/dashboard`. Every route requires the `Global Dashboards` page. 
 | `GET /brief-generation-status?generation_id=...` | Unified Brief tab | Returns progress or `{status:"unknown"}` from the process-local progress store. |
 | `POST /generate-global-brief` | Global Risk tab + `Action: Generate Reports` | Starts global threat-brief generation asynchronously and returns a generation ID. |
 | `GET /global-brief-generation-status?generation_id=...` | Global Risk tab | Returns process-local progress or unknown. |
-| `POST /generate-internal-brief` | Internal Risk tab + `Action: Generate Reports` | Starts internal asset-risk brief generation asynchronously and returns a generation ID. |
-| `GET /internal-brief-generation-status?generation_id=...` | Internal Risk tab | Returns process-local progress or unknown. |
+| `POST /generate-internal-brief` | Internal Risk tab + `Action: Generate Reports` | Starts internal asset-risk brief generation asynchronously and returns a generation ID. Failed/empty asset batches, failed synthesis, and explicit incomplete-output notices produce an error state and do not overwrite the last successful brief. |
+| `GET /internal-brief-generation-status?generation_id=...` | Internal Risk tab | Returns process-local progress or unknown, including the generation failure message. |
 | `POST /generate-scoring-rationale` | Global Risk tab + legacy `Action: Trigger AI Functions` | Accepts optional JSON `{intel:{...}}`, runs the LLM scoring rationale synchronously, and returns its status/report. |
+
+`GET /briefs` withholds recognized internal-risk failure/skeleton text left by earlier generations, including its timestamp. It does not mutate the stored record.
 
 The background brief threads register with the restore coordinator so a UI restore waits for active database-writing work. Progress is stored in API-process memory and is lost if that process restarts.
 
