@@ -17,6 +17,7 @@ This index records the current source-to-reference mapping after the reference c
 | `src/core/bootstrap.py` | `core/bootstrap.md` |
 | `src/core/permissions.py` | `core/permissions.md`, `../API.md`, `../ARCHITECTURE.md` |
 | `src/core/scheduler_registry.py` | `core/scheduler_registry.md`, `../SCHEDULER.md` |
+| `src/core/site_contact_validation.py` | `core/site_contact_validation.md`, `services/services.md`, `../API.md`, `../ESCALATION.md` |
 | `src/core/paths.py` | `core/paths.md`, `train_model.md`, `services/logic.md` |
 | `src/core/backup_manager.py` | `core/backup_restore.md`, `../MAINTENANCE.md`, `../API.md` |
 | `src/core/restore_control.py`, `src/core/ui_restore.py` | `core/backup_restore.md`, `../MAINTENANCE.md` |

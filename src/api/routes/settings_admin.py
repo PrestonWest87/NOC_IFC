@@ -10,14 +10,44 @@ import tempfile
 import json
 from fastapi import APIRouter, Query, Body, HTTPException, UploadFile, File, Depends, BackgroundTasks, Request, Response
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 from typing import Any
 
 from src import services as svc
 from src.api.auth_guard import require_admin
 from src.core.config import settings
+from src.core.site_contact_validation import (
+    SITE_CONTACT_MAX_ENTRIES,
+    normalize_site_contact_value,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(require_admin)])
+
+
+class SiteContactInput(BaseModel):
+    """One optional reference contact with bounded and syntax-checked fields."""
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, max_length=128)
+    phone: str | None = Field(default=None, max_length=64)
+    email: str | None = Field(default=None, max_length=254)
+
+    @field_validator("name", "phone", "email", mode="before")
+    @classmethod
+    def validate_optional_contact_value(cls, value, info: ValidationInfo):
+        """Share API and imported-data validation rules for every contact field."""
+        try:
+            return normalize_site_contact_value(info.field_name, value)
+        except ValueError as exc:
+            raise ValueError(str(exc).replace("Contact ", "")) from exc
+
+
+class SiteContactsUpdate(BaseModel):
+    """Replace a site's ordered contact list with at most fifty entries."""
+    model_config = ConfigDict(extra="forbid")
+
+    contacts: list[SiteContactInput] = Field(max_length=SITE_CONTACT_MAX_ENTRIES)
 
 
 def _send_invitation_email(recipient: str, username: str, role: str, link: str, expires_at: str):
@@ -260,6 +290,30 @@ def get_locations():
     """Return the full monitored-location list to an administrator."""
     logger.debug("GET /admin/location")
     return svc.get_cached_locations()
+
+
+@router.get("/location/{location_id}/contacts")
+def get_location_contacts(location_id: int):
+    """Return only the requested site's contacts to an administrator."""
+    try:
+        contacts = svc.get_site_contacts(location_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"contacts": contacts}
+
+
+@router.put("/location/{location_id}/contacts")
+def update_location_contacts(location_id: int, data: SiteContactsUpdate):
+    """Replace a site's optional reference contacts after request validation."""
+    try:
+        contacts = svc.replace_site_contacts(
+            location_id,
+            [contact.model_dump() for contact in data.contacts],
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    logger.info("PUT /admin/location/%d/contacts count=%d", location_id, len(contacts))
+    return {"status": "ok", "contacts": contacts}
 
 
 @router.post("/location/import")

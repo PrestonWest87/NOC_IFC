@@ -3,7 +3,7 @@
 > **Source of truth:** `src/models/schema.py` (SQLAlchemy declarative models)
 > **Engine:** SQLite via `DATABASE_URL`
 > **Driver:** SQLAlchemy 2.x with `NullPool`
-> **Last verified:** 2026-10-26
+> **Last verified:** 2026-11-02
 
 The mapped table names, column names, SQLAlchemy types, and nullability in this reference reflect the model metadata in `src/models/schema.py`.
 
@@ -201,7 +201,7 @@ The legacy ER diagram is conceptual: its `(FK→)` labels do not distinguish enf
 └─────────────────────┘                                  │
 ```
 
-### Logical Relationship Summary
+### Relationship Summary
 
 | Source Table | Source Column | → | Target Table | Target Column | Nature |
 |---|---|---|---|---|---|
@@ -214,14 +214,15 @@ The legacy ER diagram is conceptual: its `(FK→)` labels do not distinguish enf
 | `node_aliases` | `mapped_location_name` | → | `monitored_locations` | `name` | Node name resolution |
 | `user_weather_prefs` | `username` | → | `users` | `username` | Per-user preferences |
 | `timeline_events` | `source` | → | *(various)* | *(various)* | Event origin tracking |
+| `monitored_location_contacts` | `monitored_location_id` | → | `monitored_locations` | `id` | Enforced FK; site reference contacts |
 
-> **No `ON DELETE CASCADE`** exists. Orphaned `extracted_iocs` are cleaned up by the hourly DB maintenance job.
+> `monitored_location_contacts.monitored_location_id` declares `ON DELETE CASCADE`; the SQLite runtime does not enable foreign-key enforcement, so ORM and bulk-delete services also remove child rows explicitly. Orphaned `extracted_iocs` are cleaned up by the hourly DB maintenance job.
 
 ---
 
 ## 2. Complete Table Reference
 
-Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state. Other migration-only compatibility columns are described in Section 3.
+Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state; revision `20261102_0006` adds the site-contact table. Other migration-only compatibility columns are described in Section 3.
 
 ### 2.1 `users` — User Accounts
 
@@ -765,6 +766,19 @@ Stores the registered job key, validated interval/daily/weekly schedule fields, 
 | `updated_by` | String(128) | YES | NULL | — |
 | `updated_at` | DateTime | NO | `utcnow` | — |
 
+### 2.36 `monitored_location_contacts` — Monitored Site Reference Contacts (6 columns)
+
+Stores optional contact details separately from general site payloads. Contact values are administrator-managed and are included as reference text in automatic ONPAGE email bodies; contact email addresses are never used as recipients.
+
+| Column | Type | Nullable | Default | Index / constraint |
+|---|---|---|---|---|
+| `id` | Integer | NO | autoincrement | Primary key |
+| `monitored_location_id` | Integer | NO | — | Index; FK to `monitored_locations.id`, declared `ON DELETE CASCADE` |
+| `name` | String(128) | YES | NULL | Optional display name |
+| `phone` | String(64) | YES | NULL | Optional phone number and extension |
+| `email` | String(254) | YES | NULL | Optional single email address |
+| `sort_order` | Integer | NO | `0` (server) | Contact order within the site |
+
 ---
 
 ## 3. Schema Evolution Strategy
@@ -861,6 +875,7 @@ Entries may group independent indexes for brevity; a grouped row does not imply 
 | `monitored_locations` | `loc_type` | B-tree | Type filtering |
 | `monitored_locations` | `district` | B-tree | District filtering |
 | `monitored_locations` | `priority` | B-tree | Priority sorting |
+| `monitored_location_contacts` | `monitored_location_id` | B-tree | Ordered contact lookup and site association |
 | `regional_hazards` | `hazard_id` | UNIQUE | Dedup on ingest |
 | `regional_hazards` | `updated_at` | B-tree | Time-range / purge |
 | `regional_outages` | `outage_type` | B-tree | Type filtering |
@@ -912,7 +927,7 @@ After migrations, startup enables persistent WAL mode. The SQLAlchemy connection
 
 ### Phase 2 — One-time legacy adoption
 
-Revision `20261002_0001` uses the frozen `migrations/schema_v1.py` snapshot to create missing baseline tables, adds only missing legacy columns, creates missing indexes, and applies one-time user, invitation, and priority backfills. Revision `20261002_0002` adds `registration_invites.revoked_at` for auditable invite invalidation during full restore. Revision `20261005_0003` adds a false-default `solarwinds_alerts.needs_dispatch` flag while preserving existing alerts. Revision `20261005_0004` fills `timeline_events.site_name` only for legacy generated webhook alerts with a suffix matching a monitored location. Revision `20261013_0005` adds nullable `solarwinds_alerts.onpage_sent_at` so successful on-page delivery can be tracked per active node incident. Existing tables and records are retained. Duplicate normalized email values that prevent creation of the unique index fail with an actionable error.
+Revision `20261002_0001` uses the frozen `migrations/schema_v1.py` snapshot to create missing baseline tables, adds only missing legacy columns, creates missing indexes, and applies one-time user, invitation, and priority backfills. Revision `20261002_0002` adds `registration_invites.revoked_at` for auditable invite invalidation during full restore. Revision `20261005_0003` adds a false-default `solarwinds_alerts.needs_dispatch` flag while preserving existing alerts. Revision `20261005_0004` fills `timeline_events.site_name` only for legacy generated webhook alerts with a suffix matching a monitored location. Revision `20261013_0005` adds nullable `solarwinds_alerts.onpage_sent_at` so successful on-page delivery can be tracked per active node incident. Revision `20261102_0006` creates `monitored_location_contacts` and its site lookup index without changing existing site rows. Existing tables and records are retained. Duplicate normalized email values that prevent creation of the unique index fail with an actionable error.
 
 The explicit compatibility column map covers account/recovery fields, scheduler revisions, scoring and alert settings, article enrichment metadata, role site types, alert dispatch fields, location tracking, shift-log state, crime dispatch state, and timeline site metadata. The adoption revision validates every frozen-baseline table's final column set before recording success; later revisions add their versioned fields.
 
@@ -966,15 +981,16 @@ Creates a single default `SystemConfig` row if none exists.
 
 ### Declared Foreign Key Constraints
 
-The schema declares foreign keys for independently revocable sessions, account-recovery requests/tokens, and account-audit actor/subject references:
+The schema declares foreign keys for independently revocable sessions, account-recovery requests/tokens, account-audit actor/subject references, and monitored-site contacts:
 
 - `user_sessions.user_id` → `users.id`.
+- `monitored_location_contacts.monitored_location_id` → `monitored_locations.id` (`ON DELETE CASCADE` declaration; service-level deletion also applies because SQLite foreign-key enforcement is off).
 - `email_change_requests.user_id` and `reviewed_by_id` → `users.id`.
 - `password_reset_requests.user_id` and `reviewed_by_id` → `users.id`.
 - `password_reset_tokens.request_id` → `password_reset_requests.id`; `user_id` → `users.id`.
 - `account_audit_events.actor_user_id` and `subject_user_id` → `users.id`.
 
-The SQLite connection setup does not enable `PRAGMA foreign_keys`, so applications must not assume SQLite is enforcing those declarations at runtime. Other relationships—including `users.role`, `user_weather_prefs.username`, `extracted_iocs.article_id`, and site/name mappings—are logical joins without declared foreign keys. Hourly maintenance removes orphaned IOC rows.
+The SQLite connection setup does not enable `PRAGMA foreign_keys`, so applications must not assume SQLite is enforcing those declarations at runtime. Other relationships—including `users.role`, `user_weather_prefs.username`, `extracted_iocs.article_id`, and alert/site-name mappings—are logical joins without declared foreign keys. Hourly maintenance removes orphaned IOC rows.
 
 ### JSON Columns for Flexible Data
 
@@ -1073,6 +1089,7 @@ Centralized retention is enforced by the hourly **`database_maintenance` schedul
 | `daily_briefings` | Historical — one per day, retained |
 | `daily_threat_scores` | Historical time series — no purge |
 | `monitored_locations` | Persistent site registry |
+| `monitored_location_contacts` | Persistent optional site contacts; removed with their site during explicit site replacement/deletion |
 | `node_aliases` | Persistent mapping table |
 | `user_weather_prefs` | Persistent user preferences |
 | `user_sessions` | Removed by logout/reset/role or administrator revocation; no age-based purge |

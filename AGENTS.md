@@ -106,6 +106,21 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 
 ---
 
+## Implementation Plan — Monitored Site Contacts and ONPAGE Email Context
+
+**Implementation branch:** `main` (user-directed). Contacts are stored in a separate one-to-many table, managed by administrators, and shown only as reference text in automatic ONPAGE email bodies; they are not email recipients.
+
+- [x] Add an additive SQLite migration and `MonitoredLocationContact` model with optional name, phone, email, and stable display order.
+- [x] Add administrator-only contact read/replace APIs; keep contact details out of shared location payloads.
+- [x] Add frontend and server-side validation for optional names, single email addresses, international-style phones/extensions, field bounds, and contact-count bounds.
+- [x] Add a multiple-contact editor in Settings → Facilities and place contacts after the target SLA in eligible automatic ONPAGE bodies.
+- [x] Preserve contacts for same-name sites in location replacement imports and clean them up when sites are explicitly removed.
+- [x] Add local-only migration, API, service, validation, and escalation tests; update API, schema, migration, escalation, UI, and source-reference documentation.
+- [x] Verify the 144-test Python suite, Python compilation, API image build, frontend production build, and documentation contracts; OpenAPI reports 178 paths / 191 operations.
+- [x] Mirror verified changes to `architecture/monolith-to-decoupled` and verify parity on both worktrees.
+
+---
+
 ## Documentation Index
 
 Comprehensive enterprise documentation is in `docs/`:
@@ -115,7 +130,7 @@ Comprehensive enterprise documentation is in `docs/`:
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System context, C4 container model, technology stack, data flow overview, security, scalability |
 | [API.md](docs/API.md) | Complete REST operation inventory and endpoint behavior; path/method coverage is checked against the FastAPI OpenAPI schema |
 | [PERMISSIONS.md](docs/PERMISSIONS.md) | Exact page, tab, action, site-type, built-in-role, and enforcement contracts |
-| [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | All 35 tables with columns, types, constraints, indexes, relationships, migration strategy, retention policies |
+| [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | All 36 tables with columns, types, constraints, indexes, relationships, migration strategy, retention policies |
 | [MIGRATION_COMPATIBILITY.md](docs/MIGRATION_COMPATIBILITY.md) | Supported older SQLite upgrade shapes, additive migration behavior, failure handling, and safety-test coverage |
 | [DATA_FLOWS.md](docs/DATA_FLOWS.md) | Ingestion, scoring, internal risk, reporting, webhook/AIOps, hazard/telemetry, provider-worker, and retention flows |
 | [TRIGGER_ACTION_FLOWS.md](docs/TRIGGER_ACTION_FLOWS.md) | Every trigger (webhook, scheduler, user action, WebSocket) mapped to its complete action flow |
@@ -234,8 +249,9 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `src/core/backup_manager.py` | Authenticated encrypted full backups, retention, upload validation, and offline restore |
 | `src/core/restore_control.py` | Cross-process maintenance marker, API drain counters, and restore progress state |
 | `src/core/ui_restore.py` | UI restore orchestration, writer quiescence, and runtime refresh |
-| `src/models/schema.py` | 35 SQLAlchemy models |
+| `src/models/schema.py` | 36 SQLAlchemy models |
 | `src/core/permissions.py` | Canonical page, tab, and action permission catalog |
+| `src/core/site_contact_validation.py` | Shared server-side validation for optional site contact fields |
 | `src/core/scheduler_registry.py` | Scheduler defaults, bounds, timezone, and startup policy |
 | `src/scheduler.py` | Background job orchestrator and frequency controls |
 | `src/webhook_listener.py` | SolarWinds webhook gateway (port 8100) |
@@ -243,6 +259,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `src/utils/mailer.py` | SMTP email sending |
 | `src/utils/risk_alert.py` | Risk level change detection + alerting |
 | `web/src/components/UsersRolesTab.tsx` | User directory, invitation, display-account, and role management |
+| `web/src/components/SiteContactsDialog.tsx` | Administrator editor and client-side validation for site contacts |
 | `web/src/components/ApplicationSettingsTab.tsx` | Risk scoring, scheduler, and global application settings |
 | `web/src/pages/DashboardPage.tsx` | Dashboard with brief generation progress polling |
 

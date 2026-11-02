@@ -37,7 +37,7 @@ from datetime import datetime, timedelta
 from src.database import (
     SessionLocal, Article, FeedSource, RegionalHazard, CloudOutage,
     ExtractedIOC, engine, init_db, SolarWindsAlert, BgpAnomaly,
-    CveItem, RegionalOutage, CrimeIncident, MonitoredLocation,
+    CveItem, RegionalOutage, CrimeIncident, MonitoredLocation, MonitoredLocationContact,
     InternalRiskSnapshot, TimelineEvent, ElasticEvent, FailedLoginAttempt,
     PasswordResetRequest, PasswordResetToken, EmailChangeRequest,
 )
@@ -60,6 +60,28 @@ def log(message, source="SYSTEM", level=None):
     if level is None:
         level = logging.INFO
     logger.log(level, "[%s] %s", source.upper(), message)
+
+
+def format_onpage_site_contacts(contacts):
+    """Render optional site contacts as a safe, plain-text reference block."""
+    contact_lines = []
+    for contact in contacts:
+        fields = []
+        name = " ".join(str(getattr(contact, "name", "") or "").split())
+        phone = " ".join(str(getattr(contact, "phone", "") or "").split())
+        email = " ".join(str(getattr(contact, "email", "") or "").split())
+        if name:
+            fields.append(name)
+        if phone:
+            fields.append(f"Phone: {phone}")
+        if email:
+            fields.append(f"Email: {email}")
+        if fields:
+            contact_lines.append(f"- {' | '.join(fields)}")
+    if not contact_lines:
+        return ""
+    return "SITE CONTACTS (REFERENCE ONLY)\n" + "\n".join(contact_lines)
+
 
 def log_memory_usage(tag=""):
     """Log this Linux worker process's resident memory from `/proc/self/status`."""
@@ -879,6 +901,21 @@ def job_tiered_alert_escalation(now_utc=None):
                 _, is_swf_device, _, page_body = dispatch_details(
                     page_target, page_tier, page_cascade
                 )
+                if loc:
+                    site_contacts = (
+                        db.query(MonitoredLocationContact)
+                        .filter_by(monitored_location_id=loc.id)
+                        .order_by(MonitoredLocationContact.sort_order, MonitoredLocationContact.id)
+                        .all()
+                    )
+                    contact_section = format_onpage_site_contacts(site_contacts)
+                    if contact_section:
+                        sla_section, separator, incident_details = page_body.partition("\n\n")
+                        if separator:
+                            page_body = (
+                                f"{sla_section}{separator}"
+                                f"{contact_section}{separator}{incident_details}"
+                            )
                 if is_swf_device:
                     target_onpage_email = NOC_ONPAGE_EMAIL
                     onpage_title = "NOC"

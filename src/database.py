@@ -36,6 +36,7 @@ from src.models.schema import (
     SolarWindsAlert,
     TimelineEvent,
     MonitoredLocation,
+    MonitoredLocationContact,
     CrimeIncident,
     GeoJsonCache,
     UserWeatherPreference,

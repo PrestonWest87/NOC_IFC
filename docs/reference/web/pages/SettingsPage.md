@@ -123,7 +123,7 @@ Two-column grid:
 ## `FacilitiesTab({ locations, locationsLoading, locationsError, refetchLocations, queryClient, canEdit })`
 
 ### Purpose
-Facility locations management — JSON import and manual table editing.
+Facility locations management — JSON import, manual table editing, and administrator-managed site contacts.
 
 ### Props
 | Prop | Type | Description |
@@ -138,7 +138,9 @@ Facility locations management — JSON import and manual table editing.
 ### Returns
 - Facility map (DeckGL/MapLibre) and site details.
 - JSON import with add/upsert/replace modes via `POST /admin/location/import`.
-- Location table with Name, Type, District, Priority, Lat, and Lon; writes use `PUT /admin/location` and are administrator-managed.
+- Location table with Name, Type, District, Priority, Lat, Lon, and a per-site Contacts editor; location writes use `PUT /admin/location` and contact writes use `PUT /admin/location/{location_id}/contacts`.
+- Site contacts are maintained separately from shared site payloads. The editor accepts optional name, phone, and email values, validates phone/email syntax in the browser, and displays server validation errors.
+- The dialog explains that contacts are reference information in automatic ONPAGE email bodies and are not email recipients.
 
 ---
 
@@ -246,10 +248,10 @@ Risk-scoring overrides, validated scheduler settings, application defaults, and 
 ## `BackupRestoreTab({ isAdmin })`
 
 ### Purpose
-Backup & Restore — administrator-only legacy JSON backup/restore, supported 27-model JSON export/import, and SQLite file data import.
+Backup & Restore — administrator-only legacy JSON backup/restore, supported 28-model JSON export/import, and SQLite file data import.
 
 ### Returns
-Administrator-only controls provide a legacy four-collection JSON backup/restore, export/import for the 27 supported application models via `GET /admin/export-all` and `POST /admin/import-all`, and a `.db` upload that imports rows into the current database via `POST /admin/upload-db`. None of these JSON/upload paths replaces a complete SQLite database-file backup.
+Administrator-only controls provide a legacy four-collection JSON backup/restore, export/import for the 28 supported application models via `GET /admin/export-all` and `POST /admin/import-all`, and a `.db` upload that imports rows into the current database via `POST /admin/upload-db`. None of these JSON/upload paths replaces a complete SQLite database-file backup.
 
 ---
 

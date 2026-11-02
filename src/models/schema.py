@@ -5,7 +5,7 @@ the frozen first-revision snapshot, define how persisted databases evolve.
 """
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, JSON, ForeignKey, Index, text
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime
 
 Base = declarative_base()
@@ -497,6 +497,28 @@ class MonitoredLocation(Base):
     last_escalation_dispatch = Column(DateTime, nullable=True)
     status_modified_by = Column(String, nullable=True)
     status_modified_at = Column(DateTime, nullable=True)
+    contacts = relationship(
+        "MonitoredLocationContact",
+        back_populates="location",
+        cascade="all, delete-orphan",
+    )
+
+
+class MonitoredLocationContact(Base):
+    """Optional reference contacts associated with one monitored site."""
+    __tablename__ = "monitored_location_contacts"
+    id = Column(Integer, primary_key=True)
+    monitored_location_id = Column(
+        Integer,
+        ForeignKey("monitored_locations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name = Column(String(128), nullable=True)
+    phone = Column(String(64), nullable=True)
+    email = Column(String(254), nullable=True)
+    sort_order = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    location = relationship("MonitoredLocation", back_populates="contacts")
 
 
 class CrimeIncident(Base):

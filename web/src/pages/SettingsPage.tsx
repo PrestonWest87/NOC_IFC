@@ -6,6 +6,7 @@ import { useAuth } from "../utils/AuthContext";
 import { hasActionPermission, isAdministrator } from "../utils/permissions";
 import { UsersRolesTab } from "../components/UsersRolesTab";
 import { ApplicationSettingsTab } from "../components/ApplicationSettingsTab";
+import { SiteContactsDialog } from "../components/SiteContactsDialog";
 import {
   Trash2, Upload, Download, RefreshCw, AlertTriangle, Save,
    Key, Shield, Settings as SettingsIcon, Database, FileJson,
@@ -344,6 +345,7 @@ function FacilitiesTab({ locations, locationsLoading, locationsError, refetchLoc
   const [importMode, setImportMode] = useState<"add" | "upsert" | "replace">("add");
   const [editData, setEditData] = useState<any[]>([]);
   const [mapSite, setMapSite] = useState<{ name: string; lat: number; lon: number; type: string } | null>(null);
+  const [contactsSite, setContactsSite] = useState<{ id: number; name: string } | null>(null);
 
   const importMutation = useMutation({
     mutationFn: async ({ file, mode }: { file: File; mode: string }) => {
@@ -535,7 +537,7 @@ function FacilitiesTab({ locations, locationsLoading, locationsError, refetchLoc
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--border-primary)" }}>
-                    {["Name", "Site Type", "District", "Priority", "Lat", "Lon", "ID"].map(h => (
+                    {["Name", "Site Type", "District", "Priority", "Lat", "Lon", "ID", "Contacts"].map(h => (
                       <th key={h} style={{ padding: "0.4rem 0.5rem", textAlign: "left", color: "var(--text-secondary)" }}>{h}</th>
                     ))}
                   </tr>
@@ -562,6 +564,17 @@ function FacilitiesTab({ locations, locationsLoading, locationsError, refetchLoc
                         <input style={{ ...inputStyle, width: 80 }} type="number" step="any" value={row.lon ?? ""} onChange={e => updateRow(i, "lon", Number(e.target.value))} />
                       </td>
                       <td style={{ padding: "0.25rem 0.5rem", color: "var(--text-muted)", fontSize: "0.7rem" }}>{row.id}</td>
+                      <td style={{ padding: "0.25rem 0.3rem" }}>
+                        <button
+                          type="button"
+                          onClick={() => setContactsSite({ id: Number(row.id), name: String(row.name || "Unnamed site") })}
+                          disabled={row.id == null}
+                          aria-label={`Manage contacts for ${row.name || "site"}`}
+                          style={btn("var(--accent-blue)")}
+                        >
+                          Manage
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -578,6 +591,13 @@ function FacilitiesTab({ locations, locationsLoading, locationsError, refetchLoc
           </>
         )}
       </Card>
+      {contactsSite && (
+        <SiteContactsDialog
+          siteId={contactsSite.id}
+          siteName={contactsSite.name}
+          onClose={() => setContactsSite(null)}
+        />
+      )}
       </>}
     </div>
   );

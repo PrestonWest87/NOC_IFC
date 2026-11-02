@@ -24,7 +24,7 @@ The single `worker` process registers 20 jobs from `JOB_REGISTRY`. It runs regis
 
 | Job | Default trigger | Main work |
 |---|---|---|
-| `tiered_alert_escalation` | Every 1 minute; starts on boot | Cluster active SolarWinds alerts; prepare site ticket and separate per-node on-page delivery |
+| `tiered_alert_escalation` | Every 1 minute; starts on boot | Cluster active SolarWinds alerts; prepare site ticket and separate per-node on-page delivery, appending reference contacts to eligible ONPAGE bodies only |
 | `rss_fetch` | Every 5 minutes; starts on boot | Fetch/score/categorize articles, extract eligible IOCs, persist, deduplicate |
 | `article_enrichment` | Every 3 minutes | Extract full content for eligible captured articles |
 | `maintenance_expiry` | Every 5 minutes; starts on boot | Clear maintenance after ETR date ends in Central time |
@@ -46,6 +46,8 @@ The single `worker` process registers 20 jobs from `JOB_REGISTRY`. It runs regis
 | `database_backup` | Sunday 00:00 Central | Create full encrypted backup; retain newest three scheduled packages |
 
 `tiered_alert_escalation` is bounded to 1–5 minutes and cannot be disabled. `database_backup` cannot be disabled. Daily/weekly jobs remain on `America/Chicago`; other interval minima/maxima are in `SCHEDULER.md`.
+
+The automatic ONPAGE email body places the affected monitored site's optional contacts immediately below the target SLA and before generated incident/RCA details. This is reference text only: recipient routing remains `NOC_ONPAGE_EMAIL` or `ITNETWORK_ONPAGE_EMAIL` based on device classification. Ticket, informational notification, and manual RCA email bodies do not include site contacts.
 
 ## 3. Authentication, invitations, and recovery
 

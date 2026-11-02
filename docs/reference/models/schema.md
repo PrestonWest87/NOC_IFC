@@ -1,6 +1,6 @@
 # Module: `src.models.schema`
 
-SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declarative schema contains 35 mapped tables/classes; migrations may add compatibility columns to existing deployments.
+SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declarative schema contains 36 mapped tables/classes; migrations may add compatibility columns to existing deployments.
 
 ---
 
@@ -43,6 +43,7 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declar
 | 33 | `geojson_cache` | `GeoJsonCache` | Cached geospatial GeoJSON |
 | 34 | `node_aliases` | `NodeAlias` | SolarWinds node-to-site mapping |
 | 35 | `user_weather_prefs` | `UserWeatherPreference` | User weather alert preferences |
+| 36 | `monitored_location_contacts` | `MonitoredLocationContact` | Optional reference contacts attached to monitored sites |
 
 ---
 
@@ -286,6 +287,24 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `last_escalation_dispatch` | `DateTime` | `nullable` | — | Last escalation dispatch timestamp |
 | `status_modified_by` | `String` | `nullable` | — | Username who last modified site status |
 | `status_modified_at` | `DateTime` | `nullable` | — | When site status was last modified |
+
+`MonitoredLocation.contacts` is an ORM relationship with delete-orphan cascade. Contact fields are not mapped columns on `MonitoredLocation`, so the shared location serializer does not emit contact data.
+
+---
+
+### MonitoredLocationContact
+**Table**: `monitored_location_contacts`
+
+| Column | Type | Default | Index | Description |
+|--------|------|---------|-------|-------------|
+| `id` | `Integer PK` | auto | PK | Primary key |
+| `monitored_location_id` | `Integer FK` | — | Y | Parent site ID; declared FK with `ON DELETE CASCADE` |
+| `name` | `String(128)` | `nullable` | — | Optional contact name |
+| `phone` | `String(64)` | `nullable` | — | Optional phone number and extension |
+| `email` | `String(254)` | `nullable` | — | Optional single email address |
+| `sort_order` | `Integer` | `0` | — | Stable order within the site's contact list |
+
+The admin-only site-contact API validates fields. Automatic escalation includes these values in ONPAGE email bodies as reference text; saved email addresses are not recipients.
 
 ---
 

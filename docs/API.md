@@ -3,7 +3,7 @@
 Base URL: `http://localhost:8101/api/v1`
 WebSocket: `ws://localhost:8101/ws`
 
-This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-10-26 (177 paths and 189 HTTP operations). The running application's OpenAPI schema remains the source of truth.
+This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-02 (178 paths and 191 HTTP operations). The running application's OpenAPI schema remains the source of truth.
 
 ## Authentication
 
@@ -481,8 +481,18 @@ Body: `{new_password}`
 
 ### GET /admin/location
 
+Returns the administrator's site registry. Contact records are managed separately and are not included in this general location payload.
+
+### GET /admin/location/{location_id}/contacts
+
+Returns `{"contacts":[...]}` for the requested site; a missing site returns `404`. The route is administrator-only.
+
+### PUT /admin/location/{location_id}/contacts
+
+Administrator-only replacement request: `{"contacts":[{"name":"Duty Manager","phone":"+1 (501) 555-0100 ext 4","email":"duty@example.com"}]}`. Contact entries support up to 50 rows, with each name, phone, and email optional. Values are trimmed; fully blank entries are omitted. A blank or `null` phone/email is allowed, while nonblank emails must be one valid address (max 254 characters) and nonblank phones must use a supported international-style number format, 7–15 digits, and an optional extension. Names are limited to 128 characters and phone values to 64. Invalid fields return `422`; an empty contacts list clears the site's contacts. Contact emails remain reference text and are never selected as mail recipients.
+
 ### POST /admin/location/import?mode=add|upsert|replace
-Body: array of location dicts.
+Body: array of location dicts. `replace` retains contacts for sites with the same name in the imported site list and removes contacts for sites that are removed.
 
 ### PUT /admin/location
 Body: array of edited location records (`list[dict]`).
@@ -529,7 +539,7 @@ Returns the legacy configuration backup containing keywords, feeds, monitored lo
 Body: legacy backup data dict. Adds records that are not already present for those four collections.
 
 ### GET /admin/export-all
-Exports the 27 application models listed in `src/services.py` `ALL_MODELS`. It excludes session, failed-login, invitation, recovery-request/token, account-audit, and scheduler-job configuration tables, so it is not a complete database backup. The export is administrator-only and may contain password hashes and stored integration credentials; protect it as sensitive data.
+Exports the 28 application models listed in `src/services.py` `ALL_MODELS`, including site contacts. It excludes session, failed-login, invitation, recovery-request/token, account-audit, and scheduler-job configuration tables, so it is not a complete database backup. The export is administrator-only and may contain password hashes, site contact details, and stored integration credentials; protect it as sensitive data.
 
 ### POST /admin/import-all
 Body: JSON export data for supported models; set `"_merge": true` in the body to skip duplicate IDs. With the default `"_merge": false`, non-empty supported tables are cleared before inserting their supplied rows.
