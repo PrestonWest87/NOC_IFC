@@ -20,7 +20,7 @@ Intervals below are the values in the scheduler source, not historical product t
 | Database maintenance | Every 60 minutes | `run_database_maintenance` | Retention deletes, orphan cleanup, SQLite optimize/checkpoint |
 | Internal risk | Every 2 hours | `job_internal_risk` | Asset/CVE/OSINT state; saves an `InternalRiskSnapshot` |
 | Rolling summary | Every 30 minutes | `job_rolling_summary` | Shift data; saves an AI handoff summary |
-| Internal brief | Every 3 hours | `job_internal_brief` | Asset snapshot and OSINT/CVE data; saves internal brief |
+| Internal brief | Every 3 hours | `job_internal_brief` | Requires every asset-correlation batch and final synthesis to succeed; saves only complete briefs and preserves the last saved brief on failure |
 | Unified brief | Every 6 hours | `job_unified_brief` | Global physical/cyber context and internal snapshot; saves unified brief |
 | CISA KEV | Every 7 hours | `fetch_cisa_kev` | CISA catalog; updates `CveItem` |
 | Global brief | Daily at 02:00 | `job_global_brief` | Broad OSINT and physical context; saves global threat brief |

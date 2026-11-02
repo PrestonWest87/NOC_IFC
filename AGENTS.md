@@ -121,6 +121,20 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 
 ---
 
+## Implementation Plan — Internal Brief and Shift Summary Reliability
+
+**Implementation branch:** `main` (user-directed). Production logs supplied by the user show Qwen chat requests returning empty content; the test worktree's unavailable local AI is not treated as production evidence.
+
+- [x] Trace the internal-brief path where `AI failed to process batch.` reached synthesis and failure text was saved as a successful report.
+- [x] Require all internal and shift-summary map batches to succeed; reject empty responses and explicit incomplete/skeleton report notices.
+- [x] Preserve the last successful internal brief on failure, hide known legacy failure notices from dashboard reads, and reject broadcasts of them.
+- [x] Correct end-of-day/week log scopes to include all shift periods and exclude prior generated rollups; isolate LLM work in its own session and label the source-only fallback.
+- [x] Bound shift-log text and adapt map batch size to the configured model context; cache unknown Ollama context metadata briefly and recognize Qwen 3 metadata keys.
+- [x] Add local-only internal-brief, Ollama context, shift/EOD/EOW, authorization, and failure-path tests; update API, data-flow, scheduler, service, and UI documentation.
+- [x] Run the 157-test Python suite on both worktrees, Python compilation, frontend production build, and Docker Compose build/restart; verify healthy local services, clean `git diff --check`, and matching changed-file contents across `main` and `architecture/monolith-to-decoupled`.
+
+---
+
 ## Documentation Index
 
 Comprehensive enterprise documentation is in `docs/`:

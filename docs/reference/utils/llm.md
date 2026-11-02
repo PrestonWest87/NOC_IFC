@@ -6,7 +6,7 @@ Implements the application's OpenAI-compatible chat-completions client, optional
 
 ### `MODEL_CONTEXT_WINDOWS`
 
-Lookup table for known cloud/local model context sizes. When an API key is configured, `get_effective_context_window()` trusts `SystemConfig.llm_context_window`. Without a key it checks the model name (including a name with a tag/version suffix), queries Ollama `/api/show` for unknown models, and falls back to the configured context size. `/api/show` results are cached per endpoint/model in `_ollama_ctx_cache`.
+Lookup table for known cloud/local model context sizes. When an API key is configured, `get_effective_context_window()` trusts `SystemConfig.llm_context_window`. Without a key it checks the model name (including a name with a tag/version suffix), queries Ollama `/api/show` for unknown models (including recognized Qwen 3 and generic `*.context_length` metadata), and falls back to the configured context size. Successful metadata is cached per endpoint/model; missing metadata and lookup failures are negatively cached for 60 seconds to avoid repeating slow `/api/show` calls for every batch.
 
 ### `get_llm_config(session)`
 
@@ -14,7 +14,7 @@ Returns the first `SystemConfig` row with `is_active=True`, or `None`. The calle
 
 ### `call_llm(messages, config, temperature=0.1, max_tokens=None)`
 
-Accepts a `SystemConfig`-like object or dictionary, posts `{model, messages, temperature, max_tokens}` to `{llm_endpoint}/chat/completions`, and uses a 300-second request timeout. It adds a Bearer header when an API key is present. If `max_tokens` is omitted, it uses `min(effective_context // 2, 8192)`. Network, HTTP, response-shape, and other errors are returned as strings prefixed with `[WARN]`; they are not raised to callers.
+Accepts a `SystemConfig`-like object or dictionary, posts `{model, messages, temperature, max_tokens}` to `{llm_endpoint}/chat/completions`, and uses a 300-second request timeout. It adds a Bearer header when an API key is present. If `max_tokens` is omitted, it uses `min(effective_context // 2, 8192)`. Network, HTTP, response-shape, empty-content, and other errors are returned as strings prefixed with `[WARN]`; they are not raised to callers.
 
 ### `chunk_list(data, size)` and `truncate_text(text, max_chars=300)`
 
@@ -35,15 +35,16 @@ HTTP polling works only while the generating API process still holds the entry. 
 
 ## Sequential map/reduce
 
-### `_map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size=6, progress_callback=None, map_temperature=0.1, reduce_temperature=0.2, skip_reduce=False, skip_noise_filter=False, force_reduce=False)`
+### `_map_reduce_summarize(items, formatter_func, map_prompt, reduce_prompt, config, chunk_size=6, progress_callback=None, map_temperature=0.1, reduce_temperature=0.2, skip_reduce=False, skip_noise_filter=False, force_reduce=False, require_all_chunks=False)`
 
 1. Returns `None` for an empty item list.
 2. Computes an effective chunk size of `max(1, int(chunk_size * max(1, context_window / 128000)))`.
 3. Formats and sends each chunk **sequentially** to `call_llm`; it does not create parallel LLM requests.
 4. Calls `progress_callback(done, total_chunks, total_items, processed_items)` before each map request and before a reduce request when applicable.
 5. Discards `[WARN]` map responses. Unless `skip_noise_filter=True`, it also discards several common “no threat”/conversational responses.
-6. Returns `"AI failed to process batch."` if no map output survives.
-7. Returns the list of map outputs when `skip_reduce=True`; otherwise performs one reduce call when there are multiple summaries or `force_reduce=True`. A single summary with no forced reduce is returned directly.
+6. With `require_all_chunks=True`, stops at the first failed/empty map response and returns a `[WARN]` marker rather than reducing partial results. Default mode remains best-effort for existing callers.
+7. Returns `"AI failed to process batch."` if no map output survives in default mode.
+8. Returns the list of map outputs when `skip_reduce=True`; otherwise performs one reduce call when there are multiple summaries or `force_reduce=True`. A single summary with no forced reduce is returned directly.
 
 No recursive reduction is performed. Callers choose the chunk size, temperatures, filtering behavior, and whether to reduce.
 
@@ -83,15 +84,15 @@ Uses at most 50 dictionary events, retains only `id`, `timestamp`, `index_name`,
 
 ### `generate_internal_risk_brief(session, internal_snapshot, progress_callback=None)`
 
-Requires a snapshot. It includes its stored hardware/software correlation arrays and up to 200 KEVs from the previous 24 hours, maps the combined payload with chunk size 15, then performs final synthesis at temperature 0.35. It returns controlled text for a disabled LLM, missing snapshot, no payload, or failed generation. `src.services.trigger_internal_brief` saves successful text.
+Requires a snapshot. It includes its stored hardware/software correlation arrays and up to 200 KEVs from the previous 24 hours, maps the combined payload with chunk size 15, requires every map batch to succeed, then performs final synthesis at temperature 0.35. A failed/empty batch, reducer, synthesis, or explicit incomplete-report notice raises `InternalRiskBriefGenerationError`; it never passes a failure sentinel to the final synthesis prompt. `src.services.trigger_internal_brief` reports failures and saves only complete output, preserving the previous successful report.
+
+### `generate_aggregated_shift_summary(session, logs, timeframe_label, target_role="All", generated_by="Unknown", generated_by_role="analyst")`
+
+Uses strict sequential map/reduce over shift-log records. Per-log text is bounded and chunk size is reduced for smaller model context windows; log text is treated as untrusted evidence. A failed/empty batch or final synthesis returns a `[WARN]` marker; `src.services.trigger_shift_summary` uses a deterministic source-only fallback and identifies it in the response rather than accepting partial AI output.
 
 ### `generate_rolling_summary(session)`
 
 Queries the previous 24 hours of score-50-or-higher articles (up to 15), hazards (up to 20), and cloud records (up to 15), and requests two paragraphs ending with a Grid Status sentence at temperature 0.2. `src.services.trigger_rolling_summary` owns persistence.
-
-### `generate_aggregated_shift_summary(session, logs, timeframe_label, target_role="All", generated_by="Unknown", generated_by_role="analyst")`
-
-Uses map/reduce with chunk size 20 and a final LLM call at temperature 0.6. Prompts treat log text as untrusted evidence and prohibit inventing causes, owners, ticket status, or unresolved work. It returns `None` if LLM is disabled and a no-logs message for an empty list. The service wrapper limits source logs to 200 and waits up to 30 seconds before producing its deterministic fallback summary.
 
 ### `build_custom_intel_report(articles, objective, session, progress_callback=None, target="")`
 
@@ -105,7 +106,8 @@ Calculates the previous local calendar day in `America/Chicago`, queries article
 
 | Helper | Behavior |
 |---|---|
-| `_query_ollama_context_window(endpoint, model)` | POSTs `{name:model}` to the derived `/api/show`, caches a recognized architecture context length, and returns `None` on failure. |
+| `_query_ollama_context_window(endpoint, model)` | POSTs `{name:model}` to the derived `/api/show`, caches a recognized architecture context length, and negative-caches missing/unreachable metadata for 60 seconds. |
+| `is_internal_risk_brief_failure_notice(content)` | Recognizes explicit incomplete/skeleton report markers so such content is neither persisted nor exposed/broadcast as a complete internal brief. |
 | `_consolidate_hazards(hazards, arkansas_only=False)` | Skips replaced alerts, groups by hazard name/severity, merges area labels, and optionally filters locations to the Arkansas county list. |
 | `_dedup_phys_outputs(phys_outputs)` | Merges repeated physical map lines by a parsed `TYPE`/`HAZARD` prefix. |
 | `_format_physical_posture(hazards, crimes)` | Renders structured hazard and perimeter-crime summaries with bounded text/area details. |

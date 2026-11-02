@@ -133,15 +133,16 @@ def broadcast_internal_brief(req: BroadcastBriefRequest):
 
     from src.services import get_cached_config, generate_internal_brief_email_html
     from src.database import SessionLocal, InternalRiskSnapshot
+    from src.utils.llm import is_internal_risk_brief_failure_notice
     from src.utils.mailer import send_alert_email
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
     config = get_cached_config()
     brief = config.get("internal_brief")
-    if not brief:
-        logger.warning("POST /email/broadcast-internal-brief: no internal brief available")
-        return {"status": "error", "message": "No internal brief available. Generate one first."}
+    if not brief or is_internal_risk_brief_failure_notice(brief):
+        logger.warning("POST /email/broadcast-internal-brief: no complete internal brief available")
+        return {"status": "error", "message": "No complete internal brief is available. Generate one first."}
 
     brief_time = datetime.now(ZoneInfo("America/Chicago")).strftime("%A, %B %d, %Y at %I:%M %p %Z")
     global_risk = config.get("last_global_risk", "UNKNOWN")

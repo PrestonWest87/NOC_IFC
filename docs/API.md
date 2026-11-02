@@ -144,10 +144,10 @@ Starts the US critical-infrastructure brief asynchronously and returns a generat
 
 ### POST /dashboard/generate-internal-brief and GET /dashboard/internal-brief-generation-status?generation_id=
 
-Starts the internal asset-risk brief asynchronously and returns a generation ID. The status endpoint returns its progress record or `{"status": "unknown"}`.
+Starts the internal asset-risk brief asynchronously and returns a generation ID. The status endpoint returns its progress record or `{"status": "unknown"}`. Every asset-correlation map batch and final synthesis must succeed; failures report an error and leave the last successful brief unchanged. Previously saved failure/skeleton notices are hidden from dashboard reads and rejected by the internal-brief broadcast endpoint.
 
 ### GET /dashboard/briefs
-Returns only saved dashboard briefs whose tabs the caller is allowed to view.
+Returns only saved dashboard briefs whose tabs the caller is allowed to view. Recognized internal-risk batch-failure/skeleton text from older generations is withheld with its timestamp.
 
 ### POST /dashboard/generate-rolling-summary
 
@@ -368,7 +368,7 @@ Requires Active Shift tab and `Action: Submit Shift Log`. Accepted `shift_period
 Body: `{"is_deleted": true|false}`. Soft delete/restore; only the author, an administrator, or a caller with `Action: Manage Shift Logs` may change another user's entry.
 
 ### POST /logbook/generate-summary
-Requires Active Shift tab and `Action: Generate Reports`. Body: `{role_filter, shift_period, timeframe_label, auto_append, timeframe}`. Supported timeframes are `shift`, `fullday`, and `week`; the service reads at most 200 non-deleted entries, waits up to 30 seconds for LLM output, then builds a source-based fallback if needed.
+Requires Active Shift tab and `Action: Generate Reports`. Body: `{role_filter, shift_period, timeframe_label, auto_append, timeframe}`. Supported timeframes are `shift`, `fullday`, and `week`; end-of-day and end-of-week include all shift periods and omit prior generated rollups. The service reads at most 200 non-deleted entries, waits up to 30 seconds for a complete LLM summary, then returns a deterministic source-based fallback with `used_fallback` and a message if the provider fails, returns partial batches, or times out.
 
 ## Reporting Endpoints (/reporting)
 
@@ -585,7 +585,7 @@ Body: `{email}`. Sends the current unified brief via email; requires the Global 
 Body: `{email}`. Sends the current global threat brief via email (red header, US CI focus); requires either the Global Dashboards or Reporting & Briefings page and `Action: Dispatch Exec Report`.
 
 ### POST /email/broadcast-internal-brief
-Body: `{email}`. Sends the current internal asset risk brief via email (purple header, asset risk focus); requires either the Global Dashboards or Reporting & Briefings page and `Action: Dispatch Exec Report`.
+Body: `{email}`. Sends the last complete internal asset risk brief via email (purple header, asset risk focus); known batch-failure/skeleton output is rejected. Requires either the Global Dashboards or Reporting & Briefings page and `Action: Dispatch Exec Report`.
 
 ## WebSocket
 

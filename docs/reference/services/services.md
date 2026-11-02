@@ -1235,6 +1235,16 @@ In `replace` mode, contacts for sites with the same name are reattached to the r
 
 ---
 
+### `trigger_internal_brief(progress_generation_id=None) -> dict`
+
+**Purpose:** Generates the Internal Asset Risk Brief from the latest asset-risk snapshot and recent KEVs.
+
+**Returns:** `{"status":"ok","brief":...}` only for complete output. If any required map batch, final synthesis, or incomplete-output check fails, it reports `{"status":"error","message":...}` and preserves the previous saved brief.
+
+**Dependencies:** `src.utils.llm.generate_internal_risk_brief`, `InternalRiskSnapshot`, `save_global_config`, process-local brief progress.
+
+---
+
 ### `trigger_rolling_summary() -> dict`
 
 **Purpose:** Force-generates and saves the rolling shift handover summary.
@@ -1258,9 +1268,9 @@ In `replace` mode, contacts for sites with the same name are reattached to the r
 
 ---
 
-### `trigger_shift_summary(role_filter="All", shift_period="Morning", timeframe_label="Morning Shift", auto_append=False) -> dict`
+### `trigger_shift_summary(role_filter="All", shift_period="Morning", timeframe_label="Morning Shift", auto_append=False, timeframe="shift", generated_by="Unknown", generated_by_role="analyst") -> dict`
 
-**Purpose:** Generates an aggregated shift summary from log entries.
+**Purpose:** Generates a current shift, end-of-day, or trailing-seven-day summary from log entries. End-of-day/week scopes include all shift periods and exclude previous generated rollups; weekly summaries are not restricted to the default Morning shift.
 
 **Parameters:**
 - `role_filter` (str) -- Role filter (default: "All")
@@ -1268,9 +1278,9 @@ In `replace` mode, contacts for sites with the same name are reattached to the r
 - `timeframe_label` (str) -- Label for the timeframe (default: "Morning Shift")
 - `auto_append` (bool) -- Whether to auto-append as shift log entry (default: False)
 
-**Returns:** `dict` -- `{"status": "ok", "summary": str}` or `{"status": "error", "message": str}`.
+**Returns:** `dict` -- `{"status":"ok","summary":str,"used_fallback":bool,"message":str|null}`. Incomplete LLM output/timeouts use a deterministic source-only fallback and return its reason in `message`.
 
-**Dependencies:** `src.utils.llm.generate_aggregated_shift_summary`, `ShiftLogEntry`, `SessionLocal`
+**Dependencies:** `src.utils.llm.generate_aggregated_shift_summary`, `ShiftLogEntry`, `SessionLocal`. LLM work uses copied scalar log records and a thread-owned session so the 30-second fallback cannot race a closed request session.
 
 ---
 

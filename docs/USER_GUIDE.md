@@ -28,7 +28,7 @@ Displays the current external cyber/physical CIS posture, a 14-day score trend, 
 
 ### Internal Risk
 
-Displays the latest asset-risk snapshot, hardware/software OSINT matches, score history, and the Internal Asset Risk Brief. Snapshot calculation runs every two hours by default; the manual calculation requires `Action: Generate Risk Snapshot`. The asset brief runs every three hours by default and requires `Action: Generate Reports` when started manually.
+Displays the latest asset-risk snapshot, hardware/software OSINT matches, score history, and the Internal Asset Risk Brief. Snapshot calculation runs every two hours by default; the manual calculation requires `Action: Generate Risk Snapshot`. The asset brief runs every three hours by default and requires `Action: Generate Reports` when started manually. If an asset-correlation batch or final LLM synthesis fails, IFC reports the generation error and retains the last successful brief rather than saving incomplete output; check AI settings and LLM endpoint connectivity before retrying.
 
 ### Unified Brief
 
@@ -104,7 +104,7 @@ Available controls are separately permissioned: RCA analysis, acknowledgement/Ma
 
 Create notes with Morning, Afternoon, Evening, or No Shift; No Shift can take a custom date. Identity comes from the signed-in user and non-administrators cannot assign another role. Recent Entries is separate from History; History grants unlock the searchable/date-filtered explorer with day/week views. Administrators can export filtered, non-deleted records as CSV.
 
-Entries are soft-deleted/restored through `is_deleted`; the API does not store a deletion reason. Cross-user changes require `Action: Manage Shift Logs`. Summary generation supports current shift/day and trailing-week scopes; the UI appends the generated report. If LLM summary generation exceeds 30 seconds or fails, a deterministic source-based summary is returned.
+Entries are soft-deleted/restored through `is_deleted`; the API does not store a deletion reason. Cross-user changes require `Action: Manage Shift Logs`. Summary generation supports current shift/day and trailing-week scopes; end-of-day/week reports include all shifts and skip earlier generated rollups. The UI appends the report and labels source-only fallback output when LLM batches fail or exceed 30 seconds.
 
 Auto-Draft reads scoped AIOps data and requires both AIOps page access and `Action: Run RCA Analysis`.
 

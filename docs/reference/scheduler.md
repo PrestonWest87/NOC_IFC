@@ -63,7 +63,7 @@ Main RSS cycle. It loads active feeds, builds a seven-day known-link set, downlo
 | `job_unified_brief()` | Builds physical/cyber/internal context, generates and saves the Unified Brief, then evaluates risk alerts. |
 | `job_global_brief()` | Calls `trigger_global_brief()` for the US critical-infrastructure threat brief. |
 | `job_rolling_summary()` | Calls `trigger_rolling_summary()` for the shift handoff summary. |
-| `job_internal_brief()` | Calls `trigger_internal_brief()` for asset-focused risk analysis. |
+| `job_internal_brief()` | Calls `trigger_internal_brief()` for asset-focused risk analysis; logs a warning and keeps the last saved brief when any required LLM batch or synthesis stage fails. |
 | `job_internal_risk()` | Saves a current internal risk snapshot and checks internal risk alerts. |
 | `job_daily_email_unified_brief()` | Reads the saved brief, builds current risk context, formats HTML, and sends to `RISK_ALERT_RECIPIENTS`. |
 

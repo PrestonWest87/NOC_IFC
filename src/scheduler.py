@@ -380,8 +380,14 @@ def job_internal_brief():
     log("[AI] Generating Internal Asset Risk Brief...", "SYSTEM")
     try:
         from src.services import trigger_internal_brief
-        trigger_internal_brief()
-        log("[OK] Internal Asset Risk Brief generated and saved.", "SYSTEM")
+        result = trigger_internal_brief()
+        if result.get("status") == "ok":
+            log("[OK] Internal Asset Risk Brief generated and saved.", "SYSTEM")
+        else:
+            log(
+                f"[WARN] Internal Asset Risk Brief was not saved: {result.get('message', 'unknown error')}",
+                "SYSTEM",
+            )
     except Exception as e:
         log(f"[ERROR] Internal Brief Error: {e}", "SYSTEM")
 
