@@ -11,6 +11,7 @@ This module is loaded through `src/services/__init__.py` and is the active data-
 - Article/report helpers: `get_article_detail`, `get_articles_by_ids`, `parse_search_terms`, `generate_custom_report_email_html`.
 - Brief helpers: `generate_global_brief_email_html`, `generate_internal_brief_email_html`, `trigger_global_brief`, `trigger_internal_brief`, and progress-generation IDs.
 - Import/export helpers: `import_software_assets_csv`, `import_hardware_assets_csv`, `export_all_tables`, `import_all_tables`, `restore_from_db_upload`.
+- Site contact operations: `get_site_contacts`, `replace_site_contacts`, and shared field validation in `src.core.site_contact_validation`.
 - Regional helpers: `get_trigger_token`, `get_eq_color`, `process_usgs_quakes`, `rank_hazard`, and `get_primary_label`.
 - Scoring/AI helpers: `update_keyword_weight`, `_build_fallback_summary`, and `run_llm`.
 - Account administration: user-directory/profile/role/status helpers, individual invitations, email-change review and verification, password-reset review and single-use tokens, session revocation, and account audit events.
@@ -141,6 +142,26 @@ A utility class extending `dict` to allow dot-notation attribute access.
 **Returns:** `list[DotDict]` -- All MonitoredLocation records.
 
 **Dependencies:** `MonitoredLocation`, `SessionLocal`, `TTLCache(ttl=600, max_entries=1)`
+
+---
+
+### `get_site_contacts(location_id: int) -> list[dict]`
+
+**Purpose:** Returns name/phone/email contacts for one monitored site, ordered by `sort_order` and contact ID. Missing sites raise `LookupError`.
+
+**Privacy:** Reads only the contact table when an explicit site ID is supplied; `get_cached_locations()` and other shared location payloads do not include these records.
+
+**Dependencies:** `MonitoredLocation`, `MonitoredLocationContact`, `SessionLocal`
+
+---
+
+### `replace_site_contacts(location_id: int, contacts: list[dict]) -> list[dict]`
+
+**Purpose:** Validates and atomically replaces one site's ordered optional contacts. All-blank entries are dropped; an empty list clears the site contacts. Missing sites raise `LookupError`.
+
+**Validation:** Shared normalization bounds names to 128 characters, phones to 64, emails to 254, and contacts to 50 per site. A nonblank email must be one valid address; a nonblank phone supports common international formatting and optional extensions, with 7–15 number digits.
+
+**Dependencies:** `MonitoredLocation`, `MonitoredLocationContact`, `SessionLocal`, `src.core.site_contact_validation`
 
 ---
 
@@ -864,6 +885,8 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 **Dependencies:** `MonitoredLocation`, `SessionLocal`
 
+In `replace` mode, contacts for sites with the same name are reattached to the replacement site rows. Contacts for removed sites are deleted.
+
 ---
 
 ### `update_locations(edited_rows)`
@@ -1330,7 +1353,7 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ### `export_all_tables() -> dict`
 
-**Purpose:** Exports rows for the 27 model classes listed in `ALL_MODELS` as JSON-compatible data.
+**Purpose:** Exports rows for the 28 model classes listed in `ALL_MODELS` as JSON-compatible data, including monitored-site contacts.
 
 **Coverage:** This export omits `user_sessions`, `failed_login_attempts`, `registration_invites`, `email_change_requests`, `password_reset_requests`, `password_reset_tokens`, `account_audit_events`, and `scheduler_job_config`. It is not a complete database-file backup and may contain password hashes and stored integration credentials.
 
@@ -1338,7 +1361,7 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ### `import_all_tables(data: dict, merge: bool = False) -> dict`
 
-**Purpose:** Imports rows for supported `ALL_MODELS` tables. Replacement mode clears non-empty supported tables before insertion; merge mode skips duplicate IDs.
+**Purpose:** Imports rows for supported `ALL_MODELS` tables. Replacement mode clears non-empty supported tables before insertion; merge mode skips duplicate IDs. Site contact records are field-validated and must refer to an imported/existing monitored location.
 
 ---
 

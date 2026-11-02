@@ -33,7 +33,7 @@ from src.database import (
     RegionalHazard, CloudOutage, User, UserSession, FailedLoginAttempt, RegistrationInvite,
     EmailChangeRequest, PasswordResetRequest, PasswordResetToken, AccountAuditEvent,
     SchedulerJobConfig, Role, SavedReport, DailyBriefing,
-    ExtractedIOC, MonitoredLocation, SolarWindsAlert, TimelineEvent,
+    ExtractedIOC, MonitoredLocation, MonitoredLocationContact, SolarWindsAlert, TimelineEvent,
     RegionalOutage, BgpAnomaly, GeoJsonCache, DailyThreatScore, ShiftLogEntry,
     SoftwareAsset, HardwareAsset, InternalRiskSnapshot, CrimeIncident,
     ElasticEvent, UserWeatherPreference, NodeAlias
@@ -42,6 +42,7 @@ from src.core.permissions import (
     ACTION_KEYS, ADMIN_ACTIONS, PAGE_KEYS, TAB_KEYS,
 )
 from src.core.scheduler_registry import JOB_REGISTRY, default_schedule, validate_schedule
+from src.core.site_contact_validation import normalize_site_contact, normalize_site_contacts
 
 LOCAL_TZ = ZoneInfo("America/Chicago")
 VALID_THEMES = {
@@ -172,6 +173,69 @@ def get_cached_locations():
     """Return the full monitored-location list from the process-local ten-minute cache."""
     with SessionLocal() as db:
         return to_dotdict_list(db.query(MonitoredLocation).all())
+
+
+def get_site_contacts(location_id):
+    """Return ordered site contacts without adding them to shared location payloads."""
+    with SessionLocal() as db:
+        location = db.query(MonitoredLocation).filter_by(id=location_id).first()
+        if not location:
+            raise LookupError("Monitored location not found.")
+        contacts = (
+            db.query(MonitoredLocationContact)
+            .filter_by(monitored_location_id=location.id)
+            .order_by(MonitoredLocationContact.sort_order, MonitoredLocationContact.id)
+            .all()
+        )
+        return [
+            {
+                "id": contact.id,
+                "name": contact.name,
+                "phone": contact.phone,
+                "email": contact.email,
+                "sort_order": contact.sort_order,
+            }
+            for contact in contacts
+        ]
+
+
+def replace_site_contacts(location_id, contacts):
+    """Atomically replace a site's reference contacts, preserving caller order."""
+    contacts = normalize_site_contacts(contacts)
+    with SessionLocal() as db:
+        location = db.query(MonitoredLocation).filter_by(id=location_id).first()
+        if not location:
+            raise LookupError("Monitored location not found.")
+
+        db.query(MonitoredLocationContact).filter_by(
+            monitored_location_id=location.id
+        ).delete(synchronize_session=False)
+        db.add_all(
+            MonitoredLocationContact(
+                monitored_location_id=location.id,
+                sort_order=sort_order,
+                **contact,
+            )
+            for sort_order, contact in enumerate(contacts)
+        )
+        db.commit()
+        saved = (
+            db.query(MonitoredLocationContact)
+            .filter_by(monitored_location_id=location.id)
+            .order_by(MonitoredLocationContact.sort_order, MonitoredLocationContact.id)
+            .all()
+        )
+        return [
+            {
+                "id": contact.id,
+                "name": contact.name,
+                "phone": contact.phone,
+                "email": contact.email,
+                "sort_order": contact.sort_order,
+            }
+            for contact in saved
+        ]
+
 
 @TTLCache(ttl=120, max_entries=1)
 def get_cached_geojson():
@@ -3841,10 +3905,24 @@ def import_locations(data, mode="add"):
     with SessionLocal() as db:
         count = 0
         if mode == "replace":
+            contacts_by_site = {}
+            for contact, site_name in (
+                db.query(MonitoredLocationContact, MonitoredLocation.name)
+                .join(MonitoredLocation, MonitoredLocation.id == MonitoredLocationContact.monitored_location_id)
+                .order_by(MonitoredLocationContact.sort_order, MonitoredLocationContact.id)
+                .all()
+            ):
+                contacts_by_site.setdefault(site_name, []).append({
+                    "name": contact.name,
+                    "phone": contact.phone,
+                    "email": contact.email,
+                    "sort_order": contact.sort_order,
+                })
+            db.query(MonitoredLocationContact).delete(synchronize_session=False)
             db.query(MonitoredLocation).delete(synchronize_session=False)
-            db.commit()
             existing_names = set()
         else:
+            contacts_by_site = {}
             existing_names = {l[0] for l in db.query(MonitoredLocation.name).all()}
         for item in data:
             name = item.get("name")
@@ -3868,6 +3946,26 @@ def import_locations(data, mode="add"):
                 db.add(MonitoredLocation(**kwargs))
                 existing_names.add(name)
                 count += 1
+        if contacts_by_site:
+            db.flush()
+            new_locations = {
+                location.name: location
+                for location in db.query(MonitoredLocation)
+                .filter(MonitoredLocation.name.in_(existing_names))
+                .all()
+            }
+            for site_name, contacts in contacts_by_site.items():
+                location = new_locations.get(site_name)
+                if not location:
+                    continue
+                for contact in contacts:
+                    db.add(MonitoredLocationContact(
+                        monitored_location_id=location.id,
+                        name=contact["name"],
+                        phone=contact["phone"],
+                        email=contact["email"],
+                        sort_order=contact["sort_order"],
+                    ))
         db.commit()
     get_cached_locations.clear()
     return count
@@ -5225,6 +5323,7 @@ ALL_MODELS = {
     "solarwinds_alerts": SolarWindsAlert,
     "timeline_events": TimelineEvent,
     "monitored_locations": MonitoredLocation,
+    "monitored_location_contacts": MonitoredLocationContact,
     "crime_incidents": CrimeIncident,
     "geojson_cache": GeoJsonCache,
     "user_weather_prefs": UserWeatherPreference,
@@ -5244,8 +5343,24 @@ def _serialize_record(record):
     return d
 
 
+def _validated_site_contact_import_row(db, row_data, source):
+    """Validate an imported contact row and resolve its parent site before insertion."""
+    contact_values = normalize_site_contact(row_data)
+    if not any(contact_values.values()):
+        return None
+    location_id = row_data.get("monitored_location_id")
+    if isinstance(location_id, bool) or not isinstance(location_id, int) or location_id <= 0:
+        raise ValueError(f"{source} site contact requires a positive monitored_location_id.")
+    if not db.query(MonitoredLocation.id).filter_by(id=location_id).first():
+        raise ValueError(f"{source} site contact references an unknown monitored location.")
+    sort_order = row_data.get("sort_order", 0)
+    if isinstance(sort_order, bool) or not isinstance(sort_order, int) or sort_order < 0:
+        raise ValueError(f"{source} site contact sort_order must be a non-negative integer.")
+    return contact_values, sort_order
+
+
 def export_all_tables():
-    """Export the 27-model `ALL_MODELS` allowlist as JSON-compatible table rows.
+    """Export the 28-model `ALL_MODELS` allowlist as JSON-compatible table rows.
 
     This compatibility export omits sessions, recovery, failed-login, audit,
     and scheduler-configuration state; it is not a full database backup.
@@ -5274,12 +5389,21 @@ def import_all_tables(data, merge=False):
                     counts[table_name] = 0
                     continue
                 if not merge:
+                    if table_name == "monitored_locations":
+                        db.query(MonitoredLocationContact).delete(synchronize_session=False)
                     db.query(model_cls).delete(synchronize_session=False)
                 inserted = 0
                 for row_data in rows:
                     if merge:
                         rid = row_data.get("id")
                         if rid and db.query(model_cls).filter_by(id=rid).first():
+                            continue
+                    contact_import = None
+                    if model_cls is MonitoredLocationContact:
+                        contact_import = _validated_site_contact_import_row(
+                            db, row_data, "Imported"
+                        )
+                        if contact_import is None:
                             continue
                     kwargs = {}
                     for col in model_cls.__table__.columns:
@@ -5295,6 +5419,10 @@ def import_all_tables(data, merge=False):
                             kwargs[col.name] = bool(val) if val is not None else None
                         else:
                             kwargs[col.name] = val
+                    if model_cls is MonitoredLocationContact:
+                        contact_values, sort_order = contact_import
+                        kwargs.update(contact_values)
+                        kwargs["sort_order"] = sort_order
                     db.add(model_cls(**kwargs))
                     inserted += 1
                 counts[table_name] = inserted
@@ -5319,6 +5447,9 @@ def restore_from_db_upload(db_file_path):
     cursor = conn.cursor()
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
     table_names = [row[0] for row in cursor.fetchall()]
+    contact_table = MonitoredLocationContact.__tablename__
+    if contact_table in table_names:
+        table_names = [name for name in table_names if name != contact_table] + [contact_table]
     imported = {}
     with SessionLocal() as db:
         try:
@@ -5331,9 +5462,18 @@ def restore_from_db_upload(db_file_path):
                     continue
                 model_cls = ALL_MODELS.get(table_name)
                 if model_cls is not None:
+                    if table_name == "monitored_locations":
+                        db.query(MonitoredLocationContact).delete(synchronize_session=False)
                     db.query(model_cls).delete(synchronize_session=False)
                     inserted = 0
                     for row_data in rows:
+                        contact_import = None
+                        if model_cls is MonitoredLocationContact:
+                            contact_import = _validated_site_contact_import_row(
+                                db, row_data, "Uploaded"
+                            )
+                            if contact_import is None:
+                                continue
                         kwargs = {}
                         for col in model_cls.__table__.columns:
                             if col.name not in row_data:
@@ -5348,6 +5488,10 @@ def restore_from_db_upload(db_file_path):
                                 kwargs[col.name] = bool(val) if val is not None else None
                             else:
                                 kwargs[col.name] = val
+                        if model_cls is MonitoredLocationContact:
+                            contact_values, sort_order = contact_import
+                            kwargs.update(contact_values)
+                            kwargs["sort_order"] = sort_order
                         db.add(model_cls(**kwargs))
                         inserted += 1
                     imported[table_name] = inserted
@@ -5444,7 +5588,10 @@ def nuke_tables(model_names):
     models_map = {"CloudOutage": CloudOutage, "MonitoredLocation": MonitoredLocation, "Article": Article, "ExtractedIOC": ExtractedIOC, "FeedSource": FeedSource, "Keyword": Keyword}
     with SessionLocal() as db:
         for name in model_names:
-            if name in models_map: db.query(models_map[name]).delete(synchronize_session=False)
+            if name in models_map:
+                if name == "MonitoredLocation":
+                    db.query(MonitoredLocationContact).delete(synchronize_session=False)
+                db.query(models_map[name]).delete(synchronize_session=False)
         db.commit()
 
 def truncate_db_table(table_query):

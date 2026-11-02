@@ -21,7 +21,7 @@ Webhook gateway ────────┘                     │
 
 | Module | Responsibility | Detailed reference |
 |---|---|---|
-| `src/services.py` | Central data-access, scoring orchestration, account/recovery, site-scope, regional analytics, reporting, and compatibility operations | [`reference/services/services.md`](reference/services/services.md) |
+| `src/services.py` | Central data-access, scoring orchestration, account/recovery, site-scope/contact, regional analytics, reporting, and compatibility operations | [`reference/services/services.md`](reference/services/services.md) |
 | `src/services/logic.py` | Keyword-plus-ML article score and lazy scorer reload | [`reference/services/logic.md`](reference/services/logic.md) |
 | `src/services/categorizer.py` | Regex categorization of article title/summary/full text | [`reference/services/categorizer.md`](reference/services/categorizer.md) |
 | `src/services/ioc_extractor.py` | Defanged indicator normalization, extraction, public-IP/domain filters, and context | [`reference/services/ioc_extractor.md`](reference/services/ioc_extractor.md) |
@@ -78,6 +78,7 @@ Site health and workflow are separate:
 - `Needs Dispatch` is a separately persisted alert workflow flag.
 - Mark Site Up resolves every unresolved alert for the site, clears Needs Dispatch and investigating state, records the action, and leaves maintenance fields separate.
 - Maintenance is an annotation with ETR and reason. Its expiry job clears it after the end of the ETR date in America/Chicago; maintenance itself is not an escalation suppression rule.
+- Site contact details live in the separate `monitored_location_contacts` table. The admin API validates them; escalation includes them as reference text only in automatic ONPAGE email bodies, never as recipients or in site-wide location payloads.
 
 ## Regional data, reporting, and operations
 

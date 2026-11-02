@@ -28,8 +28,12 @@ Prefix: `/api/v1/admin`. The entire router has `Depends(require_admin)`: a built
 | `PUT /users/{username}/role` | JSON `{role}`; updates the role and revokes sessions. |
 | `POST /users/{username}/reset-password` | JSON `{new_password}`; enforces 12+ characters, revokes sessions and outstanding reset tokens, and audits the action. |
 | `GET /location` | Returns cached monitored locations (unscoped administrator view). |
-| `POST /location/import?mode=add|upsert|replace` | JSON array of location objects. The route validates mode, returns `{status, mode, count}`, and clears the location cache. `replace` deletes the current location set before inserting. |
+| `GET /location/{location_id}/contacts` | Returns `{contacts:[...]}` for one site; contacts are separate from shared location payloads. |
+| `PUT /location/{location_id}/contacts` | Administrator-only replacement with `{contacts:[{name,phone,email}]}`. Fields are optional; email and international-style phone values are validated, entries are trimmed, and fully blank rows are dropped. Maximum 50 contacts per site. |
+| `POST /location/import?mode=add|upsert|replace` | JSON array of location objects. The route validates mode, returns `{status, mode, count}`, and clears the location cache. `replace` recreates the site list while preserving contacts for sites whose names remain in the imported list. |
 | `PUT /location` | JSON array of edited location records; service updates rows by ID and clears the location cache. |
+
+Contact API responses and writes are administrator-only. They are not included in `GET /location`, `/settings/facilities`, regional, or AIOps site payloads. Contact emails appear as text only in automatic ONPAGE message bodies and are not used as recipients.
 
 The full role-aware individual/display-account workflow, invitation queue, recovery review, session revocation, and audit behavior is documented in [`routes/user_admin.md`](user_admin.md).
 
@@ -63,7 +67,7 @@ Restore invalidates restored sessions and outstanding invitation/reset/email-ver
 |---|---|
 | `GET /backup` | Four-collection legacy JSON backup: keywords, feeds, locations, aliases. |
 | `POST /restore` | Adds missing records from that legacy JSON; not a database-file restore. |
-| `GET /export-all` | Exports the 27 model classes in `ALL_MODELS`; may include password hashes/stored integrations and omits sessions, recovery state, failed-login records, audit, and scheduler config. |
+| `GET /export-all` | Exports the 28 model classes in `ALL_MODELS`, including site contacts; may include password hashes/stored integrations and omits sessions, recovery state, failed-login records, audit, and scheduler config. |
 | `POST /import-all` | Imports supported JSON tables; default replaces non-empty supported tables, body `{"_merge":true}` skips duplicate IDs. |
 | `POST /upload-db` | Multipart `.db` file; reads the upload into memory and imports rows into the active database. It does not replace the active SQLite file. |
 | `DELETE /record?model_name=...&record_id=...` | Deletes only service-allowlisted `Keyword`, `FeedSource`, `User`, `Role`, or `SavedReport` records. |
