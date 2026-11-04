@@ -39,8 +39,14 @@ JOB_REGISTRY = {
         "function": "job_sync_elastic", "schedule_type": "interval", "every_value": 6, "unit": "minutes",
         "min_value": 5, "max_value": 120, "enabled": True, "can_disable": True, "startup_run": True,
     },
+    "nws_alerts": {
+        "label": "NWS active alerts",
+        "description": "Refresh Arkansas and the 50-mile border corridor in neighboring states.",
+        "function": "fetch_nws_alerts", "schedule_type": "interval", "every_value": 1, "unit": "minutes",
+        "min_value": 1, "max_value": 1, "enabled": True, "can_disable": False, "startup_run": True,
+    },
     "regional_hazards": {
-        "label": "Regional hazards", "description": "Refresh NWS, SPC, USGS, and wildfire hazards.",
+        "label": "Regional hazards", "description": "Refresh SPC, USGS, and wildfire hazards.",
         "function": "fetch_regional_hazards", "schedule_type": "interval", "every_value": 7, "unit": "minutes",
         "min_value": 5, "max_value": 60, "enabled": True, "can_disable": True, "startup_run": True,
     },

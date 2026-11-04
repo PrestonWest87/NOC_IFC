@@ -18,6 +18,7 @@ Package initialiser for the `workers` module. Re-exports all top-level worker en
 | `sync_elastic_telemetry` | `workers.elastic_worker` |
 | `execute_live_query` | `workers.elastic_worker` |
 | `purge_stale_elastic_data` | `workers.elastic_worker` |
+| `fetch_nws_alerts` | `workers.infra_worker` |
 | `fetch_regional_hazards` | `workers.infra_worker` |
 | `run_daily_report` | `workers.report_worker` |
 | `run_telemetry_sync` | `workers.telemetry_worker` |

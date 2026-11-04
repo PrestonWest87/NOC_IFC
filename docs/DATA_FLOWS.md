@@ -165,7 +165,13 @@ Acknowledgement (`is_correlated`) and dispatch are workflow flags, not recovery.
 
 ## 7. Regional weather, fire, and telemetry
 
-`fetch_regional_hazards()` starts SPC, NWS Arkansas, NWS nearby out-of-state, and two USGS queries in a four-worker executor. NWS responses are cached as GeoJSON and upserted into `regional_hazards`. USGS requests cover the last seven days with minimum magnitude 2.0; proximity email checks use a separate 2.5 threshold. After those feeds complete, the worker runs wildfire proximity alerting.
+`fetch_nws_alerts()` runs as a non-disableable one-minute job, separate from slower regional providers. It makes one identified `api.weather.gov/alerts/active` request for `AR,LA,TX,MS,MO,OK,TN`, uses conditional validators when NWS supplies them, and honors `Retry-After` without immediate retries. The [NWS Alerts Web Service](https://www.weather.gov/documentation/services-web-alerts) recommends not requesting alerts more often than every 30 seconds; the centralized 60-second cadence is slower than that limit, and a shared DB lease also rate-limits manual sync requests. The successful source snapshot is split into Arkansas and a projected 50-mile outward border corridor; alert polygons and county UGCs are tested against the corridor. Zone-only/unresolved alerts are retained with `state_fallback` precision in status metadata rather than silently dropped. The last successful snapshot survives provider failures.
+
+NWS CAP `expires` is enforced as the active-message cutoff across map, alerts log, analytics, and reports. CAP `eventEndingTime`/API `ends` is retained separately as the expected event end and does not clear an alert early. Successful snapshots update all alert fields and reconcile CAP Update/Cancel references; alerts absent from a successful active snapshot become inactive. Failed requests do not clear the snapshot. `GeoJsonCache` records request attempts, last success, error, status, duration, validators, feature counts, and coverage precision. See the [NWS CAP field documentation](https://vlab.noaa.gov/web/nws-common-alerting-protocol/cap-documentation) for `expires`, `eventEndingTime`, and update/cancel reference semantics.
+
+The NWS API documentation notes that `/alerts` and `/alerts/active` do not include the SPC SEL product language for Tornado Watches; those watch products originate through local WFO WCN products. The active CAP feed remains the current alert source. If NOC operators require the full SEL/WCN watch text, that product would be an additional separately cached source with its own lifecycle reconciliation.
+
+`fetch_regional_hazards()` refreshes national SPC outlooks and two USGS queries every seven minutes, then runs earthquake and wildfire proximity checks. USGS bounding boxes are derived from the same Arkansas 50-mile geometry and earthquake points are filtered into Arkansas vs. the neighboring-state strip. Earthquake proximity email checks use a separate magnitude ≥2.5 threshold. WFCA requests use the corridor envelope and exact projected geometry filtering; wildfire features are fetched only when requested by the map or proximity worker.
 
 Wildfire map data comes from WFCA WFS incidents/perimeters and recent FIRMS footprint features. The request uses a regional bounding box and filters incidents to non-stale active wildfires in the Arkansas operating-area county union. Perimeter and footprint GeoJSON are unioned by normalized IRWIN ID. Satellite footprints are estimates, not official perimeters. Fires ≤1 acre farther than one mile from every monitored site are omitted from the map and the small-fire notification set.
 
@@ -190,6 +196,6 @@ The encrypted backup job is weekly Sunday 00:00 Central, cannot be disabled, and
 
 ## Known wire contracts
 
-- `POST /regional/compile-map` returns `[processed_geo, {}, diagnostics, toggled_affected_sites, master_affected_sites, analytics]`; indices are consumed by the frontend.
+- `POST /regional/compile-map` returns `[processed_geo, {}, diagnostics, toggled_affected_sites, master_affected_sites, analytics]`; the frontend consumes positions 0, 2, 4, and 5, and derives the visible affected-site list locally so timed CAP expiry remains immediate.
 - REST permission failures are structured 403 responses and do not invalidate a session; 401 is an authentication failure.
 - WebSocket `dashboard_update` is user-scoped and sent every ten seconds while a connected authorized AIOps Active Board client exists.

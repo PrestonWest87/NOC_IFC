@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:8501,http://localhost:5173"
     allow_unsigned_webhooks: bool = False
     public_app_url: str = "http://localhost:8501"
+    nws_api_user_agent: str = "NOC-IFC/2.0 (https://test.weasts.net)"
     default_admin_email: str = ""
     registration_invite_ttl_hours: int = 72
     backup_encryption_keys: str = ""

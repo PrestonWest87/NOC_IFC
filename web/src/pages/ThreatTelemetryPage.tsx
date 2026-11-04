@@ -1,8 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { MapContainer } from "../components/MapContainer";
-import DeckGL from "@deck.gl/react";
-import { Map } from "@vis.gl/react-maplibre";
+import { ConusMap } from "../components/ConusMap";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { ScatterplotLayer, PolygonLayer } from "@deck.gl/layers";
 import type { MapViewState } from "@deck.gl/core";
@@ -1096,15 +1095,12 @@ export function ThreatTelemetryPage() {
           ) : (
             <>
               <MapContainer height="600px">
-                <DeckGL
+                <ConusMap
                   layers={crimeLayers}
                   initialViewState={crimeMapViewState}
-                  controller={true}
                   style={{ height: "600px", width: "100%" }}
                   getTooltip={crimeTooltip}
-                >
-                  <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
-                </DeckGL>
+                />
               </MapContainer>
 
               <hr style={s.divider} />

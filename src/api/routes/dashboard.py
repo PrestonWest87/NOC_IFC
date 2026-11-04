@@ -137,7 +137,7 @@ def executive_intel():
     from src.models.schema import RegionalHazard
     from src.core.db import SessionLocal
     with SessionLocal() as db:
-        active_warn = db.query(RegionalHazard).count()
+        active_warn = db.query(RegionalHazard).filter(*svc.active_nws_hazard_conditions()).count()
     return svc.get_executive_grid_intel(active_warn, crimes)
 
 

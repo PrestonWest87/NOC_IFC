@@ -1,6 +1,6 @@
 # Scheduler and Background Jobs
 
-The worker starts with `python -u src/scheduler.py`. It initializes the database, loads all 20 registered jobs, submits the startup-enabled subset, and runs a one-second `schedule.run_pending()` loop. The registry in `src/core/scheduler_registry.py` supplies defaults, bounds, schedule types, startup-run behavior, and the settings UI metadata.
+The worker starts with `python -u src/scheduler.py`. It initializes the database, loads all 21 registered jobs, submits the startup-enabled subset, and runs a one-second `schedule.run_pending()` loop. The registry in `src/core/scheduler_registry.py` supplies defaults, bounds, schedule types, startup-run behavior, and the settings UI metadata.
 
 ## Current Schedule
 
@@ -14,7 +14,8 @@ Intervals below are the values in the scheduler source, not historical product t
 | Maintenance expiry | Every 5 minutes | `job_clear_expired_maintenance` | Site ETR date; clears after 23:59:59 America/Chicago on that date and broadcasts `RCA_UPDATE` |
 | Telemetry | Every 6 minutes | `run_telemetry_sync` | ORNL power, RIPE BGP visibility, and IODA outages; writes `RegionalOutage`/`BgpAnomaly` |
 | Elasticsearch cache | Every 6 minutes | `job_sync_elastic` | Queries configured Elasticsearch and stores high-severity events in `ElasticEvent` |
-| Regional hazards | Every 7 minutes | `fetch_regional_hazards` | SPC/NWS/USGS/WFCA; updates cache/hazard records and may send earthquake/wildfire proximity alerts |
+| NWS active alerts | Every 1 minute | `fetch_nws_alerts` | One combined AR/LA/TX/MS/MO/OK/TN alert request; conditional validators, CAP lifecycle reconciliation, and 50-mile Arkansas-border filtering |
+| Regional hazards | Every 7 minutes | `fetch_regional_hazards` | SPC/USGS/WFCA; updates regional layers and may send earthquake/wildfire proximity alerts |
 | Cloud outages | Every 8 minutes | `fetch_cloud_outages` | Provider status sources; updates `CloudOutage` |
 | Crime | Every 10 minutes | `fetch_live_crimes` | Crime source; writes incidents and may alert |
 | Database maintenance | Every 60 minutes | `run_database_maintenance` | Retention deletes, orphan cleanup, SQLite optimize/checkpoint |
@@ -33,13 +34,13 @@ Intervals below are the values in the scheduler source, not historical product t
 
 `run_threaded` submits work to a two-thread executor. A set protected by a lock prevents the same function name from running twice concurrently. Exceptions are logged, memory is sampled before and after each job, and the running marker is removed in `finally`.
 
-The explicit startup-run policy runs only registry entries marked `startup_run`, in four groups with 30-second pauses: (1) escalation, maintenance expiry, RSS; (2) KEV, regional hazards, cloud; (3) telemetry, Elasticsearch, crime, internal risk; (4) unified, global, and internal briefs. Daily emails, the Daily Fusion report, ML retraining, and the weekly database backup wait for their scheduled times.
+The explicit startup-run policy runs only registry entries marked `startup_run`, in four groups with 30-second pauses: (1) escalation, maintenance expiry, RSS, NWS alerts; (2) KEV, regional hazards, cloud; (3) telemetry, Elasticsearch, crime, internal risk; (4) unified, global, and internal briefs. Daily emails, the Daily Fusion report, ML retraining, and the weekly database backup wait for their scheduled times.
 
 Boot execution can create immediate outbound traffic and LLM work. Confirm environment recipients and API credentials before starting a production worker.
 
 ## Registry bounds and startup policy
 
-`validate_schedule()` rejects changed schedule types/units, out-of-range intervals, malformed `HH:MM` times, invalid weekdays, and timezones other than `America/Chicago`. Only escalation and encrypted backup are non-disableable.
+`validate_schedule()` rejects changed schedule types/units, out-of-range intervals, malformed `HH:MM` times, invalid weekdays, and timezones other than `America/Chicago`. Escalation, NWS alert polling, and encrypted backup are non-disableable.
 
 | Job key | Allowed interval / calendar form | Startup run | Can disable |
 |---|---|---:|---:|
@@ -49,6 +50,7 @@ Boot execution can create immediate outbound traffic and LLM work. Confirm envir
 | `maintenance_expiry` | 1–30 minutes | Yes | Yes |
 | `telemetry_sync` | 3–60 minutes | Yes | Yes |
 | `elastic_sync` | 5–120 minutes | Yes | Yes |
+| `nws_alerts` | Exactly 1 minute | Yes | No |
 | `regional_hazards` | 5–60 minutes | Yes | Yes |
 | `cloud_outages` | 5–60 minutes | Yes | Yes |
 | `crime_fetch` | 5–60 minutes | Yes | Yes |
@@ -68,7 +70,7 @@ The job's schedule type is fixed by its registry entry. Weekly entries accept Mo
 
 ## Change Frequency
 
-Authorized users change schedules in Settings > Application Settings. The API validates each job against registry-specific minimum/maximum intervals and supported interval/daily/weekly formats. The worker polls the saved revision every 30 seconds and rebuilds only registry-managed jobs; an in-flight job is not interrupted and the per-job non-overlap guard remains active. Tiered escalation cannot be disabled and remains bounded to 1-5 minutes. The full database backup also cannot be disabled. Daily and weekly schedules use `America/Chicago`.
+Authorized users change schedules in Settings > Application Settings. The API validates each job against registry-specific minimum/maximum intervals and supported interval/daily/weekly formats. The worker polls the saved revision every 30 seconds and rebuilds only registry-managed jobs; an in-flight job is not interrupted and the per-job non-overlap guard remains active. Tiered escalation remains bounded to 1-5 minutes. NWS active-alert polling is fixed at one minute and cannot be disabled; requests are centralized and deferred for HTTP `Retry-After` windows. The full database backup also cannot be disabled. Daily and weekly schedules use `America/Chicago`.
 
 The older standalone `start_report_scheduler()` polling loop has been removed. Daily Fusion report generation is registered in the main job registry so it shares the same settings and reload path.
 

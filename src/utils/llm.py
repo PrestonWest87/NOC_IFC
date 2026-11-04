@@ -10,6 +10,7 @@ import threading
 import requests
 import json
 import time
+from sqlalchemy import or_
 from types import SimpleNamespace
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -18,6 +19,16 @@ from src.models.schema import SystemConfig, Article, CveItem, RegionalHazard, Cl
 
 logger = logging.getLogger(__name__)
 LOCAL_TZ = ZoneInfo("America/Chicago")
+
+
+def _active_nws_conditions(now=None):
+    """Match provider-verified active alerts whose CAP time window is current."""
+    current = now or datetime.utcnow()
+    return (
+        RegionalHazard.status == "active",
+        or_(RegionalHazard.expires_at.is_(None), RegionalHazard.expires_at > current),
+        or_(RegionalHazard.effective_at.is_(None), RegionalHazard.effective_at <= current),
+    )
 
 _ollama_ctx_cache: dict[str, int | None] = {}
 _ollama_ctx_cache_expirations: dict[str, float] = {}
@@ -404,7 +415,9 @@ def generate_unified_risk_brief(session, global_intel, internal_snapshot, progre
     t24 = datetime.utcnow() - timedelta(hours=24)
 
     recent_cves = session.query(CveItem).filter(CveItem.date_added >= t24).limit(200).all()
-    active_hazards = session.query(RegionalHazard).filter(RegionalHazard.updated_at >= t24).limit(30).all()
+    active_hazards = session.query(RegionalHazard).filter(
+        RegionalHazard.updated_at >= t24, *_active_nws_conditions()
+    ).limit(30).all()
     cloud_outages = session.query(CloudOutage).filter(CloudOutage.updated_at >= t24).limit(20).all()
 
     hw_data = json.loads(internal_snapshot.hw_data_json) if internal_snapshot and internal_snapshot.hw_data_json else []
@@ -1072,7 +1085,9 @@ def generate_global_threat_brief(session, progress_callback=None):
 
     recent_cves = session.query(CveItem).filter(CveItem.date_added >= t24).limit(300).all()
     cloud_outages = session.query(CloudOutage).filter(CloudOutage.updated_at >= t24).limit(30).all()
-    active_hazards = session.query(RegionalHazard).filter(RegionalHazard.updated_at >= t24).limit(30).all()
+    active_hazards = session.query(RegionalHazard).filter(
+        RegionalHazard.updated_at >= t24, *_active_nws_conditions()
+    ).limit(30).all()
 
     from src.services import get_recent_crimes
     crime_data = get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
@@ -1852,7 +1867,9 @@ def generate_rolling_summary(session):
     twenty_four_hours_ago = datetime.utcnow() - timedelta(hours=24)
 
     arts = session.query(Article).filter(Article.published_date >= twenty_four_hours_ago, Article.score >= 50).order_by(Article.score.desc()).limit(15).all()
-    hazards = session.query(RegionalHazard).filter(RegionalHazard.updated_at >= twenty_four_hours_ago).limit(20).all()
+    hazards = session.query(RegionalHazard).filter(
+        RegionalHazard.updated_at >= twenty_four_hours_ago, *_active_nws_conditions()
+    ).limit(20).all()
     clouds = session.query(CloudOutage).filter(CloudOutage.updated_at >= twenty_four_hours_ago).limit(15).all()
     logger.debug("generate_rolling_summary: articles=%d hazards=%d clouds=%d", len(arts), len(hazards), len(clouds))
 
@@ -2022,7 +2039,11 @@ def generate_daily_fusion_report(session):
         cve_summary = _map_reduce_summarize(cves, lambda c: f"- {c.cve_id} ({c.vendor}): {c.vulnerability_name}", map_p, reduce_p, config, chunk_size=8)
     else: cve_summary = "No new KEVs added yesterday."
 
-    hazards = session.query(RegionalHazard).filter(RegionalHazard.updated_at >= utc_start, RegionalHazard.updated_at < utc_end).limit(15).all()
+    hazards = session.query(RegionalHazard).filter(
+        RegionalHazard.updated_at >= utc_start,
+        RegionalHazard.updated_at < utc_end,
+        *_active_nws_conditions(),
+    ).limit(15).all()
     if hazards:
         map_p = "List the severe weather events and locations."
         reduce_p = "Summarize the physical threats and weather hazards from yesterday. Highlight the most severe classifications (e.g., Warnings, High Risk)."

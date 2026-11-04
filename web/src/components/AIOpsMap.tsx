@@ -1,7 +1,6 @@
 import { useMemo, useCallback, useRef, useState, useEffect } from "react";
-import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer } from "@deck.gl/layers";
-import { Map } from "@vis.gl/react-maplibre";
+import { ConusMap } from "./ConusMap";
 import type { MapViewState } from "@deck.gl/core";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -28,7 +27,6 @@ const INITIAL_VIEW: MapViewState = {
   pitch: 0,
 };
 
-const DARK_MATTER = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 
 /** Render supplied sites with deck.gl overlays and a selected-site popup. */
 export function AIOpsMap({ sites, viewState = INITIAL_VIEW, height = "100%", tabKey }: AIOpsMapProps) {
@@ -123,10 +121,14 @@ export function AIOpsMap({ sites, viewState = INITIAL_VIEW, height = "100%", tab
       >
         {fs ? "Exit" : "Fullscreen"}
       </button>
-      <DeckGL key={tabKey} layers={layers} initialViewState={viewState} controller={true}
-        style={{ height: "100%", width: "100%", position: "relative" }} getTooltip={tooltip} onClick={handleClick}>
-        <Map mapStyle={DARK_MATTER} />
-      </DeckGL>
+      <ConusMap
+        key={tabKey}
+        layers={layers}
+        initialViewState={viewState}
+        style={{ height: "100%", width: "100%" }}
+        getTooltip={tooltip}
+        onClick={handleClick}
+      />
 
       {selectedSite && (
         <div style={{

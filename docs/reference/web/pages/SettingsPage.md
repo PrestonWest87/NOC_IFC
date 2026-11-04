@@ -136,7 +136,7 @@ Facility locations management — JSON import, manual table editing, and adminis
 | `canEdit` | `boolean` | Whether the current user may edit location data. |
 
 ### Returns
-- Facility map (DeckGL/MapLibre) and site details.
+- Facility map using the shared MapLibre basemap and overlaid deck.gl site markers, plus site details.
 - JSON import with add/upsert/replace modes via `POST /admin/location/import`.
 - Location table with Name, Type, District, Priority, Lat, Lon, and a per-site Contacts editor; location writes use `PUT /admin/location` and contact writes use `PUT /admin/location/{location_id}/contacts`.
 - Site contacts are maintained separately from shared site payloads. The editor accepts optional name, phone, and email values, validates phone/email syntax in the browser, and displays server validation errors.

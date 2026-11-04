@@ -18,6 +18,7 @@ import os
 import hashlib
 import secrets
 import math
+import tempfile
 from shapely.affinity import scale as scale_geometry
 from shapely.geometry import Point, mapping, shape
 from shapely.ops import transform, unary_union
@@ -55,10 +56,11 @@ VALID_THEMES = {
 
 class TTLCache:
     """Small process-local TTL cache for repeatedly requested service data."""
-    def __init__(self, ttl: int = 300, max_entries: int = 128):
+    def __init__(self, ttl: int = 300, max_entries: int = 128, key_fn=None):
         """Create a cache with an expiration interval and entry-count bound."""
         self.ttl = ttl
         self.max_entries = max_entries
+        self.key_fn = key_fn
         self._store: dict = {}
         self._timestamps: dict = {}
 
@@ -66,7 +68,7 @@ class TTLCache:
         """Wrap a function with argument-keyed caching and attach a cache-clear method."""
         def wrapper(*args, **kwargs):
             """Return a fresh cached result or recompute and evict the oldest key when full."""
-            key = str(args) + str(sorted(kwargs.items()))
+            key = self.key_fn(args, kwargs) if self.key_fn else str(args) + str(sorted(kwargs.items()))
             now = datetime.utcnow().timestamp()
             if key in self._store and (now - self._timestamps.get(key, 0)) < self.ttl:
                 return self._store[key]
@@ -237,34 +239,195 @@ def replace_site_contacts(location_id, contacts):
         ]
 
 
-@TTLCache(ttl=120, max_entries=1)
-def get_cached_geojson():
-    """Return the seven cached SPC/NWS/USGS layers in the positional frontend order."""
-    feed_names = ("spc_day1", "spc_day2", "spc_day3", "nws_ar", "nws_oos", "usgs_ar", "usgs_oos")
-    with SessionLocal() as db:
-        records = db.query(GeoJsonCache).filter(GeoJsonCache.feed_name.in_(feed_names)).all()
-    feeds = {record.feed_name: record.data for record in records}
-    return tuple(feeds.get(name) for name in feed_names)
+REGIONAL_GEOJSON_FEEDS = (
+    "spc_day1", "spc_day2", "spc_day3", "nws_ar", "nws_oos", "usgs_ar", "usgs_oos",
+)
+NWS_GEOJSON_FEEDS = frozenset(("nws_ar", "nws_oos"))
 
 
-@TTLCache(ttl=120, max_entries=1)
-def get_cached_geojson_status():
-    """Return freshness metadata without transferring the feed payload again."""
-    feed_names = ("spc_day1", "spc_day2", "spc_day3", "nws_ar", "nws_oos", "usgs_ar", "usgs_oos")
+def active_nws_hazard_conditions(now=None):
+    """Return shared SQL conditions for CAP-current, effective NWS rows."""
+    current = now or datetime.utcnow()
+    return (
+        RegionalHazard.status == "active",
+        or_(RegionalHazard.expires_at.is_(None), RegionalHazard.expires_at > current),
+        or_(RegionalHazard.effective_at.is_(None), RegionalHazard.effective_at <= current),
+    )
+
+
+@TTLCache(ttl=5, max_entries=32)
+def _read_geojson_layers(feed_names):
+    """Read only requested cached layers; use a short TTL across API/worker processes."""
     with SessionLocal() as db:
-        records = db.query(GeoJsonCache).filter(GeoJsonCache.feed_name.in_(feed_names)).all()
+        records = db.query(GeoJsonCache.feed_name, GeoJsonCache.data).filter(
+            GeoJsonCache.feed_name.in_(feed_names)
+        ).all()
+    return {name: data for name, data in records}
+
+
+def get_cached_geojson_layers(feed_names=None, bbox=None):
+    """Return selected, current layers, optionally scoped to a map viewport."""
+    from src.core.arkansas_coverage import filter_current_alerts
+
+    names = tuple(sorted(set(REGIONAL_GEOJSON_FEEDS if feed_names is None else feed_names)))
+    feeds = _read_geojson_layers(names)
+    for name in NWS_GEOJSON_FEEDS.intersection(names):
+        feeds[name] = filter_current_alerts(feeds.get(name))
+    if bbox is not None:
+        for name in names:
+            feeds[name] = filter_geojson_to_bbox(feeds.get(name), bbox)
+    return feeds
+
+
+def filter_geojson_to_bbox(collection, bbox):
+    """Keep complete GeoJSON features intersecting a validated WGS84 view box."""
+    from shapely.geometry import box as geometry_box
+
+    if not isinstance(collection, dict) or not isinstance(collection.get("features"), list):
+        return collection
+    west, south, east, north = bbox
+    viewport = geometry_box(west, south, east, north)
+    visible = []
+    for feature in collection["features"]:
+        geometry = feature.get("geometry") if isinstance(feature, dict) else None
+        if not geometry:
+            visible.append(feature)
+            continue
+        try:
+            if shape(geometry).intersects(viewport):
+                visible.append(feature)
+        except Exception:
+            # Keep malformed source features visible for diagnostics; never
+            # turn a geometry parse error into a silent hazard omission.
+            visible.append(feature)
+    return {**collection, "features": visible}
+
+
+def filter_wildfires_to_bbox(payload, bbox):
+    """Scope cached WFCA point/perimeter/footprint layers to the current viewport."""
+    from shapely.geometry import box as geometry_box
+
+    if not isinstance(payload, dict):
+        return payload
+    west, south, east, north = bbox
+    viewport = geometry_box(west, south, east, north)
+    incidents = []
+    for fire in payload.get("incidents", []):
+        try:
+            lon, lat = float(fire.get("lon")), float(fire.get("lat"))
+        except (TypeError, ValueError):
+            continue
+        if west <= lon <= east and south <= lat <= north:
+            incidents.append(fire)
+
+    def intersects_viewport(feature):
+        try:
+            return bool(feature.get("geometry") and shape(feature["geometry"]).intersects(viewport))
+        except Exception:
+            return True
+
     return {
-        name: {
-            "updated_at": record.updated_at.isoformat() if record.updated_at else None,
-            "feature_count": len((record.data or {}).get("features", [])) if isinstance(record.data, dict) else 0,
-            "status": "empty" if not record.data else (
-                "stale" if not record.updated_at or datetime.utcnow() - record.updated_at > timedelta(minutes=15) else "ok"
-            ),
-        }
-        for name in feed_names
-        for record in records
-        if record.feed_name == name
+        **payload,
+        "incidents": incidents,
+        "perimeters": [item for item in payload.get("perimeters", []) if intersects_viewport(item)],
+        "footprints": [item for item in payload.get("footprints", []) if intersects_viewport(item)],
     }
+
+
+def get_cached_geojson():
+    """Return the compatibility tuple in positional frontend order."""
+    feeds = get_cached_geojson_layers(REGIONAL_GEOJSON_FEEDS)
+    return tuple(feeds.get(name) for name in REGIONAL_GEOJSON_FEEDS)
+
+
+get_cached_geojson.clear = _read_geojson_layers.clear
+get_cached_geojson_layers.clear = _read_geojson_layers.clear
+
+
+@TTLCache(ttl=5, max_entries=1)
+def get_cached_geojson_status():
+    """Return compact fetch/freshness metadata without loading provider geometries."""
+    feed_names = (*REGIONAL_GEOJSON_FEEDS, "nws_region")
+    fields = (
+        GeoJsonCache.feed_name,
+        GeoJsonCache.updated_at,
+        GeoJsonCache.last_attempt_at,
+        GeoJsonCache.last_success_at,
+        GeoJsonCache.last_error,
+        GeoJsonCache.last_http_status,
+        GeoJsonCache.last_duration_ms,
+        GeoJsonCache.retry_after_at,
+        GeoJsonCache.feature_count,
+        GeoJsonCache.coverage_summary,
+    )
+    with SessionLocal() as db:
+        records = db.query(*fields).filter(GeoJsonCache.feed_name.in_(feed_names)).all()
+
+    now = datetime.utcnow()
+    result = {}
+    for row in records:
+        name, updated_at, attempted_at, successful_at, error, http_status, duration_ms, retry_after_at, count, coverage = row
+        last_success = successful_at or updated_at
+        max_age = timedelta(seconds=180) if name.startswith("nws_") else timedelta(minutes=15)
+        age_seconds = max(0, int((now - last_success).total_seconds())) if last_success else None
+        has_success = last_success is not None
+        if error:
+            status = "stale" if has_success else "error"
+        elif not has_success:
+            status = "error" if attempted_at else "missing"
+        elif age_seconds is not None and now - last_success > max_age:
+            status = "stale"
+        elif count == 0:
+            status = "empty"
+        else:
+            status = "ok"
+        result[name] = {
+            "updated_at": updated_at.isoformat() if updated_at else None,
+            "last_attempt_at": attempted_at.isoformat() if attempted_at else None,
+            "last_success_at": last_success.isoformat() if last_success else None,
+            "age_seconds": age_seconds,
+            "feature_count": count,
+            "status": status,
+            "last_error": error,
+            "last_http_status": http_status,
+            "last_duration_ms": duration_ms,
+            "retry_after_at": retry_after_at.isoformat() if retry_after_at else None,
+            "coverage": coverage,
+        }
+
+    for name in feed_names:
+        result.setdefault(name, {
+            "updated_at": None,
+            "last_attempt_at": None,
+            "last_success_at": None,
+            "age_seconds": None,
+            "feature_count": 0,
+            "status": "missing",
+            "last_error": None,
+            "last_http_status": None,
+            "last_duration_ms": None,
+            "retry_after_at": None,
+            "coverage": None,
+        })
+
+    result["server_time"] = now.isoformat() + "Z"
+
+    # The raw combined NWS source owns poll health; expose it under the two
+    # compatibility collection keys so existing map callers can show status.
+    nws_meta = result.get("nws_region")
+    if nws_meta:
+        for name in NWS_GEOJSON_FEEDS:
+            result[name] = {**nws_meta, "layer": name}
+    return result
+
+
+def get_active_nws_event_types():
+    """Return alert event names from unexpired, effective, verified NWS rows."""
+    with SessionLocal() as db:
+        rows = db.query(RegionalHazard.hazard_type).filter(
+            *active_nws_hazard_conditions(),
+        ).distinct().all()
+    return sorted({str(row[0]) for row in rows if row[0]})
 
 @TTLCache(ttl=3600, max_entries=1)
 def get_ar_counties_mapping():
@@ -287,19 +450,51 @@ def get_ar_counties_mapping():
 
 @TTLCache(ttl=3600, max_entries=1)
 def get_regional_counties_mapping():
-    """Fetches and caches all US county boundaries keyed by 5-digit FIPS code."""
+    """Load the durable county source, fetching it on a cold install with a local fallback."""
+    from src.core.paths import PROJECT_ROOT, application_data_dir
+
+    regional_path = PROJECT_ROOT / "web" / "public" / "maps" / "arkansas-border-counties-v1.geojson"
+    cache_path = application_data_dir() / "maps" / "us_counties_fips.geojson"
+    data = None
+    if regional_path.is_file():
+        try:
+            data = json.loads(regional_path.read_text(encoding="utf-8"))
+        except Exception:
+            logger.warning("Precompiled border-county map is unreadable; using the persisted source fallback.", exc_info=True)
+    if cache_path.is_file():
+        if data is None:
+            try:
+                data = json.loads(cache_path.read_text(encoding="utf-8"))
+            except Exception:
+                logger.warning("Persisted county boundary cache is unreadable; refreshing it.", exc_info=True)
+
     try:
-        url = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json"
-        resp = requests.get(url, timeout=10)
-        data = resp.json()
-        del resp
+        if data is None:
+            url = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json"
+            resp = requests.get(url, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            if not isinstance(data, dict) or not isinstance(data.get("features"), list):
+                raise ValueError("County boundary source returned an invalid GeoJSON collection")
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=cache_path.parent,
+                prefix="us_counties_", suffix=".tmp", delete=False,
+            ) as temporary:
+                temporary.write(json.dumps(data, separators=(",", ":")))
+                temporary_path = temporary.name
+            os.replace(temporary_path, cache_path)
+
         counties = {}
         for f in data.get("features", []):
             props = f.get("properties", {})
-            state_fips = props.get("STATE", "")
-            county_fips = props.get("COUNTY", "")
-            fips = state_fips + county_fips
-            name = props.get("NAME", "").lower()
+            geoid = str(props.get("geoid") or "")
+            state_fips = str(props.get("state_fips") or props.get("STATE") or "").zfill(2)
+            county_fips = str(props.get("COUNTY") or "").zfill(3)
+            fips = geoid or state_fips + county_fips
+            name = str(props.get("name") or props.get("NAME") or "").lower()
+            if not state_fips or not fips or not f.get("geometry"):
+                continue
             counties[fips] = {
                 "state_fips": state_fips,
                 "geometry": f["geometry"],
@@ -309,6 +504,24 @@ def get_regional_counties_mapping():
         return counties
     except Exception as e:
         logger.error("Error fetching county GeoJSON: %s", e)
+        if regional_path.is_file():
+            try:
+                fallback_data = json.loads(regional_path.read_text(encoding="utf-8"))
+                counties = {}
+                for feature in fallback_data.get("features", []):
+                    props = feature.get("properties", {})
+                    fips = str(props.get("geoid") or "").zfill(5)
+                    state_fips = str(props.get("state_fips") or fips[:2]).zfill(2)
+                    if fips and feature.get("geometry"):
+                        counties[fips] = {
+                            "state_fips": state_fips,
+                            "geometry": feature["geometry"],
+                            "name": str(props.get("name") or "").lower(),
+                        }
+                logger.warning("Using the bundled 2017 border-county fallback (%d counties).", len(counties))
+                return counties
+            except Exception:
+                logger.error("Bundled border-county fallback is unreadable", exc_info=True)
         return {}
 
 def get_all_site_types(db=None):
@@ -492,9 +705,12 @@ def auto_clear_expired_maintenance():
 @TTLCache(ttl=3600) # Cache forecasts for 1 hour to prevent rate limiting
 def get_nws_forecast(lat, lon):
     """Fetches the 7-day forecast for a specific coordinate using the NWS API."""
-    headers = {
-        "User-Agent": "NOC_IFC_Weather_Module (noc-fusion@localhost)" # NWS requires a User-Agent
-    }
+    from src.core.config import settings
+
+    user_agent = settings.nws_api_user_agent
+    if settings.default_admin_email and settings.default_admin_email.casefold() not in user_agent.casefold():
+        user_agent = f"{user_agent} ({settings.default_admin_email})"
+    headers = {"User-Agent": user_agent, "Accept": "application/geo+json"}
     try:
         # Step 1: Get the gridpoints URL
         point_url = f"https://api.weather.gov/points/{lat},{lon}"
@@ -522,6 +738,10 @@ def get_filtered_notification_alerts(username, ar_data, oos_data, locs):
     - Out-of-State Alerts: Returns ONLY alerts that geographically intersect a monitored facility.
     """
     from src.database import SessionLocal, UserWeatherPreference
+    from src.core.arkansas_coverage import filter_current_alerts
+
+    ar_data = filter_current_alerts(ar_data)
+    oos_data = filter_current_alerts(oos_data)
     
     with SessionLocal() as db:
         prefs = db.query(UserWeatherPreference).filter_by(username=username).all()
@@ -1598,7 +1818,10 @@ def get_dashboard_metrics():
         return {
             "rss_count": db.query(Article).filter(Article.published_date >= t, Article.score >= 50).count(),
             "cve_count": db.query(CveItem).filter(CveItem.date_added >= t).count(),
-            "hazard_count": db.query(RegionalHazard).filter(RegionalHazard.updated_at >= t).count(),
+            "hazard_count": db.query(RegionalHazard).filter(
+                RegionalHazard.updated_at >= t,
+                *active_nws_hazard_conditions(),
+            ).count(),
             "cloud_count": db.query(CloudOutage).filter(CloudOutage.updated_at >= t, CloudOutage.is_resolved == False).count()
         }
 
@@ -3086,11 +3309,11 @@ def set_user_weather_prefs(username, alerts):
         db.commit()
 
 WFCA_WFS_URL = "https://prod-geoserver-lb.wfca.com/geoserver/wfs"
-WFCA_WILDFIRE_BBOX = "-95.6,32.1,-88.6,37.4,EPSG:4326"
+WFCA_WILDFIRE_BBOX = "-96.0,31.8,-88.0,38.0,EPSG:4326"
 WFCA_WFS_PAGE_SIZE = 2000
 
 
-def _fetch_wfca_wfs_features(layer_name):
+def _fetch_wfca_wfs_features(layer_name, bbox=WFCA_WILDFIRE_BBOX):
     """Fetch all features for a regional WFCA GeoServer WFS layer."""
     features = []
     offset = 0
@@ -3102,7 +3325,7 @@ def _fetch_wfca_wfs_features(layer_name):
             "typeNames": layer_name,
             "outputFormat": "application/json",
             "srsName": "EPSG:4326",
-            "bbox": WFCA_WILDFIRE_BBOX,
+            "bbox": bbox,
             "count": WFCA_WFS_PAGE_SIZE,
             # WFCA's WFS layers do not have a database primary key exposed for
             # natural-order paging; use a public attribute for stable offsets.
@@ -3209,23 +3432,23 @@ def _wildfire_within_one_mile(fire, perimeter, site_coordinates):
     )
 
 
+_WFCA_LAST_GOOD = None
+_WFCA_LAST_SUCCESS_AT = None
+_WFCA_LAST_ERROR = None
+
+
 @TTLCache(ttl=300, max_entries=1)
 def get_active_wildfires():
     """Fetch current wildfire incidents and perimeters from the WFCA fire map."""
+    global _WFCA_LAST_GOOD, _WFCA_LAST_SUCCESS_AT, _WFCA_LAST_ERROR
     try:
-        # Keep the WFCA request small while covering Arkansas and the nearby
-        # operational area; apply the exact county buffer to features below.
-        counties = get_regional_counties_mapping()
-        arkansas_counties = [
-            shape(info["geometry"])
-            for info in counties.values()
-            if info.get("state_fips") == "05" and info.get("geometry")
-        ]
-        if not arkansas_counties:
-            raise ValueError("Arkansas county boundaries are unavailable")
-        arkansas = unary_union(arkansas_counties).buffer(0.75)
+        from src.core.arkansas_coverage import get_arkansas_coverage
 
-        incident_features = _fetch_wfca_wfs_features("WFCA:WFIGS_Incidents")
+        coverage = get_arkansas_coverage()
+        west, south, east, north = coverage.bounds
+        wildfire_bbox = f"{west:.5f},{south:.5f},{east:.5f},{north:.5f},EPSG:4326"
+
+        incident_features = _fetch_wfca_wfs_features("WFCA:WFIGS_Incidents", wildfire_bbox)
         active_fires = []
         active_fires_by_id = {}
         for feature in incident_features:
@@ -3252,7 +3475,7 @@ def get_active_wildfires():
             if lon is None or lat is None:
                 continue
             fire_point = Point(lon, lat)
-            if not arkansas.covers(fire_point):
+            if not coverage.buffered.covers(coverage.project(fire_point)):
                 continue
 
             acres = _fire_number(props.get("wfca_reportedacres"))
@@ -3286,7 +3509,7 @@ def get_active_wildfires():
 
         perimeters_by_id = {}
         try:
-            perimeter_features = _fetch_wfca_wfs_features("WFCA:WFIGS_Perimeters")
+            perimeter_features = _fetch_wfca_wfs_features("WFCA:WFIGS_Perimeters", wildfire_bbox)
         except Exception:
             logger.warning("Unable to retrieve WFCA fire perimeters; using incident points", exc_info=True)
             perimeter_features = []
@@ -3302,7 +3525,7 @@ def get_active_wildfires():
                 continue
             try:
                 fire_perimeter = shape(geometry)
-                if fire_perimeter.is_empty or not fire_perimeter.intersects(arkansas):
+                if fire_perimeter.is_empty or not coverage.project(fire_perimeter).intersects(coverage.buffered):
                     continue
             except Exception:
                 logger.warning("Skipping invalid WFCA perimeter for %s", fire["name"], exc_info=True)
@@ -3350,7 +3573,7 @@ def get_active_wildfires():
         footprints_by_id = {}
         try:
             footprint_features = (
-                _fetch_wfca_wfs_features("WFCA:FIRMS_Footprints") if active_fires else []
+                _fetch_wfca_wfs_features("WFCA:FIRMS_Footprints", wildfire_bbox) if active_fires else []
             )
         except Exception:
             logger.warning("Unable to retrieve WFCA satellite footprints", exc_info=True)
@@ -3373,7 +3596,7 @@ def get_active_wildfires():
                 continue
             try:
                 footprint = shape(geometry)
-                if footprint.is_empty or not footprint.intersects(arkansas):
+                if footprint.is_empty or not coverage.project(footprint).intersects(coverage.buffered):
                     continue
             except Exception:
                 logger.warning("Skipping invalid WFCA satellite footprint for %s", fire["name"], exc_info=True)
@@ -3469,14 +3692,35 @@ def get_active_wildfires():
                 if _normalize_fire_id(footprint.get("irwin_id")) in retained_fire_ids
             ]
 
-        return {
+        payload = {
             "incidents": active_fires,
             "perimeters": current_perimeters,
             "footprints": current_footprints,
         }
-    except Exception:
+        _WFCA_LAST_GOOD = payload
+        _WFCA_LAST_SUCCESS_AT = datetime.utcnow().isoformat()
+        _WFCA_LAST_ERROR = None
+        return {
+            **payload,
+            "meta": {
+                "status": "ok",
+                "last_success_at": _WFCA_LAST_SUCCESS_AT,
+                "coverage_miles": 50,
+            },
+        }
+    except Exception as exc:
         logger.warning("Unable to retrieve current WFCA wildfire data", exc_info=True)
-        return []
+        _WFCA_LAST_ERROR = str(exc)[:1000]
+        stale_payload = _WFCA_LAST_GOOD or {"incidents": [], "perimeters": [], "footprints": []}
+        return {
+            **stale_payload,
+            "meta": {
+                "status": "stale" if _WFCA_LAST_SUCCESS_AT else "error",
+                "last_success_at": _WFCA_LAST_SUCCESS_AT,
+                "last_error": _WFCA_LAST_ERROR,
+                "coverage_miles": 50,
+            },
+        }
 
 def dispatch_perimeter_crime_alerts():
     """Checks for un-dispatched high severity crimes within 0.4 miles and sends an SMS-friendly alert."""
@@ -3540,7 +3784,7 @@ def dispatch_perimeter_crime_alerts():
 def get_hazards(limit=15, hours_back=None):
     """Return recent regional hazards with an optional age filter and result cap."""
     with SessionLocal() as db:
-        q = db.query(RegionalHazard)
+        q = db.query(RegionalHazard).filter(*active_nws_hazard_conditions())
         if hours_back: q = q.filter(RegionalHazard.updated_at >= datetime.utcnow() - timedelta(hours=hours_back))
         return to_dotdict_list(q.order_by(RegionalHazard.updated_at.desc()).limit(limit).all())
 
@@ -3603,6 +3847,8 @@ def _hazard_line_color(fill):
 
 def process_nws_alerts(data, selected_events, is_oos=False):
     """Convert NWS GeoJSON into warning/watch geometries, zone alerts, and diagnostics."""
+    from src.core.arkansas_coverage import alert_county_fips, filter_current_alerts
+
     map_diagnostics = []
     warn_geo = {"type": "FeatureCollection", "features": []}
     watch_geo = {"type": "FeatureCollection", "features": []}
@@ -3612,7 +3858,9 @@ def process_nws_alerts(data, selected_events, is_oos=False):
         map_diagnostics.append(f"[WARN] {'OOS' if is_oos else 'AR'} data empty or missing 'features'.")
         return warn_geo, watch_geo, zonewide_alerts, map_diagnostics
 
+    data = filter_current_alerts(data)
     regional_counties_geom = get_regional_counties_mapping()
+    border_state_fips = {"22", "48", "28", "29", "40", "47"}
 
     for idx, f_raw in enumerate(data.get("features", [])):
         geom, props = f_raw.get("geometry"), f_raw.get("properties", {})
@@ -3625,23 +3873,23 @@ def process_nws_alerts(data, selected_events, is_oos=False):
         if geom:
             geometries_to_process.append(geom)
         else:
-            # THE ENTERPRISE FIX: Strict FIPS Code Matching
-            geocode_dict = props.get("geocode", {})
-            same_codes = geocode_dict.get("SAME", [])
-
-            for same_code in same_codes:
-                # NWS SAME codes are 6 chars (e.g., 005001). Extract last 5 for standard FIPS.
-                fips = same_code[-5:]
+            # Resolve county SAME and UGC codes against locally cached county
+            # boundaries. Zone-only codes remain text diagnostics rather than
+            # being drawn as fabricated county polygons.
+            for fips in alert_county_fips(props):
                 if fips in regional_counties_geom:
                     state_fips = regional_counties_geom[fips]["state_fips"]
-
-                    # Strict Border Enforcement:
-                    # AR feed gets only AR counties. OOS feed gets only non-AR counties.
-                    if (not is_oos and state_fips == "05") or (is_oos and state_fips != "05"):
+                    if (not is_oos and state_fips == "05") or (is_oos and state_fips in border_state_fips):
                         geometries_to_process.append(regional_counties_geom[fips]["geometry"])
 
             if not geometries_to_process:
-                zonewide_alerts.append({"Event": f"{prefix} {event_type}", "Affected Area": props.get("areaDesc", "Unknown"), "Details": headline})
+                zonewide_alerts.append({
+                    "Event": f"{prefix} {event_type}",
+                    "Affected Area": props.get("areaDesc", "Unknown"),
+                    "Details": headline,
+                    "Coverage Precision": props.get("noc_coverage_precision", "zone_unresolved"),
+                    "Expires": props.get("expires"),
+                })
                 continue
 
         for g in geometries_to_process:
@@ -3659,6 +3907,12 @@ def process_nws_alerts(data, selected_events, is_oos=False):
                     "properties": {
                         "info": f"{prefix} {event_type}", "severity": severity,
                         "event": event_type, "headline": headline,
+                        "id": props.get("id"),
+                        "effective": props.get("effective"),
+                        "expires": props.get("expires"),
+                        "ends": props.get("ends") or props.get("eventEndingTime"),
+                        "messageType": props.get("messageType", "Alert"),
+                        "coverage_precision": props.get("noc_coverage_precision", "alert_geometry"),
                         "shapely_obj": poly_shape,
                         "fill_color": fill_color, "line_color": line_color,
                     }
@@ -3674,12 +3928,14 @@ def process_nws_alerts(data, selected_events, is_oos=False):
 
 def get_weather_alerts_log(ar_data, oos_data, selected_events, usgs_ar_data=None, usgs_oos_data=None):
     """Combine selected NWS alerts and USGS earthquakes into a sorted operator log."""
+    from src.core.arkansas_coverage import filter_current_alerts
+
     all_alert_details = []
     
     # NWS Alerts (existing code)
     for geo_ds, is_oos in [(ar_data, False), (oos_data, True)]:
         if geo_ds and "features" in geo_ds:
-            for f in geo_ds["features"]:
+            for f in filter_current_alerts(geo_ds)["features"]:
                 props = f.get("properties", {})
                 event = props.get("event", "Unknown")
                 if selected_events and event not in selected_events: continue
@@ -3688,7 +3944,12 @@ def get_weather_alerts_log(ar_data, oos_data, selected_events, usgs_ar_data=None
                 all_alert_details.append({
                     "Event": f"{prefix} {event}", "Severity": props.get("severity", "Unknown"), "Certainty": props.get("certainty", "Unknown"),
                     "Headline": props.get("headline", "No headline available."), "Affected Area": props.get("areaDesc", "Unknown Area"),
+                    "Sent": props.get("sent", "N/A"),
                     "Effective": props.get("effective", "N/A"), "Expires": props.get("expires", "N/A"),
+                    "Expected End": props.get("ends") or props.get("eventEndingTime"),
+                    "Message Type": props.get("messageType", "Alert"),
+                    "Alert ID": props.get("id"),
+                    "Coverage Precision": props.get("noc_coverage_precision", "alert_geometry"),
                     "Description": props.get("description", "No detailed description provided by NWS."),
                     "Instructions": props.get("instruction", "No explicit instructions provided.")
                 })
@@ -3710,6 +3971,7 @@ def get_weather_alerts_log(ar_data, oos_data, selected_events, usgs_ar_data=None
                 all_alert_details.append({
                     "Event": f"[USGS {label}] Earthquake", "Severity": _get_eq_severity(mag), "Certainty": "Confirmed",
                     "Headline": f"M{mag:.1f} Earthquake - {props.get('place', 'Unknown')}", "Affected Area": f"{label} Region",
+                    "Alert ID": f.get("id"),
                     "Effective": time_str, "Expires": "N/A",
                     "Description": f"Magnitude {mag:.1f} earthquake at depth {depth:.1f}km. Location: {props.get('place', 'Unknown')}",
                     "Instructions": f"Monitor for aftershocks. Check structural integrity at nearby facilities."
@@ -3734,15 +3996,22 @@ def _mapping_value(row, *keys, default=None):
 
 
 def calculate_site_intersections(map_rows, master_polygons):
-    """Use bounds prechecks and Shapely containment to return toggled/all affected site lists."""
+    """Use a spatial index and exact containment to return affected site lists."""
     from math import isfinite
+    from shapely.strtree import STRtree
 
     toggled_affected_sites, master_affected_sites = [], []
     if not map_rows or not master_polygons:
         return toggled_affected_sites, master_affected_sites
 
+    valid_polygons = [polygon for polygon in master_polygons if polygon.get("shape") is not None]
+    if not valid_polygons:
+        return toggled_affected_sites, master_affected_sites
     for polygon in master_polygons:
-        polygon["bounds"] = polygon["shape"].bounds
+        if polygon.get("shape") is not None:
+            polygon["bounds"] = polygon["shape"].bounds
+
+    spatial_index = STRtree([polygon["shape"] for polygon in valid_polygons])
 
     for row in map_rows:
         try:
@@ -3760,9 +4029,10 @@ def calculate_site_intersections(map_rows, master_polygons):
         site_point = Point(lon, lat)
         toggled_events = []
 
-        for polygon in master_polygons:
+        for polygon_index in spatial_index.query(site_point):
+            polygon = valid_polygons[int(polygon_index)]
             minx, miny, maxx, maxy = polygon["bounds"]
-            if minx <= lon <= maxx and miny <= lat <= maxy and site_point.within(polygon["shape"]):
+            if minx <= lon <= maxx and miny <= lat <= maxy and polygon["shape"].covers(site_point):
                 master_affected_sites.append({
                     "Monitored Site": site_name,
                     "Type": facility_type,
@@ -3770,6 +4040,8 @@ def calculate_site_intersections(map_rows, master_polygons):
                     "Priority": priority,
                     "Hazard": polygon["event"],
                     "Severity": polygon["severity"],
+                    "HazardExpires": polygon.get("expires"),
+                    "HazardEffective": polygon.get("effective"),
                 })
                 if polygon.get("is_toggled", False):
                     toggled_events.append(polygon["event"])
@@ -4500,7 +4772,7 @@ def generate_global_sitrep(sys_config_dict):
         ).all()
         
         active_clouds = db.query(CloudOutage).filter_by(is_resolved=False).all()
-        active_weather = db.query(RegionalHazard).all()
+        active_weather = db.query(RegionalHazard).filter(*active_nws_hazard_conditions()).all()
         active_bgp = db.query(BgpAnomaly).filter_by(is_resolved=False).all()
 
         report = f"### Global Situation Report (SitRep)\n\n"
@@ -4994,7 +5266,7 @@ def trigger_unified_brief(progress_generation_id=None):
 
     with SessionLocal() as session:
         latest_internal = session.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
-        active_nws = session.query(RegionalHazard).count()
+        active_nws = session.query(RegionalHazard).filter(*active_nws_hazard_conditions()).count()
     crime_data = get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
     global_intel = get_executive_grid_intel(active_nws, crime_data)
 
@@ -5710,8 +5982,31 @@ def nuke_weather_data():
 # 10. REGIONAL MAP PRECOMPUTATION
 # ==========================================
 
-@TTLCache(ttl=120, max_entries=4)
-def _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, selected_events_tuple, map_rows):
+def _geo_matrix_cache_key(args, kwargs):
+    """Key compiled map results by small data revisions and visible site rows."""
+    values = list(args) + [None] * max(0, 10 - len(args))
+    cache_token = values[7] if len(args) > 7 else kwargs.get("cache_token")
+    include_wildfires = values[8] if len(args) > 8 else kwargs.get("include_active_wildfires", True)
+    selected_events = values[5]
+    map_rows = values[6] or []
+    site_key = tuple(
+        tuple(str(row.get(key, "")) for key in (
+            "Name", "Monitored Site", "Lat", "Lon", "Type", "Priority", "District", "current_spc_risk",
+        ))
+        for row in map_rows if isinstance(row, dict)
+    )
+    if cache_token is None:
+        # Legacy/direct callers remain correct but don't stringify full GeoJSON.
+        cache_token = ("uncached", uuid.uuid4().hex)
+    return (cache_token, tuple(selected_events or ()), site_key, bool(include_wildfires))
+
+
+@TTLCache(ttl=120, max_entries=16, key_fn=_geo_matrix_cache_key)
+def _precompute_geo_matrix(
+    spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data,
+    selected_events_tuple, map_rows, cache_token=None, include_active_wildfires=True,
+    wildfire_data=None,
+):
     """Heavy Math Engine: Parses JSON, builds Shapely objects, and calculates all intersections ONCE."""
     from datetime import datetime
     
@@ -5734,16 +6029,25 @@ def _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_d
             except Exception: pass
 
     # 2. Process NWS
-    ar_warn, ar_watch, _, ar_logs = process_nws_alerts(ar_data, selected_events_tuple, is_oos=False)
-    oos_warn, oos_watch, _, oos_logs = process_nws_alerts(oos_data, selected_events_tuple, is_oos=True)
+    ar_warn, ar_watch, ar_zonewide, ar_logs = process_nws_alerts(ar_data, selected_events_tuple, is_oos=False)
+    oos_warn, oos_watch, oos_zonewide, oos_logs = process_nws_alerts(oos_data, selected_events_tuple, is_oos=True)
     map_diagnostics.extend(ar_logs + oos_logs)
+    for alert in ar_zonewide + oos_zonewide:
+        map_diagnostics.append(
+            "[ZONE ALERT] "
+            f"{alert.get('Event', 'NWS alert')} | area={alert.get('Affected Area', 'Unknown')} | "
+            f"precision={alert.get('Coverage Precision', 'zone_unresolved')} | "
+            f"expires={alert.get('Expires') or 'unknown'}"
+        )
 
     for geo_dict in [ar_warn, ar_watch, oos_warn, oos_watch]:
         for f in geo_dict["features"]:
             master_polygons.append({
                 "event": f['properties']['info'], 
                 "shape": f['properties']['shapely_obj'], 
-                "severity": f['properties']['severity']
+                "severity": f['properties']['severity'],
+                "expires": f['properties'].get("expires"),
+                "effective": f['properties'].get("effective"),
             })
             # Remove Shapely objects before returning/caching JSON-ready GeoJSON.
             f['properties'].pop('shapely_obj', None)
@@ -5765,18 +6069,34 @@ def _precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_d
                     for same_code in same_codes:
                         fips = same_code[-5:]
                         if fips in regional_counties and regional_counties[fips]["state_fips"] == "05":
-                            fire_fips_to_process[fips] = {"severity": severity, "color": fill_color, "line_color": line_color, "event": event, "county_name": regional_counties[fips]["name"]}
+                            fire_fips_to_process[fips] = {
+                                "severity": severity,
+                                "color": fill_color,
+                                "line_color": line_color,
+                                "event": event,
+                                "county_name": regional_counties[fips]["name"],
+                                "expires": f.get("properties", {}).get("expires"),
+                            }
 
     for fips, info in fire_fips_to_process.items():
         geom = regional_counties[fips]["geometry"]
         ar_fire_geo["features"].append({"type": "Feature", "geometry": geom, "properties": {"info": f"{info['county_name'].title()} County\nRisk Level: {info['severity']}\nNWS Alert: {info['event']}", "fill_color": info["color"], "line_color": info["line_color"]}})
         try:
-            master_polygons.append({"event": f"Wildfire Risk: {info['event']}", "shape": shape(geom), "severity": "High"})
+            master_polygons.append({
+                "event": f"Wildfire Risk: {info['event']}",
+                "shape": shape(geom),
+                "severity": "High",
+                "expires": info.get("expires"),
+            })
         except: pass
 
     # 4. Process active WFCA wildfire incidents, preferring their perimeter
     # geometry and falling back to a small incident-point area when needed.
-    wfca_data = get_active_wildfires()
+    wfca_data = (
+        wildfire_data if wildfire_data is not None
+        else get_active_wildfires() if include_active_wildfires
+        else None
+    )
     if isinstance(wfca_data, dict):
         perimeter_shapes = {
             _normalize_fire_id(perimeter.get("irwin_id")): perimeter.get("geometry")

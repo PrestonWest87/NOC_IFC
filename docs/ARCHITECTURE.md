@@ -85,7 +85,7 @@ The current categorizer emits nine exact labels. Some existing consumers still c
 
 ### Regional map
 
-Workers cache hazard GeoJSON. The regional route compiles layers, view state, diagnostics, affected sites, and analytics. The response is positional: `[layers, viewState, diagnostics, toggled_affected, master_affected, analytics]`. Consumers must preserve this contract when changing either backend or frontend map code.
+The web build precompiles and serves local contiguous-US state outlines plus Arkansas/six-neighbor county boundaries; all operational maps share the same no-world/no-remote-style MapLibre base. Dynamic overlays remain server-cached and are requested by enabled layer and viewport. A fixed one-minute worker poll fetches one combined NWS active-alert response for Arkansas, Louisiana, Texas, Mississippi, Missouri, Oklahoma, and Tennessee; all six neighboring-state portions are filtered to a projected 50-mile Arkansas-border corridor. CAP `expires`, updates, and cancellations govern active-alert state, while last-good data and fetch health remain visible on upstream failure. The regional route compiles selected layers, diagnostics, affected sites, and analytics. The response remains positional: `[layers, viewState, diagnostics, toggled_affected, master_affected, analytics]`; consumers must preserve this contract when changing either backend or frontend map code.
 
 ## Authentication and Authorization
 

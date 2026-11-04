@@ -138,9 +138,8 @@ None (uses `useAuth` for user context).
 - `useAuth` from `../utils/AuthContext`
 - `getAllowedTabs` from `../utils/permissions`
 - `MapContainer` from `../components/MapContainer`
-- `DeckGL` from `@deck.gl/react`
+- `ConusMap` from `../components/ConusMap` (MapLibre base map with a deck.gl overlay control)
 - `ScatterplotLayer` from `@deck.gl/layers`
-- `Map` from `@vis.gl/react-maplibre`
 - `MapViewState` type from `@deck.gl/core`
 - `maplibre-gl/dist/maplibre-gl.css`
 - `lucide-react` icons (15+ icons)

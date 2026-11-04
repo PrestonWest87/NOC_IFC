@@ -1,7 +1,7 @@
 """
 NOC Intelligence Fusion Center - Background Scheduler
 
-This module registers the 20 registry-managed jobs and owns feed ingestion,
+This module registers the 21 registry-managed jobs and owns feed ingestion,
 article enrichment, escalation, retention, and report scheduling. Provider-specific
 fetchers are delegated to `src.workers` modules.
 
@@ -43,7 +43,7 @@ from src.database import (
 )
 
 from src.workers.cve_worker import fetch_cisa_kev
-from src.workers.infra_worker import fetch_regional_hazards
+from src.workers.infra_worker import fetch_nws_alerts, fetch_regional_hazards
 from src.workers.cloud_worker import fetch_cloud_outages
 from src.workers.telemetry_worker import run_telemetry_sync
 from src.workers.crime_worker import fetch_live_crimes
@@ -327,12 +327,17 @@ def job_unified_brief():
     log("[AI] Generating Executive Unified Risk Brief...", "SYSTEM")
     try:
         from src.utils.llm import generate_unified_risk_brief
-        from src.services import get_executive_grid_intel, get_recent_crimes, save_global_config
+        from src.services import (
+            active_nws_hazard_conditions,
+            get_executive_grid_intel,
+            get_recent_crimes,
+            save_global_config,
+        )
         from src.database import InternalRiskSnapshot, RegionalHazard
 
         with SessionLocal() as session:
             latest_internal = session.query(InternalRiskSnapshot).order_by(InternalRiskSnapshot.timestamp.desc()).first()
-            active_nws = session.query(RegionalHazard).count()
+            active_nws = session.query(RegionalHazard).filter(*active_nws_hazard_conditions()).count()
 
         crime_data = get_recent_crimes(max_distance=1.0, grid_only=True, hours_back=24)
         global_intel = get_executive_grid_intel(active_nws, crime_data)
@@ -497,7 +502,10 @@ def run_database_maintenance():
             ).delete()
             session.query(Article).filter(Article.published_date < days_30_ago, Article.is_pinned == False).delete()
             session.query(SolarWindsAlert).filter(SolarWindsAlert.received_at < days_60_ago).delete()
-            session.query(RegionalHazard).filter(RegionalHazard.updated_at < hours_48_ago).delete()
+            session.query(RegionalHazard).filter(
+                RegionalHazard.status != "active",
+                RegionalHazard.updated_at < hours_48_ago,
+            ).delete()
             session.query(RegionalOutage).filter(RegionalOutage.detected_at < hours_12_ago).delete()
             session.query(BgpAnomaly).filter(BgpAnomaly.detected_at < hours_12_ago).delete()
             session.query(CveItem).filter(CveItem.date_added < days_7_ago).delete()
@@ -753,7 +761,8 @@ def job_tiered_alert_escalation(now_utc=None):
         if not active_alerts:
             return
 
-        active_weather = db.query(RegionalHazard).all()
+        from src.services import active_nws_hazard_conditions
+        active_weather = db.query(RegionalHazard).filter(*active_nws_hazard_conditions()).all()
         active_clouds = db.query(CloudOutage).filter_by(is_resolved=False).all()
         active_bgp = db.query(BgpAnomaly).filter_by(is_resolved=False).all()
         ai_engine = EnterpriseAIOpsEngine(db)
@@ -1056,6 +1065,7 @@ def _scheduler_functions():
         "job_clear_expired_maintenance": job_clear_expired_maintenance,
         "run_telemetry_sync": run_telemetry_sync,
         "job_sync_elastic": job_sync_elastic,
+        "fetch_nws_alerts": fetch_nws_alerts,
         "fetch_regional_hazards": fetch_regional_hazards,
         "fetch_cloud_outages": fetch_cloud_outages,
         "fetch_live_crimes": fetch_live_crimes,
@@ -1111,7 +1121,7 @@ def _start_configured_startup_jobs(settings_rows):
     """Launch enabled startup-run jobs in ordered groups separated by 30-second pauses."""
     functions = _scheduler_functions()
     startup_groups = [
-        ["tiered_alert_escalation", "maintenance_expiry", "rss_fetch"],
+        ["tiered_alert_escalation", "maintenance_expiry", "rss_fetch", "nws_alerts"],
         ["cisa_kev", "regional_hazards", "cloud_outages"],
         ["telemetry_sync", "elastic_sync", "crime_fetch", "internal_risk"],
         ["unified_brief", "global_brief", "internal_brief"],

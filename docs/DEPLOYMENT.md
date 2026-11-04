@@ -146,6 +146,7 @@ cp .env.example .env
 | `CORS_ORIGINS` | No | localhost origins | Comma-separated allowed browser origins |
 | `ALLOW_UNSIGNED_WEBHOOKS` | No | `false` | Controlled webhook migration exception |
 | `PUBLIC_APP_URL` | No | `http://localhost:8501` | Registration link base URL |
+| `NWS_API_USER_AGENT` | No | `NOC-IFC/2.0 (https://test.weasts.net)` | Identifying User-Agent for centralized NWS API requests; set the deployed public URL, and `DEFAULT_ADMIN_EMAIL` is appended as contact when configured |
 | `REGISTRATION_INVITE_TTL_HOURS` | No | `72` | Registration invite lifetime |
 | `BACKUP_ENCRYPTION_ACTIVE_KEY_ID` | For backups | `primary` | Key ID used for newly created encrypted full backups |
 | `BACKUP_ENCRYPTION_KEYS` | For backups | (empty) | JSON map of key IDs to 32-byte hex keys; required to create, validate, or restore packages |

@@ -1,15 +1,14 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MapContainer } from "../components/MapContainer";
+import { ConusMap } from "../components/ConusMap";
 import { MarkdownContent } from "../components/MarkdownContent";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { getAllowedTabs, hasActionPermission } from "../utils/permissions";
 import { getApiErrorMessage } from "../utils/api";
 import { formatInChicago } from "../utils/timezone";
-import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer, GeoJsonLayer, BitmapLayer } from "@deck.gl/layers";
-import { Map as MapLibreMap } from "@vis.gl/react-maplibre";
 import type { MapViewState } from "@deck.gl/core";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
@@ -100,6 +99,20 @@ function formatFireDate(value: unknown): string {
   const numeric = Number(value);
   const date = new Date(Number.isFinite(numeric) && numeric > 1e11 ? numeric : String(value));
   return Number.isNaN(date.getTime()) ? "Unknown" : formatInChicago(date.toISOString());
+}
+
+function alertLogKey(alert: any, index: number): string {
+  const id = alert?.["Alert ID"] || alert?.id;
+  return id ? String(id) : [alert?.Event, alert?.["Affected Area"], alert?.Effective, alert?.Headline, index].join("|");
+}
+
+function isCurrentNwsProperties(properties: any, nowMs: number): boolean {
+  if (String(properties?.messageType || "").toLowerCase() === "cancel") return false;
+  const expires = Date.parse(String(properties?.expires || ""));
+  if (Number.isFinite(expires) && expires <= nowMs) return false;
+  const effective = Date.parse(String(properties?.effective || ""));
+  if (Number.isFinite(effective) && effective > nowMs) return false;
+  return true;
 }
 
 function InfoBox({ type, children }: { type: "info" | "success" | "warning" | "error"; children: React.ReactNode }) {
@@ -246,6 +259,8 @@ export function RegionalGridPage() {
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [selectedPrios, setSelectedPrios] = useState<string[]>([]);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const viewportTimer = useRef<number | null>(null);
 
   // Executive tab state
   const [briefing, setBriefing] = useState("Click 'Generate Briefing' to synthesize current telemetry.");
@@ -255,11 +270,59 @@ export function RegionalGridPage() {
   const [hazardRecip, setHazardRecip] = useState("");
 
   // Weather Alerts tab state
-  const [selectedAlertIdx, setSelectedAlertIdx] = useState<number | null>(null);
+  const [selectedAlertId, setSelectedAlertId] = useState<string | null>(null);
 
   const [targetSite, setTargetSite] = useState("");
+  const [viewportBounds, setViewportBounds] = useState<[number, number, number, number] | null>(null);
   const locationsEnabled = ["geospatial", "executive", "hazard", "matrix", "atmos"].includes(activeTab);
-  const geoEnabled = ["geospatial", "executive", "hazard", "alerts", "atmos"].includes(activeTab);
+  const geoMapEnabled = ["geospatial", "executive", "hazard", "atmos"].includes(activeTab);
+  const nwsStatusEnabled = ["geospatial", "executive", "hazard", "alerts", "atmos"].includes(activeTab);
+  const analyticsView = ["executive", "hazard"].includes(activeTab);
+  const nwsLayerNames = useMemo(() => {
+    const names = new Set<string>();
+    if (analyticsView || activeTab === "atmos") {
+      names.add("nws_ar");
+      names.add("nws_oos");
+    } else if (activeTab === "geospatial") {
+      if (mapToggles.warn || mapToggles.watch || mapToggles.fire_risk) names.add("nws_ar");
+      if (mapToggles.oos) names.add("nws_oos");
+    }
+    return [...names].sort();
+  }, [activeTab, analyticsView, mapToggles]);
+  const nwsLayerParam = nwsLayerNames.length ? nwsLayerNames.join(",") : "summary";
+  const viewportParam = activeTab === "geospatial" && viewportBounds
+    ? viewportBounds.map(value => Number(value.toFixed(3))).join(",")
+    : "";
+  const handleViewportChange = useCallback((bounds: [number, number, number, number]) => {
+    const rounded = bounds.map(value => Number(value.toFixed(3))) as [number, number, number, number];
+    if (viewportTimer.current != null) window.clearTimeout(viewportTimer.current);
+    viewportTimer.current = window.setTimeout(() => {
+      setViewportBounds(current => current && current.every((value, index) => value === rounded[index]) ? current : rounded);
+      viewportTimer.current = null;
+    }, 250);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 10000);
+    return () => {
+      window.clearInterval(timer);
+      if (viewportTimer.current != null) window.clearTimeout(viewportTimer.current);
+    };
+  }, []);
+  const otherLayerNames = useMemo(() => {
+    const names = new Set<string>();
+    if (analyticsView || (activeTab === "geospatial" && mapToggles.spc)) names.add("spc_day1");
+    if (activeTab === "atmos") {
+      names.add("spc_day1");
+      names.add("spc_day2");
+      names.add("spc_day3");
+    }
+    if (analyticsView || (activeTab === "geospatial" && mapToggles.earthquakes)) {
+      names.add("usgs_ar");
+      names.add("usgs_oos");
+    }
+    return [...names].sort();
+  }, [activeTab, analyticsView, mapToggles]);
 
   // Data fetching
   const { data: locations = [] } = useQuery({
@@ -271,28 +334,54 @@ export function RegionalGridPage() {
     enabled: locationsEnabled,
   });
 
-  const { data: geojson } = useQuery({
-    queryKey: ["regional-geojson"],
-    queryFn: () => api.get("/regional/geojson").then(r => r.data),
+  const { data: nwsGeojson, dataUpdatedAt: nwsGeojsonUpdatedAt, isError: nwsQueryError } = useQuery({
+    queryKey: ["regional-nws-layers", nwsLayerParam, viewportParam],
+    queryFn: () => api.get("/regional/geojson", {
+      params: { layers: nwsLayerParam, ...(viewportParam ? { bbox: viewportParam } : {}) },
+    }).then(r => r.data),
+    refetchInterval: 15000,
+    staleTime: 5000,
+    refetchOnWindowFocus: false,
+    enabled: nwsStatusEnabled,
+  });
+
+  const { data: otherGeojson, isError: otherLayersQueryError } = useQuery({
+    queryKey: ["regional-other-layers", otherLayerNames.join(","), viewportParam],
+    queryFn: () => api.get("/regional/geojson", {
+      params: { layers: otherLayerNames.join(","), ...(viewportParam ? { bbox: viewportParam } : {}) },
+    }).then(r => r.data),
     refetchInterval: 120000,
     staleTime: 60000,
     refetchOnWindowFocus: false,
-    enabled: geoEnabled,
+    enabled: geoMapEnabled && otherLayerNames.length > 0,
   });
 
-  const { data: wildfires = [] } = useQuery({
-    queryKey: ["regional-wildfires"],
-    queryFn: () => api.get("/regional/wildfires").then(r => r.data),
+  const geojson = useMemo(() => ({
+    ...(otherGeojson || {}),
+    ...(nwsGeojson || {}),
+    meta: { ...(otherGeojson as any)?.meta, ...(nwsGeojson as any)?.meta },
+  }), [otherGeojson, nwsGeojson]);
+  const currentTimeMs = useMemo(() => {
+    const serverTime = Date.parse(String((nwsGeojson as any)?.meta?.server_time || ""));
+    if (!Number.isFinite(serverTime) || !nwsGeojsonUpdatedAt) return nowMs;
+    return serverTime + Math.max(0, nowMs - nwsGeojsonUpdatedAt);
+  }, [nwsGeojson, nwsGeojsonUpdatedAt, nowMs]);
+
+  const { data: wildfires = [], isError: wildfiresQueryError, refetch: refetchWildfires } = useQuery({
+    queryKey: ["regional-wildfires", viewportParam],
+    queryFn: () => api.get("/regional/wildfires", {
+      params: viewportParam ? { bbox: viewportParam } : {},
+    }).then(r => r.data),
     refetchInterval: 300000,
     staleTime: 120000,
     refetchOnWindowFocus: false,
-    enabled: activeTab === "geospatial",
+    enabled: activeTab === "geospatial" && Boolean(mapToggles.active_wildfires),
   });
 
-  const { data: alertsLog = [] } = useQuery({
+  const { data: alertsLog = [], isError: alertsLogQueryError } = useQuery({
     queryKey: ["regional-alerts-log"],
     queryFn: () => api.get("/regional/weather-alerts-log").then(r => r.data),
-    refetchInterval: 120000,
+    refetchInterval: 15000,
     staleTime: 60000,
     refetchOnWindowFocus: false,
     enabled: activeTab === "alerts",
@@ -343,39 +432,45 @@ export function RegionalGridPage() {
     );
   }, [locations, selectedTypes, selectedPrios]);
 
-  const activeEventTypes = useMemo(() => {
-    const events = new Set<string>();
-    const geo = geojson as any;
-    for (const ds of [geo?.nws_ar, geo?.nws_oos]) {
-      if (ds?.features) {
-        for (const f of ds.features) {
-          const ev = f.properties?.event;
-          if (ev) events.add(ev);
-        }
-      }
-    }
-    return [...events].sort();
-  }, [geojson]);
+  const activeEventTypes = useMemo(
+    () => (Array.isArray((geojson as any)?.nws_events) ? (geojson as any).nws_events : []),
+    [geojson],
+  );
 
   useEffect(() => {
-    if (activeEventTypes.length > 0 && selectedEvents.length === 0) {
-      setSelectedEvents(activeEventTypes);
-    }
+    if (!activeEventTypes.length) return;
+    setSelectedEvents(current => current.length === 0
+      ? activeEventTypes
+      : [...current, ...activeEventTypes.filter((event: string) => !current.includes(event))]);
   }, [activeEventTypes]);
 
   const compileKey = JSON.stringify({
     toggles: mapToggles,
     events: [...selectedEvents].sort(),
+    include_analytics: analyticsView,
+    feed_versions: Object.fromEntries(Object.entries((geojson as any)?.meta || {}).map(([name, value]: any) => [name, value?.updated_at])),
+    viewport: activeTab === "geospatial" ? viewportParam : null,
     types: [...selectedTypes].sort(),
     priorities: [...selectedPrios].sort(),
     locations: mapDf.map((l: any) => [l.id, l.name, l.lat, l.lon, l.priority]),
   });
+  const hasVisibleHazardLayer = Boolean(
+    mapToggles.spc || mapToggles.warn || mapToggles.watch || mapToggles.oos
+    || mapToggles.earthquakes || mapToggles.active_wildfires || mapToggles.fire_risk
+  );
+  const compileEnabled = geoMapEnabled && (analyticsView || (activeTab === "geospatial" && hasVisibleHazardLayer))
+    && mapDf.length > 0;
+  const nwsOverlayVisible = activeTab === "geospatial" && Boolean(
+    mapToggles.warn || mapToggles.watch || mapToggles.oos || mapToggles.fire_risk
+  );
   const { data: compileResult, isLoading: compileLoading, isError: compileError, refetch: refetchCompile } = useQuery({
     queryKey: ["regional-compile-map", compileKey],
     queryFn: async () => {
       const payload: any = {
         toggles: mapToggles,
         selected_events: selectedEvents,
+        include_analytics: analyticsView,
+        viewport_bounds: activeTab === "geospatial" ? viewportBounds : undefined,
         map_df: mapDf.map((l: any) => ({
           Name: l.name, Type: l.loc_type, District: l.district || "Central",
           Priority: l.priority, Lat: l.lat, Lon: l.lon, current_spc_risk: l.current_spc_risk,
@@ -384,21 +479,80 @@ export function RegionalGridPage() {
       const res = await api.post("/regional/compile-map", payload);
       return res.data;
     },
-    enabled: ["geospatial", "executive", "hazard"].includes(activeTab) && geojson != null,
-    refetchInterval: 120000,
+    enabled: compileEnabled && geojson != null,
+    refetchInterval: nwsOverlayVisible ? 15000 : analyticsView ? 30000 : 120000,
     staleTime: 60000,
     refetchOnWindowFocus: false,
   });
 
   const compileResponse = compileResult as any;
-  const processedGeo: any = Array.isArray(compileResponse) ? compileResponse[0] || {} : {};
-  const toggledAffectedSites: any[] = Array.isArray(compileResponse) ? compileResponse[3] || [] : [];
-  const masterAffectedSites: any[] = Array.isArray(compileResponse) ? compileResponse[4] || [] : [];
+  const rawProcessedGeo: any = Array.isArray(compileResponse) ? compileResponse[0] || {} : {};
+  const mapDiagnostics: string[] = Array.isArray(compileResponse) ? compileResponse[2] || [] : [];
+  const unresolvedNwsAlerts = useMemo(
+    () => mapDiagnostics.filter(message => String(message).startsWith("[ZONE ALERT]")),
+    [mapDiagnostics],
+  );
+  const processedGeo: any = useMemo(() => Object.fromEntries(
+    Object.entries(rawProcessedGeo).map(([name, collection]: [string, any]) => [
+      name,
+      collection && Array.isArray(collection.features)
+        ? { ...collection, features: collection.features.filter((feature: any) => isCurrentNwsProperties(feature.properties, currentTimeMs)) }
+        : collection,
+    ]),
+  ), [rawProcessedGeo, currentTimeMs]);
+  const rawMasterAffectedSites: any[] = Array.isArray(compileResponse) ? compileResponse[4] || [] : [];
+  const masterAffectedSites: any[] = useMemo(() => rawMasterAffectedSites.filter((site: any) => {
+    if ((site.HazardExpires || site.HazardEffective)
+      && !isCurrentNwsProperties({ expires: site.HazardExpires, effective: site.HazardEffective }, currentTimeMs)) {
+      return false;
+    }
+    return true;
+  }), [rawMasterAffectedSites, currentTimeMs]);
+  const toggledAffectedSites: any[] = useMemo(() => {
+    const bySite = new globalThis.Map<string, any>();
+    for (const site of masterAffectedSites) {
+      const hazard = String(site.Hazard || "");
+      const isVisible = (hazard.includes("SPC:") && mapToggles.spc)
+        || (hazard.includes("Wildfire Risk:") && mapToggles.fire_risk)
+        || (hazard.includes("Active Wildfire:") && mapToggles.active_wildfires)
+        || (hazard.includes("EQ (") && mapToggles.earthquakes)
+        || (hazard.includes("[OOS]") && mapToggles.oos)
+        || (hazard.includes("[AR]") && site.Severity === "Warning" && mapToggles.warn)
+        || (hazard.includes("[AR]") && site.Severity === "Watch/Advisory" && mapToggles.watch);
+      if (!isVisible) continue;
+      const name = String(site["Monitored Site"] || "Unknown");
+      const row = bySite.get(name) || {
+        "Monitored Site": name, District: site.District, "Facility Type": site.Type,
+        Priority: site.Priority, hazards: [],
+      };
+      if (!row.hazards.includes(hazard)) row.hazards.push(hazard);
+      bySite.set(name, row);
+    }
+    return [...bySite.values()].map((row: any) => ({
+      ...row,
+      "Intersecting Hazards": row.hazards.join(", "),
+      hazards: undefined,
+    }));
+  }, [masterAffectedSites, mapToggles]);
   const analytics: any = Array.isArray(compileResponse) ? compileResponse[5] || null : null;
   const staleFeeds = useMemo(
-    () => Object.entries((geojson as any)?.meta || {}).filter(([, value]: any) => value?.status === "stale").map(([name]) => name),
+    () => Object.entries((geojson as any)?.meta || {})
+      .filter(([, value]: any) => ["stale", "error", "missing"].includes(value?.status))
+      .map(([name]) => name),
     [geojson],
   );
+  const nwsFeedMeta = (geojson as any)?.meta?.nws_region
+    || (geojson as any)?.meta?.nws_ar
+    || (geojson as any)?.meta?.nws_oos;
+  const coveragePrecisionCounts = nwsFeedMeta?.coverage?.coverage_precision_counts || {};
+  const nwsFallbackCount = Object.entries(coveragePrecisionCounts)
+    .filter(([precision]) => String(precision).includes("fallback"))
+    .reduce((total, [, count]) => total + Number(count || 0), 0);
+  const hasNwsCoverageFallback = Boolean(nwsFeedMeta?.coverage?.fallback) || nwsFallbackCount > 0;
+  const usgsCoverageFallback = ["usgs_ar", "usgs_oos"].some(
+    name => (geojson as any)?.meta?.[name]?.coverage?.precision === "conservative_bbox_fallback",
+  );
+  const wildfireMeta = (wildfires as any)?.meta;
 
   const earthquakeData = useMemo(() => {
     const data = geojson as any;
@@ -711,10 +865,43 @@ export function RegionalGridPage() {
 
       {/* Tab Content */}
       <div style={{ flex: 1, overflow: "auto" }}>
+        {nwsStatusEnabled && nwsFeedMeta && ["stale", "error", "missing"].includes(nwsFeedMeta.status) && (
+          <InfoBox type="warning">
+            NWS active-alert feed is {nwsFeedMeta.status}.
+            {nwsFeedMeta.last_success_at ? ` Last verified ${formatDt(nwsFeedMeta.last_success_at)}.` : " No successful NWS fetch is recorded yet."}
+            {nwsFeedMeta.last_error ? ` Latest fetch error: ${nwsFeedMeta.last_error}` : ""}
+            {nwsFeedMeta.retry_after_at ? ` Polling deferred until ${formatDt(nwsFeedMeta.retry_after_at)}.` : ""}
+            Expired CAP messages are excluded from active views.
+          </InfoBox>
+        )}
+        {nwsStatusEnabled && nwsQueryError && (
+          <InfoBox type="error">The NWS alert snapshot could not be read from the application API. Do not interpret this request failure as “no active alerts.”</InfoBox>
+        )}
+        {geoMapEnabled && otherLayerNames.length > 0 && otherLayersQueryError && (
+          <InfoBox type="error">One or more selected SPC/USGS overlay layers could not be loaded.</InfoBox>
+        )}
+        {nwsStatusEnabled && hasNwsCoverageFallback && (
+          <InfoBox type="warning">
+            {nwsFallbackCount || "Some"} NWS alert(s) lack precise polygon/county geometry and are retained with a state-level or unresolved coverage fallback. The alert remains visible in the log; its map footprint may be broader or text-only.
+          </InfoBox>
+        )}
+        {nwsStatusEnabled && usgsCoverageFallback && (
+          <InfoBox type="warning">USGS is using conservative regional query bounds because precise Arkansas boundary geometry is unavailable.</InfoBox>
+        )}
         {activeTab === "geospatial" && (
           <>
-          {staleFeeds.length > 0 && <InfoBox type="warning">Stale regional feeds: {staleFeeds.join(", ")}. Displayed hazards may be older than 15 minutes.</InfoBox>}
-          {compileLoading && <InfoBox type="info">Compiling regional hazard layers...</InfoBox>}
+          {staleFeeds.some(name => !name.startsWith("nws_")) && <InfoBox type="warning">Unavailable or stale regional feeds: {staleFeeds.filter(name => !name.startsWith("nws_")).join(", ")}.</InfoBox>}
+          {mapToggles.active_wildfires && wildfireMeta && ["stale", "error"].includes(wildfireMeta.status) && (
+            <InfoBox type="warning">
+              WFCA wildfire data is {wildfireMeta.status}.
+              {wildfireMeta.last_success_at ? ` Last verified ${formatDt(wildfireMeta.last_success_at)}.` : " No successful WFCA fetch is recorded yet."}
+              {wildfireMeta.last_error ? ` Latest fetch error: ${wildfireMeta.last_error}` : ""}
+              The last successful fire snapshot remains visible when available.
+            </InfoBox>
+          )}
+          {mapToggles.active_wildfires && wildfiresQueryError && (
+            <InfoBox type="error">WFCA wildfire data could not be read from the application API. <button onClick={() => refetchWildfires()} style={BTN_SECONDARY}>Retry</button></InfoBox>
+          )}
           {compileError && <InfoBox type="error">Regional hazard layers could not be compiled. <button onClick={() => refetchCompile()} style={{ ...BTN_SECONDARY, marginLeft: "0.5rem" }}>Retry</button></InfoBox>}
           <GeospatialTab
             mapToggles={mapToggles}
@@ -730,6 +917,9 @@ export function RegionalGridPage() {
             availablePrios={availablePrios}
             selectedPrios={selectedPrios}
             setSelectedPrios={setSelectedPrios}
+            onViewportChange={handleViewportChange}
+            unresolvedNwsAlerts={unresolvedNwsAlerts}
+            compileLoading={compileLoading}
             mapLayers={mapLayers}
             toggledAffectedSites={toggledAffectedSites}
             masterAffectedSites={masterAffectedSites}
@@ -772,11 +962,17 @@ export function RegionalGridPage() {
         )}
 
         {activeTab === "alerts" && (
-          <AlertsTab
-            alertsLog={alertsLog as any[]}
-            selectedAlertIdx={selectedAlertIdx}
-            setSelectedAlertIdx={setSelectedAlertIdx}
-          />
+          <>
+            {alertsLogQueryError && <InfoBox type="error">The weather-alert log could not be loaded. No-alert status cannot be confirmed.</InfoBox>}
+            <AlertsTab
+              alertsLog={alertsLog as any[]}
+              selectedAlertId={selectedAlertId}
+              setSelectedAlertId={setSelectedAlertId}
+              loadError={alertsLogQueryError}
+              feedStatus={nwsFeedMeta?.status || "missing"}
+              nowMs={currentTimeMs}
+            />
+          </>
         )}
 
         {activeTab === "atmos" && (
@@ -784,6 +980,8 @@ export function RegionalGridPage() {
             userPrefs={userPrefs as any}
             mapDf={mapDf}
             geojson={geojson as any}
+            nwsFeedStatus={nwsFeedMeta?.status || "missing"}
+            nowMs={currentTimeMs}
             targetSite={targetSite}
             setTargetSite={setTargetSite}
             forecast={forecast as any}
@@ -807,6 +1005,9 @@ function GeospatialTab({
   activeEventTypes, selectedEvents, setSelectedEvents,
   availableTypes, selectedTypes, setSelectedTypes,
   availablePrios, selectedPrios, setSelectedPrios,
+  onViewportChange,
+  unresolvedNwsAlerts,
+  compileLoading,
   mapLayers, toggledAffectedSites,
   masterAffectedSites, processedGeo,
 }: {
@@ -815,6 +1016,9 @@ function GeospatialTab({
   activeEventTypes: string[]; selectedEvents: string[]; setSelectedEvents: (v: string[]) => void;
   availableTypes: string[]; selectedTypes: string[]; setSelectedTypes: (v: string[]) => void;
   availablePrios: string[]; selectedPrios: string[]; setSelectedPrios: (v: string[]) => void;
+  onViewportChange: (bounds: [number, number, number, number]) => void;
+  unresolvedNwsAlerts: string[];
+  compileLoading: boolean;
   mapLayers: any[];
   toggledAffectedSites: any[];
   masterAffectedSites: any[];
@@ -837,7 +1041,6 @@ function GeospatialTab({
     watch: mapToggles.watch,
     oos: mapToggles.oos,
   }), [processedGeo, mapToggles.warn, mapToggles.watch, mapToggles.oos]);
-  const [viewState, setViewState] = useState<MapViewState>(INITIAL_VIEW);
   const lastHoverKey = useRef("");
   const [hoverInfo, setHoverInfo] = useState<{lines: string[]; x: number; y: number} | null>(null);
 
@@ -1019,24 +1222,31 @@ function GeospatialTab({
 
       {/* Main Map + Table */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "1rem", minWidth: 0 }}>
+        {unresolvedNwsAlerts.length > 0 && (
+          <InfoBox type="warning">
+            {unresolvedNwsAlerts.length} active NWS alert(s) lack a drawable boundary. See the Weather Alerts Log; source areas are retained with explicit coverage precision.
+          </InfoBox>
+        )}
         <div style={{ ...CARD_STYLE, flex: 1, minHeight: 400, position: "relative", padding: 0, overflow: "hidden" }}>
-          <h4 style={{ ...CARD_HEADER, padding: "0.75rem 1rem", margin: 0, position: "absolute", top: 0, left: 0, zIndex: 10, background: "var(--bg-card)", borderBottom: "1px solid var(--border-primary)", width: "100%" }}>
-            Live Threat Overlay
+          <h4 style={{ ...CARD_HEADER, padding: "0.75rem 1rem", margin: 0, position: "absolute", top: 0, left: 0, zIndex: 10, background: "var(--bg-card)", borderBottom: "1px solid var(--border-primary)", width: "100%", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span>Live Threat Overlay</span>
+            {compileLoading && (
+              <span role="status" aria-live="polite" style={{ marginLeft: "0.25rem", fontSize: "0.7rem", fontWeight: 500, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                Updating layers…
+              </span>
+            )}
           </h4>
           <div style={{ width: "100%", height: "100%", minHeight: 500 }}>
             <div style={{ display: "flex", height: "100%", gap: 0 }}>
               <div style={{ flex: showRadarPanel ? 2 : 1, minWidth: 0 }}>
                 <MapContainer height="100%">
-                  <DeckGL
+                  <ConusMap
                     layers={mapLayers}
-                    viewState={viewState}
-                    onViewStateChange={({ viewState: vs }: any) => setViewState(vs)}
-                    controller={true}
+                    initialViewState={INITIAL_VIEW}
                     style={{ height: "100%", width: "100%" }}
                     onHover={handleHover}
-                  >
-                    <MapLibreMap mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
-                  </DeckGL>
+                    onViewportChange={onViewportChange}
+                  />
                   {hoverInfo && (
                     <div style={{
                       position: "absolute", left: hoverInfo.x + 12, top: hoverInfo.y - 8,
@@ -1496,21 +1706,33 @@ function MatrixTab({ mapDf }: { mapDf: any[] }) {
 
 // ========== WEATHER ALERTS LOG TAB ==========
 function AlertsTab({
-  alertsLog, selectedAlertIdx, setSelectedAlertIdx,
+  alertsLog, selectedAlertId, setSelectedAlertId, loadError, feedStatus, nowMs,
 }: {
   alertsLog: any[];
-  selectedAlertIdx: number | null;
-  setSelectedAlertIdx: (v: number | null) => void;
+  selectedAlertId: string | null;
+  setSelectedAlertId: (v: string | null) => void;
+  loadError: boolean;
+  feedStatus: string;
+  nowMs: number;
 }) {
   const displayAlerts = useMemo(() => {
-    return alertsLog.map((a: any) => ({
-      ...a,
-      effective_fmt: formatDt(a.Effective),
-      expires_fmt: formatDt(a.Expires),
-    }));
-  }, [alertsLog]);
+    return alertsLog.map((alert: any, index: number) => ({
+      ...alert,
+      _log_id: alertLogKey(alert, index),
+      sent_fmt: formatDt(alert.Sent),
+      effective_fmt: formatDt(alert.Effective),
+      expires_fmt: formatDt(alert.Expires),
+      expected_end_fmt: formatDt(alert["Expected End"]),
+    })).filter((alert: any) => isCurrentNwsProperties({
+      expires: alert.Expires,
+      effective: alert.Effective,
+      messageType: alert["Message Type"],
+    }, nowMs));
+  }, [alertsLog, nowMs]);
 
-  const selectedAlert = selectedAlertIdx != null ? alertsLog[selectedAlertIdx] : null;
+  const selectedAlert = selectedAlertId != null
+    ? displayAlerts.find((alert: any) => alert._log_id === selectedAlertId) || null
+    : null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -1519,7 +1741,11 @@ function AlertsTab({
         <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "1rem" }}>
           Human-readable log of all active NWS Watches, Warnings, and Special Weather Statements.
         </div>
-        {displayAlerts.length === 0 ? (
+        {loadError ? (
+          <InfoBox type="error">The alert feed could not be verified. No active-alert state is available.</InfoBox>
+        ) : ["stale", "error", "missing"].includes(feedStatus) ? (
+          <InfoBox type="warning">NWS alert freshness is {feedStatus}; the absence of alerts cannot be confirmed.</InfoBox>
+        ) : displayAlerts.length === 0 ? (
           <InfoBox type="success">No active weather alerts matching your current hazard filters.</InfoBox>
         ) : (
           <div style={{ overflowX: "auto", maxHeight: 400, overflowY: "auto" }}>
@@ -1529,16 +1755,18 @@ function AlertsTab({
                   <th style={TH_STYLE}>Event</th>
                   <th style={TH_STYLE}>Severity</th>
                   <th style={TH_STYLE}>Affected Area</th>
+                  <th style={TH_STYLE}>Issued</th>
                   <th style={TH_STYLE}>Expires</th>
+                  <th style={TH_STYLE}>Expected Event End</th>
                   <th style={TH_STYLE}>Headline</th>
                 </tr>
               </thead>
               <tbody>
                 {displayAlerts.map((alert: any, i: number) => (
-                  <tr key={i} onClick={() => setSelectedAlertIdx(i)}
+                  <tr key={alert._log_id} onClick={() => setSelectedAlertId(alert._log_id)}
                     style={{
                       cursor: "pointer",
-                      background: selectedAlertIdx === i ? "var(--bg-tertiary)" : i % 2 === 0 ? "transparent" : "var(--bg-secondary)",
+                      background: selectedAlertId === alert._log_id ? "var(--bg-tertiary)" : i % 2 === 0 ? "transparent" : "var(--bg-secondary)",
                       transition: "background 0.1s",
                     }}
                   >
@@ -1550,7 +1778,9 @@ function AlertsTab({
                       } />
                     </td>
                     <td style={TD_STYLE}>{alert["Affected Area"]?.slice(0, 60) || "-"}</td>
+                    <td style={TD_STYLE}>{alert.sent_fmt}</td>
                     <td style={TD_STYLE}>{alert.expires_fmt}</td>
+                    <td style={TD_STYLE}>{alert.expected_end_fmt}</td>
                     <td style={{ ...TD_STYLE, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {alert.Headline || "-"}
                     </td>
@@ -1568,9 +1798,12 @@ function AlertsTab({
           <h3 style={{ color: "var(--accent-red)", margin: "0 0 0.75rem", fontSize: "1.1rem" }}>{selectedAlert.Event}</h3>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.75rem", fontSize: "0.85rem" }}>
             <div><strong style={{ color: "var(--text-muted)" }}>Affected Zones/Counties:</strong> <span style={{ color: "var(--text-secondary)" }}>{selectedAlert["Affected Area"]}</span></div>
+            <div><strong style={{ color: "var(--text-muted)" }}>NWS message:</strong> <span style={{ color: "var(--text-secondary)" }}>{selectedAlert["Message Type"] || "Alert"}</span></div>
             <div><strong style={{ color: "var(--text-muted)" }}>Severity:</strong> <span style={{ color: "var(--text-secondary)" }}>{selectedAlert.Severity}</span> | <strong style={{ color: "var(--text-muted)" }}>Certainty:</strong> <span style={{ color: "var(--text-secondary)" }}>{selectedAlert.Certainty}</span></div>
+            <div><strong style={{ color: "var(--text-muted)" }}>Issued:</strong> <span style={{ color: "var(--text-secondary)" }}>{formatDt(selectedAlert.Sent)}</span></div>
             <div><strong style={{ color: "var(--text-muted)" }}>Effective:</strong> <span style={{ color: "var(--text-secondary)" }}>{formatDt(selectedAlert.Effective)}</span></div>
             <div><strong style={{ color: "var(--text-muted)" }}>Expires:</strong> <span style={{ color: "var(--text-secondary)" }}>{formatDt(selectedAlert.Expires)}</span></div>
+            <div><strong style={{ color: "var(--text-muted)" }}>Expected event end:</strong> <span style={{ color: "var(--text-secondary)" }}>{formatDt(selectedAlert["Expected End"])}</span></div>
           </div>
           <div style={{ borderTop: "1px solid var(--border-primary)", paddingTop: "0.75rem" }}>
             <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>NWS Description:</div>
@@ -1597,10 +1830,12 @@ function AlertsTab({
 
 // ========== ATMOS WEATHER TAB ==========
 function AtmosTab({
-  userPrefs, mapDf, geojson, targetSite, setTargetSite, forecast, onSavePrefs,
+  userPrefs, mapDf, geojson, nwsFeedStatus, nowMs, targetSite, setTargetSite, forecast, onSavePrefs,
 }: {
   userPrefs: any; mapDf: any[];
   geojson: any; targetSite: string; setTargetSite: (v: string) => void;
+  nwsFeedStatus: string;
+  nowMs: number;
   forecast: any; onSavePrefs: (prefs: string[]) => void;
 }) {
   const [prefs, setPrefs] = useState<string[]>([]);
@@ -1611,12 +1846,18 @@ function AtmosTab({
     }
   }, [userPrefs]);
 
-  const availableEvents = [
-    "Tornado Warning", "Severe Thunderstorm Warning", "Flash Flood Warning",
-    "Special Marine Warning", "Snow Squall Warning", "Winter Storm Warning",
-    "Ice Storm Warning", "Blizzard Warning", "Red Flag Warning", "Hurricane Warning",
-    "Severe Weather Statement", "Severe Thunderstorm Watch", "Tornado Watch",
-  ];
+  const availableEvents = useMemo(() => [...new Set([
+    "Tornado Warning", "Tornado Watch",
+    "Severe Thunderstorm Warning", "Severe Thunderstorm Watch", "Severe Weather Statement",
+    "Flash Flood Warning", "Flash Flood Watch", "Flood Warning", "Flood Watch",
+    "Winter Storm Warning", "Winter Storm Watch", "Winter Weather Advisory",
+    "Ice Storm Warning", "Ice Storm Watch", "Blizzard Warning", "Snow Squall Warning",
+    "High Wind Warning", "High Wind Watch", "Extreme Wind Warning",
+    "Hurricane Warning", "Hurricane Watch", "Tropical Storm Warning", "Tropical Storm Watch",
+    "Red Flag Warning", "Fire Weather Watch", "Extreme Cold Warning", "Extreme Cold Watch",
+    "Freeze Warning", "Freeze Watch", "Excessive Heat Warning", "Heat Advisory",
+    "Special Marine Warning", ...(geojson?.nws_events || []),
+  ])].sort(), [geojson]);
 
   const siteNames = mapDf.map((l: any) => l.name).filter(Boolean);
   const defaultSite = mapDf.find((l: any) => l.name === "LR - Campus") ? "LR - Campus" : siteNames[0] || "";
@@ -1642,12 +1883,16 @@ function AtmosTab({
     for (const ds of [geojson.nws_ar, geojson.nws_oos]) {
       if (!ds?.features) continue;
       for (const f of ds.features) {
+        if (!isCurrentNwsProperties(f.properties, nowMs)) continue;
         const ev = f.properties?.event;
         if (ev && prefs.includes(ev)) {
           results.push({
             Event: ev,
             "Affected Area": f.properties?.areaDesc || "Unknown",
+            Sent: formatDt(f.properties?.sent),
             Expires: formatDt(f.properties?.expires),
+            "Expected End": formatDt(f.properties?.ends || f.properties?.eventEndingTime),
+            MessageType: f.properties?.messageType || "Alert",
             Description: f.properties?.description || "",
           });
           if (results.length >= 50) break;
@@ -1656,7 +1901,7 @@ function AtmosTab({
       if (results.length >= 50) break;
     }
     return results;
-  }, [geojson, prefs]);
+  }, [geojson, prefs, nowMs]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -1708,6 +1953,8 @@ function AtmosTab({
           </h5>
           {prefs.length === 0 ? (
             <InfoBox type="info">No alert types selected. Update your preferences to track specific warnings.</InfoBox>
+          ) : ["stale", "error", "missing"].includes(nwsFeedStatus) ? (
+            <InfoBox type="warning">NWS alert freshness is {nwsFeedStatus}; the absence of watched alerts cannot be confirmed.</InfoBox>
           ) : filteredAlerts.length === 0 ? (
             <InfoBox type="success">No active alerts matching your preferences in the monitored zones.</InfoBox>
           ) : (
@@ -1718,7 +1965,9 @@ function AtmosTab({
                   border: "1px solid var(--border-primary)",
                 }}>
                   <div style={{ fontWeight: 600, fontSize: "0.82rem", color: "var(--accent-red)" }}>{alert.Event}</div>
-                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Area: {alert["Affected Area"]} | Expires: {alert.Expires}</div>
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                    Area: {alert["Affected Area"]} | Issued: {alert.Sent} | Expires: {alert.Expires} | Expected event end: {alert["Expected End"]}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1878,14 +2127,11 @@ function SpcOutlookTabs({ geojson }: { geojson: any }) {
         <InfoBox type="success">No Convective Risk Expected for this period.</InfoBox>
       ) : (
         <div style={{ height: 350, borderRadius: "var(--radius-md)", overflow: "hidden", position: "relative" }}>
-          <DeckGL
+          <ConusMap
             layers={spcLayers}
             initialViewState={spcView}
-            controller={true}
             style={{ height: "100%", width: "100%" }}
-          >
-            <MapLibreMap mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
-          </DeckGL>
+          />
         </div>
       )}
     </div>

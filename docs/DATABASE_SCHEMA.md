@@ -3,7 +3,7 @@
 > **Source of truth:** `src/models/schema.py` (SQLAlchemy declarative models)
 > **Engine:** SQLite via `DATABASE_URL`
 > **Driver:** SQLAlchemy 2.x with `NullPool`
-> **Last verified:** 2026-11-02
+> **Last verified:** 2026-11-03
 
 The mapped table names, column names, SQLAlchemy types, and nullability in this reference reflect the model metadata in `src/models/schema.py`.
 
@@ -222,7 +222,7 @@ The legacy ER diagram is conceptual: its `(FK→)` labels do not distinguish enf
 
 ## 2. Complete Table Reference
 
-Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state; revision `20261102_0006` adds the site-contact table. Other migration-only compatibility columns are described in Section 3.
+Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state; revision `20261102_0006` adds the site-contact table; revision `20261103_0007` adds NWS alert lifecycle and provider freshness fields.
 
 ### 2.1 `users` — User Accounts
 
@@ -490,7 +490,7 @@ Column types and nullability reflect the current SQLAlchemy mappings in `src/mod
 | `cyber_baseline` | Float | YES | `0.0` | — | Baseline reference |
 | `physical_baseline` | Float | YES | `0.0` | — | Baseline reference |
 
-### 2.17 `regional_hazards` — SPC/NWS Hazard Feed
+### 2.17 `regional_hazards` — NWS Alert Lifecycle
 
 | Column | Type | Nullable | Default | Index | Constraints |
 |---|---|---|---|---|---|
@@ -501,7 +501,18 @@ Column types and nullability reflect the current SQLAlchemy mappings in `src/mod
 | `title` | String | YES | — | — | — |
 | `description` | Text | YES | — | — | — |
 | `location` | String | YES | — | — | Free-text location |
-| `updated_at` | DateTime | YES | — | YES | Feed update time |
+| `updated_at` | DateTime | YES | — | YES | Last payload content update |
+| `last_seen_at` | DateTime | YES | NULL | YES | Last full NWS snapshot containing this alert |
+| `status` | String(24) | NO | `unknown` | YES | `active`, `expired`, `cancelled`, `superseded`, `inactive`, or legacy `unknown` |
+| `sent_at` | DateTime | YES | NULL | — | CAP message issuance time (UTC) |
+| `effective_at` | DateTime | YES | NULL | — | CAP information effective time (UTC) |
+| `onset_at` | DateTime | YES | NULL | — | Expected event onset (UTC) |
+| `expires_at` | DateTime | YES | NULL | YES | CAP message expiry; active views stop using the alert at this time |
+| `event_ending_at` | DateTime | YES | NULL | — | Expected event end; distinct from CAP expiry |
+| `message_type` | String(16) | YES | NULL | — | CAP `Alert`, `Update`, or `Cancel` |
+| `references_json` | JSON | YES | NULL | — | CAP identifiers superseded/cancelled by this message |
+| `coverage_scope` | String(24) | YES | NULL | — | Arkansas or neighbor-border coverage bucket |
+| `coverage_precision` | String(32) | YES | NULL | — | Alert geometry, county geocode, state fallback, or unresolved fallback |
 
 ### 2.18 `regional_outages` — Regional Utility Outages
 
@@ -626,7 +637,17 @@ Column types and nullability reflect the current SQLAlchemy mappings in `src/mod
 |---|---|---|---|---|---|
 | `feed_name` | **String** | NO | — | PK | **String PK** — no Integer id |
 | `data` | JSON | YES | — | — | GeoJSON FeatureCollection |
-| `updated_at` | DateTime | YES | `utcnow` | — | — |
+| `updated_at` | DateTime | YES | `utcnow` | — | Last payload content update |
+| `last_attempt_at` | DateTime | YES | NULL | — | Last provider request start |
+| `last_success_at` | DateTime | YES | NULL | — | Last successful response or validated 304 |
+| `last_error` | Text | YES | NULL | — | Most recent provider failure; last-good data is retained |
+| `last_http_status` | Integer | YES | NULL | — | Most recent response status |
+| `last_duration_ms` | Integer | YES | NULL | — | Request duration |
+| `retry_after_at` | DateTime | YES | NULL | — | Provider-requested earliest retry time |
+| `etag` | String(512) | YES | NULL | — | NWS conditional request validator |
+| `last_modified` | String(128) | YES | NULL | — | NWS conditional request validator |
+| `feature_count` | Integer | YES | NULL | — | Cached feature count without loading full JSON |
+| `coverage_summary` | JSON | YES | NULL | — | Border-filter precision/counts for NWS and USGS feeds |
 
 ### 2.26 `node_aliases` — Node Name → Site Mapping
 
@@ -878,6 +899,10 @@ Entries may group independent indexes for brevity; a grouped row does not imply 
 | `monitored_location_contacts` | `monitored_location_id` | B-tree | Ordered contact lookup and site association |
 | `regional_hazards` | `hazard_id` | UNIQUE | Dedup on ingest |
 | `regional_hazards` | `updated_at` | B-tree | Time-range / purge |
+| `regional_hazards` | `last_seen_at` | B-tree | Current snapshot membership |
+| `regional_hazards` | `status` | B-tree | Active-view filtering |
+| `regional_hazards` | `expires_at` | B-tree | CAP lifecycle expiry |
+| `regional_hazards` | `(status, expires_at)` | Composite B-tree | Current-alert query |
 | `regional_outages` | `outage_type` | B-tree | Type filtering |
 | `regional_outages` | `is_resolved` | B-tree | Active filter |
 | `cloud_outages` | `provider` | B-tree | Provider filtering |
@@ -927,7 +952,7 @@ After migrations, startup enables persistent WAL mode. The SQLAlchemy connection
 
 ### Phase 2 — One-time legacy adoption
 
-Revision `20261002_0001` uses the frozen `migrations/schema_v1.py` snapshot to create missing baseline tables, adds only missing legacy columns, creates missing indexes, and applies one-time user, invitation, and priority backfills. Revision `20261002_0002` adds `registration_invites.revoked_at` for auditable invite invalidation during full restore. Revision `20261005_0003` adds a false-default `solarwinds_alerts.needs_dispatch` flag while preserving existing alerts. Revision `20261005_0004` fills `timeline_events.site_name` only for legacy generated webhook alerts with a suffix matching a monitored location. Revision `20261013_0005` adds nullable `solarwinds_alerts.onpage_sent_at` so successful on-page delivery can be tracked per active node incident. Revision `20261102_0006` creates `monitored_location_contacts` and its site lookup index without changing existing site rows. Existing tables and records are retained. Duplicate normalized email values that prevent creation of the unique index fail with an actionable error.
+Revision `20261002_0001` uses the frozen `migrations/schema_v1.py` snapshot to create missing baseline tables, adds only missing legacy columns, creates missing indexes, and applies one-time user, invitation, and priority backfills. Revision `20261002_0002` adds `registration_invites.revoked_at` for auditable invite invalidation during full restore. Revision `20261005_0003` adds a false-default `solarwinds_alerts.needs_dispatch` flag while preserving existing alerts. Revision `20261005_0004` fills `timeline_events.site_name` only for legacy generated webhook alerts with a suffix matching a monitored location. Revision `20261013_0005` adds nullable `solarwinds_alerts.onpage_sent_at` so successful on-page delivery can be tracked per active node incident. Revision `20261102_0006` creates `monitored_location_contacts` and its site lookup index without changing existing site rows. Revision `20261103_0007` adds additive NWS CAP lifecycle columns and provider-attempt metadata; legacy weather rows begin as `unknown` and are not treated as verified active alerts. Existing tables and records are retained. Duplicate normalized email values that prevent creation of the unique index fail with an actionable error.
 
 The explicit compatibility column map covers account/recovery fields, scheduler revisions, scoring and alert settings, article enrichment metadata, role site types, alert dispatch fields, location tracking, shift-log state, crime dispatch state, and timeline site metadata. The adoption revision validates every frozen-baseline table's final column set before recording success; later revisions add their versioned fields.
 
@@ -1049,7 +1074,7 @@ Centralized retention is enforced by the hourly **`database_maintenance` schedul
 | `articles` | **Unpinned score < 50 older than 3 days:** delete | `WHERE score < 50 AND published_date < now()-3d AND is_pinned = False` |
 | `articles` | **Unpinned > 30 days:** delete | `WHERE published_date < now()-30d AND is_pinned = False` |
 | `solarwinds_alerts` | **> 60 days:** delete | `WHERE received_at < now()-60d` |
-| `regional_hazards` | **> 48 hours:** delete | `WHERE updated_at < now()-48h` |
+| `regional_hazards` | **Non-active > 48 hours:** delete | `WHERE status != 'active' AND updated_at < now()-48h`; verified active NWS messages are retained through CAP expiry/update/cancel |
 | `regional_outages` | **> 12 hours:** delete | `WHERE detected_at < now()-12h` |
 | `bgp_anomalies` | **> 12 hours:** delete | `WHERE detected_at < now()-12h` |
 | `cve_items` | **> 7 days:** delete | `WHERE date_added < now()-7d` |

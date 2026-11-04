@@ -242,14 +242,14 @@ Re-runs the article categorizer against every stored article and returns `{statu
 Cached list of all MonitoredLocation records.
 
 ### GET /regional/geojson
-Returns all cached GeoJSON layers: spc_day1-3, nws_ar, nws_oos, usgs_ar, usgs_oos, plus per-feed freshness metadata.
+Returns cached GeoJSON layers plus active NWS event names and per-feed health metadata. Optional `layers` is a comma-separated subset of `spc_day1`, `spc_day2`, `spc_day3`, `nws_ar`, `nws_oos`, `usgs_ar`, and `usgs_oos`; `layers=summary` returns metadata/event names without geometry, and omitting `layers` preserves the all-layers compatibility response. Optional `bbox=west,south,east,north` scopes geometries to the WGS84 viewport while retaining complete intersecting alert polygons. CAP-expired and not-yet-effective NWS messages are omitted from active layers.
 
 ### GET /regional/wildfires
 
-Returns active wildfire incidents, reported perimeters, and recent FIRMS satellite-footprint polygons from the [WFCA Fire Map](https://wfca.com/fire-map/arkansas) GeoServer, independently of the regional weather-feed response. Satellite footprints are estimated detection areas, not reported fire perimeters. Data is limited to non-stale wildfires in Arkansas and the surrounding 50-mile operating area; prescribed fires are excluded. Fires at or below one acre are omitted from the map when more than one mile from every monitored site, and proximity alerts for those small fires are sent only to sites within one mile. The service refreshes its in-memory cache every five minutes.
+Returns active wildfire incidents, reported perimeters, and recent FIRMS satellite-footprint polygons from the [WFCA Fire Map](https://wfca.com/fire-map/arkansas) GeoServer, independently of the regional weather-feed response. Satellite footprints are estimated detection areas, not reported fire perimeters. Data is limited to non-stale wildfires inside Arkansas plus a projected 50-mile buffer across Louisiana, Texas, Mississippi, Missouri, Oklahoma, and Tennessee; prescribed fires are excluded. Fires at or below one acre are omitted from the map when more than one mile from every monitored site, and proximity alerts for those small fires are sent only to sites within one mile. The service refreshes its in-memory cache every five minutes; optional `bbox` limits returned features to the current map viewport.
 
 ### POST /regional/compile-map
-The heavy computation endpoint. Body keys: `toggles`, `selected_events`, and `map_df`. The server uses its coherent cached hazard snapshot; legacy raw feed keys remain accepted for compatibility.
+Body keys: `toggles`, `selected_events`, `map_df`, optional `include_analytics`, and optional `viewport_bounds=[west,south,east,north]`. The server reads only the cached feeds needed for selected layers; full analytics requests use the full operating region. Legacy raw feed keys remain accepted for compatibility.
 Returns 6-element array: `[layers, viewState, diagnostics, toggled_affected_sites, master_affected_sites, analytics]`.
 
 ### GET /regional/weather-prefs
@@ -265,7 +265,7 @@ Authenticated body is a JSON array of alert-type strings, for example `["Tornado
 Merges default site types with DB `loc_type` values.
 
 ### POST /regional/sync-hazards
-Manually triggers regional hazard fetch and cache invalidation. Returns HTTP 502 when synchronization fails.
+Manually triggers one centralized NWS alert poll and the slower regional hazard jobs, then clears derived caches. The response includes per-feed results; HTTP 502 indicates at least one provider failed. An NWS request inside the last 60 seconds or an active provider `Retry-After` window is reported as deferred without making another upstream request.
 
 ## Hunting Endpoints (/hunting)
 

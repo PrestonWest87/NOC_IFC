@@ -34,6 +34,7 @@ This file is the complete template for environment variables used by the current
 | `CORS_ORIGINS` | localhost web origins | API | Comma-separated browser origin allowlist |
 | `ALLOW_UNSIGNED_WEBHOOKS` | `false` | webhook | Controlled unsigned-webhook migration exception |
 | `PUBLIC_APP_URL` | `http://localhost:8501` | admin routes | Registration link base URL |
+| `NWS_API_USER_AGENT` | `NOC-IFC/2.0 (https://test.weasts.net)` | `src.core.config`, `src.workers.infra_worker`, `src.services` | Identifies NWS API requests; configure the deployed public URL, with the bootstrap admin email appended when set |
 | `REGISTRATION_INVITE_TTL_HOURS` | `72` | admin routes | Default invite lifetime |
 | `BACKUP_ENCRYPTION_ACTIVE_KEY_ID` | `primary` | `src.core.backup_manager` | Active key ID for new encrypted full backups |
 | `BACKUP_ENCRYPTION_KEYS` | empty | `src.core.backup_manager` | JSON map of 32-byte hex backup keys; never commit or include in backup packages |

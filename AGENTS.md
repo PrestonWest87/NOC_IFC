@@ -135,6 +135,21 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 
 ---
 
+## Implementation Plan — Regional Weather Freshness and US Map Reliability
+
+**Implementation branch:** `main` (user-directed). NWS alerts poll centrally every 60 seconds. Coverage includes Arkansas and the 50-mile outward border strip across all six Arkansas neighbors: Louisiana, Texas, Mississippi, Missouri, Oklahoma, and Tennessee. The map basemap is contiguous-US-only, with live hazard layers loaded on demand.
+
+- [x] Add a versioned local contiguous-US basemap and regional county geometry; use the latter for accurate geospatial filtering and buffer calculations.
+- [x] Split NWS polling from slower regional-hazard jobs; poll one combined seven-state active-alert query every 60 seconds with identifying User-Agent, conditional caching where supported, and non-aggressive backoff.
+- [x] Reconcile alert snapshots and CAP update/cancel references; enforce CAP `expires` across active map/log/analytics views while retaining last-good data and exposing feed freshness/errors.
+- [x] Extend NWS/USGS/wildfire coverage to the Arkansas 50-mile border corridor; include county/zone-based alerts where polygon geometry is absent and mark any unavoidable state-level fallback.
+- [x] Make map data layer/viewport scoped; render local basemap/sites first and avoid unnecessary full-GeoJSON fetches and repeated geometry compilation.
+- [x] Add additive migrations, local-only lifecycle/coverage/scheduler/API tests, and update source-aligned documentation.
+- [x] Verify Python tests/compile, frontend build, API/container build as appropriate, and `git diff --check`; synchronize verified changes to `/tmp/opencode/noc-arch` and verify parity.
+- [x] Both worktrees passed 171 Python tests, compilation, API/web image builds, Compose config, Nginx syntax, and diff checks. The main Compose stack was restarted; API/web/webhook are healthy, the worker is running, and live NWS polling succeeded both at startup and on the recurring schedule (12 source alerts: 1 Arkansas, 2 border-strip alerts).
+
+---
+
 ## Documentation Index
 
 Comprehensive enterprise documentation is in `docs/`:
@@ -149,7 +164,7 @@ Comprehensive enterprise documentation is in `docs/`:
 | [DATA_FLOWS.md](docs/DATA_FLOWS.md) | Ingestion, scoring, internal risk, reporting, webhook/AIOps, hazard/telemetry, provider-worker, and retention flows |
 | [TRIGGER_ACTION_FLOWS.md](docs/TRIGGER_ACTION_FLOWS.md) | Every trigger (webhook, scheduler, user action, WebSocket) mapped to its complete action flow |
 | [SERVICES.md](docs/SERVICES.md) | All 11 service modules with function signatures, class hierarchies, call chains, dependencies |
-| [SCHEDULER.md](docs/SCHEDULER.md) | All 20 registry-managed background jobs with schedules, execution order, thread safety, retention policies |
+| [SCHEDULER.md](docs/SCHEDULER.md) | All 21 registry-managed background jobs with schedules, execution order, thread safety, retention policies |
 | [ESCALATION.md](docs/ESCALATION.md) | Tiered alert escalation: SLA dictionaries, business hours, dispatch channels, cascade detection, flapping logic |
 | [WEBHOOK.md](docs/WEBHOOK.md) | SolarWinds webhook gateway: payload normalization, device classification, resolution detection |
 | [FRONTEND.md](docs/FRONTEND.md) | React SPA: component tree, routing, hooks, state management, theme system, WebSocket client |
@@ -266,6 +281,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `src/models/schema.py` | 36 SQLAlchemy models |
 | `src/core/permissions.py` | Canonical page, tab, and action permission catalog |
 | `src/core/site_contact_validation.py` | Shared server-side validation for optional site contact fields |
+| `src/core/arkansas_coverage.py` | Projected 50-mile Arkansas-border buffer, NWS geocode matching, and CAP active-time filtering |
 | `src/core/scheduler_registry.py` | Scheduler defaults, bounds, timezone, and startup policy |
 | `src/scheduler.py` | Background job orchestrator and frequency controls |
 | `src/webhook_listener.py` | SolarWinds webhook gateway (port 8100) |
@@ -275,17 +291,19 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `web/src/components/UsersRolesTab.tsx` | User directory, invitation, display-account, and role management |
 | `web/src/components/SiteContactsDialog.tsx` | Administrator editor and client-side validation for site contacts |
 | `web/src/components/ApplicationSettingsTab.tsx` | Risk scoring, scheduler, and global application settings |
+| `web/src/components/ConusMap.tsx` | Local contiguous-US MapLibre basemap shared by operational map views |
 | `web/src/pages/DashboardPage.tsx` | Dashboard with brief generation progress polling |
 
 ## Scheduler Jobs
 
 | Job | Interval | Description |
 |-----|----------|-------------|
+| NWS Active Alerts | 1 min | One combined Arkansas + all six bordering-state NWS poll, CAP lifecycle reconcile |
 | RSS Feed Fetch | 5 min | Async RSS ingestion → score → categorize → extract IOCs → dedup |
 | Article Enrichment | 3 min | Full-content extraction for high-score articles |
 | Maintenance Expiry | 5 min | Clear site maintenance after its ETR |
 | Crime Fetch | 10 min | Crime API data + perimeter alert dispatch |
-| Regional Hazards | 7 min | NWS weather, USGS earthquakes, site intersections |
+| Regional Hazards | 7 min | SPC outlooks, USGS earthquakes, wildfire data, site intersections |
 | Cloud Outages | 8 min | Cloud provider status |
 | Telemetry Sync | 6 min | ORNL power, RIPE BGP visibility, and IODA ISP outages |
 | Elastic Cache Sync | 6 min | Refresh high-severity Elastic events |

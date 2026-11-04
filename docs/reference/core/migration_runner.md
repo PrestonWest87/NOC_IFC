@@ -10,4 +10,4 @@
 - Passes one connection to Alembic. Waiting processes acquire the lock and re-check the database revision after the prior process finishes.
 - Errors propagate to `init_db()` and prevent the affected API, worker, or webhook process from starting its work.
 
-The migration head is `20261102_0006`; the latest revision creates the administrator-managed site-contact table and index. The legacy adoption and failure guarantees are detailed in [Migration Compatibility](../../MIGRATION_COMPATIBILITY.md). Do not stamp `alembic_version` manually; restore a verified backup for rollback.
+The migration head is `20261103_0007`; the latest revision adds NWS CAP lifecycle fields and provider-fetch metadata while preserving cached GeoJSON. Legacy unverified alert rows are marked `unknown`. The legacy adoption and failure guarantees are detailed in [Migration Compatibility](../../MIGRATION_COMPATIBILITY.md). Do not stamp `alembic_version` manually; restore a verified backup for rollback.

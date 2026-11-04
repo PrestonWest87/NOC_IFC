@@ -2,7 +2,7 @@
 
 ## Overview
 
-Generic map wrapper component that detects when its children are ready to render (after layout measurement) and provides fullscreen toggle capability. Used as a container for DeckGL maps or other visualization canvases.
+Generic map wrapper component that detects when its children are ready to render (after layout measurement) and provides fullscreen toggle capability. Used as a container for shared MapLibre/deck.gl maps or other visualization canvases.
 
 ---
 
@@ -19,7 +19,7 @@ Generic map wrapper component that detects when its children are ready to render
 
 ### `MapContainer` (component)
 
-- **Purpose**: Delays rendering of its children until the container has a non-zero layout size, preventing DeckGL/WebGL initialization failures in hidden tabs. Also provides a fullscreen toggle button.
+- **Purpose**: Delays rendering of its children until the container has a non-zero layout size, preventing MapLibre/WebGL initialization failures in hidden tabs. Also provides a fullscreen toggle button.
 - **Flow**:
   1. On mount, checks if `ref.current` has non-zero `offsetHeight` / `offsetWidth`.
   2. If already measured, sets `ready = true` immediately.
