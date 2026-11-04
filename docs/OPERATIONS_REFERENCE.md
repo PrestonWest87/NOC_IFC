@@ -55,6 +55,7 @@ The rows below are a selected operations quick reference, not a complete variabl
 | `CORS_ORIGINS` | localhost origins | Restricting browser origins |
 | `ALLOW_UNSIGNED_WEBHOOKS` | `false` | Temporary controlled migration only; do not enable by default |
 | `PUBLIC_APP_URL` | `http://localhost:8501` | Registration links or externally advertised URLs |
+| `NWS_API_USER_AGENT` | `NOC-IFC/2.0 (https://test.weasts.net)` | Identifying NWS API client; set a deployed URL, with `DEFAULT_ADMIN_EMAIL` appended when configured |
 | `REGISTRATION_INVITE_TTL_HOURS` | `72` | Changing invite expiration |
 | `RESCORE_ON_STARTUP` | `false` if absent | Explicitly rescoring all existing articles during startup |
 
@@ -62,14 +63,15 @@ These defaults describe runtime configuration when a variable is unset. The `.en
 
 ## Frequency Controls
 
-The values below are registry defaults for all 20 jobs; a user with scheduler-management permission may save a different validated value in Settings > Application Settings. `src/core/scheduler_registry.py` is the source of truth.
+The values below are registry defaults for all 21 jobs; a user with scheduler-management permission may save a different validated value in Settings > Application Settings. `src/core/scheduler_registry.py` is the source of truth. NWS alert polling is fixed at one minute and cannot be disabled.
 
 | Behavior | Source location | Current value |
 |---|---|---:|
 | RSS fetch | `JOB_REGISTRY["rss_fetch"]` | 5 minutes |
 | Enrichment | `JOB_REGISTRY["article_enrichment"]` | 3 minutes |
 | Maintenance expiry | `JOB_REGISTRY["maintenance_expiry"]` | 5 minutes |
-| Hazards | `JOB_REGISTRY["regional_hazards"]` | 7 minutes |
+| NWS active alerts | `JOB_REGISTRY["nws_alerts"]` | 1 minute (fixed; cannot be disabled) |
+| Regional hazards | `JOB_REGISTRY["regional_hazards"]` | 7 minutes |
 | Crime | `JOB_REGISTRY["crime_fetch"]` | 10 minutes |
 | Cloud | `JOB_REGISTRY["cloud_outages"]` | 8 minutes |
 | Telemetry | `JOB_REGISTRY["telemetry_sync"]` | 6 minutes |

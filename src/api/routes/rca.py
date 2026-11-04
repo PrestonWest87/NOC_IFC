@@ -133,7 +133,7 @@ def analyze(user=Depends(get_current_user)):
 
     with SessionLocal() as db:
         active_clouds = db.query(CloudOutage).filter_by(is_resolved=False).all()
-        active_weather = db.query(RegionalHazard).all()
+        active_weather = db.query(RegionalHazard).filter(*svc.active_nws_hazard_conditions()).all()
         active_bgp = db.query(BgpAnomaly).filter_by(is_resolved=False).all()
 
     root_cause = {}

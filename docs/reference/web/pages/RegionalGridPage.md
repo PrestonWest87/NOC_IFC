@@ -166,16 +166,18 @@ A full-page layout with:
 | Query Key | Endpoint | Interval | Description |
 |-----------|----------|----------|-------------|
 | `regional-locations` | `GET /regional/locations` | 2min | Monitored facility locations |
-| `regional-geojson` | `GET /regional/geojson` | 2min | SPC/NWS/USGS GeoJSON |
-| `regional-alerts-log` | `GET /regional/weather-alerts-log` | 2min | Weather alerts log |
+| `regional-nws-layers` | `GET /regional/geojson?layers=...&bbox=...` | 15sec while a Regional Grid weather view is open | Active event summary always; NWS geometries only when required, limited to the visible viewport |
+| `regional-other-layers` | `GET /regional/geojson?layers=...&bbox=...` | 2min | Only toggled SPC/USGS layers, limited to the visible viewport |
+| `regional-wildfires` | `GET /regional/wildfires?bbox=...` | 5min when the wildfire layer is enabled | Cached WFCA incidents/perimeters/footprints, viewport-scoped |
+| `regional-alerts-log` | `GET /regional/weather-alerts-log` | 15sec | Current alerts; CAP-expired messages are removed |
 | `regional-forecast` | `GET /regional/forecast` | 5min | 7-day forecast (enabled by targetSite) |
 | `regional-weather-prefs` | `GET /regional/weather-prefs` | once | User weather alert preferences |
-| `regional-compile-map` | `POST /regional/compile-map` | 2min | Compiled map layers + analytics |
+| `regional-compile-map` | `POST /regional/compile-map` | 15sec for visible NWS layers; 30sec for analytics views | Compiled selected layers + analytics, keyed by feed version, active alerts, and viewport |
 
 #### Derived Data
 - `mapDf`: Filtered locations by selected types and priorities (via `useMemo`).
-- `activeEventTypes`: Unique event types from GeoJSON features (via `useMemo`).
-- `compileResponse`: Array `[layers, viewState, diagnostics, toggledAffected, masterAffected, analytics]`.
+- `activeEventTypes`: Active event-type summary from current, unexpired NWS database records.
+- `compileResponse`: Array `[layers, viewState, diagnostics, toggledAffected, masterAffected, analytics]`; the page consumes positions 0, 2, 4, and 5, and filters CAP-expired map features/site hazards locally on its ten-second clock.
 
 #### Tab Delegation
 Each tab renders a dedicated sub-component:
@@ -196,9 +198,8 @@ Each tab renders a dedicated sub-component:
 - `useState`, `useMemo`, `useCallback`, `useEffect` from `react`
 - `useQuery` from `@tanstack/react-query`
 - `MapContainer` from `../components/MapContainer`
-- `DeckGL` from `@deck.gl/react`
 - `ScatterplotLayer`, `GeoJsonLayer`, `BitmapLayer` from `@deck.gl/layers`
-- `Map as MapLibreMap` from `@vis.gl/react-maplibre`
+- `ConusMap` from `../components/ConusMap` (local contiguous-US basemap, overlaid deck.gl layers, and viewport reporting)
 - `MapViewState` type from `@deck.gl/core`
 - `recharts` (`PieChart`, `Pie`, `Cell`, `BarChart`, `Bar`, `XAxis`, `YAxis`, `Tooltip`, `ResponsiveContainer`, `CartesianGrid`, `Legend`)
 - `lucide-react` icons
@@ -208,10 +209,10 @@ Each tab renders a dedicated sub-component:
 
 ---
 
-## `GeospatialTab({ mapToggles, onToggle, showRadarPanel, setShowRadarPanel, activeEventTypes, selectedEvents, setSelectedEvents, availableTypes, selectedTypes, setSelectedTypes, availablePrios, selectedPrios, setSelectedPrios, mapLayers, viewState, onViewStateChange, toggledAffectedSites })`
+## `GeospatialTab({ mapToggles, onToggle, showRadarPanel, setShowRadarPanel, activeEventTypes, selectedEvents, setSelectedEvents, availableTypes, selectedTypes, setSelectedTypes, availablePrios, selectedPrios, setSelectedPrios, mapLayers, toggledAffectedSites })`
 
 ### Purpose
-Renders the Geospatial Overlay tab with a map sidebar and deck.gl map.
+Renders the Geospatial Overlay tab with a map sidebar and `ConusMap` MapLibre/deck.gl overlay.
 
 ### Props
 | Prop | Type | Description |
@@ -229,9 +230,10 @@ Renders the Geospatial Overlay tab with a map sidebar and deck.gl map.
 | `availablePrios` | `string[]` | Available priority levels |
 | `selectedPrios` | `string[]` | Selected priority levels |
 | `setSelectedPrios` | `(v: string[]) => void` | Priority selection handler |
+| `onViewportChange` | `(bounds: [number, number, number, number]) => void` | Reports the visible WGS84 bounds for scoped layer requests |
+| `unresolvedNwsAlerts` | `string[]` | Active zone-only NWS alerts that have no drawable boundary; displayed as a warning |
+| `unresolvedNwsAlerts` | `string[]` | Current NWS alerts without drawable geometry; shown as a map warning |
 | `mapLayers` | `any[]` | deck.gl layer array |
-| `viewState` | `MapViewState` | Current map view state |
-| `onViewStateChange` | `(v: MapViewState) => void` | View state change handler |
 | `toggledAffectedSites` | `any[]` | Sites affected by active layers |
 
 ### Internal: `mapTooltip(info)`
@@ -243,12 +245,11 @@ Memoized sort of `toggledAffectedSites` by priority then name.
 ### Returns
 Two-column layout:
 - **Left sidebar** (280px): Master Layers toggles (Radar, SPC, Warnings, Watches, OOS), Fire Desk toggles (Fire Weather, Wildfires, Earthquakes), Hazard Isolation filter chips, Facility Filters (type/priority multi-select).
-- **Main area**: deck.gl map (with optional rainviewer iframe panel) + affected sites table.
+- **Main area**: shared MapLibre map with deck.gl layers rendered above it (and optional rainviewer iframe panel) + affected sites table.
 
 ### Dependencies
 - `MapContainer` from `../components/MapContainer`
-- `DeckGL` from `@deck.gl/react`
-- `MapLibreMap` from `@vis.gl/react-maplibre`
+- `ConusMap` from `../components/ConusMap`
 - All local components (`ToggleSwitch`, `FilterChip`, `InfoBox`, etc.)
 
 ---
@@ -394,12 +395,11 @@ Renders tabbed SPC convective outlook maps (Day 1, Day 2, Day 3).
 
 ### Returns
 - Three sub-tabs for Day 1/2/3
-- deck.gl GeoJsonLayer map of SPC outlook polygons
+- `ConusMap` displaying deck.gl GeoJsonLayer SPC outlook polygons above the local basemap
 
 ### Dependencies
-- `DeckGL` from `@deck.gl/react`
 - `GeoJsonLayer` from `@deck.gl/layers`
-- `MapLibreMap` from `@vis.gl/react-maplibre`
+- `ConusMap` from `../components/ConusMap`
 
 ---
 

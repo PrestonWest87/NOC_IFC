@@ -91,7 +91,7 @@ ML retraining runs Sunday at 02:00 and requires at least 10 labeled articles. Th
 | Low-score, unpinned articles | Deletes articles older than 3 days when score is below 50 |
 | Other unpinned articles | Deletes articles older than 30 days |
 | SolarWinds alerts | Deletes records older than 60 days |
-| Regional hazards | Deletes records older than 48 hours |
+| Regional hazards | Deletes inactive/expired/cancelled/superseded/legacy-unknown records older than 48 hours; verified active CAP alerts are retained until their lifecycle changes |
 | Regional outages | Deletes records older than 12 hours |
 | BGP anomalies | Deletes records older than 12 hours |
 | CISA KEV items | Deletes records older than 7 days |

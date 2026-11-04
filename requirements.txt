@@ -9,6 +9,7 @@ requests
 bcrypt==4.1.2
 aiohttp
 shapely
+pyproj>=3.6,<4
 fastapi
 python-multipart>=0.0.20
 uvicorn[standard]

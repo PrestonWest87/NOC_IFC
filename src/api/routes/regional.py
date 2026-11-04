@@ -5,6 +5,8 @@ frontend; endpoint grants correspond to Regional Grid tabs.
 """
 
 import logging
+import math
+import uuid
 from fastapi import APIRouter, Query, Body, Depends, HTTPException
 from typing import Any
 
@@ -13,6 +15,33 @@ from src.api.auth_guard import get_current_user, require_any_action, require_pag
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/regional", tags=["regional"], dependencies=[Depends(require_page("Regional Grid"))])
+
+
+def _parse_bbox(value):
+    """Validate a WGS84 viewport box supplied as comma text or four values."""
+    if value is None or value == "":
+        return None
+    try:
+        values = [float(part) for part in value.split(",")] if isinstance(value, str) else [float(part) for part in value]
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="bbox must contain west,south,east,north coordinates.")
+    if len(values) != 4 or not all(math.isfinite(part) for part in values):
+        raise HTTPException(status_code=400, detail="bbox must contain four finite coordinates.")
+    west, south, east, north = values
+    if not (-180 <= west < east <= 180 and -90 <= south < north <= 90):
+        raise HTTPException(status_code=400, detail="bbox coordinates are outside valid WGS84 bounds.")
+    return west, south, east, north
+
+
+def _site_in_viewport(row, bbox):
+    """Check a map site coordinate against a validated WGS84 viewport."""
+    try:
+        lon = float(row.get("Lon", row.get("lon")))
+        lat = float(row.get("Lat", row.get("lat")))
+        west, south, east, north = bbox
+        return west <= lon <= east and south <= lat <= north
+    except (TypeError, ValueError):
+        return False
 
 
 @router.get("/locations", dependencies=[Depends(require_any_action([
@@ -35,23 +64,35 @@ def locations(user=Depends(get_current_user)):
     "Tab: Regional Grid -> Hazard Analytics", "Tab: Regional Grid -> Weather Alerts Log",
     "Tab: Regional Grid -> Atmos Weather",
 ]))])
-def geojson():
-    """Return cached SPC, NWS, and USGS layers with per-feed freshness metadata."""
-    logger.debug("GET /geojson")
-    spc_d1, spc_d2, spc_d3, ar, oos, usgs_ar, usgs_oos = svc.get_cached_geojson()
+def geojson(
+    layers: str | None = Query(None, description="Comma-separated feed names; omitted returns every layer."),
+    bbox: str | None = Query(None, description="Optional WGS84 viewport: west,south,east,north."),
+):
+    """Return requested cached layers, active NWS event names, and compact freshness metadata."""
+    allowed = set(svc.REGIONAL_GEOJSON_FEEDS)
+    requested = allowed if layers is None else set() if layers.strip().casefold() == "summary" else {
+        name.strip() for name in layers.split(",") if name.strip()
+    }
+    unknown = requested - allowed
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown regional GeoJSON layer(s): {', '.join(sorted(unknown))}")
+    viewport = _parse_bbox(bbox)
+    logger.debug("GET /geojson layers=%s bbox=%s", sorted(requested), viewport)
+    feeds = svc.get_cached_geojson_layers(requested, viewport)
     return {
-        "spc_day1": spc_d1, "spc_day2": spc_d2, "spc_day3": spc_d3,
-        "nws_ar": ar, "nws_oos": oos,
-        "usgs_ar": usgs_ar, "usgs_oos": usgs_oos,
+        **{name: feeds.get(name) for name in requested},
+        "nws_events": svc.get_active_nws_event_types(),
         "meta": svc.get_cached_geojson_status(),
     }
 
 
 @router.get("/wildfires", dependencies=[Depends(require_action("Tab: Regional Grid -> Geospatial Map"))])
-def wildfires():
-    """Return active WFCA wildfire incidents and perimeters."""
-    logger.debug("GET /wildfires")
-    return svc.get_active_wildfires()
+def wildfires(bbox: str | None = Query(None, description="Optional WGS84 viewport: west,south,east,north.")):
+    """Return cached WFCA features scoped to the optional current map viewport."""
+    viewport = _parse_bbox(bbox)
+    logger.debug("GET /wildfires bbox=%s", viewport)
+    payload = svc.get_active_wildfires()
+    return svc.filter_wildfires_to_bbox(payload, viewport) if viewport else payload
 
 
 @router.post("/compile-map", dependencies=[Depends(require_any_action([
@@ -69,13 +110,15 @@ def compile_map(data: dict[str, Any] = Body({}), user=Depends(get_current_user))
     usgs_ar = data.get("usgs_ar_data")
     usgs_oos = data.get("usgs_oos_data")
     selected = tuple(data.get("selected_events", []))
+    include_analytics = bool(data.get("include_analytics", False))
     raw_map_rows = data.get("map_df", [])
+    viewport = _parse_bbox(data.get("viewport_bounds"))
 
     # The browser no longer needs to echo the full GeoJSON snapshot back to the
     # API. Keep accepting the old fields for compatibility, but use the server's
     # coherent cached snapshot when they are omitted.
-    if not any((spc, ar, oos, usgs_ar, usgs_oos)):
-        spc, _, _, ar, oos, usgs_ar, usgs_oos = svc.get_cached_geojson()
+    legacy_fields = ("spc_data", "ar_data", "oos_data", "usgs_ar_data", "usgs_oos_data")
+    has_legacy_snapshot = any(data.get(name) is not None for name in legacy_fields)
 
     map_rows = [dict(row) for row in raw_map_rows if isinstance(row, dict)] if isinstance(raw_map_rows, list) else []
     if str(user.role or "").casefold() not in {"admin", "administrator"} and map_rows:
@@ -87,7 +130,57 @@ def compile_map(data: dict[str, Any] = Body({}), user=Depends(get_current_user))
         else:
             map_rows = []
 
-    cache = svc._precompute_geo_matrix(spc, ar, oos, usgs_ar, usgs_oos, selected, map_rows)
+    if viewport and not include_analytics:
+        map_rows = [row for row in map_rows if _site_in_viewport(row, viewport)]
+
+    active_wildfires = include_analytics or bool(toggles.get("active_wildfires"))
+    if not has_legacy_snapshot:
+        requested_feeds = set()
+        if include_analytics or toggles.get("spc"):
+            requested_feeds.add("spc_day1")
+        if include_analytics or toggles.get("warn") or toggles.get("watch") or toggles.get("fire_risk"):
+            requested_feeds.add("nws_ar")
+        if include_analytics or toggles.get("oos"):
+            requested_feeds.add("nws_oos")
+        if include_analytics or toggles.get("earthquakes"):
+            requested_feeds.update(("usgs_ar", "usgs_oos"))
+        feeds = svc.get_cached_geojson_layers(
+            requested_feeds,
+            viewport if viewport and not include_analytics else None,
+        )
+        spc = feeds.get("spc_day1")
+        ar = feeds.get("nws_ar")
+        oos = feeds.get("nws_oos")
+        usgs_ar = feeds.get("usgs_ar")
+        usgs_oos = feeds.get("usgs_oos")
+
+    wildfire_data = svc.get_active_wildfires() if active_wildfires else None
+    if wildfire_data is not None and viewport and not include_analytics:
+        wildfire_data = svc.filter_wildfires_to_bbox(wildfire_data, viewport)
+    feed_meta = svc.get_cached_geojson_status()
+    feed_names = ("spc_day1", "nws_ar", "nws_oos", "usgs_ar", "usgs_oos")
+    if has_legacy_snapshot:
+        feed_versions = ("legacy", uuid.uuid4().hex)
+    else:
+        feed_versions = tuple(
+            (name, (feed_meta.get(name) or {}).get("updated_at"))
+            for name in feed_names if name in requested_feeds
+        )
+    nws_signature = tuple(sorted(
+        (
+            str((feature.get("properties") or {}).get("id") or feature.get("id") or ""),
+            str((feature.get("properties") or {}).get("sent") or ""),
+            str((feature.get("properties") or {}).get("expires") or ""),
+        )
+        for collection in (ar, oos) if isinstance(collection, dict)
+        for feature in collection.get("features", [])
+    ))
+    wildfire_version = ((wildfire_data or {}).get("meta") or {}).get("last_success_at")
+    cache_token = (feed_versions, nws_signature, wildfire_version, viewport, include_analytics)
+    cache = svc._precompute_geo_matrix(
+        spc, ar, oos, usgs_ar, usgs_oos, selected, map_rows,
+        cache_token, active_wildfires, wildfire_data,
+    )
 
     toggled_affected_sites_dict = {}
     for site in cache["master_affected_sites"]:
@@ -160,6 +253,11 @@ def compile_map(data: dict[str, Any] = Body({}), user=Depends(get_current_user))
         "oos_warn": _strip_collection(cache.get("oos_warn")),
         "oos_watch": _strip_collection(cache.get("oos_watch")),
     }
+    if viewport and not include_analytics:
+        processed_geo = {
+            name: svc.filter_geojson_to_bbox(collection, viewport)
+            for name, collection in processed_geo.items()
+        }
 
     logger.info("POST /compile-map complete: affected_sites=%d analytics=%s",
                  len(master_affected_sites), analytics_serialized.get('highest_risk'))
@@ -192,7 +290,9 @@ def forecast(lat: float = Query(34.8), lon: float = Query(-92.2)):
 def weather_alerts_log():
     """Build the weather-alert log from cached regional NWS and USGS layers."""
     logger.debug("GET /weather-alerts-log")
-    _, _, _, ar, oos, usgs_ar, usgs_oos = svc.get_cached_geojson()
+    data = svc.get_cached_geojson_layers(("nws_ar", "nws_oos", "usgs_ar", "usgs_oos"))
+    ar, oos = data.get("nws_ar"), data.get("nws_oos")
+    usgs_ar, usgs_oos = data.get("usgs_ar"), data.get("usgs_oos")
     return svc.get_weather_alerts_log(ar, oos, [], usgs_ar, usgs_oos)
 
 
@@ -211,17 +311,35 @@ def site_types():
     Depends(require_action("Action: Manually Sync Data")),
 ])
 def sync_hazards():
-    """Refresh regional hazard feeds and clear derived caches after a successful sync."""
+    """Refresh NWS alerts and slower hazards, then clear derived API caches."""
     logger.info("POST /sync-hazards: triggering manual hazard sync")
-    from src.workers.infra_worker import fetch_regional_hazards
+    from src.workers.infra_worker import fetch_nws_alerts, fetch_regional_hazards
     try:
-        fetch_regional_hazards()
+        nws_result = fetch_nws_alerts()
+        regional_result = fetch_regional_hazards()
         svc.get_cached_geojson.clear()
+        svc.get_cached_geojson_layers.clear()
         svc.get_cached_geojson_status.clear()
         svc._precompute_geo_matrix.clear()
         svc.get_active_wildfires.clear()
+        failures = [name for name, result in (
+            ("nws_alerts", nws_result), ("regional_hazards", regional_result)
+        ) if result.get("status") not in {"ok", "not_modified", "throttled", "backoff"}]
+        if failures:
+            logger.error("POST /sync-hazards: partial failure %s", failures)
+            raise HTTPException(
+                status_code=502,
+                detail={"message": "One or more hazard sources failed to refresh.", "feeds": {
+                    "nws_alerts": nws_result, "regional_hazards": regional_result,
+                }},
+            )
         logger.info("POST /sync-hazards: sync complete")
-        return {"status": "ok", "message": "Regional hazards synced."}
+        return {
+            "status": "ok", "message": "Regional hazards synced.",
+            "feeds": {"nws_alerts": nws_result, "regional_hazards": regional_result},
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("POST /sync-hazards failed: %s", e)
         raise HTTPException(status_code=502, detail="Regional hazard sync failed.") from e

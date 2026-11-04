@@ -5,10 +5,9 @@ import { useAuth } from "../utils/AuthContext";
 import { getAllowedTabs } from "../utils/permissions";
 import { formatTimeInChicago, chicagoDateString, formatEtrDate } from "../utils/timezone";
 import { MapContainer } from "../components/MapContainer";
+import { ConusMap } from "../components/ConusMap";
 import { MarkdownContent } from "../components/MarkdownContent";
-import DeckGL from "@deck.gl/react";
 import { LineLayer, ScatterplotLayer } from "@deck.gl/layers";
-import { Map } from "@vis.gl/react-maplibre";
 import type { MapViewState } from "@deck.gl/core";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
@@ -886,17 +885,14 @@ export function AiopsRcaPage() {
               <div style={{ position: "absolute", top: 8, left: 10, zIndex: 10, fontSize: "0.8rem", fontWeight: 600, color: "var(--text-secondary)", background: "var(--bg-card)", padding: "0.2rem 0.6rem", borderRadius: "var(--radius-sm)" }}>
                 Overlays
               </div>
-              <DeckGL
+              <ConusMap
                 layers={mapLayers}
                 initialViewState={INITIAL_VIEW}
-                controller={true}
                 style={{ height: "100%" }}
                 getTooltip={mapTooltip}
                 onClick={handleMapClick}
                 getCursor={({ isDragging, isHovering }: any) => isDragging ? "grabbing" : isHovering ? "pointer" : "default"}
-              >
-                <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
-              </DeckGL>
+              />
               <div
                 role="group"
                 aria-label="AIOps site status map legend"

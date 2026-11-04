@@ -1,4 +1,13 @@
 # syntax=docker/dockerfile:1.7
+FROM node:22-alpine AS basemap
+
+WORKDIR /app
+
+COPY web/package.json web/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
+COPY web/scripts ./scripts
+RUN npm run build:basemap
+
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -18,6 +27,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Runtime source is baked into the shared API/worker/webhook image.
 COPY --chown=appuser:appuser . .
+COPY --from=basemap --chown=appuser:appuser /app/public/maps /app/web/public/maps
 
 # The entrypoint repairs only the mounted data directory, then drops privileges.
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

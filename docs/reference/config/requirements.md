@@ -22,6 +22,7 @@ The Python image installs only runtime dependencies. The test manifest adds pinn
 | `aiohttp` | Concurrent asynchronous RSS fetching. |
 | `trafilatura` | Article full-text extraction. |
 | `shapely` | Regional polygon, point, and geometry operations. |
+| `pyproj>=3.6,<4` | Meter-accurate local AEQD projection for the Arkansas 50-mile border buffer. |
 | `scikit-learn` | ML article scoring and scheduled model training. |
 | `joblib` | Persisting and loading the trained model. |
 | `elasticsearch>=8.0.0,<9.0.0` | Production Elastic telemetry/search integration; retained in the standard image. Tests mock the client or leave `ELASTIC_URL` blank. |

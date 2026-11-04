@@ -7,10 +7,10 @@ Prefix: `/api/v1/regional`. All routes require page permission `Regional Grid`; 
 | Method/path | Additional grant | Behavior |
 |---|---|---|
 | `GET /locations` | Any Regional Grid tab | Returns cached locations. Non-administrators receive only rows whose `loc_type` is in their site-type grants. |
-| `GET /geojson` | Any map, executive, hazard, weather-log, or Atmos tab | Returns `spc_day1`, `spc_day2`, `spc_day3`, `nws_ar`, `nws_oos`, `usgs_ar`, `usgs_oos`, and per-feed freshness `meta`. |
-| `GET /wildfires` | `Tab: Regional Grid -> Geospatial Map` | Returns WFCA incident, reported perimeter, and recent satellite-footprint data (or an empty-list fallback on a source-level failure). See `API.md` for geographic and small-fire filters. |
-| `POST /compile-map` | Any Regional Grid tab | Compiles site/hazard intersections and analytics. Body accepts `toggles`, `selected_events`, and `map_df`; legacy `spc_data`, `ar_data`, `oos_data`, `usgs_ar_data`, and `usgs_oos_data` remain accepted. If no legacy GeoJSON is supplied, the service uses its coherent cached snapshot. Non-admin site rows are filtered to allowed names; a row set without a recognized site-name column is discarded. |
-| `GET /weather-alerts-log` | `Tab: Regional Grid -> Weather Alerts Log` | Returns persisted NWS alert details and USGS earthquake entries from cached GeoJSON. |
+| `GET /geojson?layers=...&bbox=...` | Any map, executive, hazard, weather-log, or Atmos tab | Optional comma-separated `layers` limits which collections transfer; `layers=summary` returns only active NWS event names/metadata; optional WGS84 viewport `bbox` limits returned features. Omitted `layers` preserves the all-layer response. |
+| `GET /wildfires?bbox=...` | `Tab: Regional Grid -> Geospatial Map` | Returns cached WFCA incidents, reported perimeters, estimated satellite footprints, and freshness metadata, optionally scoped to the WGS84 viewport. Source failures retain the last successful payload when available. |
+| `POST /compile-map` | Any Regional Grid tab | Compiles selected site/hazard intersections. Body accepts `toggles`, `selected_events`, `map_df`, optional `viewport_bounds`, and `include_analytics`; legacy raw GeoJSON fields remain accepted. Non-admin site rows are filtered to allowed names and viewport before compilation. |
+| `GET /weather-alerts-log` | `Tab: Regional Grid -> Weather Alerts Log` | Returns current NWS alerts and USGS earthquake entries. NWS records past CAP `expires` are excluded; expected event-ending time remains a separate field. |
 | `GET /site-types` | Page `Regional Grid` | Returns the default site types merged with distinct database `MonitoredLocation.loc_type` values. |
 
 ### Positional `POST /compile-map` response
@@ -34,4 +34,4 @@ This API intentionally returns a six-element JSON array consumed by index in `Re
 
 ## Manual synchronization
 
-`POST /sync-hazards` requires one of Geospatial Map, Executive Dash, or Hazard Analytics plus `Action: Manually Sync Data`. It calls `fetch_regional_hazards()`, clears GeoJSON/freshness/intersection/wildfire caches, and returns success. Worker failure returns HTTP 502.
+`POST /sync-hazards` requires one of Geospatial Map, Executive Dash, or Hazard Analytics plus `Action: Manually Sync Data`. It calls the one-request NWS poll and the slower SPC/USGS/WFCA job, clears derived caches, and returns per-feed outcomes. NWS requests made within 60 seconds or within `Retry-After` are reported as deferred without another upstream call; provider failures return HTTP 502 with feed results.

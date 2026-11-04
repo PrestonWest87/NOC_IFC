@@ -12,6 +12,7 @@ Production nginx server block copied to `/etc/nginx/conf.d/default.conf` by `web
 | `client_max_body_size` | `101g` | Nginx-level request-body ceiling; API-level backup-upload limits remain controlled separately by `BACKUP_MAX_BYTES`. |
 | `root` | `/usr/share/nginx/html` | Production Vite build output. |
 | `index` | `index.html` | SPA entry document. |
+| `gzip` | enabled | Compresses JSON/GeoJSON and web assets for smaller transfer size. |
 
 ## Locations
 
@@ -22,6 +23,10 @@ Exact-match liveness endpoint. Disables access logging, adds a text content type
 ### `location ~ \.mjs$`
 
 Serves JavaScript module files with `application/javascript`. Missing `.mjs` files return `404` rather than the SPA entry document, preventing module workers from receiving HTML with an invalid MIME type.
+
+### `location ^~ /maps/`
+
+Serves precompiled, versioned contiguous-US boundary GeoJSON with `application/geo+json` and a one-year immutable cache header. These files are same-origin static assets; live hazard overlays continue to come from API endpoints.
 
 ### `location /`
 

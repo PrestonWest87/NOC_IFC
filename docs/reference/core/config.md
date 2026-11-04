@@ -30,6 +30,7 @@ Loads typed environment configuration with Pydantic Settings, imports `.env` val
 | `cors_origins` | `str` | `http://localhost:8501,http://localhost:5173` | Comma-separated CORS origin list. |
 | `allow_unsigned_webhooks` | `bool` | `False` | Explicit migration exception for unsigned webhook requests. |
 | `public_app_url` | `str` | `http://localhost:8501` | Base URL used for registration links. |
+| `nws_api_user_agent` | `str` | `NOC-IFC/2.0 (https://test.weasts.net)` | Identifying User-Agent for NWS API requests; bootstrap admin email is appended when configured. |
 | `default_admin_email` | `str` | Empty | Optional verified email for the bootstrap admin/recovery reviewer. |
 | `registration_invite_ttl_hours` | `int` | `72` | Default registration invite lifetime. |
 | `backup_encryption_keys` | `str` | `""` | JSON map of backup key IDs to 32-byte hexadecimal keys. |

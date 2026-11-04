@@ -29,6 +29,9 @@ Thumbs.db
 # Node
 web/node_modules/
 web/dist/
+web/public/maps/*-v1.geojson
+!web/public/maps/conus-states-v1.geojson
+!web/public/maps/arkansas-border-counties-v1.geojson
 *.tsbuildinfo
 
 # Automated test suites are maintained locally and intentionally not tracked.

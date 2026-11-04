@@ -7,6 +7,7 @@ import { hasActionPermission, isAdministrator } from "../utils/permissions";
 import { UsersRolesTab } from "../components/UsersRolesTab";
 import { ApplicationSettingsTab } from "../components/ApplicationSettingsTab";
 import { SiteContactsDialog } from "../components/SiteContactsDialog";
+import { ConusMap } from "../components/ConusMap";
 import {
   Trash2, Upload, Download, RefreshCw, AlertTriangle, Save,
    Key, Shield, Settings as SettingsIcon, Database, FileJson,
@@ -15,9 +16,7 @@ import {
   Pin, PinOff, ThumbsUp, ThumbsDown
 } from "lucide-react";
 import { ThemeSelector } from "../components/ThemeSelector";
-import DeckGL from "@deck.gl/react";
 import { ScatterplotLayer } from "@deck.gl/layers";
-import { Map } from "@vis.gl/react-maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 const TABS = [
@@ -440,16 +439,13 @@ function FacilitiesTab({ locations, locationsLoading, locationsError, refetchLoc
           {mapSites.length === 0 ? (
             <div style={{ color: "var(--text-muted)", fontSize: "0.85rem", padding: "2rem", textAlign: "center" }}>No facility locations with coordinates loaded.</div>
           ) : (
-            <DeckGL
+            <ConusMap
               layers={mapLayers}
               initialViewState={{ latitude: 34.8, longitude: -92.2, zoom: 6, pitch: 0 }}
-              controller={true}
               style={{ height: "100%" }}
               onClick={handleMapClick}
               getCursor={({ isDragging, isHovering }: any) => isDragging ? "grabbing" : isHovering ? "pointer" : "default"}
-            >
-              <Map mapStyle="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" />
-            </DeckGL>
+            />
           )}
         </div>
         {mapSite && (

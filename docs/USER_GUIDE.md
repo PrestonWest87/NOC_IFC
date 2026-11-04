@@ -58,7 +58,9 @@ Displays incidents from the Little Rock police CAD feed. Addresses are geocoded 
 
 ## Regional Grid (`#/regional-grid`)
 
-Six tabs provide a geospatial overlay, executive dashboard, deep hazard analytics, location matrix, weather-alert log, and Atmos Weather view. Map layers include SPC outlooks, NWS warnings/watches, USGS earthquakes, wildfire-weather risk, WFCA active incidents/perimeters, and recent satellite-footprint estimates.
+Six tabs provide a geospatial overlay, executive dashboard, deep hazard analytics, location matrix, weather-alert log, and Atmos Weather view. The local contiguous-US map loads state outlines and Arkansas-border county outlines before on-demand hazard layers. NWS alerts include Arkansas and the 50-mile outward strip in Louisiana, Texas, Mississippi, Missouri, Oklahoma, and Tennessee. The worker checks NWS once per minute; the map shows the last successful feed time and flags stale/errors.
+
+Active NWS messages automatically leave active views at their CAP `Expires` time or when NWS updates/cancels them. The expected event-ending time is shown separately and does not clear an alert before its CAP expiry.
 
 - Site markers are intersected with currently selected hazard geometry; filters control which data is shown.
 - WFCA reported perimeters are distinct from FIRMS-derived estimated satellite footprints. Small fires at or below one acre are omitted when farther than one mile from monitored sites; alerts for those small fires use the same one-mile rule. Larger-fire proximity alerts use five miles.

@@ -167,11 +167,19 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ### `get_cached_geojson() -> tuple`
 
-**Purpose:** Retrieves all cached GeoJSON data (SPC day 1/2/3, NWS AR/OOS, USGS AR/OOS).
+**Purpose:** Compatibility reader for all seven regional map layers; NWS collections are filtered at read time by CAP `effective`/`expires`.
 
 **Returns:** `tuple` -- `(spc_d1, spc_d2, spc_d3, ar, oos, usgs_ar, usgs_oos)` where each element is GeoJSON data or None.
 
-**Dependencies:** `GeoJsonCache`, `SessionLocal`, `TTLCache(ttl=120, max_entries=1)`
+**Dependencies:** `get_cached_geojson_layers`, `filter_current_alerts`
+
+### `get_cached_geojson_layers(feed_names=None, bbox=None) -> dict`
+
+Returns only requested feeds and optionally scopes complete features to a WGS84 map viewport. A short five-second process cache limits repeated SQLite JSON reads; NWS CAP expiry is applied on every read.
+
+### `get_cached_geojson_status() -> dict`
+
+Returns compact fetch age, last attempt/success, error, status code, duration, feature count, Retry-After, coverage summary, and API server time without loading full GeoJSON payloads. NWS becomes stale after three missed one-minute cycles or immediately reports a failed request.
 
 ---
 
@@ -191,15 +199,15 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ### `get_regional_counties_mapping() -> dict`
 
-**Purpose:** Fetches and caches all US county boundaries keyed by 5-digit FIPS code.
+**Purpose:** Loads precompiled Arkansas and six-neighbor county boundaries keyed by 5-digit FIPS code; it is the primary production geometry source.
 
 **Returns:** `dict` -- Mapping of FIPS codes to dicts containing `state_fips`, `geometry`, and `name`.
 
 **Raises:** Logs error on failure, returns empty dict.
 
-**Dependencies:** `requests`, `TTLCache(ttl=86400, max_entries=1)`
+**Dependencies:** `requests`, `application_data_dir`, bundled `web/public/maps/arkansas-border-counties-v1.geojson`, `TTLCache(ttl=3600, max_entries=1)`
 
-**Flow:** Fetches county GeoJSON from GitHub, indexes features by concatenated STATE+COUNTY FIPS codes.
+**Flow:** Loads the versioned Census-derived artifact under `web/public/maps` first. Development installs without the generated artifact use the durable `./data/maps/us_counties_fips.geojson` cache, fetching and atomically persisting the source only on a cold install.
 
 ---
 
@@ -317,11 +325,11 @@ A utility class extending `dict` to allow dot-notation attribute access.
 - `oos_data` (dict) -- Out-of-state NWS alert GeoJSON
 - `locs` (list) -- List of monitored locations with lat/lon
 
-**Returns:** `list[dict]` -- Deduplicated alert dicts with Event, Affected Area, Expires, Description.
+**Returns:** `list[dict]` -- Deduplicated current alert dicts with Event, Affected Area, CAP Expires, Expected End, Message Type, and Description.
 
 **Dependencies:** `UserWeatherPreference`, `SessionLocal`, `shapely`
 
-**Flow:** Fetches user's alert type preferences. For AR data, keeps all matching alerts. For OOS data, performs polygon intersection check against monitored locations. Deduplicates by event+area+expires.
+**Flow:** Fetches user's alert type preferences, removes CAP-expired/cancelled messages, applies the existing out-of-state facility filter, then deduplicates by event+area+expires.
 
 ---
 
@@ -763,13 +771,13 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 **Purpose:** Fetches current wildfire incidents and perimeter geometry from the WFCA Fire Map GeoServer WFS.
 
-**Returns:** `dict` -- `{"incidents": [...], "perimeters": [...], "footprints": [...]}` with WFCA wildfire detail, reported GeoJSON perimeters, and estimated satellite-footprint GeoJSON. Returns `[]` if the incident feed is unavailable; perimeter or footprint feed failures leave the other available layers usable.
+**Returns:** `dict` -- `{"incidents": [...], "perimeters": [...], "footprints": [...], "meta": {...}}` with WFCA wildfire detail, reported GeoJSON perimeters, estimated satellite-footprint GeoJSON, and freshness/error metadata. On an upstream failure, the last successful snapshot is returned with `meta.status="stale"` when available.
 
 **Raises:** Feed errors are logged and handled without raising to API callers.
 
 **Dependencies:** WFCA GeoServer WFS (`WFCA:WFIGS_Incidents`, `WFCA:WFIGS_Perimeters`, and `WFCA:FIRMS_Footprints`), `requests`, `shapely`, `TTLCache(ttl=300, max_entries=1)`
 
-**Flow:** Queries the WFCA-hosted layers within the Arkansas operating-area bounds, then applies the county-boundary buffer. Filters to non-stale `WF` incidents that are not fully contained, joins reported perimeter features and recent FIRMS footprints by IRWIN ID, and unions geometry fragments per incident. FIRMS footprints are estimated thermal-detection areas and are not presented as reported perimeters. Prescribed fires and incidents outside the operating area are excluded. Fires at or below one acre are omitted from the map when farther than one mile from every monitored site; the proximity worker alerts on such fires only for sites within one mile. The frontend polls every five minutes.
+**Flow:** Queries the WFCA-hosted layers using the projected Arkansas-plus-50-mile-borders envelope, then applies the same projected corridor to incidents, perimeters, and footprints. Filters to non-stale `WF` incidents that are not fully contained, joins reported perimeter features and recent FIRMS footprints by IRWIN ID, and unions geometry fragments per incident. FIRMS footprints are estimated thermal-detection areas and are not presented as reported perimeters. Prescribed fires and incidents outside the operating area are excluded. Fires at or below one acre are omitted from the map when farther than one mile from every monitored site; the proximity worker alerts on such fires only for sites within one mile. The Regional Grid fetches the layer only when enabled and passes the current viewport bounds.
 
 ---
 
@@ -787,7 +795,7 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ### `get_hazards(limit=15, hours_back=None) -> list[DotDict]`
 
-**Purpose:** Retrieves recent regional hazards.
+**Purpose:** Retrieves recent verified active NWS hazards that have not expired or become effective in the future.
 
 **Parameters:**
 - `limit` (int) -- Max items (default: 15)
@@ -852,9 +860,9 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 **Returns:** `tuple[list, list]` -- `(toggled_affected_sites, master_affected_sites)`
 
-**Dependencies:** `shapely.Point`
+**Dependencies:** `shapely.Point`, `shapely.STRtree`
 
-**Flow:** Pre-calculates bounding boxes for all polygons. For each site, performs bounding box pre-check (fast float math) before expensive Shapely `within()` call. Builds toggled (visible) and master (all) affected site lists.
+**Flow:** Builds an STRtree over hazard polygons, queries only geometries near each site, then uses exact Shapely `covers()` containment. Boundary points count as affected. Builds toggled (visible) and master (all) affected site lists.
 
 ---
 
@@ -1437,7 +1445,7 @@ In `replace` mode, contacts for sites with the same name are reattached to the r
 
 ## 10. Regional Geospatial Precomputation
 
-### `_precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, selected_events_tuple, map_rows) -> dict`
+### `_precompute_geo_matrix(spc_data, ar_data, oos_data, usgs_ar_data, usgs_oos_data, selected_events_tuple, map_rows, cache_token=None, include_active_wildfires=True, wildfire_data=None) -> dict`
 
 **Purpose:** Heavy math engine: parses JSON, builds Shapely objects, calculates all intersections once.
 
@@ -1449,10 +1457,13 @@ In `replace` mode, contacts for sites with the same name are reattached to the r
 - `usgs_oos_data` (dict | None) -- Out-of-state USGS earthquake data
 - `selected_events_tuple` (tuple) -- Selected event types
 - `map_rows` (list[dict]) -- Site records
+- `cache_token` (optional tuple) -- Small provider revision/viewport token; prevents caching by stringifying full GeoJSON payloads
+- `include_active_wildfires` (bool) -- Whether WFCA polygons/points are part of this calculation
+- `wildfire_data` (dict | None) -- Preloaded, optionally viewport-scoped WFCA data
 
 **Returns:** `dict` -- spc_micro, ar_warn, ar_watch, oos_warn, oos_watch, ar_fire_geo, wfca_data, eq_data, master_affected_sites, map_diagnostics.
 
-**Dependencies:** `shapely`, `process_nws_alerts`, `get_regional_counties_mapping`, `get_active_wildfires`, `calculate_site_intersections`, `TTLCache(ttl=120)`
+**Dependencies:** `shapely`, `process_nws_alerts`, `get_regional_counties_mapping`, `get_active_wildfires`, `calculate_site_intersections`, `TTLCache(ttl=120)` with a compact source-version key
 
 **Flow:**
 1. Processes SPC data with color mapping
@@ -1460,7 +1471,7 @@ In `replace` mode, contacts for sites with the same name are reattached to the r
 3. Processes fire weather risk using county FIPS matching
 4. Processes active WFCA wildfires, using perimeter geometry when available and incident points otherwise
 5. Processes USGS earthquakes
-6. Executes `calculate_site_intersections` once for all master polygons
+6. Uses an STRtree spatial index for site/polygon candidate lookup, then executes exact containment
 
 ---
 

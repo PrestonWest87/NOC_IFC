@@ -92,7 +92,7 @@ Article deduplication now uses `rapidfuzz.fuzz.ratio` with the existing strict `
 
 - Replace the dual Mapbox/MapLibre React wrapper with `@vis.gl/react-maplibre`; the frontend uses only MapLibre and no Mapbox adapter.
 - Remove the `deck.gl` umbrella package. It installs unused ArcGIS, CARTO, Google Maps, geo, mesh, aggregation, and Mapbox modules.
-- Declare the actual imported packages directly: `@deck.gl/react`, `@deck.gl/layers`, and `@deck.gl/core`, plus required peers such as `@deck.gl/widgets`. Align versions and validate with a clean install.
+- Declare the actual imported packages directly: `@deck.gl/maplibre`, `@deck.gl/layers`, and `@deck.gl/core`, plus required peers such as `@deck.gl/widgets`. Align versions and validate with a clean install.
 - Update Axios, React Router, MapLibre, Vite, and the React Vite plugin to patched compatible versions; keep `npm audit` clear.
 - Keep other frontend dependencies; they are imported by the application. Defer replacing Axios with browser `fetch` because many pages depend on Axios interceptors and response/error shapes.
 

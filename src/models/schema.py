@@ -384,7 +384,7 @@ class DailyThreatScore(Base):
 
 
 class RegionalHazard(Base):
-    """Normalized regional weather, earthquake, or wildfire hazard metadata."""
+    """Normalized NWS alert with provider-issued lifecycle and coverage metadata."""
     __tablename__ = "regional_hazards"
     id = Column(Integer, primary_key=True, index=True)
     hazard_id = Column(String, unique=True, index=True)
@@ -394,6 +394,20 @@ class RegionalHazard(Base):
     description = Column(Text)
     location = Column(String)
     updated_at = Column(DateTime, index=True)
+    last_seen_at = Column(DateTime, nullable=True, index=True)
+    status = Column(String(24), nullable=False, default="unknown", server_default="unknown", index=True)
+    sent_at = Column(DateTime, nullable=True)
+    effective_at = Column(DateTime, nullable=True)
+    onset_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True, index=True)
+    event_ending_at = Column(DateTime, nullable=True)
+    message_type = Column(String(16), nullable=True)
+    references_json = Column(JSON, nullable=True)
+    coverage_scope = Column(String(24), nullable=True)
+    coverage_precision = Column(String(32), nullable=True)
+
+
+Index("ix_regional_hazards_status_expires_at", RegionalHazard.status, RegionalHazard.expires_at)
 
 
 class RegionalOutage(Base):
@@ -536,11 +550,21 @@ class CrimeIncident(Base):
 
 
 class GeoJsonCache(Base):
-    """Cached provider GeoJSON layer and its last-refresh timestamp."""
+    """Cached provider GeoJSON and independently tracked fetch/freshness metadata."""
     __tablename__ = "geojson_cache"
     feed_name = Column(String, primary_key=True, index=True)
     data = Column(JSON)
     updated_at = Column(DateTime, default=datetime.utcnow)
+    last_attempt_at = Column(DateTime, nullable=True)
+    last_success_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    last_http_status = Column(Integer, nullable=True)
+    last_duration_ms = Column(Integer, nullable=True)
+    retry_after_at = Column(DateTime, nullable=True)
+    etag = Column(String(512), nullable=True)
+    last_modified = Column(String(128), nullable=True)
+    feature_count = Column(Integer, nullable=True)
+    coverage_summary = Column(JSON, nullable=True)
 
 
 class NodeAlias(Base):

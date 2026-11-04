@@ -424,12 +424,23 @@ The admin-only site-contact API validates fields. Automatic escalation includes 
 |--------|------|---------|-------|-------------|
 | `id` | `Integer PK` | auto | Y | Primary key |
 | `hazard_id` | `String` | — | Y (unique) | Source hazard identifier |
-| `hazard_type` | `String` | — | — | NWS/SPC/USGS hazard type |
+| `hazard_type` | `String` | — | — | NWS alert event type |
 | `severity` | `String` | — | — | Classified severity level |
 | `title` | `String` | — | — | Hazard title |
 | `description` | `Text` | — | — | Full description |
 | `location` | `String` | — | — | Geographic location string |
-| `updated_at` | `DateTime` | — | Y | Last update timestamp |
+| `updated_at` | `DateTime` | — | Y | Last payload/record update |
+| `last_seen_at` | `DateTime` | NULL | Y | Last successful active snapshot containing the alert |
+| `status` | `String(24)` | `unknown` | Y | Lifecycle: active, expired, cancelled, superseded, inactive, or legacy unknown |
+| `sent_at` | `DateTime` | NULL | — | CAP issuance time |
+| `effective_at` | `DateTime` | NULL | — | CAP message effective time |
+| `onset_at` | `DateTime` | NULL | — | Expected event onset |
+| `expires_at` | `DateTime` | NULL | Y | CAP message expiry, not event-ending time |
+| `event_ending_at` | `DateTime` | NULL | — | Expected weather-event end |
+| `message_type` | `String(16)` | NULL | — | CAP Alert/Update/Cancel type |
+| `references_json` | `JSON` | NULL | — | CAP identifiers superseded or cancelled |
+| `coverage_scope` | `String(24)` | NULL | — | Arkansas or border-band classification |
+| `coverage_precision` | `String(32)` | NULL | — | Alert geometry, county geocode, or state fallback |
 
 ---
 
@@ -466,7 +477,7 @@ The admin-only site-contact API validates fields. Automatic escalation includes 
 | `regional_outages` | `id`, `outage_type`, `provider`, `lat`, `lon`, `radius_km`, `is_resolved` | Regional power/ISP outages |
 | `bgp_anomalies` | `id`, `asn`, `event_type`, `description`, `is_resolved` | RIPE RIS routing anomalies |
 | `timeline_events` | `id`, `timestamp`, `source`, `event_type`, `message`, `site_name` | RCA activity feed with site-scope metadata |
-| `geojson_cache` | `feed_name` (PK), `data` (JSON), `updated_at` | SPC/NWS/USGS cached |
+| `geojson_cache` | `feed_name` (PK), `data` (JSON), `updated_at`, fetch-attempt/success/error/status/duration fields, ETag/Last-Modified, feature count, coverage summary | SPC/NWS/USGS cached with source health |
 | `node_aliases` | `id`, `node_pattern`, `mapped_location_name`, `confidence_score`, `is_verified` | SolarWinds mapping |
 | `user_weather_prefs` | `id`, `username`, `alert_type` | Weather preferences; `username` is a logical user reference |
 

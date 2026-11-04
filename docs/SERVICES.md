@@ -82,7 +82,7 @@ Site health and workflow are separate:
 
 ## Regional data, reporting, and operations
 
-- `src/workers/infra_worker.py` concurrently fetches SPC outlooks, Arkansas/nearby NWS alerts, and USGS GeoJSON, then performs earthquake/wildfire proximity notification work. The regional route precomputes Shapely intersections and returns `[processed_geo, {}, diagnostics, toggled_affected_sites, master_affected_sites, analytics]`.
+- `fetch_nws_alerts()` polls one combined Arkansas and six-neighbor NWS area every minute, conditionally revalidates responses, persists CAP lifecycle state, and keeps the last good payload on failure. `fetch_regional_hazards()` separately refreshes slower SPC/USGS feeds and performs earthquake/wildfire proximity checks. The regional route reads only selected, viewport-scoped GeoJSON and returns `[processed_geo, {}, diagnostics, toggled_affected_sites, master_affected_sites, analytics]`.
 - `get_active_wildfires()` uses WFCA WFS incident/perimeter data and recent FIRMS satellite footprints. Footprints are explicitly estimates and remain separate from official perimeters.
 - `src/workers/telemetry_worker.py` runs ORNL ODIN, RIPE routing visibility, and IODA ISP outage work concurrently. Elastic ingestion is a separate `elastic_sync` registry job.
 - `src/workers/crime_worker.py` consumes Little Rock CAD data, geocodes addresses, measures distance from the Little Rock headquarters point, and stores deduplicated rows. Perimeter notification thresholds are also headquarters-relative.

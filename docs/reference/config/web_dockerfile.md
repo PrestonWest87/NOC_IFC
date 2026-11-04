@@ -17,14 +17,14 @@ Multi-stage Docker build for the React frontend. Stage 1 compiles the TypeScript
 | `COPY` | `package.json package-lock.json ./` | Copies manifest and lockfile first to leverage Docker layer caching — `npm ci` re-runs only when dependencies change. |
 | `RUN` | `npm ci` with a BuildKit npm-cache mount | Clean install from lockfile with cached package downloads. Fails if `package-lock.json` is out of sync with `package.json`. |
 | `COPY` | `. .` | Copies all frontend source (`src/`, `public/`, `index.html`, `vite.config.ts`, `tsconfig.json`, etc.). |
-| `RUN` | `npm run build` | Executes `tsc -b && vite build`. Outputs production assets to `/app/dist`. |
+| `RUN` | `npm run build` | Runs `prebuild` to compile local US boundary GeoJSON, then executes `tsc -b && vite build`. Outputs the application and map boundary assets to `/app/dist`. |
 
 ### Stage 2: Production (`nginx:alpine`)
 
 | Directive | Value | Description |
 |-----------|-------|-------------|
 | `FROM` | `nginx:alpine` | Minimal Nginx Alpine image for static file serving. |
-| `COPY --from=builder` | `/app/dist /usr/share/nginx/html` | Copies compiled JS/CSS/HTML from the builder stage into Nginx's default web root. |
+| `COPY --from=builder` | `/app/dist /usr/share/nginx/html` | Copies compiled JS/CSS/HTML and versioned `/maps/` GeoJSON into Nginx's default web root. |
 | `COPY` | `nginx.conf /etc/nginx/conf.d/default.conf` | Overrides the default Nginx config with the project's custom config (proxy pass to API, WebSocket support). |
 | `EXPOSE` | `5173` | Documents the port the container listens on. Does not publish the port — that is handled by `docker-compose.yml` `ports:` mapping. |
 | `CMD` | `["nginx", "-g", "daemon off;"]` | Runs Nginx in the foreground so the container stays alive. |

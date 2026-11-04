@@ -30,7 +30,8 @@ The single `worker` process registers 20 jobs from `JOB_REGISTRY`. It runs regis
 | `maintenance_expiry` | Every 5 minutes; starts on boot | Clear maintenance after ETR date ends in Central time |
 | `telemetry_sync` | Every 6 minutes; starts on boot | Run ORNL, RIPE, and IODA fetches concurrently |
 | `elastic_sync` | Every 6 minutes; starts on boot | Import bounded high-severity Elastic events into the local cache |
-| `regional_hazards` | Every 7 minutes; starts on boot | Refresh SPC/NWS/USGS/WFCA and evaluate earthquake/wildfire proximity |
+| `nws_alerts` | Every 1 minute; starts on boot | Fetch one combined seven-state active-alert response; reconcile CAP lifecycle and 50-mile border coverage |
+| `regional_hazards` | Every 7 minutes; starts on boot | Refresh SPC/USGS/WFCA and evaluate earthquake/wildfire proximity |
 | `cloud_outages` | Every 8 minutes; starts on boot | Fetch configured cloud status feeds |
 | `crime_fetch` | Every 10 minutes; starts on boot | Fetch/geocode Little Rock CAD events and dispatch qualifying high-severity alerts |
 | `database_maintenance` | Every 60 minutes | Retention, orphan IOC deletion, SQLite optimize/passive checkpoint |

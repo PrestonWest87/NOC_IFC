@@ -19,7 +19,10 @@ NPM package manifest for the React/TypeScript frontend. Declares project metadat
 
 | Script | Command | Description |
 |--------|---------|-------------|
+| `build:basemap` | `node scripts/build-basemap.mjs` | Precompiles the contiguous-US state and Arkansas-border county GeoJSON from the pinned Census-derived `us-atlas` package. |
+| `predev` | `node scripts/build-basemap.mjs` | Generates local map boundary assets before starting Vite development. |
 | `dev` | `vite` | Starts the Vite development server with hot-module replacement on port 5173 (or as configured in `vite.config.ts`). |
+| `prebuild` | `node scripts/build-basemap.mjs` | Generates the versioned local basemap data before the production build. |
 | `build` | `tsc -b && vite build` | **Production build pipeline.** TypeScript build mode checks the source first; `noEmit: true` prevents JavaScript/declaration output, then Vite creates the production bundle. Fails if type errors exist. |
 | `preview` | `vite preview` | Starts a local static file server to preview the production build output (`dist/`). Useful for verifying the built bundle before deployment. |
 
@@ -27,13 +30,13 @@ NPM package manifest for the React/TypeScript frontend. Declares project metadat
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@deck.gl/core` | `^9.3.0` | Deck.gl core types and runtime primitives imported directly by map components. |
-| `@deck.gl/layers` | `^9.3.0` | Only the map layers used by this UI (scatterplot, GeoJSON, bitmap, and polygon). |
-| `@deck.gl/react` | `^9.3.0` | Deck.gl React bindings — `<DeckGL>` component for map visualizations. |
-| `@deck.gl/widgets` | `^9.3.0` | Required peer package for deck.gl React bindings. |
+| `@deck.gl/core` | `^9.4.0` | Deck.gl core types and runtime primitives imported directly by map components. |
+| `@deck.gl/layers` | `^9.4.0` | Only the map layers used by this UI (scatterplot, GeoJSON, bitmap, and polygon). |
+| `@deck.gl/maplibre` | `^9.4.0` | MapLibre v6-compatible overlay control that renders deck.gl layers above the basemap. |
+| `@deck.gl/widgets` | `^9.4.0` | Deck.gl widgets peer package. |
 | `@loaders.gl/core` | `^4.4.1` | Required deck.gl layer peer. |
-| `@luma.gl/core` | `^9.3.3` | Required deck.gl rendering peer. |
-| `@luma.gl/engine` | `^9.3.3` | Required deck.gl rendering peer. |
+| `@luma.gl/core` | `^9.4.0` | Required deck.gl rendering peer. |
+| `@luma.gl/engine` | `^9.4.0` | Required deck.gl rendering peer. |
 | `@tanstack/react-query` | `^5.100.11` | Server state management — caching, background refetching, and pagination for REST API calls. |
 | `axios` | `^1.20.0` | Patched HTTP client for REST API requests. Used by `web/src/utils/api.ts`. |
 | `lucide-react` | `^1.16.0` | Open-source icon library as React components. Used throughout the UI for navigation and status indicators. |
@@ -52,14 +55,17 @@ NPM package manifest for the React/TypeScript frontend. Declares project metadat
 | `@types/react` | `^18.3.0` | TypeScript type declarations for React. |
 | `@types/react-dom` | `^18.3.0` | TypeScript type declarations for ReactDOM. |
 | `@vitejs/plugin-react` | `^5.0.4` | Vite plugin — enables React Fast Refresh, JSX transform, and Babel integration. |
+| `topojson-client` | `^3.1.0` | Decodes Census-derived TopoJSON into build-time GeoJSON map assets. |
 | `typescript` | `^5.5.0` | TypeScript compiler (`tsc`) for type-checking. |
+| `us-atlas` | `^3.0.1` | Pinned Census 2017 cartographic state/county boundary TopoJSON used only during basemap compilation. |
 | `vite` | `^7.3.6` | Patched bundler and dev server with native ES module support. |
 
 ## Dependency Notes
 
 - **Caret ranges** (`^X.Y.Z`): Allow updates to minor and patch versions. The lockfile (`package-lock.json`) captures exact resolved versions.
 - **`npm ci`** (used in Docker build): Installs from `package-lock.json` only — fails if lockfile is missing or out of sync. Guarantees reproducible builds.
-- **Map dependencies**: The `deck.gl` umbrella and Mapbox React wrapper are intentionally omitted. The manifest declares only deck.gl modules used by source and the MapLibre-only wrapper.
+- **Map dependencies**: The `deck.gl` umbrella, reverse-controlled React wrapper, and Mapbox adapter are intentionally omitted. The manifest declares only deck.gl modules used by source and the MapLibre-only React wrapper.
+- **Map boundary data**: `us-atlas`/`topojson-client` are build-time dependencies; dynamic weather/hazard data remains API-served and is not embedded in the static basemap.
 
 ## Dependencies
 

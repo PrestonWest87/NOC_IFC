@@ -242,8 +242,7 @@ None (uses `useAuth` for user context).
 - `useState`, `useMemo`, `useCallback`, `useEffect` from `react`
 - `useQuery`, `useMutation`, `useQueryClient` from `@tanstack/react-query`
 - `MapContainer` from `../components/MapContainer`
-- `DeckGL` from `@deck.gl/react`
-- `Map` from `@vis.gl/react-maplibre`
+- `ConusMap` from `../components/ConusMap` (MapLibre base map with a deck.gl overlay control)
 - `ScatterplotLayer`, `PolygonLayer` from `@deck.gl/layers`
 - `MapViewState` type from `@deck.gl/core`
 - `maplibre-gl/dist/maplibre-gl.css`
