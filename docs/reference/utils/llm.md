@@ -1,6 +1,6 @@
 # Module: `src/utils/llm.py`
 
-Implements the application's OpenAI-compatible chat-completions client, optional Ollama context lookup, sequential map/reduce helpers, in-process brief progress state, and report-generation functions. The module does not use provider SDKs. SMTP is implemented separately in `src/utils/mailer.py`.
+Implements provider-aware chat requests for OpenAI-compatible services, Ollama OpenAI-compatible/native APIs, and vLLM; optional Ollama context lookup; sequential map/reduce helpers; in-process brief progress state; and report-generation functions. The module does not use provider SDKs. SMTP is implemented separately in `src/utils/mailer.py`.
 
 ## Context and provider selection
 
@@ -12,9 +12,13 @@ Lookup table for known cloud/local model context sizes. When an API key is confi
 
 Returns the first `SystemConfig` row with `is_active=True`, or `None`. The caller owns the session.
 
+### Provider selection and `request_llm_completion(...)`
+
+`SystemConfig.llm_provider` selects `openai_compatible`, `ollama_openai`, `ollama_native`, or `vllm`. Ollama native posts to `/api/chat`, sets `stream: false`, maps temperature/max tokens into Ollama `options`, and reads `message.content`. The other choices use `/chat/completions` and the `choices[0].message.content` response shape; Ollama OpenAI-compatible and vLLM normalize a base URL to `/v1` when needed. `request_llm_completion()` raises `LLMRequestError` with a safe provider/connection description and rejects malformed or empty responses.
+
 ### `call_llm(messages, config, temperature=0.1, max_tokens=None)`
 
-Accepts a `SystemConfig`-like object or dictionary, posts `{model, messages, temperature, max_tokens}` to `{llm_endpoint}/chat/completions`, and uses a 300-second request timeout. It adds a Bearer header when an API key is present. If `max_tokens` is omitted, it uses `min(effective_context // 2, 8192)`. Network, HTTP, response-shape, empty-content, and other errors are returned as strings prefixed with `[WARN]`; they are not raised to callers.
+Accepts a `SystemConfig`-like object or dictionary and uses the shared provider adapter with a 300-second request timeout. It adds a Bearer header when an API key is present. If `max_tokens` is omitted, it uses `min(effective_context // 2, 8192)`. Provider/network/HTTP/response errors are returned as strings prefixed with `[WARN]`; they are not raised to report callers.
 
 ### `chunk_list(data, size)` and `truncate_text(text, max_chars=300)`
 
@@ -106,7 +110,9 @@ Calculates the previous local calendar day in `America/Chicago`, queries article
 
 | Helper | Behavior |
 |---|---|
-| `_query_ollama_context_window(endpoint, model)` | POSTs `{name:model}` to the derived `/api/show`, caches a recognized architecture context length, and negative-caches missing/unreachable metadata for 60 seconds. |
+| `_query_ollama_context_window(endpoint, model, provider=None)` | POSTs `{name:model}` to the derived Ollama `/api/show`, caches a recognized architecture context length, and negative-caches missing/unreachable metadata for 60 seconds. |
+| `_build_llm_request(messages, config, temperature, max_tokens)` | Builds provider-specific URL, authorization headers, and chat payload. |
+| `request_llm_completion(messages, config, temperature=0.1, max_tokens=None, timeout=300)` | Performs one provider-aware request and returns non-empty assistant text or raises `LLMRequestError`. |
 | `is_internal_risk_brief_failure_notice(content)` | Recognizes explicit incomplete/skeleton report markers so such content is neither persisted nor exposed/broadcast as a complete internal brief. |
 | `_consolidate_hazards(hazards, arkansas_only=False)` | Skips replaced alerts, groups by hazard name/severity, merges area labels, and optionally filters locations to the Arkansas county list. |
 | `_dedup_phys_outputs(phys_outputs)` | Merges repeated physical map lines by a parsed `TYPE`/`HAZARD` prefix. |
@@ -117,5 +123,5 @@ Calculates the previous local calendar day in `America/Chicago`, queries article
 
 - Brief progress dictionaries are in-memory and process-local; they are not durable job records.
 - LLM-generated correlations and recommendations are machine-generated assessments, not proof that an internal asset is compromised.
-- `SystemConfig.is_active` and endpoint/key/model settings come from database configuration. The general LLM call timeout is five minutes; the settings connection-test endpoint uses a separate 30-second request.
+- `SystemConfig.is_active`, `llm_provider`, and endpoint/key/model settings come from database configuration. The general LLM call timeout is five minutes; the administrator connection-test endpoint uses a separate 30-second request and the same provider adapter.
 - Update `docs/DATA_FLOWS.md` and `docs/API.md` when input windows, output sections, progress stages, or caller permissions change.

@@ -173,6 +173,7 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `llm_endpoint` | `String` | `"https://api.openai.com/v1"` | LLM API endpoint URL |
 | `llm_api_key` | `String` | `""` | LLM API key |
 | `llm_model_name` | `String` | `"gpt-4o-mini"` | LLM model identifier |
+| `llm_provider` | `String(32)` | `"openai_compatible"` | Selected OpenAI-compatible, Ollama, or vLLM request protocol |
 | `is_active` | `Boolean` | `False` | Whether AI features are enabled |
 | `tech_stack` | `Text` | `"SolarWinds, Cisco SD-WAN, Microsoft Office, Verizon, Cisco"` | Organizational tech stack for AI context |
 | `monitored_asns` | `String` | `"AS701, AS7922, AS3356"` | Monitored BGP ASNs |
@@ -212,6 +213,19 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `wildfire_proximity_state` | `Text` | `"{}"` | JSON wildfire proximity state |
 | `llm_context_window` | `Integer` | `128000` | Effective LLM context-window limit |
 | `public_app_url` | `String` | `http://localhost:8501` | Base URL used for registration links |
+| `risk_alert_recipients` | `Text` | `nullable` | Database override for `RISK_ALERT_RECIPIENTS`; NULL uses the environment |
+| `remedyforce_ticket_email` | `Text` | `nullable` | Database override for `REMEDYFORCE_TICKET_EMAIL` |
+| `noc_notify_email` | `Text` | `nullable` | Database override for `NOC_NOTIFY_EMAIL` |
+| `noc_onpage_email` | `Text` | `nullable` | Database override for `NOC_ONPAGE_EMAIL` |
+| `itnetwork_onpage_email` | `Text` | `nullable` | Database override for `ITNETWORK_ONPAGE_EMAIL` |
+| `elastic_url` | `Text` | `nullable` | Database override for `ELASTIC_URL` |
+| `elastic_api_key` | `Text` | `nullable` | Database override for Elastic API key; API reads expose only configured state |
+| `elastic_verify_certs` | `Boolean` | `nullable` | Database override for `ELASTIC_VERIFY_CERTS` |
+| `elastic_ca_certs` | `Text` | `nullable` | Database override for `ELASTIC_CA_CERTS` |
+| `elastic_request_timeout` | `Float` | `nullable` | Database override for `ELASTIC_REQUEST_TIMEOUT` |
+| `elastic_max_results` | `Integer` | `nullable` | Database override for `ELASTIC_MAX_RESULTS` |
+| `crime_alert_sms` | `Text` | `nullable` | Database override for `CRIME_ALERT_SMS` |
+| `crime_alert_email` | `Text` | `nullable` | Database override for `CRIME_ALERT_EMAIL` |
 | `failed_login_alert_enabled` | `Boolean` | `False` | Enable failed-login email alerts |
 | `failed_login_alert_recipients` | `Text` | `""` | Comma-separated security alert recipient list |
 | `failed_login_alert_threshold` | `Integer` | `5` | Failed attempts required to alert (2-100) |

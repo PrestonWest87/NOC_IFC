@@ -202,6 +202,8 @@ The complete environment template is [`.env.example`](./.env.example). The most 
 
 SMTP and LLM provider details are configured in the Settings page under the AI & SMTP area and stored in the application configuration. They are not additional `SMTP_*` or `LLM_API_URL` environment variables in the current runtime.
 
+Alert destinations and Elastic connection settings can also be edited in Settings > Application Settings > Notification destinations and Elastic integration. The values above remain environment fallbacks; saved database overrides apply to API and worker processes without a restart. The AI provider selector supports OpenAI-compatible endpoints, Ollama’s OpenAI-compatible and native APIs, and vLLM. Local endpoints must be reachable from the API container.
+
 ## Automated Operations
 
 The worker runs scheduled jobs without requiring an analyst to trigger each collection manually:

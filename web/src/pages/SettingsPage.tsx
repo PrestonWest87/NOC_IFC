@@ -151,7 +151,10 @@ export function SettingsPage() {
   const saveConfigMutation = useMutation({
     mutationFn: (data: any) => {
       const payload = { ...data };
-      if (!String(payload.llm_api_key || "").trim()) delete payload.llm_api_key;
+      const clearLlmApiKey = !!payload.clear_llm_api_key;
+      delete payload.clear_llm_api_key;
+      if (clearLlmApiKey) payload.llm_api_key = "";
+      else if (!String(payload.llm_api_key || "").trim()) delete payload.llm_api_key;
       if (!String(payload.smtp_password || "").trim()) delete payload.smtp_password;
       return api.post("/admin/config", payload);
     },
@@ -947,6 +950,7 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation, readOnly }: { co
 
   const testConnectionMutation = useMutation({
     mutationFn: () => api.post("/llm/test-connection", {
+      llm_provider: form?.llm_provider || "openai_compatible",
       llm_endpoint: form?.llm_endpoint || "",
       llm_api_key: form?.llm_api_key || "",
       llm_model_name: form?.llm_model_name || "",
@@ -958,6 +962,7 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation, readOnly }: { co
   if (!configLoading && config && !form) {
     setForm({
       llm_endpoint: config.llm_endpoint || "",
+      llm_provider: config.llm_provider || "openai_compatible",
       llm_api_key: config.llm_api_key || "",
       llm_model_name: config.llm_model_name || "",
       llm_context_window: config.llm_context_window ?? 128000,
@@ -986,27 +991,44 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation, readOnly }: { co
       <Card title="LLM Configuration" icon={Cpu}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
           <div>
-            <SectionTitle text="Endpoint" />
-            <input style={inputStyle} disabled={readOnly} value={form.llm_endpoint} onChange={e => upd("llm_endpoint", e.target.value)} placeholder="https://api.openai.com/v1" />
+            <SectionTitle text="Provider" />
+            <select style={inputStyle} disabled={readOnly} value={form.llm_provider} onChange={e => upd("llm_provider", e.target.value)}>
+              <option value="openai_compatible">OpenAI-compatible</option>
+              <option value="ollama_openai">Ollama (OpenAI-compatible API)</option>
+              <option value="ollama_native">Ollama (native API)</option>
+              <option value="vllm">vLLM (OpenAI-compatible API)</option>
+            </select>
           </div>
           <div>
-            <SectionTitle text="API Key" />
+            <SectionTitle text="Base endpoint" />
+            <input style={inputStyle} disabled={readOnly} value={form.llm_endpoint} onChange={e => upd("llm_endpoint", e.target.value)} placeholder={form.llm_provider === "ollama_native" ? "http://ollama:11434" : form.llm_provider === "ollama_openai" ? "http://ollama:11434/v1" : form.llm_provider === "vllm" ? "http://vllm:8000/v1" : "https://api.openai.com/v1"} />
+          </div>
+          <div>
+            <SectionTitle text="API Key (optional for local providers)" />
             <div style={{ display: "flex", gap: "0.3rem" }}>
-              <input style={inputStyle} disabled={readOnly} type={showKey ? "text" : "password"} value={form.llm_api_key} onChange={e => upd("llm_api_key", e.target.value)} placeholder="sk-..." />
+              <input style={inputStyle} disabled={readOnly} type={showKey ? "text" : "password"} value={form.llm_api_key} onChange={e => upd("llm_api_key", e.target.value)} placeholder={config?.llm_api_key_configured ? "Saved key; reused for the saved provider" : "Optional for local providers"} />
               {!readOnly && <button onClick={() => setShowKey(!showKey)} style={{ background: "none", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", color: "var(--text-secondary)", cursor: "pointer", padding: "0.35rem" }}>
                 {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>}
             </div>
+            {!readOnly && config?.llm_api_key_configured && <button type="button" onClick={() => {
+              upd("llm_api_key", "");
+              saveConfigMutation.mutate({ clear_llm_api_key: true });
+            }} disabled={saveConfigMutation.isPending} style={{ ...btn("var(--accent-red)"), marginTop: 5, padding: "0.35rem 0.55rem" }}>Clear saved API key</button>}
           </div>
           <div>
             <SectionTitle text="Model Name" />
-            <input style={inputStyle} disabled={readOnly} value={form.llm_model_name} onChange={e => upd("llm_model_name", e.target.value)} placeholder="gpt-4" />
+            <input style={inputStyle} disabled={readOnly} value={form.llm_model_name} onChange={e => upd("llm_model_name", e.target.value)} placeholder={form.llm_provider.startsWith("ollama") ? "qwen3:8b" : "model name"} />
           </div>
           <div>
             <SectionTitle text="Context Window" />
             <input style={inputStyle} disabled={readOnly} type="number" min={4096} step={4096} value={form.llm_context_window} onChange={e => upd("llm_context_window", Number(e.target.value))} placeholder="128000" />
           </div>
         </div>
+        <p style={{ margin: "0.4rem 0 0", color: "var(--text-muted)", fontSize: "0.7rem" }}>A saved key is reused for testing only with its saved provider. Saving a different provider clears the old key unless you enter a replacement.</p>
+        <p style={{ margin: "0.55rem 0 0", color: "var(--text-muted)", fontSize: "0.73rem" }}>
+          Ollama native uses <code>/api/chat</code>; Ollama OpenAI-compatible and vLLM use <code>/v1/chat/completions</code>. The endpoint must be reachable from the API container. In Docker, use the model service name or host gateway instead of container-local <code>localhost</code>.
+        </p>
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginTop: "0.6rem", flexWrap: "wrap" }}>
           <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem", color: "var(--text-primary)", cursor: "pointer" }}>
             <input type="checkbox" disabled={readOnly} checked={form.is_active} onChange={e => upd("is_active", e.target.checked)} />

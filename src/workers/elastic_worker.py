@@ -2,66 +2,78 @@
 
 import logging
 import re
+import threading
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 from elasticsearch import Elasticsearch
 from src.core.db import SessionLocal
-from src.core.config import (
-    ELASTIC_URL,
-    ELASTIC_API_KEY,
-    ELASTIC_VERIFY_CERTS,
-    ELASTIC_CA_CERTS,
-    ELASTIC_REQUEST_TIMEOUT,
-    ELASTIC_MAX_RESULTS,
-)
+from src.core.runtime_settings import resolve_operational_settings
 from src.models.schema import ElasticEvent
 
 logger = logging.getLogger(__name__)
 
 es = None
+_es_settings_signature = None
+_es_lock = threading.RLock()
 
 
-def _get_client():
-    """Create the client on first use so API imports do not require Elastic."""
-    global es
-    if es is not None:
-        return es
+def _get_client(operational_settings=None):
+    """Create or refresh the process-local client from live database/environment settings."""
+    global es, _es_settings_signature
+    if operational_settings is None:
+        operational_settings, _sources = resolve_operational_settings()
 
-    endpoint = (ELASTIC_URL or "").strip()
-    if not endpoint:
-        logger.info("Elasticsearch client not created because ELASTIC_URL is not configured.")
-        return None
+    endpoint = (operational_settings.get("elastic_url") or "").strip()
+    api_key = (operational_settings.get("elastic_api_key") or "").strip()
+    verify_certs = bool(operational_settings.get("elastic_verify_certs", True))
+    ca_certs = operational_settings.get("elastic_ca_certs") or None
+    request_timeout = float(operational_settings.get("elastic_request_timeout") or 15)
+    signature = (endpoint, api_key, verify_certs, ca_certs, request_timeout)
 
-    try:
-        endpoint_host = urlsplit(endpoint).hostname or "invalid"
-    except ValueError:
-        endpoint_host = "invalid"
+    with _es_lock:
+        if signature == _es_settings_signature and (es is not None or not endpoint):
+            return es
+        if es is not None:
+            try:
+                es.close()
+            except Exception:
+                logger.debug("Failed to close stale Elasticsearch client", exc_info=True)
+            es = None
+        _es_settings_signature = signature
 
-    options = {
-        "verify_certs": ELASTIC_VERIFY_CERTS,
-        "request_timeout": ELASTIC_REQUEST_TIMEOUT,
-        "max_retries": 2,
-        "retry_on_timeout": True,
-    }
-    if ELASTIC_CA_CERTS:
-        options["ca_certs"] = ELASTIC_CA_CERTS
-    api_key = (ELASTIC_API_KEY or "").strip()
-    if api_key.casefold() in {"your_read_only_api_key", "changeme", "placeholder"}:
-        logger.warning("Ignoring a placeholder Elasticsearch API key.")
-        api_key = ""
-    if api_key:
-        options["api_key"] = api_key
-    logger.info(
-        "Creating Elasticsearch client host=%s verify_certs=%s api_key_configured=%s timeout=%ss",
-        endpoint_host, ELASTIC_VERIFY_CERTS, bool(api_key), ELASTIC_REQUEST_TIMEOUT,
-    )
-    try:
-        es = Elasticsearch(endpoint, **options)
-        return es
-    except Exception:
-        logger.exception("Failed to create Elasticsearch client")
-        return None
+        if not endpoint:
+            logger.info("Elasticsearch client not created because ELASTIC_URL is not configured.")
+            return None
+
+        try:
+            endpoint_host = urlsplit(endpoint).hostname or "invalid"
+        except ValueError:
+            endpoint_host = "invalid"
+
+        options = {
+            "verify_certs": verify_certs,
+            "request_timeout": request_timeout,
+            "max_retries": 2,
+            "retry_on_timeout": True,
+        }
+        if ca_certs:
+            options["ca_certs"] = ca_certs
+        if api_key.casefold() in {"your_read_only_api_key", "changeme", "placeholder"}:
+            logger.warning("Ignoring a placeholder Elasticsearch API key.")
+            api_key = ""
+        if api_key:
+            options["api_key"] = api_key
+        logger.info(
+            "Creating Elasticsearch client host=%s verify_certs=%s api_key_configured=%s timeout=%ss",
+            endpoint_host, verify_certs, bool(api_key), request_timeout,
+        )
+        try:
+            es = Elasticsearch(endpoint, **options)
+            return es
+        except Exception:
+            logger.exception("Failed to create Elasticsearch client")
+            return None
 
 
 def sync_elastic_telemetry(hours_back=24):
@@ -69,11 +81,14 @@ def sync_elastic_telemetry(hours_back=24):
     if not isinstance(hours_back, int) or isinstance(hours_back, bool) or hours_back < 1:
         raise ValueError("hours_back must be a positive integer")
 
-    if not (ELASTIC_URL or "").strip():
+    operational_settings, _sources = resolve_operational_settings()
+    endpoint = (operational_settings.get("elastic_url") or "").strip()
+    max_results = int(operational_settings.get("elastic_max_results") or 500)
+    if not endpoint:
         logger.info("Elasticsearch sync skipped because ELASTIC_URL is not configured.")
         return {"status": "skipped", "imported": 0, "message": "ELASTIC_URL is not configured."}
 
-    client = _get_client()
+    client = _get_client(operational_settings)
     if client is None:
         logger.error("Elasticsearch sync stopped because a client could not be created.")
         return {"status": "error", "imported": 0, "message": "Elasticsearch client is not configured."}
@@ -93,7 +108,7 @@ def sync_elastic_telemetry(hours_back=24):
                 ]
             }
         },
-        "size": ELASTIC_MAX_RESULTS,
+        "size": max_results,
         "sort": [
             {"@timestamp": {"order": "desc", "unmapped_type": "date"}},
         ],
@@ -103,7 +118,7 @@ def sync_elastic_telemetry(hours_back=24):
         hits = []
         logger.info(
             "Starting Elasticsearch cache sync hours_back=%d page_size=%d",
-            hours_back, ELASTIC_MAX_RESULTS,
+            hours_back, max_results,
         )
         res = client.search(
             index="*,-.*",
@@ -125,7 +140,7 @@ def sync_elastic_telemetry(hours_back=24):
                     "Elasticsearch sync page=%d hits=%d total_hits=%d",
                     page_number + 1, len(batch), len(hits),
                 )
-                if len(batch) < ELASTIC_MAX_RESULTS or not scroll_id:
+                if len(batch) < max_results or not scroll_id:
                     break
                 res = client.scroll(scroll_id=scroll_id, scroll="1m")
                 scroll_id = res.get("_scroll_id") or scroll_id
@@ -219,12 +234,14 @@ def execute_live_query(index_pattern="*", query_body=None, size=100):
     """Execute a bounded live Elastic query for analyst inspection."""
     if not isinstance(index_pattern, str) or not index_pattern or not re.fullmatch(r"[A-Za-z0-9_.*?,:-]+", index_pattern):
         return {"error": "Invalid Elasticsearch index pattern."}
-    if not isinstance(size, int) or isinstance(size, bool) or size < 1 or size > ELASTIC_MAX_RESULTS:
+    operational_settings, _sources = resolve_operational_settings()
+    max_results = int(operational_settings.get("elastic_max_results") or 500)
+    if not isinstance(size, int) or isinstance(size, bool) or size < 1 or size > max_results:
         return {"error": "Invalid Elasticsearch result size."}
     if query_body is not None and not isinstance(query_body, dict):
         return {"error": "Invalid Elasticsearch query."}
 
-    client = _get_client()
+    client = _get_client(operational_settings)
     if client is None:
         return {"error": "Elasticsearch client is not connected."}
 

@@ -26,7 +26,7 @@ Intervals below are the values in the scheduler source, not historical product t
 | CISA KEV | Every 7 hours | `fetch_cisa_kev` | CISA catalog; updates `CveItem` |
 | Global brief | Daily at 02:00 | `job_global_brief` | Broad OSINT and physical context; saves global threat brief |
 | ML retraining | Sunday at 02:00 | `job_retrain_ml` | Analyst feedback corpus; writes model and reloads scorer |
-| Daily email | 07:00 `America/Chicago` | `job_daily_email_unified_brief` | Saved unified brief and risk context; sends to `RISK_ALERT_RECIPIENTS` |
+| Daily email | 07:00 `America/Chicago` | `job_daily_email_unified_brief` | Saved unified brief and risk context; sends to effective risk recipients (`SystemConfig.risk_alert_recipients`, environment fallback `RISK_ALERT_RECIPIENTS`) |
 | Daily Fusion report | 06:00 `America/Chicago` | `run_daily_report` | Generates and stores the prior-day Daily Fusion report |
 | Encrypted database backup | Sunday at 00:00 `America/Chicago` | `job_database_backup` | SQLite online snapshot of every table plus the trained model; authenticated encryption; retains the newest three scheduled packages |
 
@@ -76,4 +76,4 @@ The older standalone `start_report_scheduler()` polling loop has been removed. D
 
 ## Escalation Rules
 
-The escalation job uses Central time business hours, Monday–Friday 06:00–20:00. It selects day-shift or after-hours rules using each alert's received timestamp, prioritizes higher-weight tiers, detects cascades, suppresses same-node flapping according to cooldown, and mutes routine after-hours site dispatch for one hour after a successful page. `REMEDYFORCE_TICKET_EMAIL` is required for escalation delivery; if it is missing, the function logs and skips that run without stopping the worker.
+The escalation job uses Central time business hours, Monday–Friday 06:00–20:00. It selects day-shift or after-hours rules using each alert's received timestamp, prioritizes higher-weight tiers, detects cascades, suppresses same-node flapping according to cooldown, and mutes routine after-hours site dispatch for one hour after a successful page. The effective Remedyforce destination is required for escalation delivery; if it is missing, the function logs and skips that run without stopping the worker.

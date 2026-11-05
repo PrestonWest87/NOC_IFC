@@ -51,7 +51,7 @@ The rows below are a selected operations quick reference, not a complete variabl
 | `WEBHOOK_REPLAY_WINDOW_SECONDS` | `300` | Tightening or relaxing replay protection |
 | `WEBHOOK_MAX_BODY_BYTES` | `1048576` | Accommodating larger or rejecting oversized webhook bodies |
 | `WEBSOCKET_MAX_MESSAGE_BYTES` | `65536` | Changing WebSocket input limits |
-| `ALLOW_PRIVATE_LLM_ENDPOINTS` | `false` | Allowing a private/local LLM endpoint after security review |
+| `ALLOW_PRIVATE_LLM_ENDPOINTS` | `false` | Allowing private endpoints for generic OpenAI-compatible connection tests; Ollama/vLLM local provider selections support validated private targets |
 | `CORS_ORIGINS` | localhost origins | Restricting browser origins |
 | `ALLOW_UNSIGNED_WEBHOOKS` | `false` | Temporary controlled migration only; do not enable by default |
 | `PUBLIC_APP_URL` | `http://localhost:8501` | Registration links or externally advertised URLs |
@@ -59,7 +59,7 @@ The rows below are a selected operations quick reference, not a complete variabl
 | `REGISTRATION_INVITE_TTL_HOURS` | `72` | Changing invite expiration |
 | `RESCORE_ON_STARTUP` | `false` if absent | Explicitly rescoring all existing articles during startup |
 
-These defaults describe runtime configuration when a variable is unset. The `.env.example` deliberately contains a change-me placeholder for `DEFAULT_ADMIN_PASSWORD`; replace it before first startup.
+These environment values remain supported as fallback runtime configuration. A database value saved in Settings > Application Settings > Notification destinations and Elastic integration takes precedence; an explicit blank disables an optional destination/integration, and “Reset to environment” restores fallback behavior. Values are read dynamically by API and worker processes. The `.env.example` deliberately contains a change-me placeholder for `DEFAULT_ADMIN_PASSWORD`; replace it before first startup.
 
 ## Frequency Controls
 
@@ -98,6 +98,7 @@ Change these through the Settings UI or the corresponding `SystemConfig` fields,
 - Keyword weights: `Keyword.weight`; validated by the keyword routes and applied by `HybridScorer`.
 - Scoring mode and CIS overrides: `scoring_mode`, criticality/lethality overrides, and risk offsets.
 - LLM provider/model/context: `SystemConfig` LLM fields; `src/utils/llm.py` applies context-window limits.
+- Notification destinations and Elastic URL/key/TLS/query bounds: Settings > Application Settings; null overrides use the matching environment value.
 - SMTP host, port, credentials, sender, and recipients: `SystemConfig`; `src/utils/mailer.py` sends messages.
 - RSS sources: `FeedSource` rows managed from Settings.
 

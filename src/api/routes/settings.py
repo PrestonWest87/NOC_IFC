@@ -26,6 +26,8 @@ def get_config(db: Session = Depends(get_db), user=Depends(get_current_user)):
         return {}
     return {
         "llm_endpoint": config.llm_endpoint,
+        "llm_provider": config.llm_provider or "openai_compatible",
+        "llm_api_key_configured": bool(config.llm_api_key),
         "llm_model_name": config.llm_model_name,
         "is_active": config.is_active,
         "smtp_enabled": config.smtp_enabled,

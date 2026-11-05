@@ -5,13 +5,16 @@ addition to Settings page and Application Settings tab access.
 """
 
 import logging
+import re
 from typing import Literal
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src import services as svc
 from src.api.auth_guard import get_current_user, require_action, require_page
+from src.core.runtime_settings import resolve_operational_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/application-settings", tags=["application-settings"])
@@ -48,6 +51,91 @@ class ApplicationValuesUpdate(BaseModel):
     failed_login_alert_recipients: str | None = Field(default=None, max_length=5000)
     failed_login_alert_threshold: int | None = Field(default=None, ge=2, le=100)
     failed_login_alert_window_minutes: int | None = Field(default=None, ge=1, le=60)
+
+
+_EMAIL_RE = re.compile(
+    r"^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,63}$",
+    re.IGNORECASE,
+)
+_INTEGRATION_EMAIL_FIELDS = (
+    "risk_alert_recipients", "remedyforce_ticket_email", "noc_notify_email",
+    "noc_onpage_email", "itnetwork_onpage_email", "crime_alert_sms", "crime_alert_email",
+)
+
+
+class IntegrationSettingsUpdate(BaseModel):
+    """Allowlist and validate environment-overridable alert and Elastic settings."""
+    model_config = ConfigDict(extra="forbid")
+
+    risk_alert_recipients: str | None = Field(default=None, max_length=5000)
+    remedyforce_ticket_email: str | None = Field(default=None, max_length=2000)
+    noc_notify_email: str | None = Field(default=None, max_length=2000)
+    noc_onpage_email: str | None = Field(default=None, max_length=2000)
+    itnetwork_onpage_email: str | None = Field(default=None, max_length=2000)
+    elastic_url: str | None = Field(default=None, max_length=2048)
+    elastic_api_key: str | None = Field(default=None, max_length=4096)
+    elastic_verify_certs: bool | None = None
+    elastic_ca_certs: str | None = Field(default=None, max_length=2048)
+    elastic_request_timeout: float | None = Field(default=None, gt=0, le=120)
+    elastic_max_results: int | None = Field(default=None, ge=1, le=5000)
+    crime_alert_sms: str | None = Field(default=None, max_length=2000)
+    crime_alert_email: str | None = Field(default=None, max_length=2000)
+
+    @field_validator(*_INTEGRATION_EMAIL_FIELDS, mode="before")
+    @classmethod
+    def normalize_recipient_lists(cls, value):
+        """Normalize comma/semicolon-separated recipients and reject malformed addresses."""
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("Recipient settings must be text.")
+        value = value.strip()
+        if not value:
+            return ""
+        recipients = [item.strip() for item in re.split(r"[,;]", value) if item.strip()]
+        if len(recipients) > 100:
+            raise ValueError("No more than 100 recipients may be configured per setting.")
+        invalid = [item for item in recipients if not _EMAIL_RE.fullmatch(item)]
+        if invalid:
+            raise ValueError("Recipients must be comma- or semicolon-separated email addresses.")
+        return ", ".join(dict.fromkeys(recipients))
+
+    @field_validator("elastic_url", mode="before")
+    @classmethod
+    def validate_elastic_url(cls, value):
+        """Accept a blank URL to disable Elastic, otherwise require a clean HTTP(S) endpoint."""
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("elastic_url must be text.")
+        value = value.strip().rstrip("/")
+        if not value:
+            return ""
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("elastic_url must be an HTTP(S) URL without credentials, query, or fragment.")
+        try:
+            parsed.port
+        except ValueError as exc:
+            raise ValueError("elastic_url contains an invalid port.") from exc
+        return value
+
+    @field_validator("elastic_api_key", "elastic_ca_certs", mode="before")
+    @classmethod
+    def trim_optional_text(cls, value):
+        """Trim values while preserving `None` as the reset-to-environment sentinel."""
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("Setting must be text.")
+        return value.strip()
 
 
 class SchedulerUpdate(BaseModel):
@@ -93,6 +181,44 @@ def update_application_settings(body: ApplicationValuesUpdate, user=Depends(get_
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     logger.info("Application settings updated by user_id=%s keys=%s", user.id, sorted(values))
+    return {"status": "updated"}
+
+
+@router.get("/integrations", dependencies=[
+    Depends(require_page("Settings & Admin")),
+    Depends(require_action(APP_SETTINGS_TAB)),
+    Depends(require_action("Action: Manage Application Settings")),
+])
+def get_integration_settings():
+    """Return effective alert/Elastic settings and sources without exposing API credentials."""
+    values, sources = resolve_operational_settings()
+    public_values = {
+        key: (value if value is not None else "")
+        for key, value in values.items()
+        if key != "elastic_api_key"
+    }
+    public_values.update({
+        "elastic_api_key_configured": bool(values.get("elastic_api_key")),
+        "sources": sources,
+    })
+    return public_values
+
+
+@router.put("/integrations", dependencies=[
+    Depends(require_page("Settings & Admin")),
+    Depends(require_action(APP_SETTINGS_TAB)),
+    Depends(require_action("Action: Manage Application Settings")),
+])
+def update_integration_settings(body: IntegrationSettingsUpdate, user=Depends(get_current_user)):
+    """Save only validated operational integration overrides; explicit null resets to environment."""
+    values = body.model_dump(exclude_unset=True)
+    if not values:
+        raise HTTPException(status_code=400, detail="Provide at least one integration setting.")
+    try:
+        svc.save_operational_settings(values, actor_user_id=user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info("Operational integration settings updated by user_id=%s keys=%s", user.id, sorted(values))
     return {"status": "updated"}
 
 

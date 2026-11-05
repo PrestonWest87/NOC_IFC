@@ -43,7 +43,7 @@ The RSS path downloads in chunks of five, scores title and summary text, and ski
 
 ## Elastic Sync Endpoint Returns an Error
 
-Use `POST /api/v1/hunting/sync-elastic-cache?hours_back=24` from the Threat Hunting workspace. A blank `ELASTIC_URL` disables scheduled sync; the manual endpoint reports that configuration state. Otherwise, the worker runs a sync every six minutes and logs the endpoint host, page counts, and request errors (never the API key). Check `docker compose logs --tail=300 worker` for connection, authentication, mapping, or database details. In Docker, `localhost` points to the API/worker container, so configure an Elasticsearch URL reachable from those containers. Verify `ELASTIC_API_KEY`, certificate settings, and network reachability. The sync uses scroll pagination and does not sort on `_id`.
+Use `POST /api/v1/hunting/sync-elastic-cache?hours_back=24` from the Threat Hunting workspace. A blank effective Elastic URL disables scheduled sync; the manual endpoint reports that configuration state. Check Settings > Application Settings > Notification destinations and Elastic integration first, including whether each value comes from the database or environment. The worker runs a sync every six minutes and logs the endpoint host, page counts, and request errors (never the API key). Check `docker compose logs --tail=300 worker` for connection, authentication, mapping, or database details. In Docker, `localhost` points to the API/worker container, so configure an Elastic URL reachable from both containers. Verify the API key, TLS/CA settings, and network reachability. The sync uses scroll pagination and does not sort on `_id`.
 
 ## Scores Are Zero or Unexpected
 
@@ -89,16 +89,16 @@ Check port/firewall routing, JSON content type, body size, HMAC secret/header na
 ## No Emails, Tickets, or On-Page Alerts
 
 1. Confirm SMTP settings in the Settings UI and test the LLM/SMTP connection where available.
-2. Confirm recipient variables: `RISK_ALERT_RECIPIENTS`, `REMEDYFORCE_TICKET_EMAIL`, `NOC_NOTIFY_EMAIL`, `NOC_ONPAGE_EMAIL`, and `ITNETWORK_ONPAGE_EMAIL`.
+2. Confirm the effective recipient destinations in Settings > Application Settings; unset database overrides use `RISK_ALERT_RECIPIENTS`, `REMEDYFORCE_TICKET_EMAIL`, `NOC_NOTIFY_EMAIL`, `NOC_ONPAGE_EMAIL`, and `ITNETWORK_ONPAGE_EMAIL` from the environment.
 3. Read worker logs for `SMTP Error`, `missing`, or `Skipping` messages.
 4. Confirm the event is in the applicable Central-time day/after-hours window and has passed its tier wait.
 5. Check node cooldown, site mute, `is_ticketed`, and resolution status.
 
-The escalation job aborts when `REMEDYFORCE_TICKET_EMAIL` is missing. Daily email skips when no saved unified brief or no `RISK_ALERT_RECIPIENTS` exists.
+The escalation job skips when the effective Remedyforce destination is missing. Daily email skips when no saved unified brief or no effective risk-recipient setting exists.
 
 ## LLM Briefs Time Out or Are Empty
 
-Check configured provider, model, endpoint reachability, API key, context window, and worker logs. The map/reduce pipeline chunks content and stores generation progress; inspect the corresponding status endpoint and generation ID in browser session storage. Reduce input volume or context size through application settings before increasing job frequency. A fallback response may be generated when the LLM exceeds the request budget.
+Check the selected provider, model, endpoint reachability from the API container, API key, context window, and worker logs. Ollama native requires `/api/chat`; Ollama OpenAI-compatible and vLLM use `/v1/chat/completions`. In Docker, use a reachable service name or host gateway rather than container-local `localhost`. The map/reduce pipeline chunks content and stores generation progress; inspect the corresponding status endpoint and generation ID in browser session storage. Reduce input volume or context size through application settings before increasing job frequency. A fallback response may be generated when the LLM exceeds the request budget.
 
 ## Regional Map Has No Hazards or Wrong Affected Sites
 

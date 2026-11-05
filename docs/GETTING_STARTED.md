@@ -128,7 +128,7 @@ The checked-in `.env.example` is the complete environment template, and [the env
 | `WEBHOOK_REPLAY_WINDOW_SECONDS` | `300` | Webhook replay protection window |
 | `WEBHOOK_MAX_BODY_BYTES` | `1048576` | Maximum webhook request body |
 | `WEBSOCKET_MAX_MESSAGE_BYTES` | `65536` | Maximum client WebSocket message |
-| `ALLOW_PRIVATE_LLM_ENDPOINTS` | `false` | Permit private LLM endpoint URLs |
+| `ALLOW_PRIVATE_LLM_ENDPOINTS` | `false` | Permit private LLM targets for generic OpenAI-compatible tests; explicit Ollama/vLLM provider selections support validated local endpoints |
 | `ALLOW_UNSIGNED_WEBHOOKS` | `false` | Controlled webhook migration exception |
 | `PUBLIC_APP_URL` | `http://localhost:8501` | Registration link base URL |
 | `REGISTRATION_INVITE_TTL_HOURS` | `72` | Registration invite lifetime |
@@ -136,7 +136,9 @@ The checked-in `.env.example` is the complete environment template, and [the env
 
 ### SMTP Configuration
 
-Configure SMTP and LLM settings in the Settings page (AI & SMTP tab) or directly in the database `system_config` table. These are application settings, not environment variables in the current runtime:
+Configure SMTP and LLM settings in the Settings page (AI & SMTP tab). Choose an OpenAI-compatible, Ollama OpenAI-compatible, Ollama native, or vLLM provider. The connection test uses the selected protocol. Local model URLs must be reachable from the API container; use the Docker service name or host gateway instead of container-local `localhost`.
+
+Configure alert destinations and Elastic settings in Settings > Application Settings > Notification destinations and Elastic integration. These values are stored in the shared `SystemConfig` row and apply to the API and worker without a restart. The environment variables listed above remain supported as defaults until a database override is saved; “Reset to environment” removes overrides. The Elastic API key is write-only in the UI. SMTP and LLM settings remain application settings in `SystemConfig`:
 
 | Field | Example |
 |-------|---------|

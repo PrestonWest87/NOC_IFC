@@ -3725,16 +3725,16 @@ def get_active_wildfires():
 def dispatch_perimeter_crime_alerts():
     """Checks for un-dispatched high severity crimes within 0.4 miles and sends an SMS-friendly alert."""
     from src.database import SessionLocal, CrimeIncident
-    from src.core.config import CRIME_ALERT_SMS, CRIME_ALERT_EMAIL
+    from src.core.runtime_settings import resolve_operational_settings
     from zoneinfo import ZoneInfo
 
-    # Reads the recipient(s) from your .env file. Supports comma-separated lists!
-    alert_sms = CRIME_ALERT_SMS
+    operational_settings, _sources = resolve_operational_settings()
+    alert_sms = operational_settings.get("crime_alert_sms")
     if not alert_sms:
-        # Fallback to the old env var
-        alert_sms = CRIME_ALERT_EMAIL
+        # Preserve the existing SMS-address-to-email fallback behavior.
+        alert_sms = operational_settings.get("crime_alert_email")
         if not alert_sms:
-            return False, "CRIME_ALERT_SMS not set in environment variables."
+            return False, "CRIME_ALERT_SMS and CRIME_ALERT_EMAIL are not configured."
             
     # Clean up the string just in case there are weird spaces in the .env file
     alert_sms = ", ".join([email.strip() for email in alert_sms.split(",")])
@@ -5158,7 +5158,7 @@ def save_global_config(data, allow_system_fields=True):
             if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
                 raise ValueError(f"{field_name} must be an integer between {minimum} and {maximum}.")
     editable_fields = {
-        "llm_endpoint", "llm_api_key", "llm_model_name", "is_active", "tech_stack",
+        "llm_endpoint", "llm_api_key", "llm_model_name", "llm_provider", "is_active", "tech_stack",
         "monitored_asns", "smtp_server", "smtp_port", "smtp_username", "smtp_password",
         "smtp_sender", "smtp_recipient", "smtp_enabled", "baseline_override_cyber",
         "baseline_override_phys", "sys_countermeasures", "net_countermeasures",
@@ -5188,6 +5188,9 @@ def save_global_config(data, allow_system_fields=True):
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.query or parsed.fragment:
             raise ValueError("public_app_url must be an HTTP(S) URL without a query or fragment.")
         data = {**data, "public_app_url": public_url}
+    if "llm_provider" in data:
+        from src.core.llm_providers import normalize_llm_provider
+        data["llm_provider"] = normalize_llm_provider(data["llm_provider"])
     with SessionLocal() as db:
         config = db.query(SystemConfig).first()
         if not config:
@@ -5207,9 +5210,65 @@ def save_global_config(data, allow_system_fields=True):
             smtp_sender = data.get("smtp_sender", config.smtp_sender)
             if not smtp_enabled or not smtp_server or not smtp_sender:
                 raise ValueError("Failed login alerts require enabled SMTP with a server and sender configured.")
+        previous_llm_provider = config.llm_provider or "openai_compatible"
+        next_llm_provider = data.get("llm_provider", previous_llm_provider)
         for key, value in data.items(): setattr(config, key, value)
+        if next_llm_provider != previous_llm_provider and "llm_api_key" not in data:
+            config.llm_api_key = ""
         db.commit()
     get_cached_config.clear()
+
+
+OPERATIONAL_SETTING_FIELDS = {
+    "risk_alert_recipients", "remedyforce_ticket_email", "noc_notify_email",
+    "noc_onpage_email", "itnetwork_onpage_email", "elastic_url", "elastic_api_key",
+    "elastic_verify_certs", "elastic_ca_certs", "elastic_request_timeout",
+    "elastic_max_results", "crime_alert_sms", "crime_alert_email",
+}
+
+
+def save_operational_settings(data, actor_user_id=None):
+    """Persist a strict set of database overrides and audit changed field names only."""
+    values = dict(data)
+    unknown = set(values) - OPERATIONAL_SETTING_FIELDS
+    if unknown:
+        raise ValueError(f"Unsupported integration settings: {', '.join(sorted(unknown))}")
+    if not values:
+        raise ValueError("Provide at least one integration setting.")
+
+    text_fields = OPERATIONAL_SETTING_FIELDS - {
+        "elastic_verify_certs", "elastic_request_timeout", "elastic_max_results",
+    }
+    for field in text_fields:
+        if field in values and values[field] is not None and not isinstance(values[field], str):
+            raise ValueError(f"{field} must be text or null.")
+    if "elastic_verify_certs" in values and values["elastic_verify_certs"] is not None:
+        if not isinstance(values["elastic_verify_certs"], bool):
+            raise ValueError("elastic_verify_certs must be a boolean or null.")
+    if "elastic_request_timeout" in values and values["elastic_request_timeout"] is not None:
+        timeout = values["elastic_request_timeout"]
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 0 < timeout <= 120:
+            raise ValueError("elastic_request_timeout must be greater than 0 and at most 120 seconds.")
+    if "elastic_max_results" in values and values["elastic_max_results"] is not None:
+        max_results = values["elastic_max_results"]
+        if isinstance(max_results, bool) or not isinstance(max_results, int) or not 1 <= max_results <= 5000:
+            raise ValueError("elastic_max_results must be an integer between 1 and 5000.")
+
+    with SessionLocal() as db:
+        config = db.query(SystemConfig).first()
+        if not config:
+            config = SystemConfig()
+            db.add(config)
+        for field, value in values.items():
+            setattr(config, field, value)
+        _audit_account_event(
+            db,
+            "operational_settings_changed",
+            actor_user_id=actor_user_id,
+            detail={"changed_fields": sorted(values)},
+        )
+        db.commit()
+
 
 def get_latest_internal_risk():
     """Return the newest internal-risk snapshot with decoded asset payloads and scoring mode."""

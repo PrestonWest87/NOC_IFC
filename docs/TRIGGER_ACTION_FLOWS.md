@@ -42,7 +42,7 @@ The single `worker` process registers 20 jobs from `JOB_REGISTRY`. It runs regis
 | `cisa_kev` | Every 7 hours; starts on boot | Synchronize CISA KEV catalog |
 | `global_brief` | Daily 02:00 Central; starts on boot | Generate/save US CI and global threat brief |
 | `daily_fusion_report` | Daily 06:00 Central | Generate/save previous Central calendar day's Daily Fusion report |
-| `daily_email_brief` | Daily 07:00 Central | Send the saved Unified Brief to `RISK_ALERT_RECIPIENTS` |
+| `daily_email_brief` | Daily 07:00 Central | Send the saved Unified Brief to effective risk recipients (`SystemConfig.risk_alert_recipients`, with `RISK_ALERT_RECIPIENTS` fallback) |
 | `ml_retrain` | Sunday 02:00 Central | Train from feedback labels and reload scorer |
 | `database_backup` | Sunday 00:00 Central | Create full encrypted backup; retain newest three scheduled packages |
 
@@ -165,11 +165,11 @@ The offline CLI requires `--maintenance-confirmed` only after API, worker, and w
 
 | Trigger | Destination/condition |
 |---|---|
-| Risk tier increases | `RISK_ALERT_RECIPIENTS`, only when prior tier is known, tier increases, SMTP is enabled, and the four-hour cooldown allows. |
-| Earthquake proximity | `RISK_ALERT_RECIPIENTS`; USGS M≥2.5 within 50 miles of a monitored site. |
-| Wildfire proximity | `NOC_NOTIFY_EMAIL`; 5 miles for ordinary fires, 1 mile for fires ≤1 acre, per-fire/site repeat tracking. |
-| Perimeter crime | `CRIME_ALERT_SMS` (fallback `CRIME_ALERT_EMAIL`); severity text “High”, ≤0.4 miles from headquarters, not previously dispatched. |
+| Risk tier increases | Effective risk recipients (`SystemConfig.risk_alert_recipients`, fallback `RISK_ALERT_RECIPIENTS`), only when prior tier is known, tier increases, SMTP is enabled, and the four-hour cooldown allows. |
+| Earthquake proximity | Effective risk recipients; USGS M≥2.5 within 50 miles of a monitored site. |
+| Wildfire proximity | Effective `NOC_NOTIFY_EMAIL`; 5 miles for ordinary fires, 1 mile for fires ≤1 acre, per-fire/site repeat tracking. |
+| Perimeter crime | Effective `CRIME_ALERT_SMS` (fallback `CRIME_ALERT_EMAIL`); severity text “High”, ≤0.4 miles from headquarters, not previously dispatched. |
 | Escalation ticket/page | Remedyforce/NOC/ITNETWORK destinations; see [`ESCALATION.md`](ESCALATION.md) for wait, cooldown, and retry rules. |
-| Daily email brief | `RISK_ALERT_RECIPIENTS` at 07:00 Central, if a saved unified brief exists. |
+| Daily email brief | Effective risk recipients at 07:00 Central, if a saved unified brief exists. |
 
-Email send paths depend on the `SystemConfig` SMTP settings; env recipients do not replace SMTP server/sender configuration.
+Email send paths depend on the `SystemConfig` SMTP settings; environment/database recipient destinations do not replace SMTP server/sender configuration. Application Settings overrides take precedence over environment fallbacks and are read dynamically by the API and worker.

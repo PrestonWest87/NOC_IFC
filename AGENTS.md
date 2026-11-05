@@ -150,6 +150,20 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 
 ---
 
+## Implementation Plan — Runtime Integrations and Local LLM Providers
+
+**Implementation branch:** `main` (user-directed). The work started from a clean `main` that matched the freshly fetched `origin/main`. Alert/Elastic database overrides take precedence over `.env` fallbacks; the existing `Action: Manage Application Settings` grant controls the integration editor. AI provider options are OpenAI-compatible, both Ollama APIs, and vLLM.
+
+- [x] Add a compatibility migration, nullable `SystemConfig` overrides, environment fallback resolver, validated integration API, audit entries, and editable notification/Elastic settings UI with write-only Elastic API key handling.
+- [x] Route risk, escalation, wildfire, crime, daily-email, and Elastic runtime consumers through dynamic settings; invalidate and retry the process-local Elastic client when appropriate.
+- [x] Add persisted provider selection and a shared provider-aware LLM request adapter for OpenAI-compatible, Ollama native/OpenAI-compatible, and vLLM endpoints; add provider-aware local model connection testing and endpoint help.
+- [x] Add local-only settings, migration, Elastic client, LLM protocol, endpoint policy, and authorization tests; update source-aligned API/configuration/schema/deployment/UI documentation.
+- [x] Fetch/check GitHub `main`; both worktrees pass 184 Python tests, Python compilation, frontend production build, API/web container builds, Compose config, documentation contracts, and `git diff --check`.
+- [x] Rebuild/redeploy the test Compose stack; API/web/webhook are healthy, worker is running, and the live SQLite database migrated to `20261105_0008`.
+- [x] Synchronize verified source changes to `architecture/monolith-to-decoupled`; confirm changed-file content parity and repeat tests/build/config checks there.
+
+---
+
 ## Documentation Index
 
 Comprehensive enterprise documentation is in `docs/`:
@@ -274,6 +288,8 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `migrations/versions/` | Versioned baseline adoption and future schema/data revisions |
 | `src/core/bootstrap.py` | Conditional role/admin/feed/keyword/system-config seed data |
 | `src/core/config.py` | Pydantic settings + logging |
+| `src/core/runtime_settings.py` | Live database overrides and environment fallback for notification/Elastic configuration |
+| `src/core/llm_providers.py` | Supported LLM provider protocols and endpoint URL construction |
 | `src/core/paths.py` | Shared persistent SQLite/data/model paths |
 | `src/core/backup_manager.py` | Authenticated encrypted full backups, retention, upload validation, and offline restore |
 | `src/core/restore_control.py` | Cross-process maintenance marker, API drain counters, and restore progress state |
@@ -291,6 +307,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `web/src/components/UsersRolesTab.tsx` | User directory, invitation, display-account, and role management |
 | `web/src/components/SiteContactsDialog.tsx` | Administrator editor and client-side validation for site contacts |
 | `web/src/components/ApplicationSettingsTab.tsx` | Risk scoring, scheduler, and global application settings |
+| `web/src/components/OperationalIntegrationSettings.tsx` | Notification destinations and Elastic settings editor |
 | `web/src/components/ConusMap.tsx` | Local contiguous-US MapLibre basemap shared by operational map views |
 | `web/src/pages/DashboardPage.tsx` | Dashboard with brief generation progress polling |
 

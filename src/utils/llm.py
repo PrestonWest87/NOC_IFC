@@ -16,6 +16,13 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.models.schema import SystemConfig, Article, CveItem, RegionalHazard, CloudOutage, CrimeIncident
+from src.core.llm_providers import (
+    DEFAULT_LLM_PROVIDER,
+    OLLAMA_PROVIDERS,
+    build_chat_url,
+    normalize_llm_provider,
+    ollama_base_url,
+)
 
 logger = logging.getLogger(__name__)
 LOCAL_TZ = ZoneInfo("America/Chicago")
@@ -124,7 +131,7 @@ MODEL_CONTEXT_WINDOWS = {
     "nemotron": 4096, "dbrx": 32768,
 }
 
-def _query_ollama_context_window(endpoint: str, model: str) -> int | None:
+def _query_ollama_context_window(endpoint: str, model: str, provider: str | None = None) -> int | None:
     """Query Ollama /api/show for context size; briefly cache missing/unreachable metadata."""
     cache_key = f"{endpoint}|{model}"
     if cache_key in _ollama_ctx_cache:
@@ -134,7 +141,7 @@ def _query_ollama_context_window(endpoint: str, model: str) -> int | None:
         _ollama_ctx_cache.pop(cache_key, None)
         _ollama_ctx_cache_expirations.pop(cache_key, None)
     try:
-        base = endpoint.rstrip("/").replace("/v1", "").replace("/chat/completions", "")
+        base = ollama_base_url(endpoint)
         url = f"{base}/api/show"
         resp = requests.post(url, json={"name": model}, timeout=10)
         resp.raise_for_status()
@@ -179,9 +186,10 @@ def _query_ollama_context_window(endpoint: str, model: str) -> int | None:
 def get_effective_context_window(config):
     """Resolve configured/model context size, using cached Ollama metadata when applicable."""
     manual = getattr(config, 'llm_context_window', 128000) or 128000
-    api_key = getattr(config, 'llm_api_key', None) or getattr(config, 'llm_api_key', '')
+    api_key = getattr(config, 'llm_api_key', None) or ''
     model = getattr(config, 'llm_model_name', '') or ''
     endpoint = getattr(config, 'llm_endpoint', '') or ''
+    provider = normalize_llm_provider(getattr(config, "llm_provider", DEFAULT_LLM_PROVIDER))
     # If API key is set, trust the manual setting (cloud API, user knows their model)
     if api_key:
         return manual
@@ -193,11 +201,12 @@ def get_effective_context_window(config):
     base = model_lower.split(":")[0].split("-latest")[0].strip()
     if base in MODEL_CONTEXT_WINDOWS:
         return MODEL_CONTEXT_WINDOWS[base]
-    # Unknown model — query Ollama directly
-    ollama_ctx = _query_ollama_context_window(endpoint, model)
-    if ollama_ctx is not None:
-        return ollama_ctx
-    logger.warning("Unknown model '%s' with no API key — falling back to manual setting %d", model, manual)
+    # Preserve Ollama context discovery for old OpenAI-compatible Ollama configs.
+    if provider in OLLAMA_PROVIDERS or provider == DEFAULT_LLM_PROVIDER:
+        ollama_ctx = _query_ollama_context_window(endpoint, model, provider)
+        if ollama_ctx is not None:
+            return ollama_ctx
+    logger.warning("Unknown model '%s' with no usable provider metadata — falling back to manual setting %d", model, manual)
     return manual
 
 def get_llm_config(session):
@@ -208,47 +217,112 @@ def get_llm_config(session):
                  config.llm_model_name if config else 'N/A')
     return config
 
-def call_llm(messages, config, temperature=0.1, max_tokens=None):
-    """Call the configured OpenAI-compatible chat endpoint and return text or a `[WARN]` string."""
+class LLMRequestError(RuntimeError):
+    """Safe, user-displayable description of a failed provider request."""
+
+
+def _build_llm_request(messages, config, temperature, max_tokens):
+    """Build provider-specific HTTP headers, URL, and chat payload."""
+    provider = normalize_llm_provider(getattr(config, "llm_provider", DEFAULT_LLM_PROVIDER))
+    endpoint = getattr(config, "llm_endpoint", "") or ""
+    model = getattr(config, "llm_model_name", "") or ""
+    api_key = getattr(config, "llm_api_key", "") or ""
+    if not endpoint.strip():
+        raise LLMRequestError("Endpoint URL is required.")
+    if not model.strip():
+        raise LLMRequestError("Model name is required.")
+
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    if provider == "ollama_native":
+        options = {"temperature": temperature}
+        if max_tokens is not None:
+            options["num_predict"] = max_tokens
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "options": options,
+        }
+    else:
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+
+    return provider, build_chat_url(endpoint, provider), headers, payload
+
+
+def request_llm_completion(messages, config, temperature=0.1, max_tokens=None, timeout=300):
+    """Perform one provider-aware request and return non-empty assistant text or a safe error."""
     if isinstance(config, dict):
         config = SimpleNamespace(**config)
-    headers = {"Content-Type": "application/json"}
-    if config.llm_api_key:
-        headers["Authorization"] = f"Bearer {config.llm_api_key}"
-
-    ctx = get_effective_context_window(config)
-    if max_tokens is None:
-        max_tokens = min(ctx // 2, 8192)
-
-    payload = {
-        "model": config.llm_model_name,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens
-    }
-
-    url = config.llm_endpoint.rstrip('/') + "/chat/completions"
-    logger.debug("call_llm: url=%s model=%s messages_count=%d", url, config.llm_model_name, len(messages))
+    provider, url, headers, payload = _build_llm_request(messages, config, temperature, max_tokens)
+    model = getattr(config, "llm_model_name", "") or ""
+    logger.debug(
+        "LLM request provider=%s model=%s messages_count=%d timeout=%ss",
+        provider, model, len(messages), timeout,
+    )
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        response.raise_for_status()
+    except requests.exceptions.Timeout as exc:
+        raise LLMRequestError(f"Request timed out after {timeout:g} seconds.") from exc
+    except requests.exceptions.ConnectionError as exc:
+        raise LLMRequestError(
+            "Could not connect to the model endpoint. Check its hostname, port, and reachability from the API container."
+        ) from exc
+    except requests.exceptions.HTTPError as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status is None:
+            status = getattr(response, "status_code", "unknown")
+        raise LLMRequestError(
+            f"The {provider} endpoint returned HTTP {status}. Check the provider selection and API path."
+        ) from exc
+    except requests.exceptions.RequestException as exc:
+        raise LLMRequestError("The request to the model endpoint failed.") from exc
 
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=300)
-        response.raise_for_status()
-        result = response.json()['choices'][0]['message']['content']
-        if not isinstance(result, str) or not result.strip():
-            logger.error("call_llm: endpoint returned an empty message (model=%s)", config.llm_model_name)
-            return "[WARN] **AI RESPONSE ERROR:** The endpoint returned an empty response."
+        body = response.json()
+        if provider == "ollama_native":
+            result = body["message"]["content"]
+        else:
+            result = body["choices"][0]["message"]["content"]
+    except (ValueError, KeyError, IndexError, TypeError) as exc:
+        raise LLMRequestError(
+            f"The {provider} endpoint returned an unexpected chat response. Check that the selected API type matches the server."
+        ) from exc
+    if not isinstance(result, str) or not result.strip():
+        raise LLMRequestError("The model endpoint returned an empty response.")
+    return result.strip()
+
+
+def call_llm(messages, config, temperature=0.1, max_tokens=None):
+    """Call the active provider and return text or a `[WARN]` error string."""
+    if isinstance(config, dict):
+        config = SimpleNamespace(**config)
+    try:
+        ctx = get_effective_context_window(config)
+        if max_tokens is None:
+            max_tokens = min(ctx // 2, 8192)
+        result = request_llm_completion(
+            messages, config, temperature=temperature, max_tokens=max_tokens, timeout=300,
+        )
         logger.debug("call_llm: success, response_length=%d", len(result))
         return result
-
-    except requests.exceptions.Timeout:
-        logger.error("call_llm: timeout after 300s to %s (model=%s, max_tokens=%d)", url, config.llm_model_name, max_tokens)
-        return "[WARN] **AI NETWORK ERROR:** Request timed out after 300 seconds. Is the LLM online?"
-    except requests.exceptions.ConnectionError:
-        logger.error("call_llm: connection refused to %s", url)
-        return "[WARN] **AI NETWORK ERROR:** Connection Refused. Check your Endpoint URL."
-    except Exception as e:
-        logger.error("call_llm: unexpected error: %s", str(e), exc_info=True)
-        return f"[WARN] **AI SYSTEM ERROR:** {str(e)}"
+    except LLMRequestError as exc:
+        logger.error("call_llm: provider request failed: %s", exc)
+        if "empty response" in str(exc).casefold():
+            return "[WARN] **AI RESPONSE ERROR:** The endpoint returned an empty response."
+        return f"[WARN] **AI REQUEST ERROR:** {exc}"
+    except Exception as exc:
+        logger.error("call_llm: unexpected error: %s", str(exc), exc_info=True)
+        return f"[WARN] **AI SYSTEM ERROR:** {str(exc)}"
 
 def chunk_list(data, size):
     """Yield successive list slices of at most `size` elements."""

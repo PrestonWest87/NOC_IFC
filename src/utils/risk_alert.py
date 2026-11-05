@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.core.db import SessionLocal
-from src.core.config import RISK_ALERT_RECIPIENTS
+from src.core.runtime_settings import resolve_operational_settings
 from src.models.schema import SystemConfig
 
 logger = logging.getLogger(__name__)
@@ -32,12 +32,14 @@ def is_increase(from_level: str, to_level: str) -> bool:
     return result
 
 def get_alert_recipients() -> list:
-    """Parse non-empty addresses from the `RISK_ALERT_RECIPIENTS` setting."""
-    if not RISK_ALERT_RECIPIENTS:
+    """Parse non-empty addresses from the effective risk-alert recipient setting."""
+    operational_settings, _sources = resolve_operational_settings()
+    configured_recipients = operational_settings.get("risk_alert_recipients") or ""
+    if not configured_recipients:
         logger.warning("get_alert_recipients: RISK_ALERT_RECIPIENTS not set")
         return []
-    recipients = [r.strip() for r in RISK_ALERT_RECIPIENTS.split(",") if r.strip()]
-    logger.debug("get_alert_recipients: %s", recipients)
+    recipients = [r.strip() for r in configured_recipients.replace(";", ",").split(",") if r.strip()]
+    logger.debug("get_alert_recipients: recipient_count=%d", len(recipients))
     return recipients
 
 def get_smtp_config():
