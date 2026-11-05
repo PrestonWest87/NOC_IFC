@@ -86,7 +86,7 @@ The built-in `admin` and `administrator` role names receive the administrator ov
 | `Action: Train ML Model` | Run manual model retraining |
 | `Action: Adjust Risk Scoring Overrides` | Change risk mode, baselines, overrides, offsets, and countermeasures |
 | `Action: Manage Scheduler Settings` | Change validated scheduler timing |
-| `Action: Manage Application Settings` | Change global application defaults and failed-login alert settings |
+| `Action: Manage Application Settings` | Change global defaults, alert destinations, and external integration settings |
 | `Action: Manage Users` | Create and manage individual/display accounts |
 | `Action: Manage Roles` | Create roles and edit permission grants |
 | `Action: Review Account Recovery Requests` | Approve or deny password-reset requests |

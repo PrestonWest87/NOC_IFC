@@ -83,7 +83,7 @@ def is_increase(from_level: str, to_level: str) -> bool
 
 ### `get_alert_recipients`
 
-**Purpose:** Parse the `RISK_ALERT_RECIPIENTS` environment variable into a list of email addresses.
+**Purpose:** Parse the effective risk-alert recipient list from a database override or `RISK_ALERT_RECIPIENTS` environment fallback.
 
 **Signature:**
 ```python
@@ -96,17 +96,17 @@ def get_alert_recipients() -> list[str]
 
 | Type | Description |
 |------|-------------|
-| `list[str]` | List of trimmed email addresses; empty list if the env var is unset or empty |
+| `list[str]` | List of trimmed email addresses; empty list if the effective setting is blank |
 
 **Raises:** None
 
 **Flow:**
-1. Checks if `RISK_ALERT_RECIPIENTS` (from `src.core.config`) is truthy
+1. Resolves operational settings from `SystemConfig` with environment fallback
 2. If not, returns `[]`
-3. Splits the comma-separated string, strips whitespace, filters empty strings
+3. Splits comma/semicolon-separated values, strips whitespace, filters empty strings
 4. Returns the resulting list
 
-**Dependencies:** `src.core.config.RISK_ALERT_RECIPIENTS`
+**Dependencies:** `src.core.runtime_settings.resolve_operational_settings()`
 
 ---
 

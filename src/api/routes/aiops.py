@@ -54,6 +54,7 @@ def get_sitrep(user=Depends(get_current_user), db: Session = Depends(get_db)):
         "llm_endpoint": config.llm_endpoint if config else "",
         "llm_api_key": config.llm_api_key if config else "",
         "llm_model_name": config.llm_model_name if config else "",
+        "llm_provider": config.llm_provider if config else "openai_compatible",
     }
     report = svc.generate_global_sitrep(config_dict)
     return {"report": report}

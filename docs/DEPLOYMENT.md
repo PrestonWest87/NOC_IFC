@@ -142,7 +142,7 @@ cp .env.example .env
 | `WEBHOOK_REPLAY_WINDOW_SECONDS` | No | `300` | Accepted webhook timestamp age |
 | `WEBHOOK_MAX_BODY_BYTES` | No | `1048576` | Maximum webhook body size |
 | `WEBSOCKET_MAX_MESSAGE_BYTES` | No | `65536` | Maximum WebSocket client message |
-| `ALLOW_PRIVATE_LLM_ENDPOINTS` | No | `false` | Permit private LLM endpoint URLs |
+| `ALLOW_PRIVATE_LLM_ENDPOINTS` | No | `false` | Permit private targets for generic OpenAI-compatible connection tests; selected Ollama/vLLM providers can use validated local endpoints |
 | `CORS_ORIGINS` | No | localhost origins | Comma-separated allowed browser origins |
 | `ALLOW_UNSIGNED_WEBHOOKS` | No | `false` | Controlled webhook migration exception |
 | `PUBLIC_APP_URL` | No | `http://localhost:8501` | Registration link base URL |
@@ -152,6 +152,8 @@ cp .env.example .env
 | `BACKUP_ENCRYPTION_KEYS` | For backups | (empty) | JSON map of key IDs to 32-byte hex keys; required to create, validate, or restore packages |
 | `BACKUP_MAX_BYTES` | No | `10737418240` | Maximum encrypted backup/upload size in bytes (10 GiB default, 100 GiB maximum) |
 | `RESCORE_ON_STARTUP` | No | `false` | Full article rescore during startup |
+
+The notification-destination and Elastic variables above remain environment fallbacks. Their editable database overrides are available in **Settings > Application Settings > Notification destinations and Elastic integration** and are shared dynamically by the API and worker. Blank optional destinations disable them; reset removes the override and uses the environment value. Elastic API keys are never returned by the settings API. Local AI providers are selected in **Settings > AI & SMTP**; use endpoints reachable from the API container (for example, a Docker service name or the host gateway).
 
 Create a random backup key with `python -c 'import secrets; print(secrets.token_hex(32))'`, then set `BACKUP_ENCRYPTION_KEYS` to a JSON object such as `{"primary":"<64-hex-character-key>"}`. Keep this secret outside the backup directory and deployment host; losing it makes the encrypted backups unreadable. Retain old key IDs in the JSON map through the lifetime of backups encrypted with them. Full encrypted packages are stored at `./data/backups`, on the shared persistent volume; copy/download them to off-host storage for disaster recovery. `.env` and environment-only credentials are never packaged.
 
@@ -318,7 +320,7 @@ services:
 ### Secrets Management
 
 - Use Docker secrets or an external vault for sensitive values
-- SMTP credentials and LLM API keys may be stored as ordinary fields in the live SQLite `SystemConfig` row; they are not field-level encrypted at rest.
+- SMTP credentials, LLM API keys, and Elastic API keys may be stored as ordinary fields in the live SQLite `SystemConfig` row; they are not field-level encrypted at rest. The settings APIs do not return stored keys.
 - Encrypted full-backup packages protect the database snapshot, but do not include `.env` or environment-only secrets.
 - Restrict access to the SQLite data volume and `.env`, and use host-level disk encryption or an external secret store where required by policy.
 
@@ -369,7 +371,7 @@ All containers communicate on the same Docker bridge network. Internal service-t
 | CORS | `CORS_ORIGINS` is an explicit origin list; the default allows the local production and development frontends. | Set only the deployed frontend origin(s). |
 | WebSocket | Requires a session token and AIOps page/Active Board access; sessions and permissions are revalidated, and site data is filtered. | Prefer TLS (`wss://`) through a reverse proxy and restrict direct access to port 8101. |
 | SolarWinds webhook | HMAC and timestamp/replay checks are supported. Unsigned requests are rejected unless `ALLOW_UNSIGNED_WEBHOOKS=true`. | Configure a strong `WEBHOOK_HMAC_SECRET`; keep the unsigned exception disabled. |
-| SMTP/LLM credentials | SMTP passwords and LLM keys may be stored in `SystemConfig`; the live SQLite columns are not field-level encrypted. Full backup packages encrypt the database snapshot; `.env` and environment secrets stay external. | Protect the SQLite volume and backups. Define secret rotation and external secret-management requirements for the customer environment. |
+| SMTP/LLM/Elastic credentials | SMTP passwords and LLM/Elastic API keys may be stored in `SystemConfig`; the live SQLite columns are not field-level encrypted. Full backup packages encrypt the database snapshot; `.env` and environment secrets stay external. | Protect the SQLite volume and backups. Define secret rotation and external secret-management requirements for the customer environment. |
 | Request limits | The webhook and WebSocket have configured size limits. There is no general API rate limiter; the database-upload endpoint currently reads its upload into memory. | Add route-level rate limits and bounded upload handling before exposing the service to broad or untrusted networks. |
 | Transport | Compose publishes the API, webhook, and web ports; TLS termination is not built into the stack. | Terminate HTTPS at a trusted reverse proxy and apply firewall rules to limit source networks. |
 | Frontend source-IP rule | `web/nginx.conf` contains `allow 10.0.0.0/8` for workspace requests but no `deny all`; this is not an allowlist and does not block unmatched client addresses. | Enforce the intended source-network restriction at the host firewall or trusted upstream proxy. |

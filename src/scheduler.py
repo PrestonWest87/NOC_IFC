@@ -415,24 +415,23 @@ def job_daily_email_unified_brief():
     """Sends the latest Executive Unified Risk Brief via email at 07:00 daily."""
     log("[EMAIL] Dispatching Daily Executive Unified Risk Brief...", "SYSTEM")
     try:
-        import os
         from datetime import datetime
         from zoneinfo import ZoneInfo
         from src.utils.mailer import send_alert_email
         from src.services import generate_unified_brief_email_html
         from src.database import InternalRiskSnapshot, SystemConfig, SessionLocal
         from src.services import get_executive_grid_intel, get_recent_crimes
-
-        ub_recipients = os.environ.get("RISK_ALERT_RECIPIENTS")
-        if not ub_recipients:
-            log("[WARN] RISK_ALERT_RECIPIENTS not set. Skipping daily email.", "SYSTEM")
-            return
-
         now_local = datetime.now(ZoneInfo("America/Chicago"))
         brief_time = now_local.strftime("%A, %B %d, %Y at %I:%M %p %Z")
 
+        from src.core.runtime_settings import resolve_operational_settings
         with SessionLocal() as db:
+            operational_settings, _sources = resolve_operational_settings(db)
+            ub_recipients = operational_settings.get("risk_alert_recipients")
             sys_config = db.query(SystemConfig).first()
+            if not ub_recipients:
+                log("[WARN] RISK_ALERT_RECIPIENTS not set. Skipping daily email.", "SYSTEM")
+                return
             if not sys_config or not sys_config.unified_brief:
                 log("[WARN] No unified brief available. Skipping daily email.", "SYSTEM")
                 return
@@ -602,7 +601,7 @@ def job_tiered_alert_escalation(now_utc=None):
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
     import re
-    import os
+    from src.core.runtime_settings import resolve_operational_settings
 
     now_utc = now_utc or datetime.utcnow()
     local_tz = ZoneInfo("America/Chicago")
@@ -619,18 +618,20 @@ def job_tiered_alert_escalation(now_utc=None):
     log("[SYSTEM] 24/7 RCA Ticketing & Escalation Manager Active...", "SYSTEM", logging.DEBUG)
     cutoff_time = now_utc - timedelta(hours=12)
 
-    TICKET_EMAIL = os.environ.get("REMEDYFORCE_TICKET_EMAIL")
-    NOTIFY_EMAIL = os.environ.get("NOC_NOTIFY_EMAIL")
-    NOC_ONPAGE_EMAIL = os.environ.get("NOC_ONPAGE_EMAIL")
-    ITNETWORK_ONPAGE_EMAIL = os.environ.get("ITNETWORK_ONPAGE_EMAIL")
+    with SessionLocal() as settings_db:
+        operational_settings, _sources = resolve_operational_settings(settings_db)
+    TICKET_EMAIL = operational_settings.get("remedyforce_ticket_email")
+    NOTIFY_EMAIL = operational_settings.get("noc_notify_email")
+    NOC_ONPAGE_EMAIL = operational_settings.get("noc_onpage_email")
+    ITNETWORK_ONPAGE_EMAIL = operational_settings.get("itnetwork_onpage_email")
 
-    log(f"[ENV] REMEDYFORCE_TICKET_EMAIL={'SET' if TICKET_EMAIL else 'MISSING'}", "SYSTEM", logging.DEBUG)
-    log(f"[ENV] NOC_NOTIFY_EMAIL={'SET' if NOTIFY_EMAIL else 'MISSING'}", "SYSTEM", logging.DEBUG)
-    log(f"[ENV] NOC_ONPAGE_EMAIL={'SET' if NOC_ONPAGE_EMAIL else 'MISSING'}", "SYSTEM", logging.DEBUG)
-    log(f"[ENV] ITNETWORK_ONPAGE_EMAIL={'SET' if ITNETWORK_ONPAGE_EMAIL else 'MISSING'}", "SYSTEM", logging.DEBUG)
+    log(f"[CONFIG] REMEDYFORCE_TICKET_EMAIL={'SET' if TICKET_EMAIL else 'MISSING'}", "SYSTEM", logging.DEBUG)
+    log(f"[CONFIG] NOC_NOTIFY_EMAIL={'SET' if NOTIFY_EMAIL else 'MISSING'}", "SYSTEM", logging.DEBUG)
+    log(f"[CONFIG] NOC_ONPAGE_EMAIL={'SET' if NOC_ONPAGE_EMAIL else 'MISSING'}", "SYSTEM", logging.DEBUG)
+    log(f"[CONFIG] ITNETWORK_ONPAGE_EMAIL={'SET' if ITNETWORK_ONPAGE_EMAIL else 'MISSING'}", "SYSTEM", logging.DEBUG)
 
     if not TICKET_EMAIL:
-        log("[ERROR] REMEDYFORCE_TICKET_EMAIL missing from environment. Aborting run.", "SYSTEM")
+        log("[ERROR] REMEDYFORCE_TICKET_EMAIL is not configured. Aborting run.", "SYSTEM")
         return
 
     AFTER_HOURS_RULES = {

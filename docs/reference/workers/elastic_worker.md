@@ -4,7 +4,7 @@
 
 ## Overview
 
-Connects to a configured Elasticsearch cluster, queries for high-severity log events from the past N hours, and synchronises them into the local `ElasticEvent` table for unified alerting. The worker scheduler runs this sync every six minutes. A blank `ELASTIC_URL` disables scheduled sync cleanly. The optional API key and TLS settings come from `src.core.config`.
+Connects to a configured Elasticsearch cluster, queries for high-severity log events from the past N hours, and synchronises them into the local `ElasticEvent` table for unified alerting. The worker scheduler runs this sync every six minutes. A blank effective URL disables scheduled sync cleanly. URL, API key, TLS, timeout, and result limits come from `src.core.runtime_settings`, which prefers nullable `SystemConfig` overrides and otherwise uses environment values. The cached client is closed and recreated when effective connection settings change.
 
 ---
 
@@ -12,7 +12,7 @@ Connects to a configured Elasticsearch cluster, queries for high-severity log ev
 
 ### `es` (`elasticsearch.Elasticsearch | None`)
 
-Module-level client cache. The Elasticsearch client is created lazily on first use so API startup does not depend on Elasticsearch being reachable.
+Module-level client cache. The client is created lazily so API startup does not depend on Elasticsearch being reachable. The live settings signature controls client invalidation; secret values are not logged.
 
 ---
 
@@ -26,7 +26,7 @@ Module-level client cache. The Elasticsearch client is created lazily on first u
 - **Returns:** `{"status": "ok", "imported": N}` or a controlled error result.
 - **Raises:** `ValueError` for a non-positive/non-integer look-back value; request and database failures are returned as controlled errors.
 - **Flow:**
-  1. Skip cleanly if `ELASTIC_URL` is blank; otherwise lazily create the client with optional API-key authentication and configured TLS/request timeout.
+  1. Resolve effective settings; skip cleanly if the effective Elastic URL is blank, otherwise lazily create or refresh the client with optional API-key authentication and configured TLS/request timeout.
   2. Build an Elasticsearch query with a range filter on `@timestamp` and a `should` clause matching `log.level` in `[emergency, alert, critical, error, severe]` **OR** `event.severity` <= 3.
   3. Execute bounded scroll pages against all non-hidden indices (`*,-.*`), sorting by `@timestamp` with date-aware handling for unmapped indices. Clear the scroll context afterward; do not sort on Elasticsearch's non-sortable `_id` field.
   4. For each hit:
@@ -41,7 +41,7 @@ Module-level client cache. The Elasticsearch client is created lazily on first u
 - **Dependencies:**
   - `elasticsearch.Elasticsearch` - Elasticsearch client
   - `src.core.db.SessionLocal` - SQLAlchemy session factory
-  - `src.core.config.ELASTIC_URL`, `ELASTIC_API_KEY` - connection settings
+  - `src.core.runtime_settings.resolve_operational_settings()` - live connection settings
   - `src.models.schema.ElasticEvent` - ORM model
    - `datetime`
 
@@ -51,7 +51,7 @@ Module-level client cache. The Elasticsearch client is created lazily on first u
 - **Parameters:**
   - `index_pattern` (`str`, optional): Index pattern to search. Defaults to `"*"`.
   - `query_body` (`dict`, optional): Elasticsearch query DSL body. Defaults to `{"query": {"match_all": {}}}` sorted by `@timestamp` descending.
-  - `size` (`int`, optional): Maximum number of hits to return. Clamped to `500`. Defaults to `100`.
+  - `size` (`int`, optional): Maximum number of hits to return, bounded by effective `ELASTIC_MAX_RESULTS`. Defaults to `100`.
 - **Returns:** `list` of hit documents on success, or `dict` with an `"error"` key on validation, connection, or request failure.
 - **Raises:** None (exceptions are caught and returned as error dicts).
 - **Flow:**

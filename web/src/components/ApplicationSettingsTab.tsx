@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock, Gauge, Globe, Save } from "lucide-react";
 import api, { getApiErrorMessage } from "../utils/api";
 import { hasActionPermission } from "../utils/permissions";
+import { OperationalIntegrationSettings } from "./OperationalIntegrationSettings";
 
 /** Permission fields required to decide which application-setting sections are editable. */
 type ApplicationUser = { role?: string; allowed_actions?: string[] } | null;
@@ -34,7 +35,6 @@ const card: React.CSSProperties = {
   background: "var(--bg-card)", border: "1px solid var(--border-primary)",
   borderRadius: "var(--radius-md)", padding: "1rem",
 };
-
 /** Render independent global, risk-scoring, and scheduler settings by action grant. */
 export function ApplicationSettingsTab({ user }: { user: ApplicationUser }) {
   const queryClient = useQueryClient();
@@ -83,8 +83,9 @@ export function ApplicationSettingsTab({ user }: { user: ApplicationUser }) {
     mutationFn: ({ path, data }: { path: string; data: any }) => api.put(path, data),
     onSuccess: (_response, variables) => {
       setError("");
+      const key = variables.path.endsWith("risk-scoring") ? "risk-scoring-settings" : "application-settings";
       setNotice(variables.path.endsWith("risk-scoring") ? "Risk scoring settings saved." : "Application settings saved.");
-      queryClient.invalidateQueries({ queryKey: [variables.path.endsWith("risk-scoring") ? "risk-scoring-settings" : "application-settings"] });
+      queryClient.invalidateQueries({ queryKey: [key] });
       queryClient.invalidateQueries({ queryKey: ["sys-config"] });
       queryClient.invalidateQueries({ queryKey: ["executive-intel"] });
     },
@@ -157,6 +158,8 @@ export function ApplicationSettingsTab({ user }: { user: ApplicationUser }) {
         </div>
         <button type="button" disabled={saveMutation.isPending} onClick={() => saveMutation.mutate({ path: "/application-settings", data: applicationForm })} style={{ ...saveButton, marginTop: "0.8rem" }}><Save size={14} /> Save application defaults</button>
       </section>}
+
+      {canManageApp && <OperationalIntegrationSettings />}
 
       {canAdjustRisk && <section style={card}>
         <h3 style={{ marginTop: 0, display: "flex", alignItems: "center", gap: "0.4rem" }}><Gauge size={16} /> Risk-scoring overrides</h3>

@@ -7,19 +7,20 @@ LLM (Large Language Model) connection testing and executive weather brief genera
 ## Endpoint: `POST /test-connection`
 
 ### Purpose
-Tests connectivity to a configurable LLM API endpoint by sending a simple prompt and verifying the response.
+Tests connectivity to the selected LLM provider by sending a simple prompt and validating a non-empty assistant response.
 
 ### Parameters
 | Parameter | Type               | Default   | Description                             |
 |-----------|--------------------|-----------|-----------------------------------------|
-| `data`    | `dict[str, Any]`   | `{}`      | JSON body with optional LLM connection parameters.|
+| `data`    | `LLMConnectionTest` | — | JSON body with provider, endpoint, model, and optional API key. Administrator-only. |
 
 #### Body Fields
-| Field             | Type     | Default        | Description                     |
-|-------------------|----------|----------------|---------------------------------|
-| `llm_endpoint`    | `str`    | `""`           | Base URL of the LLM API.        |
-| `llm_api_key`     | `str`    | `""`           | API key for authentication.     |
-| `llm_model_name`  | `str`    | `"gpt-4o-mini"`| Model identifier string.        |
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `llm_provider` | Literal | `openai_compatible` | `openai_compatible`, `ollama_openai`, `ollama_native`, or `vllm`. |
+| `llm_endpoint` | `str` | `""` | Base URL reachable from the API container; no credentials, query, or fragment. |
+| `llm_api_key` | `str` | `""` | Optional key; an empty value reuses the saved key only when the provider matches the saved provider. |
+| `llm_model_name` | `str` | `"gpt-4o-mini"` | Provider model identifier. |
 
 ### Returns
 ```json
@@ -33,18 +34,15 @@ Tests connectivity to a configurable LLM API endpoint by sending a simple prompt
 None. All connection errors are caught and returned as structured failure responses.
 
 ### Flow
-1. Extracts endpoint, API key, and model name from the request body.
-2. Validates that endpoint is not empty.
-3. Constructs a minimal `_TestConfig` object.
-4. Builds a request with system prompt and user prompt `"Reply with exactly: CONNECTION_OK"`.
-5. Sends an HTTP POST to `{endpoint}/chat/completions` with a 30-second timeout.
-6. Checks for HTTP errors via `resp.raise_for_status()`.
-7. Parses the response and returns the model's reply.
-8. Catches `Timeout`, `ConnectionError`, and generic exceptions, returning appropriate error messages.
+1. Validates provider, endpoint scheme, URL credentials/query/fragment, model name, and target network policy.
+2. Builds the provider-specific request with system/user prompts and a 30-second timeout.
+3. Uses `/api/chat` and Ollama `options` for `ollama_native`; OpenAI-compatible chat completions for the other providers.
+4. Parses the selected provider's response shape and rejects missing or empty content.
+5. Returns actionable timeout, connection, HTTP status, and response-format messages without including API credentials.
 
 ### Dependencies
-- `requests` (stdlib via `import requests`)
-- `src.utils.llm.call_llm` (imported but not used; inline HTTP call is used instead)
+- `src.utils.llm.request_llm_completion()` and the shared provider URL/payload adapter.
+- `ALLOW_PRIVATE_LLM_ENDPOINTS`; explicitly selected local providers may target private/loopback hosts after URL validation.
 
 ---
 
@@ -85,4 +83,4 @@ None.
 - `src.services.get_cached_config()`
 ## Current Source Surface
 
-`_safe_llm_endpoint` validates endpoint policy, including the `ALLOW_PRIVATE_LLM_ENDPOINTS` setting. `POST /test-connection` checks the configured/requested provider, while `POST /executive-weather-brief` builds a weather summary from the supplied analytics payload and active LLM configuration.
+`_safe_llm_endpoint` validates endpoint policy. `POST /test-connection` uses the same provider-aware request adapter as normal LLM generation. `POST /executive-weather-brief` builds a weather summary from the supplied analytics payload and active LLM configuration.

@@ -38,7 +38,7 @@ ACTION_CATALOG = [
     {"key": "Action: Train ML Model", "group": "Model Operations", "description": "Run manual model retraining."},
     {"key": "Action: Adjust Risk Scoring Overrides", "group": "Application Settings", "description": "Change scoring modes, baselines, overrides, and risk offsets."},
     {"key": "Action: Manage Scheduler Settings", "group": "Application Settings", "description": "Change validated scheduler timing settings."},
-    {"key": "Action: Manage Application Settings", "group": "Application Settings", "description": "Change non-scheduler global application settings."},
+    {"key": "Action: Manage Application Settings", "group": "Application Settings", "description": "Change global defaults, alert destinations, and external integration settings."},
     {"key": "Action: Manage Users", "group": "Users and Recovery", "description": "Create and manage individual and display accounts."},
     {"key": "Action: Manage Roles", "group": "Users and Recovery", "description": "Create roles and edit permission grants."},
     {"key": "Action: Review Account Recovery Requests", "group": "Users and Recovery", "description": "Approve or deny password-reset requests."},

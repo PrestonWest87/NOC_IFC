@@ -95,7 +95,7 @@ RBAC is represented by role page permissions, action permissions, tab permission
 
 Individual accounts are created through email invitations. Administrator-created display accounts may omit email and use administrator-assisted recovery. Recovery-email changes and password resets are queued for permission-based user-administrator review; approved recovery addresses must also be mailbox-verified.
 
-Risk overrides and editable scheduler schedules are under Settings > Application Settings. The worker reads a per-job registry with safe bounds and reloads saved schedule revisions dynamically without restarting.
+Risk overrides, notification destinations, Elastic connection settings, and editable scheduler schedules are under Settings > Application Settings. Nullable `SystemConfig` overrides take precedence over environment fallbacks; API and worker consumers resolve operational values dynamically, and the Elastic client is recreated when its effective settings change. Scheduler schedules use a per-job registry with safe bounds and reload saved revisions without restarting.
 
 ## Database Lifecycle
 

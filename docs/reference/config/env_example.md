@@ -11,26 +11,26 @@ This file is the complete template for environment variables used by the current
 | `DEFAULT_ADMIN_PASSWORD` | change-me placeholder | `src.core.bootstrap` | Initial admin password when the database has no users |
 | `DEFAULT_ADMIN_EMAIL` | empty | `src.core.config`, `src.core.bootstrap` | Trusted verified bootstrap mailbox; can initialize an existing email-less bootstrap administrator on API/worker startup |
 | `LOG_LEVEL` | `INFO` | `src.core.config` | Python logging threshold |
-| `RISK_ALERT_RECIPIENTS` | empty | scheduler/config | Risk and daily brief recipients |
-| `REMEDYFORCE_TICKET_EMAIL` | empty | scheduler | Required ticket destination for escalation |
-| `NOC_NOTIFY_EMAIL` | empty | scheduler/infra worker | After-hours NOC notification |
-| `NOC_ONPAGE_EMAIL` | empty | scheduler | After-hours NOC paging for SWF/fiber devices |
-| `ITNETWORK_ONPAGE_EMAIL` | empty | scheduler | After-hours IT/network paging |
-| `ELASTIC_URL` | empty | `src.core.config` | Elasticsearch endpoint reachable from API/worker containers; empty disables sync |
-| `ELASTIC_API_KEY` | empty | `src.core.config` | Elasticsearch credential |
-| `ELASTIC_VERIFY_CERTS` | `true` | `src.core.config` | Verify Elasticsearch TLS certificates |
-| `ELASTIC_CA_CERTS` | empty | `src.core.config` | Optional CA bundle path |
-| `ELASTIC_REQUEST_TIMEOUT` | `15` | `src.core.config` | Elasticsearch request timeout in seconds |
-| `ELASTIC_MAX_RESULTS` | `500` | `src.core.config` | Maximum results per Elastic query page |
-| `CRIME_ALERT_SMS` | empty | `src.core.config` | Crime SMS gateway destination |
-| `CRIME_ALERT_EMAIL` | empty | `src.core.config` | Crime email destination |
+| `RISK_ALERT_RECIPIENTS` | empty | runtime settings resolver | Fallback for risk and daily brief recipients; UI database override takes precedence |
+| `REMEDYFORCE_TICKET_EMAIL` | empty | `src.core.config` / runtime settings resolver | Fallback ticket destination for escalation |
+| `NOC_NOTIFY_EMAIL` | empty | `src.core.config` / runtime settings resolver | Fallback NOC notification destination |
+| `NOC_ONPAGE_EMAIL` | empty | `src.core.config` / runtime settings resolver | Fallback NOC on-page destination for SWF/fiber devices |
+| `ITNETWORK_ONPAGE_EMAIL` | empty | `src.core.config` / runtime settings resolver | Fallback IT/network on-page destination |
+| `ELASTIC_URL` | empty | `src.core.config` / runtime settings resolver | Fallback Elasticsearch endpoint reachable from API/worker containers; empty disables sync |
+| `ELASTIC_API_KEY` | empty | `src.core.config` / runtime settings resolver | Fallback Elasticsearch credential |
+| `ELASTIC_VERIFY_CERTS` | `true` | `src.core.config` / runtime settings resolver | Fallback TLS certificate verification setting |
+| `ELASTIC_CA_CERTS` | empty | `src.core.config` / runtime settings resolver | Fallback CA bundle path |
+| `ELASTIC_REQUEST_TIMEOUT` | `15` | `src.core.config` / runtime settings resolver | Fallback Elasticsearch request timeout in seconds |
+| `ELASTIC_MAX_RESULTS` | `500` | `src.core.config` / runtime settings resolver | Fallback maximum results per Elastic query page |
+| `CRIME_ALERT_SMS` | empty | `src.core.config` / runtime settings resolver | Fallback crime SMS gateway destination |
+| `CRIME_ALERT_EMAIL` | empty | `src.core.config` / runtime settings resolver | Fallback crime email destination |
 | `WEBHOOK_HMAC_SECRET` | empty | `src.core.config`/webhook | Shared SolarWinds signing secret |
 | `WEBHOOK_SIGNATURE_HEADER` | `X-SolarWinds-Signature` | webhook | Signature header name |
 | `WEBHOOK_TIMESTAMP_HEADER` | `X-SolarWinds-Timestamp` | webhook | Replay timestamp header name |
 | `WEBHOOK_REPLAY_WINDOW_SECONDS` | `300` | webhook | Accepted timestamp age |
 | `WEBHOOK_MAX_BODY_BYTES` | `1048576` | webhook | Maximum request body size |
 | `WEBSOCKET_MAX_MESSAGE_BYTES` | `65536` | API | Maximum client WebSocket message |
-| `ALLOW_PRIVATE_LLM_ENDPOINTS` | `false` | LLM route | Permit private LLM endpoint URLs |
+| `ALLOW_PRIVATE_LLM_ENDPOINTS` | `false` | LLM route | Permit private targets for generic OpenAI-compatible provider tests; selected Ollama/vLLM providers can use validated local targets |
 | `CORS_ORIGINS` | localhost web origins | API | Comma-separated browser origin allowlist |
 | `ALLOW_UNSIGNED_WEBHOOKS` | `false` | webhook | Controlled unsigned-webhook migration exception |
 | `PUBLIC_APP_URL` | `http://localhost:8501` | admin routes | Registration link base URL |
@@ -43,4 +43,4 @@ This file is the complete template for environment variables used by the current
 
 ## Security
 
-Never commit `.env`. Replace all development defaults before production deployment. SMTP and LLM provider credentials are application settings stored as ordinary fields in `SystemConfig`; the live SQLite database does not apply field-level encryption. Encrypted backup packages protect their database snapshot, while `.env` and environment-only secrets remain external. Keep backup encryption keys separate from the database volume and retain old key IDs until backups using them are retired.
+Never commit `.env`. Replace all development defaults before production deployment. SMTP, LLM provider, and Elastic API credentials may be stored as ordinary fields in `SystemConfig`; the live SQLite database does not apply field-level encryption. The UI never returns stored API keys. Encrypted backup packages protect their database snapshot, while `.env` and environment-only secrets remain external. Keep backup encryption keys separate from the database volume and retain old key IDs until backups using them are retired. Saved operational integration settings are shared dynamically by API and worker; null database overrides use the environment value.

@@ -425,6 +425,8 @@ Compatibility endpoint for the user directory; requires `Tab: Settings -> Users 
 ## Application Settings (`/application-settings`)
 
 - `GET /application-settings` and `PUT /application-settings` — global application defaults and failed-login alert settings.
+- `GET /application-settings/integrations` — requires `Action: Manage Application Settings`; returns effective notification and Elastic settings plus environment/database source markers. The Elastic API key value is never returned.
+- `PUT /application-settings/integrations` — saves alert destinations and Elastic settings; writes require `Action: Manage Application Settings`. Explicit `null` resets a field to its environment value, while blank optional values disable that override.
 - `GET /application-settings/risk-scoring` and `PUT /application-settings/risk-scoring` — writes require `Action: Adjust Risk Scoring Overrides`.
 - `GET /application-settings/scheduler` — registered jobs, defaults, bounds, and current schedules.
 - `PATCH /application-settings/scheduler/jobs/{job_key}` — writes require `Action: Manage Scheduler Settings`; settings are bounded and reloaded by the worker without restart.
@@ -568,7 +570,7 @@ Administrator-only compatibility endpoint for ML training. Delegated retraining 
 ## LLM Endpoints (/llm)
 
 ### POST /llm/test-connection
-Body: `{llm_endpoint, llm_api_key, llm_model_name}`. Tests LLM connectivity.
+Body: `{llm_provider, llm_endpoint, llm_api_key?, llm_model_name}`. Tests the selected OpenAI-compatible, Ollama OpenAI-compatible, Ollama native, or vLLM provider using its corresponding request and response format. The test is administrator-only and uses a 30-second timeout. A blank API key reuses the saved key only when the selected provider matches the saved provider.
 
 ### POST /llm/executive-weather-brief
 Body: `{analytics, p1_at_risk}`. Generates weather brief.

@@ -65,7 +65,7 @@ Main RSS cycle. It loads active feeds, builds a seven-day known-link set, downlo
 | `job_rolling_summary()` | Calls `trigger_rolling_summary()` for the shift handoff summary. |
 | `job_internal_brief()` | Calls `trigger_internal_brief()` for asset-focused risk analysis; logs a warning and keeps the last saved brief when any required LLM batch or synthesis stage fails. |
 | `job_internal_risk()` | Saves a current internal risk snapshot and checks internal risk alerts. |
-| `job_daily_email_unified_brief()` | Reads the saved brief, builds current risk context, formats HTML, and sends to `RISK_ALERT_RECIPIENTS`. |
+| `job_daily_email_unified_brief()` | Reads the saved brief, builds current risk context, formats HTML, and sends to effective risk recipients (`SystemConfig.risk_alert_recipients`, environment fallback `RISK_ALERT_RECIPIENTS`). |
 
 Each wrapper catches and logs its own exception so one AI or email failure does not terminate the scheduler loop.
 
@@ -82,7 +82,7 @@ Calls `auto_clear_expired_maintenance()`. If sites are cleared, it attempts to b
 The 24/7 escalation loop:
 
 1. Determines Central-time day shift or after-hours rules.
-2. Requires `REMEDYFORCE_TICKET_EMAIL`.
+2. Requires the effective Remedyforce destination (`SystemConfig.remedyforce_ticket_email`, environment fallback `REMEDYFORCE_TICKET_EMAIL`).
 3. Loads unresolved alerts from the last 12 hours plus weather/cloud/BGP context.
 4. Clusters alerts with `EnterpriseAIOpsEngine`.
 5. Chooses an eligible site-ticket target and an independent unpaged node target.

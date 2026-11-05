@@ -787,7 +787,7 @@ Returns compact fetch age, last attempt/success, error, status code, duration, f
 
 **Returns:** `tuple[bool, str]` -- `(success, message)`
 
-**Dependencies:** `CrimeIncident`, `CRIME_ALERT_SMS`, `CRIME_ALERT_EMAIL`, `src.utils.mailer.send_alert_email`
+**Dependencies:** `CrimeIncident`, `src.core.runtime_settings.resolve_operational_settings()`, `src.utils.mailer.send_alert_email`
 
 **Flow:** Queries un-dispatched crimes with distance <= 0.4mi and High severity. For each, formats SMS body with Google Maps link, sends via mailer, marks as dispatched on success.
 
@@ -1207,6 +1207,14 @@ In `replace` mode, contacts for sites with the same name are reattached to the r
 - `data` (dict) -- Configuration key-value pairs
 
 **Dependencies:** `SystemConfig`, `SessionLocal`
+
+---
+
+### `save_operational_settings(data: dict, actor_user_id=None)`
+
+**Purpose:** Saves only allowlisted notification-destination and Elastic setting overrides. `None` clears an override to restore environment fallback; an empty string remains an explicit blank override. Each write records the changed field names in `AccountAuditEvent` without recording secret values.
+
+**Dependencies:** `SystemConfig`, `AccountAuditEvent`, `SessionLocal`, `_audit_account_event`
 
 ---
 

@@ -103,7 +103,7 @@ Five tabs: Overview, Keyword Analysis, Category Breakdown, Timeline, and Cross-R
 
 Eleven UI sections: Profile, Theme, Facilities, Internal Assets, RSS Sources, ML Training, AI & SMTP, Application Settings, Users & Roles, Backup & Restore, and Danger Zone. The nine operational Settings sections use tab grants; Profile/Theme are self-service views. Tab visibility does not imply mutation permission.
 
-`UsersRolesTab` handles searchable user directories, invitations, display accounts, roles, account status, session revocation, and reviewed recovery requests. `ApplicationSettingsTab` separates global defaults/failed-login alerting, risk scoring, and scheduler settings by action grant. Backup and destructive controls are shown only for built-in administrators; the legacy JSON and `.db` migration tools are labeled as partial operations.
+`UsersRolesTab` handles searchable user directories, invitations, display accounts, roles, account status, session revocation, and reviewed recovery requests. `ApplicationSettingsTab` separates global defaults/failed-login alerting, notification destinations and Elastic configuration, risk scoring, and scheduler settings by action grant. `OperationalIntegrationSettings` shows whether values come from the environment or database, masks the Elastic key, and supports resetting overrides. The AI & SMTP panel selects OpenAI-compatible, Ollama OpenAI-compatible, Ollama native, or vLLM for connection testing. Backup and destructive controls are shown only for built-in administrators; the legacy JSON and `.db` migration tools are labeled as partial operations.
 
 ## Shared components and state
 

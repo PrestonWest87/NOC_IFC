@@ -722,11 +722,12 @@ def check_earthquake_proximity(equake_data, distance_miles=50):
 
 def check_wildfire_proximity(distance_miles=5):
     """Email NOC_NOTIFY_EMAIL when active WFCA fire activity meets site-distance/re-alert rules."""
-    import os
     from src.services import get_active_wildfires, _haversine_miles, _shape_site_distances_miles
     from src.utils.mailer import send_alert_email
+    from src.core.runtime_settings import resolve_operational_settings
 
-    recipient = os.environ.get("NOC_NOTIFY_EMAIL", "").strip()
+    operational_settings, _sources = resolve_operational_settings()
+    recipient = (operational_settings.get("noc_notify_email") or "").strip()
     if not recipient:
         logger.warning("Wildfire proximity alert skipped: NOC_NOTIFY_EMAIL is not set")
         return

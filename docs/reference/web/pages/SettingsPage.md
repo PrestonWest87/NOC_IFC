@@ -211,10 +211,10 @@ AI & SMTP configuration.
 | `readOnly` | `boolean` | Whether this tab is view-only. |
 
 ### Returns
-- LLM Configuration card (endpoint, API key with show/hide, model name, tech stack, enable toggle, test connection button)
+- LLM Configuration card (provider selector, endpoint, optional API key with show/hide, model name, context window, enable toggle, test connection button)
 - SMTP Broadcast card (server, port, username, password, sender, recipient, enabled toggle)
-- Configuration editor covers LLM endpoint/model/key and SMTP server/credentials/sender/recipient.
-- LLM connection test uses `POST /api/v1/llm/test-connection`.
+- Configuration editor covers LLM provider/endpoint/model/key and SMTP server/credentials/sender/recipient.
+- LLM connection test uses the selected provider through `POST /api/v1/llm/test-connection`; supported options are OpenAI-compatible, Ollama OpenAI-compatible, Ollama native, and vLLM.
 - Editing is administrator-only; risk overrides, scheduler schedules, application defaults, and failed-login alert settings are in `ApplicationSettingsTab`.
 
 ### Flow
@@ -241,7 +241,7 @@ Renders a searchable account directory, invite-individual and create-display-acc
 
 ## `ApplicationSettingsTab({ user })`
 
-Risk-scoring overrides, validated scheduler settings, application defaults, and failed-login alert configuration are implemented in `web/src/components/ApplicationSettingsTab.tsx`. Each section has a separate action permission; reads and writes use `/api/v1/application-settings/*` routes.
+Risk-scoring overrides, validated scheduler settings, application defaults, failed-login alerts, and the `OperationalIntegrationSettings` subsection for notifications/Elastic are implemented under `web/src/components/`. Application defaults and integrations use `Action: Manage Application Settings`; risk scoring and scheduler retain their separate grants. Reads and writes use `/api/v1/application-settings/*` routes.
 
 ---
 

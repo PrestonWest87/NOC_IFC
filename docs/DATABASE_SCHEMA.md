@@ -222,7 +222,7 @@ The legacy ER diagram is conceptual: its `(FK→)` labels do not distinguish enf
 
 ## 2. Complete Table Reference
 
-Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state; revision `20261102_0006` adds the site-contact table; revision `20261103_0007` adds NWS alert lifecycle and provider freshness fields.
+Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state; revision `20261102_0006` adds the site-contact table; revision `20261103_0007` adds NWS alert lifecycle and provider freshness fields; revision `20261105_0008` adds LLM provider selection and nullable alert/Elastic environment overrides.
 
 ### 2.1 `users` — User Accounts
 
@@ -294,6 +294,7 @@ Column types and nullability reflect the current SQLAlchemy mappings in `src/mod
 | `llm_endpoint` | String | YES | `"https://api.openai.com/v1"` | — |
 | `llm_api_key` | String | YES | `""` | — |
 | `llm_model_name` | String | YES | `"gpt-4o-mini"` | — |
+| `llm_provider` | String(32) | NO | `"openai_compatible"` | — |
 | `is_active` | Boolean | YES | `False` | — |
 | `tech_stack` | Text | YES | `"SolarWinds, Cisco SD-WAN, Microsoft Office, Verizon, Cisco"` | — |
 | `monitored_asns` | String | YES | `"AS701, AS7922, AS3356"` | — |
@@ -333,6 +334,19 @@ Column types and nullability reflect the current SQLAlchemy mappings in `src/mod
 | `wildfire_proximity_state` | Text | YES | `"{}"` | — |
 | `llm_context_window` | Integer | YES | `128000` | — |
 | `public_app_url` | String | YES | `"http://localhost:8501"` | — |
+| `risk_alert_recipients` | Text | YES | NULL | — | Database override; NULL uses `RISK_ALERT_RECIPIENTS` environment fallback |
+| `remedyforce_ticket_email` | Text | YES | NULL | — | Database override; NULL uses `REMEDYFORCE_TICKET_EMAIL` |
+| `noc_notify_email` | Text | YES | NULL | — | Database override; NULL uses `NOC_NOTIFY_EMAIL` |
+| `noc_onpage_email` | Text | YES | NULL | — | Database override; NULL uses `NOC_ONPAGE_EMAIL` |
+| `itnetwork_onpage_email` | Text | YES | NULL | — | Database override; NULL uses `ITNETWORK_ONPAGE_EMAIL` |
+| `elastic_url` | Text | YES | NULL | — | Database override; NULL uses `ELASTIC_URL`; blank disables sync |
+| `elastic_api_key` | Text | YES | NULL | — | Database override; NULL uses `ELASTIC_API_KEY`; not returned by the API |
+| `elastic_verify_certs` | Boolean | YES | NULL | — | Database override; NULL uses `ELASTIC_VERIFY_CERTS` |
+| `elastic_ca_certs` | Text | YES | NULL | — | Database override; NULL uses `ELASTIC_CA_CERTS` |
+| `elastic_request_timeout` | Float | YES | NULL | — | Database override; NULL uses `ELASTIC_REQUEST_TIMEOUT` |
+| `elastic_max_results` | Integer | YES | NULL | — | Database override; NULL uses `ELASTIC_MAX_RESULTS` |
+| `crime_alert_sms` | Text | YES | NULL | — | Database override; NULL uses `CRIME_ALERT_SMS` |
+| `crime_alert_email` | Text | YES | NULL | — | Database override; NULL uses `CRIME_ALERT_EMAIL` |
 | `failed_login_alert_enabled` | Boolean | NO | `False` | — |
 | `failed_login_alert_recipients` | Text | NO | `""` | — |
 | `failed_login_alert_threshold` | Integer | NO | `5` | — |
@@ -952,7 +966,7 @@ After migrations, startup enables persistent WAL mode. The SQLAlchemy connection
 
 ### Phase 2 — One-time legacy adoption
 
-Revision `20261002_0001` uses the frozen `migrations/schema_v1.py` snapshot to create missing baseline tables, adds only missing legacy columns, creates missing indexes, and applies one-time user, invitation, and priority backfills. Revision `20261002_0002` adds `registration_invites.revoked_at` for auditable invite invalidation during full restore. Revision `20261005_0003` adds a false-default `solarwinds_alerts.needs_dispatch` flag while preserving existing alerts. Revision `20261005_0004` fills `timeline_events.site_name` only for legacy generated webhook alerts with a suffix matching a monitored location. Revision `20261013_0005` adds nullable `solarwinds_alerts.onpage_sent_at` so successful on-page delivery can be tracked per active node incident. Revision `20261102_0006` creates `monitored_location_contacts` and its site lookup index without changing existing site rows. Revision `20261103_0007` adds additive NWS CAP lifecycle columns and provider-attempt metadata; legacy weather rows begin as `unknown` and are not treated as verified active alerts. Existing tables and records are retained. Duplicate normalized email values that prevent creation of the unique index fail with an actionable error.
+Revision `20261002_0001` uses the frozen `migrations/schema_v1.py` snapshot to create missing baseline tables, adds only missing legacy columns, creates missing indexes, and applies one-time user, invitation, and priority backfills. Revision `20261002_0002` adds `registration_invites.revoked_at` for auditable invite invalidation during full restore. Revision `20261005_0003` adds a false-default `solarwinds_alerts.needs_dispatch` flag while preserving existing alerts. Revision `20261005_0004` fills `timeline_events.site_name` only for legacy generated webhook alerts with a suffix matching a monitored location. Revision `20261013_0005` adds nullable `solarwinds_alerts.onpage_sent_at` so successful on-page delivery can be tracked per active node incident. Revision `20261102_0006` creates `monitored_location_contacts` and its site lookup index without changing existing site rows. Revision `20261103_0007` adds additive NWS CAP lifecycle columns and provider-attempt metadata; legacy weather rows begin as `unknown` and are not treated as verified active alerts. Revision `20261105_0008` adds nullable integration overrides and a default `openai_compatible` provider to `system_config`. Existing tables and records are retained. Duplicate normalized email values that prevent creation of the unique index fail with an actionable error.
 
 The explicit compatibility column map covers account/recovery fields, scheduler revisions, scoring and alert settings, article enrichment metadata, role site types, alert dispatch fields, location tracking, shift-log state, crime dispatch state, and timeline site metadata. The adoption revision validates every frozen-baseline table's final column set before recording success; later revisions add their versioned fields.
 

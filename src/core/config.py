@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     elastic_ca_certs: str | None = None
     elastic_request_timeout: float = Field(default=15.0, gt=0, le=120)
     elastic_max_results: int = Field(default=500, gt=0, le=5000)
+    remedyforce_ticket_email: str = ""
+    noc_notify_email: str = ""
+    noc_onpage_email: str = ""
+    itnetwork_onpage_email: str = ""
     crime_alert_sms: str | None = None
     crime_alert_email: str | None = None
     risk_alert_recipients: str = ""

@@ -132,7 +132,9 @@ Invite an individual by email or create a display account separately. The direct
 
 ### Application Settings
 
-The page separates global URL/technology/ASN and failed-login alert settings, risk scoring, and the dynamic 20-job scheduler. Each section has a distinct action grant. Scheduler edits are range/type validated and the worker applies saved revisions within 30 seconds. Escalation and encrypted backup cannot be disabled.
+The page separates global URL/technology/ASN and failed-login alert settings, notification destinations and Elastic integration settings, risk scoring, and the dynamic scheduler. Application defaults and integration settings use `Action: Manage Application Settings`; risk scoring and scheduler timing retain their separate grants. Environment values are fallbacks until a database override is saved. A blank destination disables it, and “Reset to environment” removes saved overrides. Elastic API keys are write-only in the UI. Scheduler edits are range/type validated and the worker applies saved revisions within 30 seconds. Escalation and encrypted backup cannot be disabled.
+
+In **Settings > AI & SMTP**, choose OpenAI-compatible, Ollama OpenAI-compatible, Ollama native, or vLLM. The connection test uses the selected provider’s API format. A saved API key is reused only with its saved provider; changing provider clears the old key unless you enter a replacement. Local model endpoints must be reachable from the API container; in Docker, use a service name or host gateway rather than the API container’s own `localhost`.
 
 ### Backup & Restore and Danger Zone
 

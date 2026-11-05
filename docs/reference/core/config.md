@@ -17,6 +17,10 @@ Loads typed environment configuration with Pydantic Settings, imports `.env` val
 | `elastic_ca_certs` | `str \| None` | `None` | Optional CA bundle path. |
 | `elastic_request_timeout` | `float` | `15.0` (greater than 0, at most 120) | Elasticsearch request timeout in seconds. |
 | `elastic_max_results` | `int` | `500` (greater than 0, at most 5000) | Maximum result count for Elastic queries. |
+| `remedyforce_ticket_email` | `str` | `""` | Environment fallback for the escalation ticket destination. |
+| `noc_notify_email` | `str` | `""` | Environment fallback for NOC notification emails. |
+| `noc_onpage_email` | `str` | `""` | Environment fallback for NOC on-page emails. |
+| `itnetwork_onpage_email` | `str` | `""` | Environment fallback for IT/network on-page emails. |
 | `crime_alert_sms` | `str \| None` | `None` | Crime SMS gateway destination. |
 | `crime_alert_email` | `str \| None` | `None` | Crime email destination. |
 | `risk_alert_recipients` | `str` | `""` | Comma-separated risk/daily-brief recipients. |
@@ -26,7 +30,7 @@ Loads typed environment configuration with Pydantic Settings, imports `.env` val
 | `webhook_replay_window_seconds` | `int` | `300` | Accepted webhook timestamp age. |
 | `webhook_max_body_bytes` | `int` | `1048576` | Maximum webhook request body. |
 | `websocket_max_message_bytes` | `int` | `65536` | Maximum client WebSocket message. |
-| `allow_private_llm_endpoints` | `bool` | `False` | Allows private LLM endpoint URLs when true. |
+| `allow_private_llm_endpoints` | `bool` | `False` | Allows private LLM endpoint URLs for generic OpenAI-compatible provider tests; selected Ollama/vLLM local providers can use validated private targets. |
 | `cors_origins` | `str` | `http://localhost:8501,http://localhost:5173` | Comma-separated CORS origin list. |
 | `allow_unsigned_webhooks` | `bool` | `False` | Explicit migration exception for unsigned webhook requests. |
 | `public_app_url` | `str` | `http://localhost:8501` | Base URL used for registration links. |
@@ -45,9 +49,9 @@ The nested `Config` sets `env_file = ".env"` and `extra = "ignore"`. `load_doten
 
 The module exports these aliases for older imports:
 
-`DATABASE_URL`, `ELASTIC_URL`, `ELASTIC_API_KEY`, `CRIME_ALERT_SMS`, `CRIME_ALERT_EMAIL`, and `RISK_ALERT_RECIPIENTS`.
+`DATABASE_URL`, `ELASTIC_URL`, `ELASTIC_API_KEY`, `ELASTIC_VERIFY_CERTS`, `ELASTIC_CA_CERTS`, `ELASTIC_REQUEST_TIMEOUT`, `ELASTIC_MAX_RESULTS`, `CRIME_ALERT_SMS`, `CRIME_ALERT_EMAIL`, and `RISK_ALERT_RECIPIENTS`.
 
-Other settings must be read from the `settings` singleton.
+Other settings must be read from the `settings` singleton. Operational alert destinations and Elastic connection fields are resolved by `src.core.runtime_settings`: a nullable database override takes precedence, and a null field uses the corresponding environment setting. The `src.core.config` compatibility aliases remain import-time environment snapshots; runtime integrations use the resolver so settings saved in the UI take effect without a restart.
 
 ## `setup_logging(level=None)`
 

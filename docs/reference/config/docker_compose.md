@@ -81,7 +81,9 @@ Key environment variable consumed:
 | Variable | Used By | Purpose |
 |----------|---------|---------|
 | `DATABASE_URL` | api, worker, webhook | SQLite database file shared by all backend services. Startup migrations run before application work. |
-| `RISK_ALERT_RECIPIENTS` | api, worker, webhook | Comma-separated email recipients for risk alerts. |
+| `RISK_ALERT_RECIPIENTS` | api, worker | Fallback recipients for risk alerts; database overrides are read from shared SQLite at operation time. |
+| `REMEDYFORCE_TICKET_EMAIL`, `NOC_*_EMAIL`, `ITNETWORK_ONPAGE_EMAIL` | worker | Environment fallbacks for escalation/wildfire destinations; Application Settings database overrides take precedence. |
+| `ELASTIC_*`, `CRIME_ALERT_*` | api, worker | Environment fallbacks for Elastic and crime alerts; Application Settings database overrides take precedence. |
 | `WEBHOOK_*` | webhook | HMAC, replay, and body-size controls. |
 | `CORS_ORIGINS` | api | Allowed browser origins. |
 | `PUBLIC_APP_URL`, `REGISTRATION_INVITE_TTL_HOURS` | api | Registration URL and invite lifetime. |

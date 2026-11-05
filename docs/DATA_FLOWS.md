@@ -128,7 +128,7 @@ The Shift Logbook's shift, end-of-day, and trailing-week handoff reports use the
 
 ## 5. LLM reports and progress
 
-The LLM client uses an OpenAI-compatible `/chat/completions` endpoint configured in `SystemConfig`. Calls have a 300-second timeout and return `[WARN]` text on failure. The map/reduce implementation processes chunks sequentially, scales the base chunk size by model context, and may skip noise or the reduce step depending on caller options. Progress is stored in process memory, not a durable table.
+The LLM client uses the provider selected in `SystemConfig`: generic OpenAI-compatible, Ollama OpenAI-compatible, Ollama native `/api/chat`, or vLLM OpenAI-compatible. Normal generation and the administrator connection test share the provider-aware URL, payload, and response adapter. Generation calls have a 300-second timeout and return `[WARN]` text on failure; connection tests use 30 seconds and report endpoint/protocol errors. The map/reduce implementation processes chunks sequentially, scales the base chunk size by model context, and may skip noise or the reduce step depending on caller options. Progress is stored in process memory, not a durable table.
 
 | Report | Input window/shape | Persistence and default schedule |
 |---|---|---|
@@ -158,7 +158,8 @@ Acknowledgement (`is_correlated`) and dispatch are workflow flags, not recovery.
 
 ### Risk, earthquake, wildfire, and crime notifications
 
-- `risk_alert.check_and_alert()` sends only on a tier increase from a known prior tier, uses `RISK_ALERT_RECIPIENTS`, and applies a four-hour shared cooldown. If no recipients exist, it updates tracked levels without sending.
+- `risk_alert.check_and_alert()` sends only on a tier increase from a known prior tier, uses the effective risk-alert recipient setting (database override or `RISK_ALERT_RECIPIENTS` fallback), and applies a four-hour shared cooldown. If no recipients exist, it updates tracked levels without sending.
+- Alert destinations and Elastic settings resolve from nullable `SystemConfig` overrides with environment fallback; settings saved in Application Settings are available to API and worker callers without a restart.
 - Earthquake proximity examines magnitude ≥2.5 events within 50 miles of monitored locations and keeps alerted IDs in `SystemConfig`.
 - Wildfire proximity defaults to five miles from a site/perimeter. A fire at or below one acre uses a one-mile site threshold; per-fire/site distance state supports a re-alert when the fire moves at least 0.5 mile closer.
 - Perimeter crime delivery selects only rows with distance ≤0.4 miles from headquarters, severity text containing `High`, and `is_alert_dispatched=false`; it sends an SMS-friendly email through the configured gateway address.
