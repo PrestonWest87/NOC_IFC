@@ -6,7 +6,7 @@
 
 The module fetches SPC outlooks and USGS earthquakes on the slower `regional_hazards` job, and exposes a separate `fetch_nws_alerts()` job that polls one combined NWS alert endpoint every 60 seconds. It persists provider health, current CAP lifecycle fields, and GeoJSON; earthquake and WFCA fire proximity checks remain worker-side.
 
-NWS alert coverage starts with Arkansas and extends 50 miles outward into all six Arkansas neighbors: Louisiana, Texas, Mississippi, Missouri, Oklahoma, and Tennessee. `src.core.arkansas_coverage` creates the distance buffer from county geometry in a local azimuthal-equidistant projection. Alert polygons and county UGC/SAME geocodes are checked against that corridor. Unresolved zone-only alerts are retained as an explicit state-level fallback.
+NWS alert coverage starts with Arkansas and extends 50 miles outward into all six Arkansas neighbors: Louisiana, Texas, Mississippi, Missouri, Oklahoma, and Tennessee. [`src.core.arkansas_coverage`](../core/arkansas_coverage.md) creates the distance buffer from county geometry in a local azimuthal-equidistant projection. Alert polygons and county UGC/SAME geocodes are checked against that corridor. Unresolved zone-only alerts are retained as an explicit state-level fallback.
 
 ## Constants
 

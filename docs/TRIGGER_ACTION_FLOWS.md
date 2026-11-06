@@ -20,7 +20,7 @@ The success response confirms queueing only; it is not a persistence acknowledgm
 
 ## 2. Scheduler triggers
 
-The single `worker` process registers 20 jobs from `JOB_REGISTRY`. It runs registry entries with `startup_run=true` during boot in four groups separated by 30-second pauses; scheduled callbacks use a two-thread executor and same-function non-overlap guard. On boot, enabled startup jobs can initiate external HTTP, email, LLM, and database work.
+The single `worker` process registers 21 jobs from `JOB_REGISTRY`. It runs registry entries with `startup_run=true` during boot in four groups separated by 30-second pauses; scheduled callbacks use a two-thread executor and same-function non-overlap guard. On boot, enabled startup jobs can initiate external HTTP, email, LLM, and database work.
 
 | Job | Default trigger | Main work |
 |---|---|---|

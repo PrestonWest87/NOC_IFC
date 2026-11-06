@@ -168,9 +168,13 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 
 Comprehensive enterprise documentation is in `docs/`:
 
+See [docs/README.md](docs/README.md) for the complete documentation catalog. The entries below highlight the main architecture and operational references.
+
 | Document | Contents |
 |----------|----------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System context, C4 container model, technology stack, data flow overview, security, scalability |
+| [GETTING_STARTED.md](docs/GETTING_STARTED.md) | Installation, first startup, environment setup, and initial operations |
+| [USER_GUIDE.md](docs/USER_GUIDE.md) | Current workspace features and operator workflows |
 | [API.md](docs/API.md) | Complete REST operation inventory and endpoint behavior; path/method coverage is checked against the FastAPI OpenAPI schema |
 | [PERMISSIONS.md](docs/PERMISSIONS.md) | Exact page, tab, action, site-type, built-in-role, and enforcement contracts |
 | [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | All 36 tables with columns, types, constraints, indexes, relationships, migration strategy, retention policies |
@@ -183,6 +187,10 @@ Comprehensive enterprise documentation is in `docs/`:
 | [WEBHOOK.md](docs/WEBHOOK.md) | SolarWinds webhook gateway: payload normalization, device classification, resolution detection |
 | [FRONTEND.md](docs/FRONTEND.md) | React SPA: component tree, routing, hooks, state management, theme system, WebSocket client |
 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Docker Compose, environment variables, commands, production considerations, troubleshooting |
+| [OPERATIONS_REFERENCE.md](docs/OPERATIONS_REFERENCE.md) | Environment and application settings, service commands, scheduler defaults |
+| [MAINTENANCE.md](docs/MAINTENANCE.md) | Release, backup, migration, restore, and recurring maintenance procedures |
+| [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Diagnostics for API, worker, database, integration, and UI failures |
+| [CODE_REFERENCE.md](docs/CODE_REFERENCE.md) | Source-to-module reference index |
 | [DOCUMENTATION_AUDIT.md](docs/DOCUMENTATION_AUDIT.md) | Source-to-documentation audit scope, verified inventories, and observed source-level inconsistencies |
 | [IN_CODE_DOCUMENTATION_PLAN.md](docs/IN_CODE_DOCUMENTATION_PLAN.md) | Phased plan and style for future source docstrings and explanatory comments; no code edits are implied |
 | [IMPLEMENTATION_PLAN_EFFICIENCY_AND_MIGRATIONS.md](docs/IMPLEMENTATION_PLAN_EFFICIENCY_AND_MIGRATIONS.md) | Current startup migration, dependency, and efficiency implementation plan |
@@ -334,8 +342,8 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | DB Maintenance | 60 min | Dedup + data purge per retention policy |
 | ML Retrain | Sunday 02:00 | scikit-learn model training + hot reload |
 | Encrypted Database Backup | Sunday 00:00 America/Chicago | Full SQLite + model snapshot; retain latest three scheduled backups |
-| Daily Fusion Report | 06:00 CST | Generate and store the previous day's report |
-| Daily Email Brief | 07:00 CST | Email unified brief to recipients |
+| Daily Fusion Report | 06:00 America/Chicago | Generate and store the previous day's report |
+| Daily Email Brief | 07:00 America/Chicago | Email unified brief to recipients |
 
 ## Critical Context
 

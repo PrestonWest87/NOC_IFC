@@ -48,7 +48,7 @@ The API, worker, and webhook share `./data` as `/app/data`. SQLite is the only s
 
 ### API application
 
-`src/api/main.py` creates the FastAPI application, installs `authentication_middleware`, configures CORS from `CORS_ORIGINS`, includes 17 routers, initializes the database during lifespan startup, and starts the 10-second WebSocket broadcaster. `/health` is a liveness response; `/ready` verifies a database query and returns `503` when the database is unavailable. The current OpenAPI schema exposes 177 paths and 189 HTTP operations; `docs/API.md` inventories the operations.
+`src/api/main.py` creates the FastAPI application, installs `authentication_middleware`, configures CORS from `CORS_ORIGINS`, includes 17 routers, initializes the database during lifespan startup, and starts the 10-second WebSocket broadcaster. `/health` is a liveness response; `/ready` verifies a database query and returns `503` when the database is unavailable. The current OpenAPI schema exposes 179 paths and 193 HTTP operations; `docs/API.md` inventories the operations.
 
 The 17 router modules are `auth`, `dashboard`, `threat`, `regional`, `hunting`, `rca`, `aiops`, `logbook`, `reporting`, `settings`, `settings_admin` (mounted as `/admin`), `llm`, `email`, `keyword_analysis`, `permissions`, `user_admin`, and `application_settings`.
 
@@ -118,6 +118,10 @@ After migrations, SQLite startup enables WAL. Each NullPool connection receives 
 | Concern | Source |
 |---|---|
 | Settings and environment parsing | `src/core/config.py` |
+| Live alert/Elastic settings | `src/core/runtime_settings.py` |
+| LLM provider protocols | `src/core/llm_providers.py` |
+| Regional geometry and CAP alert filtering | `src/core/arkansas_coverage.py` |
+| Monitored-site contact validation | `src/core/site_contact_validation.py` |
 | Engine/session/migrations/seeds | `src/core/db.py` |
 | API lifecycle and WebSocket | `src/api/main.py`, `src/api/ws_manager.py` |
 | Authentication middleware | `src/api/auth_guard.py` |

@@ -11,6 +11,9 @@ This index records the current source-to-reference mapping after the reference c
 | `src/api/ws_manager.py` | `api/ws_manager.md` |
 | `src/api/routes/*.py` | `api/routes/*.md` plus the complete method/path inventory in `../API.md` |
 | `src/core/config.py` | `core/config.md` |
+| `src/core/runtime_settings.py` | `core/runtime_settings.md`, `../OPERATIONS_REFERENCE.md`, `../API.md` |
+| `src/core/llm_providers.py` | `core/llm_providers.md`, `utils/llm.md`, `../API.md` |
+| `src/core/arkansas_coverage.py` | `core/arkansas_coverage.md`, `workers/infra_worker.md`, `../DATA_FLOWS.md` |
 | `src/core/__init__.py` | `core/__init__.md` |
 | `src/core/db.py` | `core/db.md` |
 | `src/core/migration_runner.py`, `alembic.ini`, `migrations/env.py`, `migrations/schema_v1.py`, `migrations/versions/*.py` | `core/migration_runner.md`, `../MIGRATION_COMPATIBILITY.md`, `../DATABASE_SCHEMA.md` |
