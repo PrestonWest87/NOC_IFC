@@ -7,6 +7,10 @@ The detailed module pages live under `docs/reference/`. The current source-to-re
 | Area | Source | Reference |
 |---|---|---|
 | Configuration | `src/core/config.py` | `reference/core/config.md` |
+| Dynamic operational settings | `src/core/runtime_settings.py` | `reference/core/runtime_settings.md`, `OPERATIONS_REFERENCE.md` |
+| LLM provider protocols | `src/core/llm_providers.py` | `reference/core/llm_providers.md`, `reference/utils/llm.md` |
+| Arkansas regional coverage and CAP filtering | `src/core/arkansas_coverage.py` | `reference/core/arkansas_coverage.md`, `DATA_FLOWS.md` |
+| Monitored-site contact validation | `src/core/site_contact_validation.py` | `reference/core/site_contact_validation.md`, `reference/services/services.md` |
 | Core package | `src/core/__init__.py` | `reference/core/__init__.md` |
 | Database lifecycle | `src/core/db.py` | `reference/core/db.md` |
 | SQLite migrations | `src/core/migration_runner.py`, `alembic.ini`, `migrations/env.py`, `migrations/schema_v1.py`, `migrations/versions/*.py` | `reference/core/migration_runner.md`, `MIGRATION_COMPATIBILITY.md` |

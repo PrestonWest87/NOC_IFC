@@ -1,6 +1,6 @@
 # Module: `src.core.scheduler_registry`
 
-`JOB_REGISTRY` is the source of truth for the 20 supported background jobs, their defaults, validation bounds, startup-run policy, and whether an operator can disable them.
+`JOB_REGISTRY` is the source of truth for the 21 supported background jobs, their defaults, validation bounds, startup-run policy, and whether an operator can disable them.
 
 Each registry entry identifies a job key/function and uses one of three schedule shapes:
 

@@ -70,7 +70,7 @@ Once running, access the UI at `http://localhost:8501`. Log in as `admin` using 
 | Memory limit | 1.5 GB |
 | Environment | `.env` file |
 
-Runs all scheduled jobs: RSS feed fetch, crime data, hazard monitoring, cloud outage tracking, CISA KEV updates, internal risk assessments, unified brief generation, DB maintenance, ML retraining, and tiered alert escalation.
+Runs all 21 registry-managed background jobs. The complete schedules, startup-run policy, and non-disableable jobs are maintained in [Scheduler and Background Jobs](SCHEDULER.md).
 
 ### webhook — SolarWinds Gateway
 

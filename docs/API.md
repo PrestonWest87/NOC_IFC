@@ -3,7 +3,7 @@
 Base URL: `http://localhost:8101/api/v1`
 WebSocket: `ws://localhost:8101/ws`
 
-This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-02 (178 paths and 191 HTTP operations). The running application's OpenAPI schema remains the source of truth.
+This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-06 (179 paths and 193 HTTP operations). The running application's OpenAPI schema remains the source of truth.
 
 ## Authentication
 
