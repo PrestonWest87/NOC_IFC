@@ -26,7 +26,7 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 - [x] Default event time labels to application-local `CST`/`CDT`; send Morning Report from the latest Global Dashboard shift analysis as-is.
 - [x] Add administrator-managed signatures with default/optional selection and immutable sent/scheduled snapshots.
 - [x] Update migration, API/UI/source docs, local-only tests, and verify fresh/existing SQLite upgrades, Python suite, frontend/container builds, and dev Compose health.
-- [ ] Review and push intended source/docs only to `dev`; preserve unrelated untracked integration-plan documents and keep test files unstaged.
+- [x] Review and push intended source/docs only to `dev`; preserve unrelated untracked integration-plan documents and keep test files unstaged.
 
 ## Completed Implementation Plan — User, Permissions, and Application Settings
 
