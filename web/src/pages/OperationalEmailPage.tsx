@@ -5,7 +5,10 @@ import api, { getApiErrorMessage } from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { isAdministrator } from "../utils/permissions";
 
-type TemplateField = { key: string; label: string; required: boolean; max_length: number };
+type TemplateField = {
+  key: string; label: string; required: boolean; max_length: number;
+  options?: string[]; multiline?: boolean; visible?: boolean;
+};
 type EmailTemplate = {
   key: string;
   label: string;
@@ -20,6 +23,13 @@ type EmailTemplate = {
   default_bcc: string;
 };
 type EmailAttachment = { filename: string; content_type: string; content_base64: string; size_bytes?: number };
+type EmailSignature = {
+  id: number; name: string; content: string; is_active: boolean; is_default: boolean;
+  created_at?: string | null; updated_at?: string | null;
+};
+type EmailSignatureDraft = {
+  id: number | null; name: string; content: string; is_active: boolean; is_default: boolean;
+};
 
 const inputStyle: React.CSSProperties = {
   width: "100%", boxSizing: "border-box", padding: "0.55rem 0.65rem", borderRadius: 6,
@@ -98,16 +108,34 @@ function formatTime(value?: string | null): string {
 function TemplateFieldInput({ field, value, onChange, readOnly = false }: {
   field: TemplateField; value: string; onChange: (value: string) => void; readOnly?: boolean;
 }) {
+  if (field.visible === false) return null;
+  const controlStyle = { ...inputStyle, opacity: readOnly ? 0.75 : 1 };
   return <label style={{ display: "block" }}>
     <span style={labelStyle}>{field.label}{field.required ? " *" : ""}</span>
-    <input
-      style={{ ...inputStyle, opacity: readOnly ? 0.75 : 1 }}
+    {field.options ? <select
+      style={controlStyle}
+      value={value || ""}
+      disabled={readOnly}
+      required={field.required}
+      onChange={event => onChange(event.target.value)}
+    >
+      <option value="">Select an option</option>
+      {field.options.map(option => <option key={option} value={option}>{option}</option>)}
+    </select> : field.multiline ? <textarea
+      style={{ ...controlStyle, resize: "vertical", minHeight: 82 }}
       maxLength={field.max_length}
       value={value || ""}
       readOnly={readOnly}
       required={field.required}
       onChange={event => onChange(event.target.value)}
-    />
+    /> : <input
+      style={controlStyle}
+      maxLength={field.max_length}
+      value={value || ""}
+      readOnly={readOnly}
+      required={field.required}
+      onChange={event => onChange(event.target.value)}
+    />}
   </label>;
 }
 
@@ -116,7 +144,7 @@ export function OperationalEmailPage() {
   const isAdmin = isAdministrator(user);
   const queryClient = useQueryClient();
   const [selectedKey, setSelectedKey] = useState("maintenance_notice");
-  const [activePanel, setActivePanel] = useState<"compose" | "scheduled" | "history" | "templates">("compose");
+  const [activePanel, setActivePanel] = useState<"compose" | "scheduled" | "history" | "templates" | "signatures">("compose");
   const [fields, setFields] = useState<Record<string, string>>({});
   const [to, setTo] = useState("");
   const [cc, setCc] = useState("");
@@ -127,6 +155,8 @@ export function OperationalEmailPage() {
   const [bodyTouched, setBodyTouched] = useState(false);
   const [attachments, setAttachments] = useState<EmailAttachment[]>([]);
   const [maintenanceNoticeId, setMaintenanceNoticeId] = useState("");
+  const [fiberOutageId, setFiberOutageId] = useState("");
+  const [signatureChoice, setSignatureChoice] = useState("default");
   const [deliveryMode, setDeliveryMode] = useState<"send" | "schedule">("send");
   const [scheduleType, setScheduleType] = useState<"once" | "daily" | "weekly">("once");
   const [scheduledAt, setScheduledAt] = useState(() => chicagoInputValue(new Date(Date.now() + 30 * 60 * 1000)));
@@ -135,17 +165,38 @@ export function OperationalEmailPage() {
   const [notice, setNotice] = useState<{ message: string; error?: boolean } | null>(null);
   const [selectedDeliveryId, setSelectedDeliveryId] = useState<number | null>(null);
   const [templateDraft, setTemplateDraft] = useState<Partial<EmailTemplate>>({});
+  const [signatureDraft, setSignatureDraft] = useState<EmailSignatureDraft>({
+    id: null, name: "", content: "", is_active: true, is_default: false,
+  });
 
   const templatesQuery = useQuery({
     queryKey: ["operational-email-templates"],
     queryFn: () => api.get("/operational-email/templates").then(response => response.data),
+    refetchInterval: selectedKey === "morning_report" ? 60000 : false,
   });
   const templates: EmailTemplate[] = templatesQuery.data?.templates || [];
   const selectedTemplate = useMemo(() => templates.find(template => template.key === selectedKey) || templates[0], [templates, selectedKey]);
+  const signaturesQuery = useQuery({
+    queryKey: ["operational-email-signatures", isAdmin],
+    queryFn: () => api.get(`/operational-email/signatures${isAdmin ? "/manage" : ""}`).then(response => response.data),
+  });
+  const signatures: EmailSignature[] = signaturesQuery.data || [];
+  const activeSignatures = signatures.filter(signature => signature.is_active);
+  const defaultSignature = activeSignatures.find(signature => signature.is_default);
+  const selectedSignature = signatureChoice === "default"
+    ? defaultSignature
+    : signatureChoice === "none"
+      ? undefined
+      : activeSignatures.find(signature => String(signature.id) === signatureChoice);
 
   useEffect(() => {
     if (!selectedTemplate) return;
-    const initialFields = Object.fromEntries(selectedTemplate.fields.map(field => [field.key, ""])) as Record<string, string>;
+    const initialFields = Object.fromEntries(selectedTemplate.fields.map(field => [
+      field.key,
+      field.key === "timezone" ? (templatesQuery.data?.timezone_abbreviation || "CST")
+        : field.key === "shift_analysis" ? (templatesQuery.data?.latest_shift_analysis || "")
+          : "",
+    ])) as Record<string, string>;
     setFields(initialFields);
     setTo(selectedTemplate.default_to || "");
     setCc(selectedTemplate.default_cc || "");
@@ -153,21 +204,32 @@ export function OperationalEmailPage() {
     setSubjectTouched(false);
     setBodyTouched(false);
     setSubject(renderTemplate(selectedTemplate.default_subject, initialFields));
-    setBody(renderTemplate(selectedTemplate.default_body, initialFields));
+    setBody(selectedKey === "morning_report"
+      ? (templatesQuery.data?.latest_shift_analysis || "")
+      : renderTemplate(selectedTemplate.default_body, initialFields));
     setAttachments([]);
     setMaintenanceNoticeId("");
-  }, [selectedTemplate]);
+    setFiberOutageId("");
+    setSignatureChoice("default");
+  }, [selectedTemplate?.key]);
 
   useEffect(() => {
     if (!selectedTemplate) return;
     if (!subjectTouched) setSubject(renderTemplate(selectedTemplate.default_subject, fields));
-    if (!bodyTouched) setBody(renderTemplate(selectedTemplate.default_body, fields));
-  }, [selectedTemplate, fields, subjectTouched, bodyTouched]);
+    if (!bodyTouched) setBody(selectedKey === "morning_report"
+      ? (templatesQuery.data?.latest_shift_analysis || "")
+      : renderTemplate(selectedTemplate.default_body, fields));
+  }, [selectedTemplate, selectedKey, fields, subjectTouched, bodyTouched, templatesQuery.data?.latest_shift_analysis]);
 
   const maintenanceQuery = useQuery({
     queryKey: ["operational-email-maintenance-notices"],
     queryFn: () => api.get("/operational-email/maintenance-notices").then(response => response.data),
     enabled: selectedKey === "maintenance_complete",
+  });
+  const fiberOutagesQuery = useQuery({
+    queryKey: ["operational-email-fiber-outages"],
+    queryFn: () => api.get("/operational-email/fiber-outages").then(response => response.data),
+    enabled: selectedKey === "fiber_outage_update" || selectedKey === "fiber_outage_resolution",
   });
   const scheduledQuery = useQuery({
     queryKey: ["operational-email-scheduled"],
@@ -215,6 +277,43 @@ export function OperationalEmailPage() {
     },
     onError: error => setNotice({ message: getApiErrorMessage(error, "Template defaults could not be saved."), error: true }),
   });
+  const saveSignatureMutation = useMutation({
+    mutationFn: () => {
+      const payload = {
+        name: signatureDraft.name,
+        content: signatureDraft.content,
+        is_active: signatureDraft.is_active,
+        is_default: signatureDraft.is_default,
+      };
+      return signatureDraft.id
+        ? api.put(`/operational-email/signatures/${signatureDraft.id}`, payload).then(response => response.data)
+        : api.post("/operational-email/signatures", payload).then(response => response.data);
+    },
+    onSuccess: () => {
+      setNotice({ message: "Operational Email signature saved." });
+      setSignatureDraft({ id: null, name: "", content: "", is_active: true, is_default: false });
+      queryClient.invalidateQueries({ queryKey: ["operational-email-signatures"] });
+    },
+    onError: error => setNotice({ message: getApiErrorMessage(error, "Signature could not be saved."), error: true }),
+  });
+  const updateSignatureMutation = useMutation({
+    mutationFn: (signature: EmailSignature) => api.put(`/operational-email/signatures/${signature.id}`, {
+      name: signature.name,
+      content: signature.content,
+      is_active: signature.is_active,
+      is_default: signature.is_default,
+    }).then(response => response.data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["operational-email-signatures"] }),
+    onError: error => setNotice({ message: getApiErrorMessage(error, "Signature settings could not be updated."), error: true }),
+  });
+  const deactivateSignatureMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/operational-email/signatures/${id}`).then(response => response.data),
+    onSuccess: () => {
+      setNotice({ message: "Signature deactivated. Historical delivery snapshots are retained." });
+      queryClient.invalidateQueries({ queryKey: ["operational-email-signatures"] });
+    },
+    onError: error => setNotice({ message: getApiErrorMessage(error, "Signature could not be deactivated."), error: true }),
+  });
 
   useEffect(() => {
     if (!selectedTemplate) return;
@@ -239,8 +338,16 @@ export function OperationalEmailPage() {
     subject,
     body,
     fields,
+    ...(signatureChoice === "default"
+      ? { use_default_signature: true }
+      : signatureChoice === "none"
+        ? { use_default_signature: false }
+        : { signature_id: Number(signatureChoice), use_default_signature: false }),
     attachments: attachments.map(({ filename, content_type, content_base64 }) => ({ filename, content_type, content_base64 })),
     ...(selectedKey === "maintenance_complete" ? { maintenance_notice_id: Number(maintenanceNoticeId) } : {}),
+    ...((selectedKey === "fiber_outage_update" || selectedKey === "fiber_outage_resolution")
+      ? { source_email_id: Number(fiberOutageId) }
+      : {}),
   });
 
   const submit = () => {
@@ -287,6 +394,29 @@ export function OperationalEmailPage() {
     setFields(previous => ({ ...previous, ...noticeItem.fields }));
     if (!to.trim()) setTo((noticeItem.to || []).join(", "));
     if (!cc.trim()) setCc((noticeItem.cc || []).join(", "));
+    if (!bcc.trim()) setBcc((noticeItem.bcc || []).join(", "));
+    setSubjectTouched(false);
+    setBodyTouched(false);
+  };
+
+  const selectFiberOutage = (id: string) => {
+    setFiberOutageId(id);
+    const outage = (fiberOutagesQuery.data || []).find((item: any) => item.id === Number(id));
+    if (!outage || !selectedTemplate) return;
+    setFields(previous => {
+      const inherited: Record<string, string> = {};
+      selectedTemplate.fields.forEach(field => {
+        if (field.key === "timezone") {
+          inherited[field.key] = templatesQuery.data?.timezone_abbreviation || "CST";
+        } else if (Object.prototype.hasOwnProperty.call(outage.fields || {}, field.key)) {
+          inherited[field.key] = String(outage.fields[field.key] || "");
+        }
+      });
+      return { ...previous, ...inherited };
+    });
+    if (!to.trim()) setTo((outage.to || []).join(", "));
+    if (!cc.trim()) setCc((outage.cc || []).join(", "));
+    if (!bcc.trim()) setBcc((outage.bcc || []).join(", "));
     setSubjectTouched(false);
     setBodyTouched(false);
   };
@@ -326,6 +456,7 @@ export function OperationalEmailPage() {
       {tabButton("scheduled", "Scheduled", CalendarClock)}
       {tabButton("history", "Sent / History", ClipboardList)}
       {isAdmin && tabButton("templates", "Template Defaults", Shield)}
+      {isAdmin && tabButton("signatures", "Signatures", Shield)}
     </nav>
 
     {notice && <div role={notice.error ? "alert" : "status"} style={{ ...cardStyle, marginBottom: "1rem", borderColor: notice.error ? "var(--accent-red)" : "var(--accent-green)", color: notice.error ? "var(--accent-red)" : "var(--text-primary)" }}>{notice.message}</div>}
@@ -383,6 +514,16 @@ export function OperationalEmailPage() {
           {maintenanceQuery.isLoading && <small>Loading sent maintenance notifications...</small>}
           {!maintenanceQuery.isLoading && !(maintenanceQuery.data || []).length && <small style={{ color: "var(--text-muted)" }}>No successfully sent maintenance notifications are available.</small>}
         </div>}
+        {(selectedKey === "fiber_outage_update" || selectedKey === "fiber_outage_resolution") && <div style={cardStyle}>
+          <label><span style={labelStyle}>Previously sent fiber outage ticket *</span>
+            <select value={fiberOutageId} onChange={event => selectFiberOutage(event.target.value)} style={inputStyle}>
+              <option value="">Select a sent fiber outage</option>
+              {(fiberOutagesQuery.data || []).map((item: any) => <option key={item.id} value={item.id}>{formatTime(item.sent_at)} · {item.subject}</option>)}
+            </select>
+          </label>
+          {fiberOutagesQuery.isLoading && <small>Loading sent fiber outage notices...</small>}
+          {!fiberOutagesQuery.isLoading && !(fiberOutagesQuery.data || []).length && <small style={{ color: "var(--text-muted)" }}>No successfully sent fiber outage notices are available.</small>}
+        </div>}
 
         <div style={{ ...cardStyle, display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.75rem" }}>
           <h2 style={{ gridColumn: "1 / -1", margin: 0, fontSize: "0.95rem" }}>Operational details</h2>
@@ -390,20 +531,39 @@ export function OperationalEmailPage() {
             key={field.key}
             field={field}
             value={fields[field.key] || ""}
-            readOnly={selectedKey === "maintenance_complete" && Boolean(maintenanceNoticeId) && !["completion_time", "work_performed", "service_status", "follow_up"].includes(field.key)}
+            readOnly={field.key === "timezone"
+              || (selectedKey === "maintenance_complete" && Boolean(maintenanceNoticeId) && !["completion_time", "work_performed", "service_status", "follow_up"].includes(field.key))
+              || ((selectedKey === "fiber_outage_update" || selectedKey === "fiber_outage_resolution") && Boolean(fiberOutageId)
+                && !(selectedKey === "fiber_outage_update"
+                  ? ["update_time", "current_status", "update_details", "restoration_estimate", "next_update"].includes(field.key)
+                  : ["resolution_time", "resolution_details", "service_status", "follow_up"].includes(field.key)))}
             onChange={value => setFields(previous => ({ ...previous, [field.key]: value }))}
           />)}
         </div>
 
         <div style={{ ...cardStyle, display: "grid", gap: "0.75rem" }}>
           <h2 style={{ margin: 0, fontSize: "0.95rem" }}>Recipients and message</h2>
+          <label><span style={labelStyle}>Signature</span>
+            <select value={signatureChoice} onChange={event => setSignatureChoice(event.target.value)} style={inputStyle}>
+              <option value="default">Use administrator default{defaultSignature ? ` · ${defaultSignature.name}` : " · none configured"}</option>
+              <option value="none">No signature</option>
+              {activeSignatures.map(signature => <option key={signature.id} value={signature.id}>{signature.name}{signature.is_default ? " · default" : ""}</option>)}
+            </select>
+          </label>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.75rem" }}>
             <label><span style={labelStyle}>To *</span><input value={to} onChange={event => setTo(event.target.value)} placeholder="person@example.com, team@example.com" style={inputStyle} /></label>
             <label><span style={labelStyle}>Cc</span><input value={cc} onChange={event => setCc(event.target.value)} style={inputStyle} /></label>
             {selectedTemplate.allows_bcc && <label style={{ gridColumn: "1 / -1" }}><span style={labelStyle}>Bcc (hidden from recipients)</span><input value={bcc} onChange={event => setBcc(event.target.value)} style={inputStyle} /></label>}
           </div>
           <label><span style={labelStyle}>Subject *</span><input value={subject} maxLength={500} onChange={event => { setSubjectTouched(true); setSubject(event.target.value); }} style={inputStyle} /></label>
-          <label><span style={labelStyle}>Message *</span><textarea value={body} maxLength={200000} onChange={event => { setBodyTouched(true); setBody(event.target.value); }} rows={12} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.45, fontFamily: "var(--font-mono)" }} /></label>
+          <label><span style={labelStyle}>{selectedKey === "morning_report" ? "Latest Global Dashboard shift analysis" : "Message *"}</span><textarea value={body} maxLength={200000} readOnly={selectedKey === "morning_report"} onChange={event => { setBodyTouched(true); setBody(event.target.value); }} rows={12} style={{ ...inputStyle, resize: selectedKey === "morning_report" ? "none" : "vertical", lineHeight: 1.45, fontFamily: "var(--font-mono)", opacity: selectedKey === "morning_report" ? 0.85 : 1 }} /></label>
+          {selectedKey === "morning_report" && <p style={{ margin: "-0.4rem 0 0", color: "var(--text-muted)", fontSize: "0.74rem" }}>
+            Sent exactly as currently stored in Global Dashboards{templatesQuery.data?.latest_shift_analysis_time ? ` · updated ${formatTime(templatesQuery.data.latest_shift_analysis_time)}` : ""}. The latest analysis is refreshed again at delivery time.
+            {!String(templatesQuery.data?.latest_shift_analysis || "").trim() && <span style={{ color: "var(--accent-orange)" }}> No shift analysis is currently available.</span>}
+          </p>}
+          {selectedSignature && <div style={{ borderLeft: "3px solid var(--accent-blue)", padding: "0.45rem 0.65rem", color: "var(--text-muted)", fontSize: "0.76rem" }}>
+            <strong>Signature appended · {selectedSignature.name}</strong><br /><span style={{ whiteSpace: "pre-wrap" }}>{selectedSignature.content}</span>
+          </div>}
           {selectedTemplate.allows_attachments && <div>
             <label style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 6 }}><Paperclip size={14} />Attachments · up to 5 files, 5 MiB each, 20 MiB total</label>
             <input type="file" multiple onChange={event => { void addAttachments(event.target.files); event.target.value = ""; }} />
@@ -412,7 +572,7 @@ export function OperationalEmailPage() {
               <button type="button" aria-label={`Remove ${file.filename}`} onClick={() => setAttachments(previous => previous.filter((_item, itemIndex) => itemIndex !== index))} style={{ background: "transparent", border: 0, color: "var(--accent-red)", cursor: "pointer" }}><X size={15} /></button>
             </div>)}
           </div>}
-          <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.72rem" }}>All messages use the configured global From address. Template changes affect future compositions, not saved schedules.</p>
+          <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.72rem" }}>All messages use the configured global From address. BCC recipients are hidden from other recipients. Template and signature changes affect new compositions, not saved schedules.</p>
         </div>
       </div>
     </section>}
@@ -472,6 +632,44 @@ export function OperationalEmailPage() {
       <label><span style={labelStyle}>Default subject · placeholders use {"{{field_name}}"}</span><input value={String(templateDraft.default_subject || "")} maxLength={500} onChange={event => setTemplateDraft(previous => ({ ...previous, default_subject: event.target.value }))} style={inputStyle} /></label>
       <label><span style={labelStyle}>Default message · available fields: {selectedTemplate.fields.map(field => `{{${field.key}}}`).join(", ")}</span><textarea value={String(templateDraft.default_body || "")} maxLength={200000} rows={14} onChange={event => setTemplateDraft(previous => ({ ...previous, default_body: event.target.value }))} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.45, fontFamily: "var(--font-mono)" }} /></label>
       <div><button type="button" onClick={() => saveTemplateMutation.mutate()} disabled={saveTemplateMutation.isPending} style={buttonStyle}><Save size={15} />{saveTemplateMutation.isPending ? "Saving..." : "Save template defaults"}</button></div>
+    </section>}
+
+    {activePanel === "signatures" && isAdmin && <section style={{ display: "grid", gridTemplateColumns: "minmax(280px, 0.9fr) minmax(0, 1.5fr)", gap: "1rem", alignItems: "start" }}>
+      <div style={{ ...cardStyle, display: "grid", gap: "0.75rem" }}>
+        <h2 style={{ margin: 0, fontSize: "1rem" }}>{signatureDraft.id ? "Edit signature" : "Create signature"}</h2>
+        <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.76rem" }}>Administrators manage reusable plain-text signatures. The selected signature is captured with each message and scheduled send.</p>
+        <label><span style={labelStyle}>Signature name *</span><input value={signatureDraft.name} maxLength={100} onChange={event => setSignatureDraft(previous => ({ ...previous, name: event.target.value }))} style={inputStyle} /></label>
+        <label><span style={labelStyle}>Signature text *</span><textarea value={signatureDraft.content} maxLength={4000} rows={8} onChange={event => setSignatureDraft(previous => ({ ...previous, content: event.target.value }))} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.45 }} /></label>
+        <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: "0.8rem" }}>
+          <input type="checkbox" checked={signatureDraft.is_active} onChange={event => setSignatureDraft(previous => ({ ...previous, is_active: event.target.checked, is_default: event.target.checked ? previous.is_default : false }))} />Active and available to Operational Email users
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: "0.8rem" }}>
+          <input type="checkbox" checked={signatureDraft.is_default} disabled={!signatureDraft.is_active} onChange={event => setSignatureDraft(previous => ({ ...previous, is_default: event.target.checked }))} />Use as the administrator default
+        </label>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" onClick={() => saveSignatureMutation.mutate()} disabled={saveSignatureMutation.isPending} style={buttonStyle}><Save size={15} />{saveSignatureMutation.isPending ? "Saving..." : signatureDraft.id ? "Save signature" : "Create signature"}</button>
+          {signatureDraft.id && <button type="button" onClick={() => setSignatureDraft({ id: null, name: "", content: "", is_active: true, is_default: false })} style={{ ...buttonStyle, background: "var(--bg-card)", color: "var(--text-primary)" }}>Cancel edit</button>}
+        </div>
+      </div>
+      <div style={{ ...cardStyle, overflowX: "auto" }}>
+        <h2 style={{ margin: "0 0 0.75rem", fontSize: "1rem" }}>Configured signatures</h2>
+        {signaturesQuery.isLoading ? <p>Loading signatures...</p> : signaturesQuery.isError ? <p role="alert">{getApiErrorMessage(signaturesQuery.error, "Signatures could not be loaded.")}</p> : <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
+          <thead><tr>{["Name / text", "State", "Actions"].map(label => <th key={label} style={{ textAlign: "left", padding: "0.5rem", borderBottom: "1px solid var(--border-primary)" }}>{label}</th>)}</tr></thead>
+          <tbody>{signatures.map(signature => <tr key={signature.id}>
+            <td style={{ padding: "0.6rem", borderBottom: "1px solid var(--border-primary)", whiteSpace: "pre-wrap" }}><strong>{signature.name}</strong><br />{signature.content}</td>
+            <td style={{ padding: "0.6rem", borderBottom: "1px solid var(--border-primary)" }}>{signature.is_active ? "Active" : "Inactive"}{signature.is_default ? " · Default" : ""}</td>
+            <td style={{ padding: "0.6rem", borderBottom: "1px solid var(--border-primary)" }}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <button type="button" onClick={() => setSignatureDraft({ id: signature.id, name: signature.name, content: signature.content, is_active: signature.is_active, is_default: signature.is_default })} style={{ ...buttonStyle, padding: "0.35rem 0.55rem", background: "var(--bg-card)", color: "var(--text-primary)" }}>Edit</button>
+                {signature.is_active && !signature.is_default && <button type="button" onClick={() => updateSignatureMutation.mutate({ ...signature, is_default: true })} disabled={updateSignatureMutation.isPending} style={{ ...buttonStyle, padding: "0.35rem 0.55rem" }}>Make default</button>}
+                {signature.is_active && <button type="button" onClick={() => deactivateSignatureMutation.mutate(signature.id)} disabled={deactivateSignatureMutation.isPending} style={{ ...buttonStyle, padding: "0.35rem 0.55rem", background: "var(--bg-card)", color: "var(--accent-red)" }}>Deactivate</button>}
+                {!signature.is_active && <button type="button" onClick={() => updateSignatureMutation.mutate({ ...signature, is_active: true })} disabled={updateSignatureMutation.isPending} style={{ ...buttonStyle, padding: "0.35rem 0.55rem" }}>Reactivate</button>}
+              </div>
+            </td>
+          </tr>)}
+          {!signatures.length && <tr><td colSpan={3} style={{ padding: "1rem", color: "var(--text-muted)" }}>No shared signatures configured.</td></tr>}</tbody>
+        </table>}
+      </div>
     </section>}
   </main>;
 }

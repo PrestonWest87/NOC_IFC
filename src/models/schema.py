@@ -160,12 +160,29 @@ class OperationalEmailTemplate(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class OperationalEmailSignature(Base):
+    """Administrator-managed email signature available to authorized page users."""
+    __tablename__ = "operational_email_signatures"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, unique=True, index=True)
+    content = Column(Text, nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    is_default = Column(Boolean, nullable=False, default=False, index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    updated_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class OperationalEmail(Base):
     """Immutable message snapshot or persistent one-time/recurring send schedule."""
     __tablename__ = "operational_emails"
     id = Column(Integer, primary_key=True, index=True)
     template_key = Column(String(64), nullable=False, index=True)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    signature_id = Column(Integer, ForeignKey("operational_email_signatures.id"), nullable=True, index=True)
+    signature_name = Column(String(100), nullable=True)
+    signature_content = Column(Text, nullable=True)
     parent_email_id = Column(Integer, ForeignKey("operational_emails.id"), nullable=True, index=True)
     subject = Column(String(500), nullable=False)
     body = Column(Text, nullable=False)
@@ -198,6 +215,7 @@ class OperationalEmail(Base):
         order_by="OperationalEmailDelivery.attempted_at.desc()",
     )
     parent_email = relationship("OperationalEmail", remote_side=[id], uselist=False)
+    signature = relationship("OperationalEmailSignature")
 
 
 Index(
@@ -236,6 +254,8 @@ class OperationalEmailDelivery(Base):
     )
     status = Column(String(16), nullable=False, index=True)
     sender_address = Column(String(254), nullable=True)
+    signature_id = Column(Integer, ForeignKey("operational_email_signatures.id"), nullable=True, index=True)
+    signature_name = Column(String(100), nullable=True)
     to_recipients = Column(JSON, nullable=False, default=list)
     cc_recipients = Column(JSON, nullable=False, default=list)
     bcc_recipients = Column(JSON, nullable=False, default=list)

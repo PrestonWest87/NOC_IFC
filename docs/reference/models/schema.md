@@ -1,6 +1,6 @@
 # Module: `src.models.schema`
 
-SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declarative schema contains 40 mapped tables/classes; migrations may add compatibility columns to existing deployments.
+SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declarative schema contains 41 mapped tables/classes; migrations may add compatibility columns to existing deployments.
 
 ---
 
@@ -45,9 +45,10 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declar
 | 35 | `user_weather_prefs` | `UserWeatherPreference` | User weather alert preferences |
 | 36 | `monitored_location_contacts` | `MonitoredLocationContact` | Optional reference contacts attached to monitored sites |
 | 37 | `operational_email_templates` | `OperationalEmailTemplate` | Shared subject/body and recipient defaults |
-| 38 | `operational_emails` | `OperationalEmail` | Composed message snapshots and persistent schedules |
-| 39 | `operational_email_attachments` | `OperationalEmailAttachment` | Bounded attachment content persisted with messages |
-| 40 | `operational_email_deliveries` | `OperationalEmailDelivery` | SMTP outcome and immutable send snapshot |
+| 38 | `operational_email_signatures` | `OperationalEmailSignature` | Administrator-managed reusable signatures |
+| 39 | `operational_emails` | `OperationalEmail` | Composed message/signature snapshots and persistent schedules |
+| 40 | `operational_email_attachments` | `OperationalEmailAttachment` | Bounded attachment content persisted with messages |
+| 41 | `operational_email_deliveries` | `OperationalEmailDelivery` | SMTP outcome and immutable send/signature snapshot |
 
 ---
 
@@ -498,7 +499,8 @@ The admin-only site-contact API validates fields. Automatic escalation includes 
 | `geojson_cache` | `feed_name` (PK), `data` (JSON), `updated_at`, fetch-attempt/success/error/status/duration fields, ETag/Last-Modified, feature count, coverage summary | SPC/NWS/USGS cached with source health |
 | `node_aliases` | `id`, `node_pattern`, `mapped_location_name`, `confidence_score`, `is_verified` | SolarWinds mapping |
 | `user_weather_prefs` | `id`, `username`, `alert_type` | Weather preferences; `username` is a logical user reference |
-| `operational_email_templates` | `id`, `template_key`, default subject/body, To/Cc/Bcc | Administrator-managed defaults for six templates |
+| `operational_email_templates` | `id`, `template_key`, default subject/body, To/Cc/Bcc | Administrator-managed defaults for nine templates |
+| `operational_email_signatures` | `id`, `name`, `content`, active/default flags, actor/timestamp fields | Administrator-managed plain-text signatures |
 | `operational_emails` | `id`, `template_key`, recipients, schedule fields, status, `parent_email_id` | Message snapshots and one-time/daily/weekly schedules |
 | `operational_email_attachments` | `id`, `operational_email_id`, filename, content type, binary content | Bounded files persisted with scheduled messages |
 | `operational_email_deliveries` | `id`, `operational_email_id`, sender, recipients, status, attempted/sent timestamps | Immutable SMTP attempt history, including hidden BCC envelope addresses |
@@ -519,6 +521,6 @@ The application runs Alembic revisions at startup before seeding data. `Base.met
 - A bootstrap administrator only when `DEFAULT_ADMIN_PASSWORD` is configured and no users exist
 - 70 default keywords with weights
 - 7 default RSS feed sources
-- Six Operational Email template defaults, inserted only when missing
+- Nine Operational Email template defaults, inserted only when missing
 - Default system configuration
 - Rescales articles only when `RESCORE_ON_STARTUP=true` is explicitly configured

@@ -5,7 +5,7 @@
 > **Driver:** SQLAlchemy 2.x with `NullPool`
 > **Last verified:** 2026-11-10
 
-The mapped table names, column names, SQLAlchemy types, and nullability in this reference reflect the model metadata in `src/models/schema.py`.
+The mapped table names, column names, SQLAlchemy types, and nullability in this reference reflect the 41 mapped models in `src/models/schema.py`.
 
 ---
 
@@ -222,7 +222,7 @@ The legacy ER diagram is conceptual: its `(FK→)` labels do not distinguish enf
 
 ## 2. Complete Table Reference
 
-Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state; revision `20261102_0006` adds the site-contact table; revision `20261103_0007` adds NWS alert lifecycle and provider freshness fields; revision `20261105_0008` adds LLM provider selection and nullable alert/Elastic environment overrides; revision `20261110_0009` adds Operational Email templates, messages, attachments, and delivery history.
+Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state; revision `20261102_0006` adds the site-contact table; revision `20261103_0007` adds NWS alert lifecycle and provider freshness fields; revision `20261105_0008` adds LLM provider selection and nullable alert/Elastic environment overrides; revision `20261110_0009` adds Operational Email tables; revision `20261110_0010` adds signatures and message signature snapshots.
 
 ### 2.1 `users` — User Accounts
 
@@ -816,7 +816,7 @@ Stores optional contact details separately from general site payloads. Contact v
 
 ### 2.37 `operational_email_templates` — Shared Operational Email Defaults (12 columns)
 
-Stores administrator-managed defaults for the six operational email templates. Message-specific edits are captured on each email record and do not modify this table.
+Stores administrator-managed defaults for the nine operational email templates. Message-specific edits are captured on each email record and do not modify this table.
 
 | Column | Type | Nullable | Default | Index / constraint |
 |---|---|---|---|---|
@@ -828,21 +828,40 @@ Stores administrator-managed defaults for the six operational email templates. M
 | `default_body` | Text | NO | — | Shared plain-text body with supported placeholders |
 | `default_to` | Text | NO | `""` | Default To recipients |
 | `default_cc` | Text | NO | `""` | Default Cc recipients |
-| `default_bcc` | Text | NO | `""` | Default Bcc recipients; used by Fiber Outage only |
+| `default_bcc` | Text | NO | `""` | Default hidden Bcc recipients for any template |
 | `updated_by_user_id` | Integer | YES | NULL | FK to `users.id` |
 | `created_at` | DateTime | NO | `utcnow` | Creation time |
 | `updated_at` | DateTime | NO | `utcnow` | Last template-default edit |
 
-### 2.38 `operational_emails` — Composed Messages and Persistent Schedules (22 columns)
+### 2.38 `operational_email_signatures` — Shared Email Signatures (9 columns)
 
-Stores a message snapshot, one-time or recurring schedule definition, delivery status, and an optional link to a maintenance notification. Recurring sends retain one parent schedule row and create a delivery row for each occurrence.
+Stores administrator-managed plain-text signatures. Deactivation preserves historical references; at most one active signature is designated as the default.
+
+| Column | Type | Nullable | Default | Index / constraint |
+|---|---|---|---|---|
+| `id` | Integer | NO | autoincrement | Primary key; indexed |
+| `name` | String(100) | NO | — | Unique; indexed |
+| `content` | Text | NO | — | Plain-text signature content |
+| `is_active` | Boolean | NO | `true` (client default) | Indexed; available to page users when active |
+| `is_default` | Boolean | NO | `false` (client default) | Indexed; only one active row is default |
+| `created_by_user_id` | Integer | YES | NULL | FK to `users.id` |
+| `updated_by_user_id` | Integer | YES | NULL | FK to `users.id` |
+| `created_at` | DateTime | NO | `utcnow` | Creation time |
+| `updated_at` | DateTime | NO | `utcnow` | Last signature edit |
+
+### 2.39 `operational_emails` — Composed Messages and Persistent Schedules (25 columns)
+
+Stores a message/signature snapshot, one-time or recurring schedule definition, delivery status, and an optional parent link for maintenance close-out or fiber-outage follow-up/resolution. Recurring sends retain one parent schedule row and create a delivery row for each occurrence. Morning Report refreshes its source body at send time; each delivery row captures the exact body delivered.
 
 | Column | Type | Nullable | Default | Index / constraint |
 |---|---|---|---|---|
 | `id` | Integer | NO | autoincrement | Primary key |
 | `template_key` | String(64) | NO | — | Indexed template key |
 | `created_by_user_id` | Integer | YES | NULL | Indexed FK to `users.id` |
-| `parent_email_id` | Integer | YES | NULL | Indexed self-reference for Maintenance Complete |
+| `signature_id` | Integer | YES | NULL | Indexed FK to `operational_email_signatures.id` |
+| `signature_name` | String(100) | YES | NULL | Selected-name snapshot |
+| `signature_content` | Text | YES | NULL | Selected-content snapshot for scheduled/live-source delivery |
+| `parent_email_id` | Integer | YES | NULL | Indexed self-reference for maintenance/fiber follow-ups |
 | `subject` | String(500) | NO | — | Rendered subject snapshot |
 | `body` | Text | NO | — | Rendered plain-text body snapshot |
 | `fields_json` | JSON | NO | `{}` | Template form values |
@@ -862,7 +881,7 @@ Stores a message snapshot, one-time or recurring schedule definition, delivery s
 | `created_at` | DateTime | NO | `utcnow` | Indexed creation time |
 | `updated_at` | DateTime | NO | `utcnow` | Last status change |
 
-### 2.39 `operational_email_attachments` — Persisted Email Files (6 columns)
+### 2.40 `operational_email_attachments` — Persisted Email Files (6 columns)
 
 Stores bounded attachment bytes with the message snapshot so scheduled sends survive process restarts and full SQLite backups.
 
@@ -875,9 +894,9 @@ Stores bounded attachment bytes with the message snapshot so scheduled sends sur
 | `content` | LargeBinary | NO | — | Raw attachment bytes |
 | `size_bytes` | Integer | NO | — | Decoded file size |
 
-### 2.40 `operational_email_deliveries` — SMTP Attempt History (14 columns)
+### 2.41 `operational_email_deliveries` — SMTP Attempt History (16 columns)
 
-Stores an immutable recipient/content snapshot and the result of each SMTP attempt, including each occurrence of a recurring schedule.
+Stores an immutable recipient/content/signature snapshot and the result of each SMTP attempt, including each occurrence of a recurring schedule.
 
 | Column | Type | Nullable | Default | Index / constraint |
 |---|---|---|---|---|
@@ -885,6 +904,8 @@ Stores an immutable recipient/content snapshot and the result of each SMTP attem
 | `operational_email_id` | Integer | NO | — | Indexed FK to `operational_emails.id`, `ON DELETE CASCADE` |
 | `status` | String(16) | NO | — | Indexed `sending`, `sent`, or `failed` state |
 | `sender_address` | String(254) | YES | NULL | Global configured From address at send time |
+| `signature_id` | Integer | YES | NULL | Indexed FK to selected signature, when present |
+| `signature_name` | String(100) | YES | NULL | Signature-name snapshot for this delivery |
 | `to_recipients` | JSON | NO | `[]` | To recipient snapshot |
 | `cc_recipients` | JSON | NO | `[]` | Cc recipient snapshot |
 | `bcc_recipients` | JSON | NO | `[]` | Bcc recipient snapshot |
@@ -957,10 +978,12 @@ Entries may group independent indexes for brevity; a grouped row does not imply 
 | `account_audit_events` | `actor_user_id`, `subject_user_id`, `event_type`, `created_at` | B-tree | Account audit filtering and chronology |
 | `scheduler_job_config` | `job_key` | UNIQUE | Runtime schedule configuration lookup |
 | `operational_email_templates` | `template_key` | UNIQUE/B-tree | Template lookup and uniqueness |
-| `operational_emails` | `template_key`, `created_by_user_id`, `parent_email_id`, `schedule_type`, `next_run_at`, `status`, `created_at` | B-tree | Template/history queries and due schedule claims |
+| `operational_email_signatures` | `name` | UNIQUE/B-tree | Signature lookup and unique names |
+| `operational_email_signatures` | `is_active`, `is_default` | B-tree | Available/default signature lookup |
+| `operational_emails` | `template_key`, `created_by_user_id`, `signature_id`, `parent_email_id`, `schedule_type`, `next_run_at`, `status`, `created_at` | B-tree | Template/history, linked follow-up, and due schedule queries |
 | `operational_emails` | `status`, `next_run_at` | Composite B-tree | Worker due-schedule scan |
 | `operational_email_attachments` | `operational_email_id` | B-tree | Message attachment lookup |
-| `operational_email_deliveries` | `operational_email_id`, `status`, `attempted_at`, `sent_at` | B-tree | Delivery history, maintenance-notice selection, and status filtering |
+| `operational_email_deliveries` | `operational_email_id`, `signature_id`, `status`, `attempted_at`, `sent_at` | B-tree | Delivery history, source selection, and status filtering |
 | `roles` | `name` | UNIQUE | Role lookup |
 | `articles` | `link` | UNIQUE | Dedup on ingest |
 | `articles` | `published_date` | B-tree | Time-range queries |
@@ -1053,7 +1076,7 @@ After migrations, startup enables persistent WAL mode. The SQLAlchemy connection
 
 ### Phase 2 — One-time legacy adoption
 
-Revision `20261002_0001` uses the frozen `migrations/schema_v1.py` snapshot to create missing baseline tables, adds only missing legacy columns, creates missing indexes, and applies one-time user, invitation, and priority backfills. Revision `20261002_0002` adds `registration_invites.revoked_at` for auditable invite invalidation during full restore. Revision `20261005_0003` adds a false-default `solarwinds_alerts.needs_dispatch` flag while preserving existing alerts. Revision `20261005_0004` fills `timeline_events.site_name` only for legacy generated webhook alerts with a suffix matching a monitored location. Revision `20261013_0005` adds nullable `solarwinds_alerts.onpage_sent_at` so successful on-page delivery can be tracked per active node incident. Revision `20261102_0006` creates `monitored_location_contacts` and its site lookup index without changing existing site rows. Revision `20261103_0007` adds additive NWS CAP lifecycle columns and provider-attempt metadata; legacy weather rows begin as `unknown` and are not treated as verified active alerts. Revision `20261105_0008` adds nullable integration overrides and a default `openai_compatible` provider to `system_config`. Revision `20261110_0009` creates operational email template defaults, message/schedule snapshots, bounded attachment storage, and SMTP attempt history. Existing tables and records are retained. Duplicate normalized email values that prevent creation of the unique index fail with an actionable error.
+Revision `20261002_0001` uses the frozen `migrations/schema_v1.py` snapshot to create missing baseline tables, adds only missing legacy columns, creates missing indexes, and applies one-time user, invitation, and priority backfills. Revision `20261002_0002` adds `registration_invites.revoked_at` for auditable invite invalidation during full restore. Revision `20261005_0003` adds a false-default `solarwinds_alerts.needs_dispatch` flag while preserving existing alerts. Revision `20261005_0004` fills `timeline_events.site_name` only for legacy generated webhook alerts with a suffix matching a monitored location. Revision `20261013_0005` adds nullable `solarwinds_alerts.onpage_sent_at` so successful on-page delivery can be tracked per active node incident. Revision `20261102_0006` creates `monitored_location_contacts` and its site lookup index without changing existing site rows. Revision `20261103_0007` adds additive NWS CAP lifecycle columns and provider-attempt metadata; legacy weather rows begin as `unknown` and are not treated as verified active alerts. Revision `20261105_0008` adds nullable integration overrides and a default `openai_compatible` provider to `system_config`. Revision `20261110_0009` creates operational email templates, message/schedule snapshots, bounded attachment storage, and SMTP attempt history. Revision `20261110_0010` adds administrator-managed signatures and signature name/content snapshots. Existing tables and records are retained. Duplicate normalized email values that prevent creation of the unique index fail with an actionable error.
 
 The explicit compatibility column map covers account/recovery fields, scheduler revisions, scoring and alert settings, article enrichment metadata, role site types, alert dispatch fields, location tracking, shift-log state, crime dispatch state, and timeline site metadata. The adoption revision validates every frozen-baseline table's final column set before recording success; later revisions add their versioned fields.
 
@@ -1116,7 +1139,9 @@ The schema declares foreign keys for independently revocable sessions, account-r
 - `password_reset_tokens.request_id` → `password_reset_requests.id`; `user_id` → `users.id`.
 - `account_audit_events.actor_user_id` and `subject_user_id` → `users.id`.
 - `operational_email_templates.updated_by_user_id` and `operational_emails.created_by_user_id` → `users.id`.
-- `operational_emails.parent_email_id` → `operational_emails.id` for Maintenance Complete links.
+- `operational_email_signatures.created_by_user_id` and `updated_by_user_id` → `users.id`.
+- `operational_emails.signature_id` and `operational_email_deliveries.signature_id` → `operational_email_signatures.id`.
+- `operational_emails.parent_email_id` → `operational_emails.id` for maintenance close-outs and fiber outage follow-ups/resolution notices.
 - `operational_email_attachments.operational_email_id` and `operational_email_deliveries.operational_email_id` → `operational_emails.id` (`ON DELETE CASCADE` declaration).
 
 The SQLite connection setup does not enable `PRAGMA foreign_keys`, so applications must not assume SQLite is enforcing those declarations at runtime. Other relationships—including `users.role`, `user_weather_prefs.username`, `extracted_iocs.article_id`, and alert/site-name mappings—are logical joins without declared foreign keys. Hourly maintenance removes orphaned IOC rows.
@@ -1228,6 +1253,7 @@ Centralized retention is enforced by the hourly **`database_maintenance` schedul
 | `account_audit_events` | Security audit history is retained |
 | `scheduler_job_config` | Persisted schedule rows are retained |
 | `operational_email_templates` | Shared defaults are retained until changed by an administrator |
+| `operational_email_signatures` | Reusable signatures are retained; deactivation preserves old snapshots |
 | `operational_emails` | Sent-message and recurring-schedule records are retained; no automatic purge |
 | `operational_email_attachments` | Persisted attachment bytes are retained with their message |
 | `operational_email_deliveries` | SMTP attempt and recipient/body history is retained |

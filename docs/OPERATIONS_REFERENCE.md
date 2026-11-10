@@ -29,6 +29,12 @@ curl -fsS http://localhost:8102/ready
 
 The dev Compose project is named `noc-ifc-dev`, uses `./data-dev`, and attaches containers to Docker's built-in `bridge` network without allocating a new subnet. API and HMR ports are one above main; webhook uses 8099 because 8101 is already the main API port. The web address is 8503 as configured. The web containers route to the dev API through the unique `noc-ifc-dev-api` host-gateway alias.
 
+## Operational Email
+
+Operational Email uses the global SMTP sender configured in Settings > AI & SMTP. The page grant controls access; only administrators can edit shared template defaults or signatures. All nine templates support hidden BCC envelope recipients. Central event-time labels use `CST`/`CDT`; recurring schedules use `America/Chicago` and follow daylight-saving changes.
+
+The Morning Report takes `SystemConfig.rolling_summary` (the latest Global Dashboard shift analysis) at delivery time and sends the stored text without a generated report header or executive-summary wrapper. Fiber outage follow-ups and resolution emails require a successfully sent Fiber Outage source record. Admin-managed signatures are optional and captured in message/schedule snapshots; deactivating a signature does not change existing scheduled sends or delivery history.
+
 ## Environment Variables
 
 The rows below are a selected operations quick reference, not a complete variable inventory. Use [`.env.example`](../.env.example) and the [environment source reference](reference/config/env_example.md) for the full list, defaults, and readers.

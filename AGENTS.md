@@ -19,6 +19,15 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 - [x] Run Python/migration/API and frontend/Compose checks, update reference docs, and review the diff.
 - [x] Commit intended source only and push the completed `dev` changes.
 
+### Operational Email Enhancements — Active
+
+- [x] Enable BCC for every Operational Email template and preserve existing alert/report email behavior.
+- [x] Add fiber maintenance notice details (A/Z locations, circuit IDs, impact choice, departmental impact) and linked repeatable outage updates/resolution notices.
+- [x] Default event time labels to application-local `CST`/`CDT`; send Morning Report from the latest Global Dashboard shift analysis as-is.
+- [x] Add administrator-managed signatures with default/optional selection and immutable sent/scheduled snapshots.
+- [x] Update migration, API/UI/source docs, local-only tests, and verify fresh/existing SQLite upgrades, Python suite, frontend/container builds, and dev Compose health.
+- [ ] Review and push intended source/docs only to `dev`; preserve unrelated untracked integration-plan documents and keep test files unstaged.
+
 ## Completed Implementation Plan — User, Permissions, and Application Settings
 
 **Implementation branch:** `main` (user-directed). `origin/main` was pulled before work began and was already up to date. Keep this checklist current as work progresses. After implementation and verification, merge/synchronize `main` into `architecture/monolith-to-decoupled` and verify both branches contain the same intended changes. Do not force-push.
@@ -188,7 +197,7 @@ See [docs/README.md](docs/README.md) for the complete documentation catalog. The
 | [USER_GUIDE.md](docs/USER_GUIDE.md) | Current workspace features and operator workflows |
 | [API.md](docs/API.md) | Complete REST operation inventory and endpoint behavior; path/method coverage is checked against the FastAPI OpenAPI schema |
 | [PERMISSIONS.md](docs/PERMISSIONS.md) | Exact page, tab, action, site-type, built-in-role, and enforcement contracts |
-| [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | All 40 tables with columns, types, constraints, indexes, relationships, migration strategy, retention policies |
+| [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | All 41 tables with columns, types, constraints, indexes, relationships, migration strategy, retention policies |
 | [MIGRATION_COMPATIBILITY.md](docs/MIGRATION_COMPATIBILITY.md) | Supported older SQLite upgrade shapes, additive migration behavior, failure handling, and safety-test coverage |
 | [DATA_FLOWS.md](docs/DATA_FLOWS.md) | Ingestion, scoring, internal risk, reporting, webhook/AIOps, hazard/telemetry, provider-worker, and retention flows |
 | [TRIGGER_ACTION_FLOWS.md](docs/TRIGGER_ACTION_FLOWS.md) | Every trigger (webhook, scheduler, user action, WebSocket) mapped to its complete action flow |
@@ -315,7 +324,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `src/core/backup_manager.py` | Authenticated encrypted full backups, retention, upload validation, and offline restore |
 | `src/core/restore_control.py` | Cross-process maintenance marker, API drain counters, and restore progress state |
 | `src/core/ui_restore.py` | UI restore orchestration, writer quiescence, and runtime refresh |
-| `src/models/schema.py` | 40 SQLAlchemy models |
+| `src/models/schema.py` | 41 SQLAlchemy models |
 | `src/core/permissions.py` | Canonical page, tab, and action permission catalog |
 | `src/core/site_contact_validation.py` | Shared server-side validation for optional site contact fields |
 | `src/core/arkansas_coverage.py` | Projected 50-mile Arkansas-border buffer, NWS geocode matching, and CAP active-time filtering |

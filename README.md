@@ -61,7 +61,7 @@ Generates daily fusion reports, custom intelligence reports, shared report-libra
 
 ### Operational Email
 
-Provides maintenance notification, technician-dispatch request, fiber outage with BCC, after-hours ONPAGE, morning report with attachments, and maintenance completion templates. Authorized users can compose or schedule one-time/daily/weekly sends; administrators manage shared template defaults. All messages use the global SMTP sender, and a completion notice links to a successfully sent maintenance notification.
+Provides maintenance and fiber-maintenance notices, technician-dispatch request, fiber-outage tickets with linked progress/resolution messages, after-hours ONPAGE, and Morning Reports containing the latest Global Dashboard shift analysis. Every template supports BCC; administrators manage shared defaults and reusable signatures. Authorized users can compose or schedule one-time/daily/weekly sends, all using the global SMTP sender.
 
 ### Settings and Administration
 

@@ -10,7 +10,7 @@
 - `_seed_feeds()` inserts only missing rows from `DEFAULT_FEEDS` and leaves existing active state/names untouched.
 - `_seed_keywords()` inserts only missing defaults and preserves existing weights.
 - `_seed_demo_assets()` runs only when `DEMO_SEED_DATA=true`, and only seeds an inventory table when it is empty.
-- `ensure_operational_email_templates()` inserts missing defaults for the six operational email templates without overwriting administrator-edited defaults.
+- `ensure_operational_email_templates()` inserts missing defaults for the nine operational email templates without overwriting administrator-edited defaults.
 - Existing articles are rescored only when `RESCORE_ON_STARTUP` is truthy (`1`, `true`, or `yes`); default startup skips the corpus update.
 
 Each bootstrap category handles/logs its own failure. A seed failure does not change the Alembic revision. Startup ordering is documented in `docs/reference/core/db.md`.

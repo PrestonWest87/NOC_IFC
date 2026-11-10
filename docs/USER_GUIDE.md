@@ -120,16 +120,17 @@ Generation requires `Action: Generate Reports`; report broadcasts, saving throug
 
 ## Operational Email (`#/operational-email`)
 
-The Operational Email page uses one page permission for composing, sending, scheduling/cancelling, and reviewing emails. Choose a template, fill in its operational fields, edit the subject/message for the current send, and then send immediately or schedule once, daily, or weekly in America/Chicago.
+The Operational Email page uses one page permission for composing, sending, scheduling/cancelling, and reviewing emails. Choose a template, fill in its operational fields, edit the message for the current send, and then send immediately or schedule once, daily, or weekly in America/Chicago. All templates support BCC, which is hidden from visible recipients. Event-time labels default to the application’s current Central abbreviation (`CST` or `CDT`).
 
-- **Maintenance Notification** records the planned work and window. A completion message must select a successfully sent maintenance notification; its details and recipients are used to start the close-out message.
+- **Maintenance Notification** records planned work, a window, an expected impact of None/Low/Medium/High, and optional departmental impact. A completion message must select a successfully sent maintenance notification; its details and recipients are used to start the close-out message.
+- **Fiber Maintenance Notification** records A/Z locations, circuit IDs, a maintenance window, expected impact, and optional departmental impact.
 - **Outage — Request Technician Dispatch** describes service impact and the requested field response.
-- **Fiber Outage** supports BCC. BCC recipients are hidden from other recipients.
+- **Fiber Outage** starts an outage ticket. **Fiber Outage Follow-up** can send repeat progress updates, and **Fiber Outage Resolution** sends a restoration notice; both remain linked to a previously sent fiber outage and inherit its details and recipients.
 - **After-Hours ONPAGE** provides an urgent acknowledgement/request-for-response format.
-- **Morning Report** supports up to five attachments, 5 MiB each, with a 20 MiB combined limit.
+- **Morning Report** sends the latest Global Dashboard shift analysis exactly as stored, without a date, window, title, or executive summary. The source is refreshed again when a scheduled message is delivered. It supports up to five attachments, 5 MiB each, with a 20 MiB combined limit.
 - **Maintenance Complete** links the close-out to the selected sent maintenance notification.
 
-Every message uses the single global From address configured in Settings > AI & SMTP. Administrators can edit shared template wording and recipient defaults. Any user with Operational Email access can still adjust the subject, recipients, and message for an individual send. Scheduled messages save a snapshot of their content and attachments; later template edits do not change existing schedules. Delivery status and message details are available in Sent / History.
+Every message uses the single global From address configured in Settings > AI & SMTP. Administrators can edit shared template wording/recipient defaults and manage reusable signatures, including an optional default. Senders can choose that default, another active signature, or no signature. Signature content is snapshotted with sent and scheduled emails. Scheduled messages preserve their content and attachments; Morning Report alone refreshes its shift-analysis source at delivery. Delivery status and message details, including hidden BCC recipients, are available in Sent / History.
 
 The page is not part of the default analyst role. Ask an administrator to grant the `Operational Email` page permission if you need access.
 

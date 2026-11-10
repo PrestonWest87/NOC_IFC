@@ -8,6 +8,7 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 from email.utils import parseaddr
+from sqlalchemy import func
 from zoneinfo import ZoneInfo
 
 from src.core.db import SessionLocal
@@ -16,6 +17,7 @@ from src.models.schema import (
     OperationalEmail,
     OperationalEmailAttachment,
     OperationalEmailDelivery,
+    OperationalEmailSignature,
     OperationalEmailTemplate,
     SystemConfig,
 )
@@ -33,19 +35,28 @@ _TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
 _CONTENT_TYPE_RE = re.compile(r"^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+$")
 
 
+def application_timezone_abbreviation() -> str:
+    """Return the application's current Central abbreviation (`CST` or `CDT`)."""
+    abbreviation = datetime.now(ZoneInfo(EMAIL_TIMEZONE)).tzname()
+    return abbreviation if abbreviation in {"CST", "CDT"} else "CST"
+
+
 TEMPLATE_DEFINITIONS = {
     "maintenance_notice": {
         "label": "Maintenance Notification",
         "description": "Notify stakeholders of planned work and its expected impact.",
-        "allows_bcc": False,
+        "allows_bcc": True,
         "allows_attachments": False,
         "fields": [
             {"key": "site", "label": "Site / service", "required": True, "max_length": 200},
             {"key": "work_scope", "label": "Planned work", "required": True, "max_length": 2000},
             {"key": "start_time", "label": "Maintenance start", "required": True, "max_length": 120},
             {"key": "end_time", "label": "Expected completion", "required": True, "max_length": 120},
-            {"key": "timezone", "label": "Time zone", "required": False, "max_length": 80},
-            {"key": "impact", "label": "Expected impact", "required": False, "max_length": 2000},
+            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80},
+            {"key": "impact", "label": "Expected impact", "required": True, "max_length": 20,
+             "options": ["None", "Low", "Medium", "High"]},
+            {"key": "departmental_impact", "label": "Departmental impact", "required": False, "max_length": 2000,
+             "multiline": True},
             {"key": "contact", "label": "Operations contact", "required": False, "max_length": 500},
             {"key": "reference", "label": "Ticket / change reference", "required": False, "max_length": 200},
         ],
@@ -56,20 +67,56 @@ TEMPLATE_DEFINITIONS = {
             "Planned work: {{work_scope}}\n"
             "Maintenance window: {{start_time}} to {{end_time}} {{timezone}}\n"
             "Expected impact: {{impact}}\n"
+            "Departmental impact: {{departmental_impact}}\n"
             "Operations contact: {{contact}}\n"
             "Reference: {{reference}}\n\n"
             "Please contact the Network Operations Center with questions or concerns."
         ),
     },
+    "fiber_maintenance_notice": {
+        "label": "Fiber Maintenance Notification",
+        "description": "Notify recipients about planned fiber work between A and Z endpoints.",
+        "allows_bcc": True,
+        "allows_attachments": False,
+        "fields": [
+            {"key": "a_location", "label": "A location", "required": True, "max_length": 250},
+            {"key": "z_location", "label": "Z location", "required": True, "max_length": 250},
+            {"key": "circuit_ids", "label": "Circuit IDs", "required": True, "max_length": 1000},
+            {"key": "work_scope", "label": "Planned fiber work", "required": True, "max_length": 2000},
+            {"key": "start_time", "label": "Maintenance start", "required": True, "max_length": 120},
+            {"key": "end_time", "label": "Expected completion", "required": True, "max_length": 120},
+            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 8},
+            {"key": "impact", "label": "Expected impact", "required": True, "max_length": 20,
+             "options": ["None", "Low", "Medium", "High"]},
+            {"key": "departmental_impact", "label": "Departmental impact", "required": False,
+             "max_length": 2000, "multiline": True},
+            {"key": "contact", "label": "Operations / field contact", "required": False, "max_length": 500},
+            {"key": "reference", "label": "Ticket / change reference", "required": False, "max_length": 200},
+        ],
+        "default_subject": "FIBER MAINTENANCE — {{a_location}} to {{z_location}} — {{start_time}}",
+        "default_body": (
+            "FIBER MAINTENANCE NOTIFICATION\n\n"
+            "A location: {{a_location}}\n"
+            "Z location: {{z_location}}\n"
+            "Circuit IDs: {{circuit_ids}}\n"
+            "Planned work: {{work_scope}}\n"
+            "Maintenance window: {{start_time}} to {{end_time}} {{timezone}}\n"
+            "Expected impact: {{impact}}\n"
+            "Departmental impact: {{departmental_impact}}\n"
+            "Operations / field contact: {{contact}}\n"
+            "Ticket / change reference: {{reference}}"
+        ),
+    },
     "outage_dispatch": {
         "label": "Outage — Request Technician Dispatch",
         "description": "Request field technician dispatch for an active service outage.",
-        "allows_bcc": False,
+        "allows_bcc": True,
         "allows_attachments": False,
         "fields": [
             {"key": "site", "label": "Site", "required": True, "max_length": 200},
             {"key": "system", "label": "System / circuit", "required": True, "max_length": 250},
             {"key": "outage_start", "label": "Outage start", "required": True, "max_length": 120},
+            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80},
             {"key": "impact", "label": "Service impact", "required": True, "max_length": 2000},
             {"key": "priority", "label": "Priority", "required": True, "max_length": 40},
             {"key": "dispatch_action", "label": "Requested technician action", "required": True, "max_length": 2000},
@@ -82,7 +129,7 @@ TEMPLATE_DEFINITIONS = {
             "Priority: {{priority}}\n"
             "Site: {{site}}\n"
             "System / circuit: {{system}}\n"
-            "Outage start: {{outage_start}}\n"
+            "Outage start: {{outage_start}} {{timezone}}\n"
             "Service impact: {{impact}}\n"
             "Requested action: {{dispatch_action}}\n"
             "On-site contact: {{contact}}\n"
@@ -100,6 +147,7 @@ TEMPLATE_DEFINITIONS = {
             {"key": "circuit", "label": "Fiber circuit / segment", "required": True, "max_length": 250},
             {"key": "provider", "label": "Provider", "required": False, "max_length": 200},
             {"key": "outage_start", "label": "Outage start", "required": True, "max_length": 120},
+            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80},
             {"key": "impact", "label": "Service impact", "required": True, "max_length": 2000},
             {"key": "restoration_estimate", "label": "Estimated restoration", "required": False, "max_length": 120},
             {"key": "requested_action", "label": "Requested action", "required": True, "max_length": 2000},
@@ -111,17 +159,88 @@ TEMPLATE_DEFINITIONS = {
             "Site / route: {{site}}\n"
             "Fiber circuit / segment: {{circuit}}\n"
             "Provider: {{provider}}\n"
-            "Outage start: {{outage_start}}\n"
+            "Outage start: {{outage_start}} {{timezone}}\n"
             "Service impact: {{impact}}\n"
             "Estimated restoration: {{restoration_estimate}}\n"
             "Requested action: {{requested_action}}\n"
             "Ticket / carrier reference: {{reference}}"
         ),
     },
+    "fiber_outage_update": {
+        "label": "Fiber Outage Follow-up",
+        "description": "Send a progress update linked to a successfully sent fiber outage ticket.",
+        "source_template_key": "fiber_outage",
+        "allows_bcc": True,
+        "allows_attachments": False,
+        "fields": [
+            {"key": "site", "label": "Site / route", "required": False, "max_length": 200},
+            {"key": "circuit", "label": "Fiber circuit / segment", "required": False, "max_length": 250},
+            {"key": "provider", "label": "Provider", "required": False, "max_length": 200},
+            {"key": "outage_start", "label": "Outage start", "required": False, "max_length": 120},
+            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 8},
+            {"key": "impact", "label": "Service impact", "required": False, "max_length": 2000},
+            {"key": "requested_action", "label": "Requested action", "required": False, "max_length": 2000},
+            {"key": "reference", "label": "Ticket / carrier reference", "required": False, "max_length": 200},
+            {"key": "update_time", "label": "Update time", "required": True, "max_length": 120},
+            {"key": "current_status", "label": "Current status", "required": True, "max_length": 120},
+            {"key": "update_details", "label": "Progress update", "required": True, "max_length": 3000,
+             "multiline": True},
+            {"key": "restoration_estimate", "label": "Updated restoration estimate", "required": False, "max_length": 120},
+            {"key": "next_update", "label": "Next update", "required": False, "max_length": 500},
+        ],
+        "default_subject": "FIBER OUTAGE UPDATE — {{site}} — {{circuit}}",
+        "default_body": (
+            "FIBER OUTAGE PROGRESS UPDATE\n\n"
+            "Site / route: {{site}}\n"
+            "Circuit: {{circuit}}\n"
+            "Original outage start: {{outage_start}} {{timezone}}\n"
+            "Update time: {{update_time}} {{timezone}}\n"
+            "Current status: {{current_status}}\n"
+            "Progress update: {{update_details}}\n"
+            "Updated restoration estimate: {{restoration_estimate}}\n"
+            "Next update: {{next_update}}\n"
+            "Ticket / carrier reference: {{reference}}"
+        ),
+    },
+    "fiber_outage_resolution": {
+        "label": "Fiber Outage Resolution",
+        "description": "Send a restoration/resolution notice linked to a successfully sent fiber outage ticket.",
+        "source_template_key": "fiber_outage",
+        "allows_bcc": True,
+        "allows_attachments": False,
+        "fields": [
+            {"key": "site", "label": "Site / route", "required": False, "max_length": 200},
+            {"key": "circuit", "label": "Fiber circuit / segment", "required": False, "max_length": 250},
+            {"key": "provider", "label": "Provider", "required": False, "max_length": 200},
+            {"key": "outage_start", "label": "Outage start", "required": False, "max_length": 120},
+            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 8},
+            {"key": "impact", "label": "Original service impact", "required": False, "max_length": 2000},
+            {"key": "requested_action", "label": "Requested action", "required": False, "max_length": 2000},
+            {"key": "reference", "label": "Ticket / carrier reference", "required": False, "max_length": 200},
+            {"key": "resolution_time", "label": "Service restored at", "required": True, "max_length": 120},
+            {"key": "resolution_details", "label": "Resolution details", "required": True, "max_length": 3000,
+             "multiline": True},
+            {"key": "service_status", "label": "Current service status", "required": True, "max_length": 500},
+            {"key": "follow_up", "label": "Follow-up / monitoring plan", "required": False, "max_length": 2000,
+             "multiline": True},
+        ],
+        "default_subject": "FIBER OUTAGE RESOLVED — {{site}} — {{circuit}}",
+        "default_body": (
+            "FIBER SERVICE RESTORED\n\n"
+            "Site / route: {{site}}\n"
+            "Circuit: {{circuit}}\n"
+            "Original outage start: {{outage_start}} {{timezone}}\n"
+            "Service restored at: {{resolution_time}} {{timezone}}\n"
+            "Resolution details: {{resolution_details}}\n"
+            "Current service status: {{service_status}}\n"
+            "Follow-up / monitoring plan: {{follow_up}}\n"
+            "Ticket / carrier reference: {{reference}}"
+        ),
+    },
     "after_hours_onpage": {
         "label": "After-Hours ONPAGE",
         "description": "Urgent after-hours page requiring acknowledgement and response.",
-        "allows_bcc": False,
+        "allows_bcc": True,
         "allows_attachments": False,
         "fields": [
             {"key": "site", "label": "Site", "required": True, "max_length": 200},
@@ -130,6 +249,7 @@ TEMPLATE_DEFINITIONS = {
             {"key": "incident", "label": "Incident / alert", "required": False, "max_length": 500},
             {"key": "impact", "label": "Operational impact", "required": True, "max_length": 2000},
             {"key": "observed_at", "label": "Observed at", "required": False, "max_length": 120},
+            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80},
             {"key": "requested_response", "label": "Required response", "required": True, "max_length": 2000},
             {"key": "callback", "label": "Callback / NOC contact", "required": False, "max_length": 250},
         ],
@@ -140,7 +260,7 @@ TEMPLATE_DEFINITIONS = {
             "Site: {{site}}\n"
             "Node / system: {{system}}\n"
             "Incident / alert: {{incident}}\n"
-            "Observed at: {{observed_at}}\n"
+            "Observed at: {{observed_at}} {{timezone}}\n"
             "Operational impact: {{impact}}\n"
             "Required response: {{requested_response}}\n"
             "Callback / NOC contact: {{callback}}\n\n"
@@ -149,37 +269,37 @@ TEMPLATE_DEFINITIONS = {
     },
     "morning_report": {
         "label": "Morning Report",
-        "description": "Send a morning operational report with bounded file attachments.",
-        "allows_bcc": False,
+        "description": "Send the latest Global Dashboard shift analysis with optional attachments.",
+        "allows_bcc": True,
         "allows_attachments": True,
         "fields": [
-            {"key": "report_date", "label": "Report date", "required": True, "max_length": 80},
-            {"key": "reporting_window", "label": "Reporting window", "required": False, "max_length": 120},
-            {"key": "title", "label": "Report title", "required": True, "max_length": 250},
-            {"key": "summary", "label": "Executive summary", "required": True, "max_length": 4000},
+            # Hidden legacy keys allow already-customized defaults to continue
+            # rendering without exposing date/title/window/summary fields again.
+            {"key": "report_date", "label": "Legacy report date", "required": False, "max_length": 80, "visible": False},
+            {"key": "reporting_window", "label": "Legacy reporting window", "required": False, "max_length": 120, "visible": False},
+            {"key": "title", "label": "Legacy report title", "required": False, "max_length": 250, "visible": False},
+            {"key": "summary", "label": "Legacy summary", "required": False, "max_length": 200000, "visible": False},
+            {"key": "shift_analysis", "label": "Latest shift analysis", "required": False,
+             "max_length": 200000, "visible": False},
         ],
-        "default_subject": "Morning Operations Report — {{report_date}} — {{title}}",
-        "default_body": (
-            "MORNING OPERATIONS REPORT\n\n"
-            "Report date: {{report_date}}\n"
-            "Reporting window: {{reporting_window}}\n"
-            "Title: {{title}}\n\n"
-            "EXECUTIVE SUMMARY\n{{summary}}\n\n"
-            "Supporting files are attached."
-        ),
+        "default_subject": "Morning Operations Report",
+        "default_body": "{{shift_analysis}}",
+        "live_source": "global_shift_analysis",
     },
     "maintenance_complete": {
         "label": "Maintenance Complete",
         "description": "Close out a previously sent maintenance notification.",
-        "allows_bcc": False,
+        "source_template_key": "maintenance_notice",
+        "allows_bcc": True,
         "allows_attachments": False,
         "fields": [
             {"key": "site", "label": "Site / service", "required": False, "max_length": 200},
             {"key": "work_scope", "label": "Planned work", "required": False, "max_length": 2000},
             {"key": "start_time", "label": "Original maintenance start", "required": False, "max_length": 120},
             {"key": "end_time", "label": "Original expected completion", "required": False, "max_length": 120},
-            {"key": "timezone", "label": "Time zone", "required": False, "max_length": 80},
+            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80},
             {"key": "impact", "label": "Original expected impact", "required": False, "max_length": 2000},
+            {"key": "departmental_impact", "label": "Departmental impact", "required": False, "max_length": 2000},
             {"key": "contact", "label": "Operations contact", "required": False, "max_length": 500},
             {"key": "reference", "label": "Ticket / change reference", "required": False, "max_length": 200},
             {"key": "completion_time", "label": "Actual completion", "required": True, "max_length": 120},
@@ -193,6 +313,8 @@ TEMPLATE_DEFINITIONS = {
             "Site / service: {{site}}\n"
             "Work performed: {{work_performed}}\n"
             "Original maintenance window: {{start_time}} to {{end_time}} {{timezone}}\n"
+            "Expected impact: {{impact}}\n"
+            "Departmental impact: {{departmental_impact}}\n"
             "Actual completion: {{completion_time}}\n"
             "Service status: {{service_status}}\n"
             "Follow-up notes: {{follow_up}}\n"
@@ -299,10 +421,14 @@ def _normalize_fields(template_key: str, fields: dict | None, inherited: dict | 
         if not isinstance(raw, str):
             raise ValueError(f"{spec['label']} must be text.")
         value = raw.strip()
+        if key == "timezone":
+            value = application_timezone_abbreviation()
         if len(value) > spec["max_length"]:
             raise ValueError(f"{spec['label']} must be no more than {spec['max_length']} characters.")
         if spec["required"] and not value:
             raise ValueError(f"{spec['label']} is required.")
+        if spec.get("options") and value not in spec["options"]:
+            raise ValueError(f"Select a valid {spec['label'].lower()}.")
         result[key] = value
     return result
 
@@ -402,6 +528,140 @@ def _account_event(db, event_type: str, actor_user_id: int | None, detail: dict)
     ))
 
 
+def _serialize_signature(signature: OperationalEmailSignature) -> dict:
+    return {
+        "id": signature.id,
+        "name": signature.name,
+        "content": signature.content,
+        "is_active": signature.is_active,
+        "is_default": signature.is_default,
+        "created_at": signature.created_at.isoformat() + "Z" if signature.created_at else None,
+        "updated_at": signature.updated_at.isoformat() + "Z" if signature.updated_at else None,
+    }
+
+
+def list_operational_email_signatures(*, include_inactive: bool = False) -> list[dict]:
+    """Return active signatures to senders and optionally include disabled admin records."""
+    with SessionLocal() as db:
+        query = db.query(OperationalEmailSignature)
+        if not include_inactive:
+            query = query.filter(OperationalEmailSignature.is_active.is_(True))
+        signatures = query.order_by(
+            OperationalEmailSignature.name,
+            OperationalEmailSignature.id,
+        ).all()
+        return [_serialize_signature(signature) for signature in signatures]
+
+
+def _validate_signature_values(name, content) -> tuple[str, str]:
+    if not isinstance(name, str) or not name.strip() or len(name.strip()) > 100:
+        raise ValueError("Signature name must contain 1–100 characters.")
+    normalized_name = name.strip()
+    if any(ord(character) < 32 and character not in "\t" for character in normalized_name):
+        raise ValueError("Signature name contains unsupported control characters.")
+    if not isinstance(content, str) or not content.strip() or len(content) > 4000:
+        raise ValueError("Signature content must contain 1–4,000 characters.")
+    normalized_content = content.strip()
+    if "\x00" in normalized_content:
+        raise ValueError("Signature content contains an unsupported character.")
+    return normalized_name, normalized_content
+
+
+def create_operational_email_signature(values: dict, actor_user_id: int) -> dict:
+    """Create an administrator-managed signature and optionally make it the default."""
+    name, content = _validate_signature_values(values.get("name"), values.get("content"))
+    is_active = values.get("is_active", True)
+    is_default = values.get("is_default", False)
+    if not isinstance(is_active, bool) or not isinstance(is_default, bool):
+        raise ValueError("Signature active/default settings must be boolean values.")
+    if is_default and not is_active:
+        raise ValueError("An inactive signature cannot be the default.")
+    with SessionLocal() as db:
+        duplicate = db.query(OperationalEmailSignature.id).filter(
+            func.lower(OperationalEmailSignature.name) == name.casefold(),
+        ).first()
+        if duplicate:
+            raise ValueError("A signature with this name already exists.")
+        if is_default:
+            db.query(OperationalEmailSignature).update({OperationalEmailSignature.is_default: False})
+        signature = OperationalEmailSignature(
+            name=name,
+            content=content,
+            is_active=is_active,
+            is_default=is_default,
+            created_by_user_id=actor_user_id,
+            updated_by_user_id=actor_user_id,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(signature)
+        db.flush()
+        _account_event(db, "operational_email_signature_created", actor_user_id, {
+            "signature_id": signature.id,
+            "is_default": is_default,
+        })
+        db.commit()
+        return _serialize_signature(signature)
+
+
+def update_operational_email_signature(signature_id: int, values: dict, actor_user_id: int) -> dict:
+    """Update one signature; default selection is exclusive and inactive defaults are cleared."""
+    allowed = {"name", "content", "is_active", "is_default"}
+    unknown = set(values) - allowed
+    if unknown:
+        raise ValueError(f"Unsupported signature field(s): {', '.join(sorted(unknown))}.")
+    if not values:
+        raise ValueError("Provide at least one signature field to update.")
+    with SessionLocal() as db:
+        signature = db.query(OperationalEmailSignature).filter_by(id=signature_id).first()
+        if not signature:
+            raise ValueError("Operational email signature was not found.")
+        name = values.get("name", signature.name)
+        content = values.get("content", signature.content)
+        name, content = _validate_signature_values(name, content)
+        duplicate = db.query(OperationalEmailSignature.id).filter(
+            func.lower(OperationalEmailSignature.name) == name.casefold(),
+            OperationalEmailSignature.id != signature_id,
+        ).first()
+        if duplicate:
+            raise ValueError("A signature with this name already exists.")
+        is_active = values.get("is_active", signature.is_active)
+        is_default = values.get("is_default", signature.is_default)
+        if not isinstance(is_active, bool) or not isinstance(is_default, bool):
+            raise ValueError("Signature active/default settings must be boolean values.")
+        if not is_active:
+            is_default = False
+        if is_default and not is_active:
+            raise ValueError("An inactive signature cannot be the default.")
+        if is_default:
+            db.query(OperationalEmailSignature).filter(
+                OperationalEmailSignature.id != signature_id,
+            ).update({OperationalEmailSignature.is_default: False}, synchronize_session=False)
+        signature.name = name
+        signature.content = content
+        signature.is_active = is_active
+        signature.is_default = is_default
+        signature.updated_by_user_id = actor_user_id
+        signature.updated_at = datetime.utcnow()
+        _account_event(db, "operational_email_signature_updated", actor_user_id, {
+            "signature_id": signature.id,
+            "is_active": is_active,
+            "is_default": is_default,
+            "changed_fields": sorted(values),
+        })
+        db.commit()
+        return _serialize_signature(signature)
+
+
+def deactivate_operational_email_signature(signature_id: int, actor_user_id: int) -> dict:
+    """Soft-disable a signature so historical message snapshots retain their reference."""
+    return update_operational_email_signature(
+        signature_id,
+        {"is_active": False, "is_default": False},
+        actor_user_id,
+    )
+
+
 def get_operational_email_templates() -> dict:
     """Return the template catalog, editable defaults, SMTP sender, and capability flags."""
     ensure_operational_email_templates()
@@ -433,6 +693,12 @@ def get_operational_email_templates() -> dict:
             "sender_address": config.smtp_sender if config else "",
             "smtp_enabled": bool(config.smtp_enabled) if config else False,
             "timezone": EMAIL_TIMEZONE,
+            "timezone_abbreviation": application_timezone_abbreviation(),
+            "latest_shift_analysis": (config.rolling_summary or "") if config else "",
+            "latest_shift_analysis_time": (
+                config.rolling_summary_time.isoformat() + "Z"
+                if config and config.rolling_summary_time else None
+            ),
             "attachment_limits": {
                 "max_attachments": MAX_ATTACHMENTS,
                 "max_bytes_each": MAX_ATTACHMENT_BYTES,
@@ -462,11 +728,17 @@ def update_operational_email_template(template_key: str, values: dict, actor_use
             if field_name in values:
                 label = "Default subject" if field_name == "default_subject" else "Default body"
                 setattr(row, field_name, _validate_template_text(template_key, values[field_name], label))
+                if template_key == "morning_report" and field_name == "default_body":
+                    if values[field_name].strip() != "{{shift_analysis}}":
+                        raise ValueError("Morning Report body is sourced directly from the latest Global Dashboard shift analysis.")
+                if template_key == "morning_report" and field_name == "default_subject":
+                    if _TOKEN_RE.search(values[field_name]):
+                        raise ValueError("Morning Report subject must be static and cannot contain date/title placeholders.")
         for field_name in ("default_to", "default_cc", "default_bcc"):
             if field_name not in values:
                 continue
             if field_name == "default_bcc" and not TEMPLATE_DEFINITIONS[template_key]["allows_bcc"]:
-                raise ValueError("BCC defaults are only supported by the Fiber Outage template.")
+                raise ValueError("BCC recipients are supported by all Operational Email templates.")
             normalized = normalize_recipient_list(values[field_name])
             setattr(row, field_name, ", ".join(normalized))
         row.updated_by_user_id = actor_user_id
@@ -481,8 +753,39 @@ def update_operational_email_template(template_key: str, values: dict, actor_use
         return {"status": "updated", "template_key": template_key}
 
 
-def _prepare_message(db, template_key: str, values: dict) -> dict:
-    """Resolve defaults, validate recipients/fields, and create rendered message content."""
+def _append_signature(body: str, signature_content: str | None) -> str:
+    """Append signature text without changing the captured body/source content."""
+    if not signature_content or not body:
+        return body
+    separator = "" if body.endswith(("\n", "\r")) else "\n\n"
+    return f"{body}{separator}--\n{signature_content}"
+
+
+def _get_selected_signature(db, values: dict) -> OperationalEmailSignature | None:
+    signature_id = values.get("signature_id")
+    use_default = values.get("use_default_signature", True)
+    if not isinstance(use_default, bool):
+        raise ValueError("Use-default-signature must be a boolean value.")
+    if signature_id is not None:
+        if isinstance(signature_id, bool) or not isinstance(signature_id, int):
+            raise ValueError("Select a valid email signature.")
+        signature = db.query(OperationalEmailSignature).filter_by(
+            id=signature_id,
+            is_active=True,
+        ).first()
+        if not signature:
+            raise ValueError("The selected email signature is unavailable.")
+        return signature
+    if not use_default:
+        return None
+    return db.query(OperationalEmailSignature).filter_by(
+        is_active=True,
+        is_default=True,
+    ).order_by(OperationalEmailSignature.id).first()
+
+
+def _prepare_message(db, template_key: str, values: dict, *, for_schedule: bool = False) -> dict:
+    """Resolve defaults, source links/signatures, and validate rendered message content."""
     definition = TEMPLATE_DEFINITIONS.get(template_key)
     if not definition:
         raise ValueError("Unknown operational email template.")
@@ -490,25 +793,36 @@ def _prepare_message(db, template_key: str, values: dict) -> dict:
     if not template:
         raise ValueError("Operational email template is not initialized.")
 
-    parent_id = values.get("maintenance_notice_id")
+    legacy_parent_id = values.get("maintenance_notice_id")
+    source_email_id = values.get("source_email_id")
+    if template_key == "maintenance_complete":
+        if source_email_id is not None and legacy_parent_id is not None and source_email_id != legacy_parent_id:
+            raise ValueError("Choose one source maintenance notification.")
+        parent_id = source_email_id if source_email_id is not None else legacy_parent_id
+        source_template_key = "maintenance_notice"
+    else:
+        if legacy_parent_id is not None:
+            raise ValueError("A maintenance notice can only be linked to a Maintenance Complete email.")
+        parent_id = source_email_id
+        source_template_key = definition.get("source_template_key")
     parent = None
     parent_fields = {}
-    if template_key == "maintenance_complete":
+    if source_template_key:
         if isinstance(parent_id, bool) or not isinstance(parent_id, int):
-            raise ValueError("Select a previously sent maintenance notification.")
+            raise ValueError("Select a previously sent source email.")
         parent = db.query(OperationalEmail).filter_by(
             id=parent_id,
-            template_key="maintenance_notice",
+            template_key=source_template_key,
         ).first()
         has_sent_delivery = parent and db.query(OperationalEmailDelivery.id).filter_by(
             operational_email_id=parent.id,
             status="sent",
         ).first()
         if not parent or not has_sent_delivery:
-            raise ValueError("The selected maintenance notification has not been sent successfully.")
+            raise ValueError("The selected source email has not been sent successfully.")
         parent_fields = parent.fields_json or {}
     elif parent_id is not None:
-        raise ValueError("A maintenance notice can only be linked to a Maintenance Complete email.")
+        raise ValueError("This email template does not support a linked source email.")
 
     fields = _normalize_fields(template_key, values.get("fields"), parent_fields)
     subject_input = values.get("subject") or template.default_subject
@@ -516,13 +830,34 @@ def _prepare_message(db, template_key: str, values: dict) -> dict:
     if not isinstance(subject_input, str) or not isinstance(body_input, str):
         raise ValueError("Email subject and body must be text.")
     fields_allowed = set(_fields_by_key(template_key))
-    for text_value, label in ((subject_input, "Subject"), (body_input, "Body")):
-        unknown_tokens = set(_TOKEN_RE.findall(text_value)) - fields_allowed
-        if unknown_tokens:
-            raise ValueError(f"Unsupported {label.lower()} placeholder(s): {', '.join(sorted(unknown_tokens))}.")
+    unknown_subject_tokens = set(_TOKEN_RE.findall(subject_input)) - fields_allowed
+    if unknown_subject_tokens:
+        raise ValueError(f"Unsupported subject placeholder(s): {', '.join(sorted(unknown_subject_tokens))}.")
+    if definition.get("live_source") == "global_shift_analysis" and _TOKEN_RE.search(subject_input):
+        subject_input = "Morning Operations Report"
     subject = _normalize_subject(_render_text(subject_input, fields))
-    body = _render_text(body_input, fields).strip()
-    if not body or len(body) > 200000:
+
+    live_source = definition.get("live_source")
+    if live_source == "global_shift_analysis":
+        config = db.query(SystemConfig).first()
+        source_text = (config.rolling_summary or "") if config else ""
+        fields["shift_analysis"] = source_text
+        if not source_text.strip() and not for_schedule:
+            raise ValueError("No shift analysis is available in Global Dashboards yet.")
+        body = source_text
+    else:
+        unknown_body_tokens = set(_TOKEN_RE.findall(body_input)) - fields_allowed
+        if unknown_body_tokens:
+            raise ValueError(f"Unsupported body placeholder(s): {', '.join(sorted(unknown_body_tokens))}.")
+        body = _render_text(body_input, fields).strip()
+
+    signature = _get_selected_signature(db, values)
+    signature_id = signature.id if signature else None
+    signature_name = signature.name if signature else None
+    signature_content = signature.content if signature else None
+    if live_source != "global_shift_analysis" or body:
+        body = _append_signature(body, signature_content)
+    if (not body and not for_schedule) or len(body) > 200000:
         raise ValueError("Email body must contain no more than 200,000 characters and cannot be blank.")
 
     to_input = values.get("to")
@@ -542,7 +877,7 @@ def _prepare_message(db, template_key: str, values: dict) -> dict:
     if not to_recipients:
         raise ValueError("At least one To recipient is required.")
     if bcc_recipients and not definition["allows_bcc"]:
-        raise ValueError("BCC recipients are only supported by the Fiber Outage template.")
+        raise ValueError("BCC recipients are supported by all Operational Email templates.")
     if not set(to_recipients + cc_recipients).isdisjoint(set(bcc_recipients)):
         raise ValueError("A recipient cannot appear in both a visible field and BCC.")
 
@@ -550,6 +885,9 @@ def _prepare_message(db, template_key: str, values: dict) -> dict:
     return {
         "template_key": template_key,
         "parent_email_id": parent.id if parent else None,
+        "signature_id": signature_id,
+        "signature_name": signature_name,
+        "signature_content": signature_content,
         "subject": subject,
         "body": body,
         "fields": fields,
@@ -583,6 +921,9 @@ def _create_email_record(db, actor_user_id: int, prepared: dict, schedule: dict 
     email = OperationalEmail(
         template_key=prepared["template_key"],
         created_by_user_id=actor_user_id,
+        signature_id=prepared["signature_id"],
+        signature_name=prepared["signature_name"],
+        signature_content=prepared["signature_content"],
         parent_email_id=prepared["parent_email_id"],
         subject=prepared["subject"],
         body=prepared["body"],
@@ -629,6 +970,8 @@ def _delivery_snapshot(db, email: OperationalEmail, status: str = "sending") -> 
         operational_email_id=email.id,
         status=status,
         sender_address=sender,
+        signature_id=email.signature_id,
+        signature_name=email.signature_name,
         to_recipients=list(email.to_recipients or []),
         cc_recipients=list(email.cc_recipients or []),
         bcc_recipients=list(email.bcc_recipients or []),
@@ -657,6 +1000,21 @@ def _attempt_delivery(email_id: int) -> dict:
         email = db.query(OperationalEmail).filter_by(id=email_id).first()
         if not email or email.status != "processing":
             return {"email_id": email_id, "status": "error", "message": "Message is not ready to send."}
+        source_error = None
+        if TEMPLATE_DEFINITIONS.get(email.template_key, {}).get("live_source") == "global_shift_analysis":
+            config = db.query(SystemConfig).first()
+            source_text = (config.rolling_summary or "") if config else ""
+            fields = dict(email.fields_json or {})
+            fields["shift_analysis"] = source_text
+            email.fields_json = fields
+            if not source_text.strip():
+                email.body = ""
+                source_error = "No shift analysis is available in Global Dashboards yet."
+            else:
+                email.body = _append_signature(source_text, email.signature_content)
+                if len(email.body) > 200000:
+                    source_error = "The latest shift analysis and signature exceed the 200,000-character email limit."
+            email.updated_at = datetime.utcnow()
         attachments = [
             {
                 "filename": item.filename,
@@ -678,7 +1036,9 @@ def _attempt_delivery(email_id: int) -> dict:
         recurrence_weekday = email.recurrence_weekday
         db.commit()
 
-    if not _configured_sender_is_valid(sender):
+    if source_error:
+        success, message = False, source_error
+    elif not _configured_sender_is_valid(sender):
         success, message = False, "Configure one valid global SMTP sender address in Settings > AI & SMTP."
     else:
         try:
@@ -779,7 +1139,7 @@ def schedule_operational_email(values: dict, schedule_values: dict, actor_user_i
 
     ensure_operational_email_templates()
     with SessionLocal() as db:
-        prepared = _prepare_message(db, values.get("template_key"), values)
+        prepared = _prepare_message(db, values.get("template_key"), values, for_schedule=True)
         email = _create_email_record(db, actor_user_id, prepared, schedule)
         return _serialize_email(email)
 
@@ -790,6 +1150,8 @@ def _serialize_email(email: OperationalEmail, include_body: bool = False) -> dic
         "id": email.id,
         "template_key": email.template_key,
         "created_by_user_id": email.created_by_user_id,
+        "signature_id": email.signature_id,
+        "signature_name": email.signature_name,
         "parent_email_id": email.parent_email_id,
         "subject": email.subject,
         "to": list(email.to_recipients or []),
@@ -861,6 +1223,7 @@ def list_operational_email_history(limit: int = 100) -> list[dict]:
                 "template_key": row.email.template_key if row.email else "",
                 "status": row.status,
                 "sender_address": row.sender_address,
+                "signature_name": row.signature_name,
                 "to": list(row.to_recipients or []),
                 "cc": list(row.cc_recipients or []),
                 "bcc": list(row.bcc_recipients or []),
@@ -885,6 +1248,7 @@ def get_operational_email_delivery(delivery_id: int) -> dict | None:
             "template_key": row.email.template_key if row.email else "",
             "status": row.status,
             "sender_address": row.sender_address,
+            "signature_name": row.signature_name,
             "to": list(row.to_recipients or []),
             "cc": list(row.cc_recipients or []),
             "bcc": list(row.bcc_recipients or []),
@@ -921,6 +1285,42 @@ def list_sent_maintenance_notifications(limit: int = 100) -> list[dict]:
                 "subject": delivery.subject,
                 "to": list(delivery.to_recipients or []),
                 "cc": list(delivery.cc_recipients or []),
+                "fields": dict(delivery.fields_json or {}),
+                "bcc": list(delivery.bcc_recipients or []),
+                "sent_at": delivery.sent_at.isoformat() + "Z" if delivery.sent_at else None,
+            })
+            if len(result) >= limit:
+                break
+        return result
+
+
+def list_sent_fiber_outages(limit: int = 100) -> list[dict]:
+    """Return fiber outage notices with a successful delivery for follow-up linking."""
+    limit = min(max(int(limit), 1), 250)
+    with SessionLocal() as db:
+        deliveries = db.query(OperationalEmailDelivery).join(
+            OperationalEmail,
+            OperationalEmail.id == OperationalEmailDelivery.operational_email_id,
+        ).filter(
+            OperationalEmail.template_key == "fiber_outage",
+            OperationalEmailDelivery.status == "sent",
+        ).order_by(
+            OperationalEmailDelivery.sent_at.desc(),
+            OperationalEmailDelivery.id.desc(),
+        ).limit(limit * 3).all()
+        result = []
+        seen = set()
+        for delivery in deliveries:
+            email = delivery.email
+            if not email or email.id in seen:
+                continue
+            seen.add(email.id)
+            result.append({
+                "id": email.id,
+                "subject": delivery.subject,
+                "to": list(delivery.to_recipients or []),
+                "cc": list(delivery.cc_recipients or []),
+                "bcc": list(delivery.bcc_recipients or []),
                 "fields": dict(delivery.fields_json or {}),
                 "sent_at": delivery.sent_at.isoformat() + "Z" if delivery.sent_at else None,
             })

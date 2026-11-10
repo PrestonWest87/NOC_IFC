@@ -40,6 +40,9 @@ class ComposeOperationalEmailRequest(BaseModel):
     fields: dict[str, str] = Field(default_factory=dict, max_length=40)
     attachments: list[EmailAttachmentInput] = Field(default_factory=list, max_length=5)
     maintenance_notice_id: int | None = Field(default=None, ge=1)
+    source_email_id: int | None = Field(default=None, ge=1)
+    signature_id: int | None = Field(default=None, ge=1)
+    use_default_signature: bool = True
 
 
 class OperationalEmailSchedule(BaseModel):
@@ -69,6 +72,26 @@ class OperationalEmailTemplateUpdate(BaseModel):
     default_bcc: str | None = Field(default=None, max_length=5000)
 
 
+class OperationalEmailSignatureCreate(BaseModel):
+    """Create an administrator-managed reusable plain-text signature."""
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=100)
+    content: str = Field(min_length=1, max_length=4000)
+    is_active: bool = True
+    is_default: bool = False
+
+
+class OperationalEmailSignatureUpdate(BaseModel):
+    """Partially update signature content and availability/default selection."""
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    content: str | None = Field(default=None, min_length=1, max_length=4000)
+    is_active: bool | None = None
+    is_default: bool | None = None
+
+
 @router.get("/templates")
 def get_templates():
     """Return built-in templates, administrator defaults, global sender, and bounds."""
@@ -87,6 +110,55 @@ def update_template(
         return email_service.update_operational_email_template(template_key, values, user.id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/signatures")
+def list_signatures():
+    """List active reusable signatures and the current default for senders."""
+    return email_service.list_operational_email_signatures()
+
+
+@router.get("/signatures/manage")
+def list_signatures_for_administration(user=Depends(require_admin)):
+    """List active and inactive signatures for administrator management."""
+    return email_service.list_operational_email_signatures(include_inactive=True)
+
+
+@router.post("/signatures")
+def create_signature(body: OperationalEmailSignatureCreate, user=Depends(require_admin)):
+    """Create a signature; only administrators manage shared signature defaults."""
+    try:
+        return email_service.create_operational_email_signature(body.model_dump(), user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/signatures/{signature_id}")
+def update_signature(
+    signature_id: int,
+    body: OperationalEmailSignatureUpdate,
+    user=Depends(require_admin),
+):
+    """Update signature text or its active/default state."""
+    try:
+        return email_service.update_operational_email_signature(
+            signature_id,
+            body.model_dump(exclude_unset=True),
+            user.id,
+        )
+    except ValueError as exc:
+        status_code = 404 if "not found" in str(exc).lower() else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@router.delete("/signatures/{signature_id}")
+def deactivate_signature(signature_id: int, user=Depends(require_admin)):
+    """Soft-disable a signature without deleting historical message references."""
+    try:
+        return email_service.deactivate_operational_email_signature(signature_id, user.id)
+    except ValueError as exc:
+        status_code = 404 if "not found" in str(exc).lower() else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 @router.post("/send")
@@ -161,3 +233,9 @@ def get_email_delivery(delivery_id: int):
 def list_maintenance_notices(limit: int = Query(100, ge=1, le=250)):
     """List successfully sent maintenance notifications eligible for a completion email."""
     return email_service.list_sent_maintenance_notifications(limit)
+
+
+@router.get("/fiber-outages")
+def list_fiber_outages(limit: int = Query(100, ge=1, le=250)):
+    """List successfully sent fiber outage notices eligible for linked progress/resolution emails."""
+    return email_service.list_sent_fiber_outages(limit)

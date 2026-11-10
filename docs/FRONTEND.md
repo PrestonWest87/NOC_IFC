@@ -34,7 +34,7 @@ After successful login, the browser navigates to the first page in `user.allowed
 
 Tabs are filtered by `web/src/utils/permissions.ts`. Some Settings views are self-service: Profile and Theme appear to any authenticated user who can enter Settings. Other Settings tabs require their exact `Tab: Settings -> ...` grant. Individual controls may need a distinct action grant. Server dependencies remain authoritative for all reads/writes. See [`PERMISSIONS.md`](PERMISSIONS.md) and [`API.md`](API.md).
 
-Operational Email is a standalone page protected by its page grant. Its compose panel supports six structured templates, message-level edits, one-time/daily/weekly schedules, fiber BCC, morning-report attachments, and sent-notice selection for maintenance completion. Shared template defaults are administrator-managed; each page-authorized user can customize their own outgoing message.
+Operational Email is a standalone page protected by its page grant. Its compose panel supports nine structured templates, BCC for every template, Central time labels, one-time/daily/weekly schedules, attached Morning Reports sourced from the latest Global Dashboard shift analysis, and linked maintenance/fiber-outage follow-ups. Administrators manage shared template defaults and reusable signatures; each page-authorized user can customize a message and select the default, another active signature, or no signature.
 
 ## Authentication and REST client
 
