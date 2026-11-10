@@ -26,7 +26,7 @@ from src.api.auth_guard import (
 from src.api.routes import (
     aiops, threat, settings, reporting, auth, dashboard, regional, hunting, rca,
     logbook, settings_admin, llm, email, keyword_analysis, permissions, user_admin,
-    application_settings,
+    application_settings, operational_email,
 )
 
 setup_logging()
@@ -154,6 +154,7 @@ app.include_router(keyword_analysis.router)
 app.include_router(permissions.router)
 app.include_router(user_admin.router)
 app.include_router(application_settings.router)
+app.include_router(operational_email.router)
 
 @app.get("/health")
 def health():

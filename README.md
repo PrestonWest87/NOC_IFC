@@ -59,6 +59,10 @@ Captures shift activity and handoff notes. Entries can be reviewed by day or per
 
 Generates daily fusion reports, custom intelligence reports, shared report-library entries, and email broadcasts. The Unified, Global Threat, and Internal Asset Risk briefs combine multiple data domains instead of presenting isolated feed summaries.
 
+### Operational Email
+
+Provides maintenance notification, technician-dispatch request, fiber outage with BCC, after-hours ONPAGE, morning report with attachments, and maintenance completion templates. Authorized users can compose or schedule one-time/daily/weekly sends; administrators manage shared template defaults. All messages use the global SMTP sender, and a completion notice links to a successfully sent maintenance notification.
+
 ### Settings and Administration
 
 Administrators can manage:
@@ -115,27 +119,27 @@ The project runs as a Docker Compose stack:
 Analyst browser
       |
       v
-React web workspace :8501
+React web workspace :8502
       |
-      +---- REST API and WebSocket :8101
+      +---- REST API host :8102 (container :8101)
       |             |
       |             v
       |       Shared database
       |
       +---- Worker: scheduled collection, scoring, briefs, escalation
 
-SolarWinds Orion ---> Webhook gateway :8100 ---> Shared database
+SolarWinds Orion ---> Webhook gateway host :8099 (container :8100) ---> Shared database
 ```
 
 | Service | Purpose | Host port |
 |---|---|---:|
-| `api` | REST API, authentication, health checks, and live WebSocket updates | 8101 |
+| `api` | REST API, authentication, health checks, and live WebSocket updates | 8102 (container 8101) |
 | `worker` | Scheduled ingestion, enrichment, scoring, reports, maintenance, and escalation | None |
-| `webhook` | SolarWinds request validation and alert processing | 8100 |
-| `web` | Production React workspace served by nginx | 8501 |
-| `web-dev` | Optional Vite development workspace with hot reload | 5173 |
+| `webhook` | SolarWinds request validation and alert processing | 8099 (container 8100) |
+| `web` | Production React workspace served by nginx | 8502 (container 5173) |
+| `web-dev` | Optional Vite development workspace with hot reload | 5174 (container 5173) |
 
-The application uses SQLite stored in `./data`. The API, worker, and webhook share the same database file.
+The `dev` branch Compose project is named `noc-ifc-dev`; it uses SQLite stored in `./data-dev`, separate from the existing instance's `./data`. The API, worker, and webhook share the dev database file and attach to Docker's built-in bridge network without allocating another subnet.
 
 ## Quick Start
 
@@ -147,7 +151,7 @@ The application uses SQLite stored in `./data`. The API, worker, and webhook sha
 - Outbound access to configured data sources is required for ingestion.
 - An LLM provider is optional, but required for AI-generated briefs and summaries.
 
-### Start the Production-Style Stack
+### Start the Dev-Branch Stack
 
 ```bash
 cp .env.example .env
@@ -159,26 +163,26 @@ Set `DEFAULT_ADMIN_PASSWORD` in `.env` before the first startup. Then build and 
 docker compose up --build -d
 ```
 
-Open `http://localhost:8501` and sign in as `admin` using the configured password.
+Open `http://localhost:8502` and sign in as `admin` using the configured password.
 
 Verify the deployment:
 
 ```bash
 docker compose ps
-curl http://localhost:8101/health
-curl http://localhost:8101/ready
-curl http://localhost:8100/health
+curl http://localhost:8102/health
+curl http://localhost:8102/ready
+curl http://localhost:8099/health
 ```
 
 ### Start Development Mode
 
-Development mode starts a Vite workspace with hot reload on port `5173`:
+Development mode adds a Vite workspace with hot reload on host port `5174` (container port `5173`):
 
 ```bash
 docker compose --profile dev up --build -d
 ```
 
-The production web container is still exposed on port `8501`; the `web-dev` container is available on port `5173`.
+The Nginx web container is exposed on host port `8502`; the `web-dev` container is available on host port `5174`. The dev host ports are one number away from the main ports; webhook uses 8099 because 8101 is the main API port.
 
 ## Initial Configuration
 
@@ -268,7 +272,7 @@ The frontend hides unavailable areas, but the backend also checks protected oper
 Configure SolarWinds or another compatible ITSM source to send:
 
 ```text
-POST http://<host>:8100/webhook/solarwinds
+POST http://<host>:8099/webhook/solarwinds
 Content-Type: application/json
 ```
 
@@ -277,7 +281,7 @@ The gateway validates request size and, when configured, HMAC signatures and tim
 Basic connectivity check:
 
 ```bash
-curl http://localhost:8100/health
+curl http://localhost:8099/health
 ```
 
 ## Common Operator Commands
@@ -299,8 +303,8 @@ docker compose restart api
 docker compose up --build -d --force-recreate web
 
 # Check API and database readiness
-curl http://localhost:8101/health
-curl http://localhost:8101/ready
+curl http://localhost:8102/health
+curl http://localhost:8102/ready
 ```
 
 Before database maintenance or a reset, create a verified backup. Do not remove the database as a first troubleshooting step.
@@ -310,8 +314,8 @@ Before database maintenance or a reset, create a verified backup. Do not remove 
 - Keep `.env` out of version control.
 - Set a unique administrator password before first boot.
 - Restrict `CORS_ORIGINS` to approved browser origins.
-- Restrict port `8100` to approved webhook senders.
-- Keep ports `8100` and `8101` off the public internet unless protected by a firewall and reverse proxy.
+- Restrict dev webhook port `8099` to approved webhook senders.
+- Keep dev ports `8099` and `8102` off the public internet unless protected by a firewall and reverse proxy.
 - Use HTTPS through a reverse proxy for production access.
 - Keep the API, worker, and webhook on the same host with access to the shared SQLite data directory.
 - Back up the database before migrations, restores, or destructive administrative actions.

@@ -12,7 +12,7 @@ This guide explains the current browser workspace. Available pages, tabs, site t
 
 ## Navigation
 
-The sidebar contains up to nine pages: Global Dashboards, Threat Telemetry, Regional Grid, Threat Hunting & IOCs, AIOps RCA, Shift Logbook, Reporting & Briefings, Keyword Analysis, and Settings & Admin. The sidebar hides pages not granted to your account. Pages can also contain tabs that are separately permissioned.
+The sidebar contains up to ten pages: Global Dashboards, Threat Telemetry, Regional Grid, Threat Hunting & IOCs, AIOps RCA, Shift Logbook, Reporting & Briefings, Operational Email, Keyword Analysis, and Settings & Admin. The sidebar hides pages not granted to your account. Pages can also contain tabs that are separately permissioned.
 
 ## Global Dashboards (`#/`)
 
@@ -117,6 +117,21 @@ Auto-Draft reads scoped AIOps data and requires both AIOps page access and `Acti
 - **Shared Library:** list, open, and delete saved reports.
 
 Generation requires `Action: Generate Reports`; report broadcasts, saving through the current report-builder route, and library deletion require `Action: Dispatch Exec Report`. Email recipient lists accept comma/semicolon-separated addresses, reject line breaks, and are limited to 20 addresses.
+
+## Operational Email (`#/operational-email`)
+
+The Operational Email page uses one page permission for composing, sending, scheduling/cancelling, and reviewing emails. Choose a template, fill in its operational fields, edit the subject/message for the current send, and then send immediately or schedule once, daily, or weekly in America/Chicago.
+
+- **Maintenance Notification** records the planned work and window. A completion message must select a successfully sent maintenance notification; its details and recipients are used to start the close-out message.
+- **Outage — Request Technician Dispatch** describes service impact and the requested field response.
+- **Fiber Outage** supports BCC. BCC recipients are hidden from other recipients.
+- **After-Hours ONPAGE** provides an urgent acknowledgement/request-for-response format.
+- **Morning Report** supports up to five attachments, 5 MiB each, with a 20 MiB combined limit.
+- **Maintenance Complete** links the close-out to the selected sent maintenance notification.
+
+Every message uses the single global From address configured in Settings > AI & SMTP. Administrators can edit shared template wording and recipient defaults. Any user with Operational Email access can still adjust the subject, recipients, and message for an individual send. Scheduled messages save a snapshot of their content and attachments; later template edits do not change existing schedules. Delivery status and message details are available in Sent / History.
+
+The page is not part of the default analyst role. Ask an administrator to grant the `Operational Email` page permission if you need access.
 
 ## Keyword Analysis (`#/keyword-analysis`)
 

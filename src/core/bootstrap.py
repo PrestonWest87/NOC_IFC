@@ -14,6 +14,7 @@ from datetime import datetime
 import bcrypt
 
 from src.core.config import settings
+from src.core.operational_email import ensure_operational_email_templates
 from src.core.permissions import ADMIN_ACTIONS, PAGE_KEYS, TAB_CATALOG
 from src.models.schema import (
     AccountAuditEvent,
@@ -121,7 +122,12 @@ def _seed_roles_and_admin(session):
         for group, tabs in TAB_CATALOG.items()
         for tab in tabs
     }
-    operational_pages = [page for page in PAGE_KEYS if page != "Settings & Admin"]
+    # Operational email can reach external recipients and is assigned explicitly
+    # through role management instead of joining the default analyst baseline.
+    operational_pages = [
+        page for page in PAGE_KEYS
+        if page not in {"Settings & Admin", "Operational Email"}
+    ]
     analyst_actions = [
         "Action: Pin Articles", "Action: Boost Threat Score", "Action: Manually Sync Data",
         "Action: Submit Shift Log", "Action: Dispatch RCA Tickets",
@@ -336,6 +342,11 @@ def ensure_bootstrap_data(session_factory) -> None:
         _seed_demo_assets(session_factory)
     except Exception:
         logger.exception("Could not seed demo assets")
+
+    try:
+        ensure_operational_email_templates(session_factory)
+    except Exception:
+        logger.exception("Could not seed operational email templates")
 
     if os.environ.get("RESCORE_ON_STARTUP", "false").lower() in {"1", "true", "yes"}:
         try:

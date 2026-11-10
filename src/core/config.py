@@ -39,9 +39,9 @@ class Settings(BaseSettings):
     webhook_max_body_bytes: int = 1048576
     websocket_max_message_bytes: int = 65536
     allow_private_llm_endpoints: bool = False
-    cors_origins: str = "http://localhost:8501,http://localhost:5173"
+    cors_origins: str = "http://localhost:8502,http://localhost:5174,http://localhost:5173"
     allow_unsigned_webhooks: bool = False
-    public_app_url: str = "http://localhost:8501"
+    public_app_url: str = "http://localhost:8502"
     nws_api_user_agent: str = "NOC-IFC/2.0 (https://test.weasts.net)"
     default_admin_email: str = ""
     registration_invite_ttl_hours: int = 72

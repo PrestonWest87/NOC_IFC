@@ -6,9 +6,9 @@ Production nginx server block copied to `/etc/nginx/conf.d/default.conf` by `web
 
 | Directive | Current value | Behavior |
 |---|---|---|
-| `listen` | `5173` | Container listener; Compose maps host `8501` to it. |
+| `listen` | `5173` | Container listener; dev Compose maps host `8502` to it. |
 | `server_name` | `localhost test.weasts.net` | Accepted host names. |
-| `resolver` | `127.0.0.11 valid=30s` | Docker DNS resolver for variable upstream resolution. |
+| `resolver` | `127.0.0.11 valid=30s` | Retained Nginx Docker resolver configuration. |
 | `client_max_body_size` | `101g` | Nginx-level request-body ceiling; API-level backup-upload limits remain controlled separately by `BACKUP_MAX_BYTES`. |
 | `root` | `/usr/share/nginx/html` | Production Vite build output. |
 | `index` | `index.html` | SPA entry document. |
@@ -34,22 +34,21 @@ Uses `try_files $uri /index.html` for the React SPA fallback and contains an `al
 
 ### `location /api/`
 
-Uses:
+Uses the built-in bridge host-gateway alias:
 
 ```nginx
-set $api_upstream http://api:8101;
-proxy_pass $api_upstream;
+proxy_pass http://noc-ifc-dev-api:8102;
 ```
 
 Passes `Host`, `X-Real-IP`, `X-Forwarded-For`, and `X-Forwarded-Proto` headers. The backend API handles authentication and route authorization.
 
 ### `location ^~ /api/v1/admin/backups`
 
-This more-specific location proxies large backup downloads/uploads directly to the API. It sets 3600-second proxy/body timeouts and disables both proxy response buffering and request buffering so large backup streams are not buffered to disk or memory by Nginx.
+This more-specific location proxies large backup downloads/uploads directly to the API through `noc-ifc-dev-api:8102`. It sets 3600-second proxy/body timeouts and disables both proxy response buffering and request buffering so large backup streams are not buffered to disk or memory by Nginx.
 
 ### `location /ws`
 
-Uses the same variable upstream and enables HTTP/1.1 upgrade headers:
+Proxies to `noc-ifc-dev-api:8102` and enables HTTP/1.1 upgrade headers:
 
 - `proxy_http_version 1.1`
 - `Upgrade: $http_upgrade`

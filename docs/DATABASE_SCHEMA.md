@@ -3,7 +3,7 @@
 > **Source of truth:** `src/models/schema.py` (SQLAlchemy declarative models)
 > **Engine:** SQLite via `DATABASE_URL`
 > **Driver:** SQLAlchemy 2.x with `NullPool`
-> **Last verified:** 2026-11-06
+> **Last verified:** 2026-11-10
 
 The mapped table names, column names, SQLAlchemy types, and nullability in this reference reflect the model metadata in `src/models/schema.py`.
 
@@ -23,7 +23,7 @@ The mapped table names, column names, SQLAlchemy types, and nullability in this 
 
 ## 1. Entity-Relationship Overview
 
-Most operational relationships are logical rather than enforced foreign keys. The account-session, recovery-request/token, and account-audit tables declare SQLAlchemy foreign keys to users or recovery requests; `scheduler_job_config` and legacy name-based relationships do not.
+Most operational relationships are logical rather than enforced foreign keys. The account-session, recovery-request/token, account-audit, Operational Email, and site-contact tables declare SQLAlchemy foreign keys; `scheduler_job_config` and legacy name-based relationships do not.
 
 The legacy ER diagram is conceptual: its `(FK→)` labels do not distinguish enforced constraints from logical joins. In particular, `users.role`, `user_weather_prefs.username`, and `extracted_iocs.article_id` are not SQL-enforced foreign keys; Section 6 lists the actual constraints.
 
@@ -222,7 +222,7 @@ The legacy ER diagram is conceptual: its `(FK→)` labels do not distinguish enf
 
 ## 2. Complete Table Reference
 
-Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state; revision `20261102_0006` adds the site-contact table; revision `20261103_0007` adds NWS alert lifecycle and provider freshness fields; revision `20261105_0008` adds LLM provider selection and nullable alert/Elastic environment overrides.
+Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state; revision `20261102_0006` adds the site-contact table; revision `20261103_0007` adds NWS alert lifecycle and provider freshness fields; revision `20261105_0008` adds LLM provider selection and nullable alert/Elastic environment overrides; revision `20261110_0009` adds Operational Email templates, messages, attachments, and delivery history.
 
 ### 2.1 `users` — User Accounts
 
@@ -333,7 +333,7 @@ Column types and nullability reflect the current SQLAlchemy mappings in `src/mod
 | `alerted_wildfire_ids` | Text | YES | `"[]"` | — |
 | `wildfire_proximity_state` | Text | YES | `"{}"` | — |
 | `llm_context_window` | Integer | YES | `128000` | — |
-| `public_app_url` | String | YES | `"http://localhost:8501"` | — |
+| `public_app_url` | String | YES | `"http://localhost:8502"` | — |
 | `risk_alert_recipients` | Text | YES | NULL | — | Database override; NULL uses `RISK_ALERT_RECIPIENTS` environment fallback |
 | `remedyforce_ticket_email` | Text | YES | NULL | — | Database override; NULL uses `REMEDYFORCE_TICKET_EMAIL` |
 | `noc_notify_email` | Text | YES | NULL | — | Database override; NULL uses `NOC_NOTIFY_EMAIL` |
@@ -814,6 +814,88 @@ Stores optional contact details separately from general site payloads. Contact v
 | `email` | String(254) | YES | NULL | Optional single email address |
 | `sort_order` | Integer | NO | `0` (server) | Contact order within the site |
 
+### 2.37 `operational_email_templates` — Shared Operational Email Defaults (12 columns)
+
+Stores administrator-managed defaults for the six operational email templates. Message-specific edits are captured on each email record and do not modify this table.
+
+| Column | Type | Nullable | Default | Index / constraint |
+|---|---|---|---|---|
+| `id` | Integer | NO | autoincrement | Primary key |
+| `template_key` | String(64) | NO | — | Unique; indexed |
+| `label` | String(128) | NO | — | Template display label |
+| `description` | Text | NO | `""` | Help text |
+| `default_subject` | String(500) | NO | — | Shared subject with supported placeholders |
+| `default_body` | Text | NO | — | Shared plain-text body with supported placeholders |
+| `default_to` | Text | NO | `""` | Default To recipients |
+| `default_cc` | Text | NO | `""` | Default Cc recipients |
+| `default_bcc` | Text | NO | `""` | Default Bcc recipients; used by Fiber Outage only |
+| `updated_by_user_id` | Integer | YES | NULL | FK to `users.id` |
+| `created_at` | DateTime | NO | `utcnow` | Creation time |
+| `updated_at` | DateTime | NO | `utcnow` | Last template-default edit |
+
+### 2.38 `operational_emails` — Composed Messages and Persistent Schedules (22 columns)
+
+Stores a message snapshot, one-time or recurring schedule definition, delivery status, and an optional link to a maintenance notification. Recurring sends retain one parent schedule row and create a delivery row for each occurrence.
+
+| Column | Type | Nullable | Default | Index / constraint |
+|---|---|---|---|---|
+| `id` | Integer | NO | autoincrement | Primary key |
+| `template_key` | String(64) | NO | — | Indexed template key |
+| `created_by_user_id` | Integer | YES | NULL | Indexed FK to `users.id` |
+| `parent_email_id` | Integer | YES | NULL | Indexed self-reference for Maintenance Complete |
+| `subject` | String(500) | NO | — | Rendered subject snapshot |
+| `body` | Text | NO | — | Rendered plain-text body snapshot |
+| `fields_json` | JSON | NO | `{}` | Template form values |
+| `to_recipients` | JSON | NO | `[]` | To recipient snapshot |
+| `cc_recipients` | JSON | NO | `[]` | Cc recipient snapshot |
+| `bcc_recipients` | JSON | NO | `[]` | Hidden Bcc recipient snapshot |
+| `schedule_type` | String(16) | NO | `"immediate"` | `immediate`, `once`, `daily`, or `weekly`; indexed |
+| `timezone` | String(64) | NO | `"America/Chicago"` | Schedule wall-clock timezone |
+| `scheduled_at` | DateTime | YES | NULL | One-time send instant in UTC |
+| `recurrence_time` | String(5) | YES | NULL | Central wall-clock `HH:MM` |
+| `recurrence_weekday` | Integer | YES | NULL | Weekly day, Monday `0` through Sunday `6` |
+| `next_run_at` | DateTime | YES | NULL | Indexed due instant in UTC |
+| `processing_started_at` | DateTime | YES | NULL | Worker claim timestamp |
+| `status` | String(24) | NO | `"sending"` | Indexed delivery/schedule state |
+| `last_sent_at` | DateTime | YES | NULL | Last successful delivery time |
+| `last_error` | Text | YES | NULL | Most recent send failure, when present |
+| `created_at` | DateTime | NO | `utcnow` | Indexed creation time |
+| `updated_at` | DateTime | NO | `utcnow` | Last status change |
+
+### 2.39 `operational_email_attachments` — Persisted Email Files (6 columns)
+
+Stores bounded attachment bytes with the message snapshot so scheduled sends survive process restarts and full SQLite backups.
+
+| Column | Type | Nullable | Default | Index / constraint |
+|---|---|---|---|---|
+| `id` | Integer | NO | autoincrement | Primary key |
+| `operational_email_id` | Integer | NO | — | Indexed FK to `operational_emails.id`, `ON DELETE CASCADE` |
+| `filename` | String(120) | NO | — | Sanitized basename |
+| `content_type` | String(100) | NO | `"application/octet-stream"` | Validated MIME type |
+| `content` | LargeBinary | NO | — | Raw attachment bytes |
+| `size_bytes` | Integer | NO | — | Decoded file size |
+
+### 2.40 `operational_email_deliveries` — SMTP Attempt History (14 columns)
+
+Stores an immutable recipient/content snapshot and the result of each SMTP attempt, including each occurrence of a recurring schedule.
+
+| Column | Type | Nullable | Default | Index / constraint |
+|---|---|---|---|---|
+| `id` | Integer | NO | autoincrement | Primary key |
+| `operational_email_id` | Integer | NO | — | Indexed FK to `operational_emails.id`, `ON DELETE CASCADE` |
+| `status` | String(16) | NO | — | Indexed `sending`, `sent`, or `failed` state |
+| `sender_address` | String(254) | YES | NULL | Global configured From address at send time |
+| `to_recipients` | JSON | NO | `[]` | To recipient snapshot |
+| `cc_recipients` | JSON | NO | `[]` | Cc recipient snapshot |
+| `bcc_recipients` | JSON | NO | `[]` | Bcc recipient snapshot |
+| `subject` | String(500) | NO | — | Subject sent to SMTP |
+| `body` | Text | NO | — | Message body sent to SMTP |
+| `fields_json` | JSON | NO | `{}` | Template form values used for this attempt |
+| `attachment_names` | JSON | NO | `[]` | Attached file-name snapshot |
+| `attempted_at` | DateTime | NO | `utcnow` | Indexed attempt start time |
+| `sent_at` | DateTime | YES | NULL | Indexed successful send time |
+| `error_message` | Text | YES | NULL | SMTP/validation failure detail |
+
 ---
 
 ## 3. Schema Evolution Strategy
@@ -874,6 +956,11 @@ Entries may group independent indexes for brevity; a grouped row does not imply 
 | `password_reset_tokens` | `token_hash` | UNIQUE | One-time reset-token lookup |
 | `account_audit_events` | `actor_user_id`, `subject_user_id`, `event_type`, `created_at` | B-tree | Account audit filtering and chronology |
 | `scheduler_job_config` | `job_key` | UNIQUE | Runtime schedule configuration lookup |
+| `operational_email_templates` | `template_key` | UNIQUE/B-tree | Template lookup and uniqueness |
+| `operational_emails` | `template_key`, `created_by_user_id`, `parent_email_id`, `schedule_type`, `next_run_at`, `status`, `created_at` | B-tree | Template/history queries and due schedule claims |
+| `operational_emails` | `status`, `next_run_at` | Composite B-tree | Worker due-schedule scan |
+| `operational_email_attachments` | `operational_email_id` | B-tree | Message attachment lookup |
+| `operational_email_deliveries` | `operational_email_id`, `status`, `attempted_at`, `sent_at` | B-tree | Delivery history, maintenance-notice selection, and status filtering |
 | `roles` | `name` | UNIQUE | Role lookup |
 | `articles` | `link` | UNIQUE | Dedup on ingest |
 | `articles` | `published_date` | B-tree | Time-range queries |
@@ -966,7 +1053,7 @@ After migrations, startup enables persistent WAL mode. The SQLAlchemy connection
 
 ### Phase 2 — One-time legacy adoption
 
-Revision `20261002_0001` uses the frozen `migrations/schema_v1.py` snapshot to create missing baseline tables, adds only missing legacy columns, creates missing indexes, and applies one-time user, invitation, and priority backfills. Revision `20261002_0002` adds `registration_invites.revoked_at` for auditable invite invalidation during full restore. Revision `20261005_0003` adds a false-default `solarwinds_alerts.needs_dispatch` flag while preserving existing alerts. Revision `20261005_0004` fills `timeline_events.site_name` only for legacy generated webhook alerts with a suffix matching a monitored location. Revision `20261013_0005` adds nullable `solarwinds_alerts.onpage_sent_at` so successful on-page delivery can be tracked per active node incident. Revision `20261102_0006` creates `monitored_location_contacts` and its site lookup index without changing existing site rows. Revision `20261103_0007` adds additive NWS CAP lifecycle columns and provider-attempt metadata; legacy weather rows begin as `unknown` and are not treated as verified active alerts. Revision `20261105_0008` adds nullable integration overrides and a default `openai_compatible` provider to `system_config`. Existing tables and records are retained. Duplicate normalized email values that prevent creation of the unique index fail with an actionable error.
+Revision `20261002_0001` uses the frozen `migrations/schema_v1.py` snapshot to create missing baseline tables, adds only missing legacy columns, creates missing indexes, and applies one-time user, invitation, and priority backfills. Revision `20261002_0002` adds `registration_invites.revoked_at` for auditable invite invalidation during full restore. Revision `20261005_0003` adds a false-default `solarwinds_alerts.needs_dispatch` flag while preserving existing alerts. Revision `20261005_0004` fills `timeline_events.site_name` only for legacy generated webhook alerts with a suffix matching a monitored location. Revision `20261013_0005` adds nullable `solarwinds_alerts.onpage_sent_at` so successful on-page delivery can be tracked per active node incident. Revision `20261102_0006` creates `monitored_location_contacts` and its site lookup index without changing existing site rows. Revision `20261103_0007` adds additive NWS CAP lifecycle columns and provider-attempt metadata; legacy weather rows begin as `unknown` and are not treated as verified active alerts. Revision `20261105_0008` adds nullable integration overrides and a default `openai_compatible` provider to `system_config`. Revision `20261110_0009` creates operational email template defaults, message/schedule snapshots, bounded attachment storage, and SMTP attempt history. Existing tables and records are retained. Duplicate normalized email values that prevent creation of the unique index fail with an actionable error.
 
 The explicit compatibility column map covers account/recovery fields, scheduler revisions, scoring and alert settings, article enrichment metadata, role site types, alert dispatch fields, location tracking, shift-log state, crime dispatch state, and timeline site metadata. The adoption revision validates every frozen-baseline table's final column set before recording success; later revisions add their versioned fields.
 
@@ -1020,7 +1107,7 @@ Creates a single default `SystemConfig` row if none exists.
 
 ### Declared Foreign Key Constraints
 
-The schema declares foreign keys for independently revocable sessions, account-recovery requests/tokens, account-audit actor/subject references, and monitored-site contacts:
+The schema declares foreign keys for independently revocable sessions, account-recovery requests/tokens, account-audit actor/subject references, monitored-site contacts, and Operational Email records:
 
 - `user_sessions.user_id` → `users.id`.
 - `monitored_location_contacts.monitored_location_id` → `monitored_locations.id` (`ON DELETE CASCADE` declaration; service-level deletion also applies because SQLite foreign-key enforcement is off).
@@ -1028,12 +1115,15 @@ The schema declares foreign keys for independently revocable sessions, account-r
 - `password_reset_requests.user_id` and `reviewed_by_id` → `users.id`.
 - `password_reset_tokens.request_id` → `password_reset_requests.id`; `user_id` → `users.id`.
 - `account_audit_events.actor_user_id` and `subject_user_id` → `users.id`.
+- `operational_email_templates.updated_by_user_id` and `operational_emails.created_by_user_id` → `users.id`.
+- `operational_emails.parent_email_id` → `operational_emails.id` for Maintenance Complete links.
+- `operational_email_attachments.operational_email_id` and `operational_email_deliveries.operational_email_id` → `operational_emails.id` (`ON DELETE CASCADE` declaration).
 
 The SQLite connection setup does not enable `PRAGMA foreign_keys`, so applications must not assume SQLite is enforcing those declarations at runtime. Other relationships—including `users.role`, `user_weather_prefs.username`, `extracted_iocs.article_id`, and alert/site-name mappings—are logical joins without declared foreign keys. Hourly maintenance removes orphaned IOC rows.
 
 ### JSON Columns for Flexible Data
 
-Used in five tables:
+Used in seven tables:
 
 | Table | Column | Contents |
 |---|---|---|
@@ -1042,6 +1132,8 @@ Used in five tables:
 | `solarwinds_alerts` | `raw_payload` | Full webhook JSON |
 | `geojson_cache` | `data` | GeoJSON FeatureCollection |
 | `account_audit_events` | `event_detail` | Structured account/security audit details |
+| `operational_emails` | `fields_json`, `to_recipients`, `cc_recipients`, `bcc_recipients` | Form inputs and address snapshots |
+| `operational_email_deliveries` | Recipient lists, `fields_json`, `attachment_names` | Immutable SMTP attempt snapshots |
 
 SQLite stores JSON as TEXT. Queries use string matching, not native JSON operators.
 
@@ -1135,4 +1227,8 @@ Centralized retention is enforced by the hourly **`database_maintenance` schedul
 | `registration_invites` | Expired, used, and revoked invitation records are retained for history |
 | `account_audit_events` | Security audit history is retained |
 | `scheduler_job_config` | Persisted schedule rows are retained |
+| `operational_email_templates` | Shared defaults are retained until changed by an administrator |
+| `operational_emails` | Sent-message and recurring-schedule records are retained; no automatic purge |
+| `operational_email_attachments` | Persisted attachment bytes are retained with their message |
+| `operational_email_deliveries` | SMTP attempt and recipient/body history is retained |
 | `geojson_cache` | Overwritten on each fetch, not purged |

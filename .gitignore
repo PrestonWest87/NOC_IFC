@@ -1,5 +1,6 @@
 # Environment files (secrets)
 .env
+.env.dev
 
 docker-compose.yml
 
@@ -7,6 +8,7 @@ src/ml_model.pkl
 
 # Runtime data
 data/
+data-dev/
 
 # Python bytecode
 src/__pycache__/

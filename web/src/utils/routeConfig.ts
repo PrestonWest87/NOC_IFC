@@ -7,6 +7,7 @@ export const PAGE_PERMISSION_MAP: Record<string, string> = {
   "/aiops-rca": "AIOps RCA",
   "/shift-logbook": "Shift Logbook",
   "/reporting": "Reporting & Briefings",
+  "/operational-email": "Operational Email",
   "/settings": "Settings & Admin",
   "/keyword-analysis": "Keyword Analysis",
 };

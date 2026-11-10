@@ -20,6 +20,7 @@ const ThreatHuntingPage = lazy(() => import("./pages/ThreatHuntingPage").then(m 
 const AiopsRcaPage = lazy(() => import("./pages/AiopsRcaPage").then(m => ({ default: m.AiopsRcaPage })));
 const ShiftLogbookPage = lazy(() => import("./pages/ShiftLogbookPage").then(m => ({ default: m.ShiftLogbookPage })));
 const ReportingPage = lazy(() => import("./pages/ReportingPage").then(m => ({ default: m.ReportingPage })));
+const OperationalEmailPage = lazy(() => import("./pages/OperationalEmailPage").then(m => ({ default: m.OperationalEmailPage })));
 const SettingsPage = lazy(() => import("./pages/SettingsPage").then(m => ({ default: m.SettingsPage })));
 const KeywordAnalysisPage = lazy(() => import("./pages/KeywordAnalysisPage").then(m => ({ default: m.KeywordAnalysisPage })));
 
@@ -122,6 +123,7 @@ function AppRoutes() {
       <Route path="/aiops-rca" element={<ProtectedRoute path="/aiops-rca"><AiopsRcaPage /></ProtectedRoute>} />
       <Route path="/shift-logbook" element={<ProtectedRoute path="/shift-logbook"><ShiftLogbookPage /></ProtectedRoute>} />
       <Route path="/reporting" element={<ProtectedRoute path="/reporting"><ReportingPage /></ProtectedRoute>} />
+      <Route path="/operational-email" element={<ProtectedRoute path="/operational-email"><OperationalEmailPage /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute path="/settings"><SettingsPage /></ProtectedRoute>} />
       <Route path="/keyword-analysis" element={<ProtectedRoute path="/keyword-analysis"><KeywordAnalysisPage /></ProtectedRoute>} />
       </Routes>

@@ -6,7 +6,7 @@ This guide traces externally triggered, scheduled, browser-initiated, and WebSoc
 
 ```text
 SolarWinds sender
-  -> POST :8100/webhook/solarwinds
+  -> POST host :8099/webhook/solarwinds (container listener :8100)
   -> restore/body-size/HMAC/timestamp/JSON checks
   -> smart_extract + domain normalization + resolution-word detection
   -> HTTP 200 {status: accepted}
@@ -20,7 +20,7 @@ The success response confirms queueing only; it is not a persistence acknowledgm
 
 ## 2. Scheduler triggers
 
-The single `worker` process registers 21 jobs from `JOB_REGISTRY`. It runs registry entries with `startup_run=true` during boot in four groups separated by 30-second pauses; scheduled callbacks use a two-thread executor and same-function non-overlap guard. On boot, enabled startup jobs can initiate external HTTP, email, LLM, and database work.
+The single `worker` process registers 22 jobs from `JOB_REGISTRY`. It runs registry entries with `startup_run=true` during boot in four groups separated by 30-second pauses; scheduled callbacks use a two-thread executor and same-function non-overlap guard. On boot, enabled startup jobs can initiate external HTTP, email, LLM, and database work.
 
 | Job | Default trigger | Main work |
 |---|---|---|
@@ -171,5 +171,6 @@ The offline CLI requires `--maintenance-confirmed` only after API, worker, and w
 | Perimeter crime | Effective `CRIME_ALERT_SMS` (fallback `CRIME_ALERT_EMAIL`); severity text “High”, ≤0.4 miles from headquarters, not previously dispatched. |
 | Escalation ticket/page | Remedyforce/NOC/ITNETWORK destinations; see [`ESCALATION.md`](ESCALATION.md) for wait, cooldown, and retry rules. |
 | Daily email brief | Effective risk recipients at 07:00 Central, if a saved unified brief exists. |
+| Operational Email page | A user with the `Operational Email` page grant sends immediately or creates a persistent one-time/daily/weekly schedule; each occurrence records its own delivery result. |
 
-Email send paths depend on the `SystemConfig` SMTP settings; environment/database recipient destinations do not replace SMTP server/sender configuration. Application Settings overrides take precedence over environment fallbacks and are read dynamically by the API and worker.
+Email send paths depend on the `SystemConfig` SMTP settings. Operational Email uses the configured global sender and its BCC envelope handling; existing alert/report send paths retain their original message formats and grants. Environment/database recipient destinations do not replace SMTP server/sender configuration. Application Settings overrides take precedence over environment fallbacks and are read dynamically by the API and worker.

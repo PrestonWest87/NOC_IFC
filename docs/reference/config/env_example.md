@@ -6,7 +6,7 @@ This file is the complete template for environment variables used by the current
 
 | Variable | Default in template | Read by | Purpose |
 |---|---|---|---|
-| `DATABASE_URL` | SQLite container path `/app/data/noc_fusion.db` | `src.core.config` | Optional SQLAlchemy database URL override; Docker maps `/app/data` to repository `./data`. `src/core/config.py` supplies this same default when unset. |
+| `DATABASE_URL` | SQLite container path `/app/data/noc_fusion.db` | `src.core.config` | Optional SQLAlchemy database URL override; this branch maps `/app/data` to isolated `./data-dev`. `src/core/config.py` supplies this same default when unset. |
 | `DEMO_SEED_DATA` | `false` | `src.core.config` | Enable synthetic asset seed data |
 | `DEFAULT_ADMIN_PASSWORD` | change-me placeholder | `src.core.bootstrap` | Initial admin password when the database has no users |
 | `DEFAULT_ADMIN_EMAIL` | empty | `src.core.config`, `src.core.bootstrap` | Trusted verified bootstrap mailbox; can initialize an existing email-less bootstrap administrator on API/worker startup |
@@ -31,9 +31,9 @@ This file is the complete template for environment variables used by the current
 | `WEBHOOK_MAX_BODY_BYTES` | `1048576` | webhook | Maximum request body size |
 | `WEBSOCKET_MAX_MESSAGE_BYTES` | `65536` | API | Maximum client WebSocket message |
 | `ALLOW_PRIVATE_LLM_ENDPOINTS` | `false` | LLM route | Permit private targets for generic OpenAI-compatible provider tests; selected Ollama/vLLM providers can use validated local targets |
-| `CORS_ORIGINS` | localhost web origins | API | Comma-separated browser origin allowlist |
+| `CORS_ORIGINS` | `http://localhost:8502,http://localhost:5174,http://localhost:5173` | API | Comma-separated browser origin allowlist |
 | `ALLOW_UNSIGNED_WEBHOOKS` | `false` | webhook | Controlled unsigned-webhook migration exception |
-| `PUBLIC_APP_URL` | `http://localhost:8501` | admin routes | Registration link base URL |
+| `PUBLIC_APP_URL` | `http://localhost:8502` | admin routes | Registration link base URL |
 | `NWS_API_USER_AGENT` | `NOC-IFC/2.0 (https://test.weasts.net)` | `src.core.config`, `src.workers.infra_worker`, `src.services` | Identifies NWS API requests; configure the deployed public URL, with the bootstrap admin email appended when set |
 | `REGISTRATION_INVITE_TTL_HOURS` | `72` | admin routes | Default invite lifetime |
 | `BACKUP_ENCRYPTION_ACTIVE_KEY_ID` | `primary` | `src.core.backup_manager` | Active key ID for new encrypted full backups |

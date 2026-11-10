@@ -19,7 +19,7 @@ Multi-stage production image used by the `api`, `worker`, and `webhook` services
 | `RUN` | `apt-get update && apt-get install -y gosu && rm -rf /var/lib/apt/lists/*` | Installs `gosu` to drop container privileges. Runtime packages use prebuilt wheels, so a compiler and PostgreSQL client libraries are not installed. |
 | `COPY` | `requirements.txt requirements.lock ./` | Copies direct requirements and the resolved Python lock before source to leverage Docker layer caching. |
 | `RUN` | `pip install --disable-pip-version-check --require-hashes -r requirements.lock` with a BuildKit pip-cache mount | Installs pinned runtime packages with artifact hashes while reusing downloaded wheels across rebuilds. The cache mount is not stored in the image. |
-| `COPY` | `. .` | Copies project runtime source while `.dockerignore` excludes local data/backups/models, Markdown documentation, dependencies, and the legacy generated `src/ml_model.pkl` artifact. |
+| `COPY` | `. .` | Copies project runtime source while `.dockerignore` excludes `data/`, `data-dev/`, local databases/backups/models, Markdown documentation, dependencies, and the legacy generated `src/ml_model.pkl` artifact. |
 | `COPY --from=basemap` | `/app/public/maps /app/web/public/maps` | Packages the precompiled county geometry with API/worker source so server-side border filtering uses the same versioned boundaries without a cold-start web request. |
 | `COPY` / `RUN` | `docker-entrypoint.sh` | Adds the runtime entrypoint, which repairs `/app/data` ownership and drops privileges to `appuser` through `gosu`. |
 

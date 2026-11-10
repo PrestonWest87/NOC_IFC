@@ -11,5 +11,6 @@ src/ml_model.pkl
 *.md
 .DS_Store
 data/
+data-dev/
 Documentation
 docs

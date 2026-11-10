@@ -9,7 +9,7 @@
 | RAM | Minimum 2 GB available (4 GB+ recommended for production) |
 | Disk | Minimum 10 GB free (20 GB+ recommended for data retention) |
 | LLM Endpoint | Optional OpenAI-compatible or local Ollama endpoint; required only for AI-generated features |
-| Network | Ports 8100, 8101, 8501 (production) or 5173 (dev) must be available |
+| Network | Dev branch host ports 8099, 8102, 8502, and optionally 5174 must be available |
 
 Verify prerequisites:
 
@@ -37,10 +37,10 @@ docker compose up --build -d
 docker compose ps
 
 # Test API health
-curl http://localhost:8101/health
+curl http://localhost:8102/health
 ```
 
-Once running, access the UI at `http://localhost:8501`. Log in as `admin` using the value configured in `DEFAULT_ADMIN_PASSWORD`.
+On this dev branch, access the UI at `http://localhost:8502`. The Compose project uses its own `noc-ifc-dev` name and `./data-dev` storage. Log in as `admin` using the value configured in `DEFAULT_ADMIN_PASSWORD`.
 
 ---
 
@@ -53,10 +53,10 @@ Once running, access the UI at `http://localhost:8501`. Log in as `admin` using 
 | Dockerfile | Project root (`./Dockerfile`) |
 | Base image | `python:3.11-slim` |
 | Command | `uvicorn src.api.main:app --host 0.0.0.0 --port 8101` |
-| Port | `8101` |
-| Volumes | `./data:/app/data` |
+| Port | host `8102` → container `8101` |
+| Volumes | `./data-dev:/app/data` |
 | Environment | `.env` file |
-| WebSocket | `ws://localhost:8101/ws` |
+| WebSocket | `ws://localhost:8102/ws` |
 
 ### worker — Background Scheduler
 
@@ -66,11 +66,11 @@ Once running, access the UI at `http://localhost:8501`. Log in as `admin` using 
 | Base image | `python:3.11-slim` |
 | Command | `python -u src/scheduler.py` |
 | Port | None (internal only) |
-| Volumes | `./data:/app/data` |
+| Volumes | `./data-dev:/app/data` |
 | Memory limit | 1.5 GB |
 | Environment | `.env` file |
 
-Runs all 21 registry-managed background jobs. The complete schedules, startup-run policy, and non-disableable jobs are maintained in [Scheduler and Background Jobs](SCHEDULER.md).
+Runs all 22 registry-managed background jobs. The complete schedules, startup-run policy, and non-disableable jobs are maintained in [Scheduler and Background Jobs](SCHEDULER.md).
 
 ### webhook — SolarWinds Gateway
 
@@ -79,19 +79,19 @@ Runs all 21 registry-managed background jobs. The complete schedules, startup-ru
 | Dockerfile | Project root (`./Dockerfile`) |
 | Base image | `python:3.11-slim` |
 | Command | `python -u src/webhook_listener.py` |
-| Port | `8100` |
-| Volumes | `./data:/app/data` |
+| Port | host `8099` → container `8100` |
+| Volumes | `./data-dev:/app/data` |
 | Environment | `.env` file |
 
-Receives SolarWinds alerts at `POST http://localhost:8100/webhook/solarwinds`.
+Receives SolarWinds alerts at `POST http://localhost:8099/webhook/solarwinds`.
 
 ### web — Production Frontend (nginx)
 
 | Property | Value |
 |----------|-------|
 | Dockerfile | `web/Dockerfile` (multi-stage: `node:22-alpine` build + `nginx:alpine` serve) |
-| Port | `8501` → internal `5173` |
-| Env | Compose declares `VITE_API_URL=http://localhost:8101`; the static bundle and Nginx do not consume this runtime variable |
+| Port | host `8502` → internal `5173` |
+| Env | Compose declares `VITE_API_URL=http://noc-ifc-dev-api:8102`; the static bundle does not consume it, and Nginx uses this host-gateway alias |
 | Depends on | `api` healthy |
 | Static build | No HMR; rebuild required for frontend changes |
 
@@ -101,10 +101,10 @@ Receives SolarWinds alerts at `POST http://localhost:8100/webhook/solarwinds`.
 |----------|-------|
 | Image | `node:22-alpine` |
 | Command | `sh ./dev-entrypoint.sh` |
-| Port | `5173` |
-| Env | `VITE_API_URL=http://api:8101` for the running Vite development proxy |
+| Port | host `5174` → container `5173` |
+| Env | `VITE_API_URL=http://noc-ifc-dev-api:8102` for the running Vite development proxy |
 | Volumes | `./web:/app` and a persistent `node_modules` volume (hot reload via Vite HMR) |
-| Profile | `dev` — adds the Vite service; production `web` remains running. Use host port 5173 for HMR. |
+| Profile | `dev` — adds the Vite service; production `web` remains running. Use host port 5174 for HMR. |
 
 ---
 
@@ -145,7 +145,7 @@ cp .env.example .env
 | `ALLOW_PRIVATE_LLM_ENDPOINTS` | No | `false` | Permit private targets for generic OpenAI-compatible connection tests; selected Ollama/vLLM providers can use validated local endpoints |
 | `CORS_ORIGINS` | No | localhost origins | Comma-separated allowed browser origins |
 | `ALLOW_UNSIGNED_WEBHOOKS` | No | `false` | Controlled webhook migration exception |
-| `PUBLIC_APP_URL` | No | `http://localhost:8501` | Registration link base URL |
+| `PUBLIC_APP_URL` | No | `http://localhost:8502` | Registration link base URL |
 | `NWS_API_USER_AGENT` | No | `NOC-IFC/2.0 (https://test.weasts.net)` | Identifying User-Agent for centralized NWS API requests; set the deployed public URL, and `DEFAULT_ADMIN_EMAIL` is appended as contact when configured |
 | `REGISTRATION_INVITE_TTL_HOURS` | No | `72` | Registration invite lifetime |
 | `BACKUP_ENCRYPTION_ACTIVE_KEY_ID` | For backups | `primary` | Key ID used for newly created encrypted full backups |
@@ -155,7 +155,7 @@ cp .env.example .env
 
 The notification-destination and Elastic variables above remain environment fallbacks. Their editable database overrides are available in **Settings > Application Settings > Notification destinations and Elastic integration** and are shared dynamically by the API and worker. Blank optional destinations disable them; reset removes the override and uses the environment value. Elastic API keys are never returned by the settings API. Local AI providers are selected in **Settings > AI & SMTP**; use endpoints reachable from the API container (for example, a Docker service name or the host gateway).
 
-Create a random backup key with `python -c 'import secrets; print(secrets.token_hex(32))'`, then set `BACKUP_ENCRYPTION_KEYS` to a JSON object such as `{"primary":"<64-hex-character-key>"}`. Keep this secret outside the backup directory and deployment host; losing it makes the encrypted backups unreadable. Retain old key IDs in the JSON map through the lifetime of backups encrypted with them. Full encrypted packages are stored at `./data/backups`, on the shared persistent volume; copy/download them to off-host storage for disaster recovery. `.env` and environment-only credentials are never packaged.
+Create a random backup key with `python -c 'import secrets; print(secrets.token_hex(32))'`, then set `BACKUP_ENCRYPTION_KEYS` to a JSON object such as `{"primary":"<64-hex-character-key>"}`. Keep this secret outside the backup directory and deployment host; losing it makes the encrypted backups unreadable. Retain old key IDs in the JSON map through the lifetime of backups encrypted with them. Full encrypted packages for this dev project are stored at `./data-dev/backups`, on its isolated persistent data mount; copy/download them to off-host storage for disaster recovery. `.env` and environment-only credentials are never packaged.
 
 **Example production `.env`:**
 
@@ -260,7 +260,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/noc.example.com/privkey.pem;
 
     location / {
-        proxy_pass http://127.0.0.1:8501;
+        proxy_pass http://127.0.0.1:8502;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -268,7 +268,7 @@ server {
     }
 
     location /ws {
-        proxy_pass http://127.0.0.1:8101;
+        proxy_pass http://127.0.0.1:8102;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -277,7 +277,7 @@ server {
     }
 
     location /api {
-        proxy_pass http://127.0.0.1:8101;
+        proxy_pass http://127.0.0.1:8102;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -344,20 +344,20 @@ services:
 └─────────────────────────────────────────────────────────────┘
 
 External Access:
-  localhost:8501  → web (production, nginx static)
-  localhost:5173  → web-dev (development, Vite HMR)
-  localhost:8101  → api (FastAPI + WebSocket)
-  localhost:8100  → webhook (SolarWinds gateway)
-  ws://localhost:8101/ws → WebSocket real-time updates
+  localhost:8502 → web (production, nginx static)
+  localhost:5174 → web-dev (development, Vite HMR)
+  localhost:8102 → api (FastAPI + WebSocket)
+  localhost:8099 → webhook (SolarWinds gateway)
+  ws://localhost:8102/ws → WebSocket real-time updates
 ```
 
 **SolarWinds Integration:**
 
 ```
-SolarWinds → POST http://<host>:8100/webhook/solarwinds → webhook service → database
+SolarWinds → POST http://<host>:8099/webhook/solarwinds → webhook service → database
 ```
 
-All containers communicate on the same Docker bridge network. Internal service-to-service communication uses container names (e.g., `http://api:8101`).
+All dev containers attach to Docker's built-in bridge network without allocating another subnet. The web containers reach the API through the `noc-ifc-dev-api` host-gateway alias; API, worker, and webhook share SQLite through `./data-dev`.
 
 ---
 
@@ -369,7 +369,7 @@ All containers communicate on the same Docker bridge network. Internal service-t
 | Authorization | Route dependencies enforce page, tab, action, administrator, and site-type grants. The canonical permission catalog is `src/core/permissions.py`. | Keep role grants least-privilege and verify any custom roles after upgrades. |
 | Administrative routes | Legacy `/admin/*` routes require the administrator role; newer user and application settings routes use their specific permissions. | Do not expose backend ports directly to untrusted networks. |
 | CORS | `CORS_ORIGINS` is an explicit origin list; the default allows the local production and development frontends. | Set only the deployed frontend origin(s). |
-| WebSocket | Requires a session token and AIOps page/Active Board access; sessions and permissions are revalidated, and site data is filtered. | Prefer TLS (`wss://`) through a reverse proxy and restrict direct access to port 8101. |
+| WebSocket | Requires a session token and AIOps page/Active Board access; sessions and permissions are revalidated, and site data is filtered. | Prefer TLS (`wss://`) through a reverse proxy and restrict direct access to host port 8102. |
 | SolarWinds webhook | HMAC and timestamp/replay checks are supported. Unsigned requests are rejected unless `ALLOW_UNSIGNED_WEBHOOKS=true`. | Configure a strong `WEBHOOK_HMAC_SECRET`; keep the unsigned exception disabled. |
 | SMTP/LLM/Elastic credentials | SMTP passwords and LLM/Elastic API keys may be stored in `SystemConfig`; the live SQLite columns are not field-level encrypted. Full backup packages encrypt the database snapshot; `.env` and environment secrets stay external. | Protect the SQLite volume and backups. Define secret rotation and external secret-management requirements for the customer environment. |
 | Request limits | The webhook and WebSocket have configured size limits. There is no general API rate limiter; the database-upload endpoint currently reads its upload into memory. | Add route-level rate limits and bounded upload handling before exposing the service to broad or untrusted networks. |
@@ -393,7 +393,7 @@ Set `DEFAULT_ADMIN_PASSWORD` before first boot; there is no guaranteed hard-code
 | Frontend blank screen | Build cache issue | `docker compose up --build -d --force-recreate web` |
 | Webhook returns 500 | Invalid SolarWinds payload | Check payload format matches expected schema |
 | Worker memory spike | Large feed batch | Increase memory limit or reduce `chunk_size` |
-| Port conflict on 8101 | Another process using port | `lsof -i :8101` to identify and stop conflicting process |
+| Port conflict on 8102 | Another process using the dev API port | `lsof -i :8102` to identify the process; API is one port above main's 8101 |
 | Required table/column missing | Migration failed or legacy schema is inconsistent | Back up the database, inspect startup migration logs, resolve the reported issue, and restart the backend |
 
 **Log locations:**
@@ -425,7 +425,7 @@ docker compose up --build -d
 
 # 4. Verify deployment
 docker compose ps
-curl http://localhost:8101/health
+curl http://localhost:8102/health
 docker compose logs --tail=30 worker
 ```
 

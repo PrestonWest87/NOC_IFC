@@ -12,15 +12,15 @@ This guide provides recurring maintenance procedures for operators and maintaine
 - Never delete production data as a first troubleshooting action.
 - Record maintenance actions, operator, timestamp, reason, and result in the shift log or change system.
 
-## Current Production Layout
+## Dev Branch Compose Layout
 
 | Component | Role | Verification |
 |---|---|---|
-| `api` | REST API, authentication, readiness, WebSocket | `curl -fsS http://localhost:8101/ready` |
+| `api` | REST API, authentication, readiness, WebSocket | `curl -fsS http://localhost:8102/ready` |
 | `worker` | Ingestion, scoring, briefs, maintenance, escalation | `docker compose ps`, worker logs |
-| `webhook` | SolarWinds gateway | `curl -fsS http://localhost:8100/health` |
-| `web` | Production React workspace | `curl -I http://localhost:8501` |
-| Database | SQLite in `./data` | API `/ready` and database backup |
+| `webhook` | SolarWinds gateway | `curl -fsS http://localhost:8099/health` |
+| `web` | Production React workspace | `curl -I http://localhost:8502` |
+| Database | Isolated dev SQLite in `./data-dev` | API `/ready` and database backup |
 
 ## Before Maintenance
 
@@ -31,9 +31,9 @@ $ git status -sb
 $ git log -1 --oneline --decorate
 $ docker compose ps
 $ docker compose logs --tail=100 api worker webhook web
-$ curl -fsS http://localhost:8101/health
-$ curl -fsS http://localhost:8101/ready
-$ curl -fsS http://localhost:8100/health
+$ curl -fsS http://localhost:8102/health
+$ curl -fsS http://localhost:8102/ready
+$ curl -fsS http://localhost:8099/health
 ```
 
 Confirm that the worktree is clean, the intended release is deployed, no active incident is being obscured, and required alert recipients are available.
@@ -116,9 +116,9 @@ Configure `BACKUP_ENCRYPTION_ACTIVE_KEY_ID` and `BACKUP_ENCRYPTION_KEYS` in the 
 
 After adding or rotating keys in `.env`, recreate the API and worker containers so the admin endpoints and scheduled job load the updated key map.
 
-Administrators can create/download manual snapshots under Settings > Backup & Restore. The worker also creates a scheduled snapshot every Sunday at 00:00 `America/Chicago`; that registry-managed job cannot be disabled. The latest three scheduled packages are retained; manual and pre-restore safety packages are retained until explicitly deleted. Files are stored under `./data/backups` on the shared persistent volume. Download or copy verified packages to protected off-host storage for host-loss recovery.
+Administrators can create/download manual snapshots under Settings > Backup & Restore. The worker also creates a scheduled snapshot every Sunday at 00:00 `America/Chicago`; that registry-managed job cannot be disabled. The latest three scheduled packages are retained; manual and pre-restore safety packages are retained until explicitly deleted. This dev project's files are stored under `./data-dev/backups`. Download or copy verified packages to protected off-host storage for host-loss recovery.
 
-Packages use versioned manifests, per-file SHA-256 checksums, and chunked authenticated AES-256-GCM encryption. The admin staging endpoint verifies the key/tag, checksums, archive layout, and SQLite integrity before saving an uploaded encrypted package in `./data/backups/staged`. `BACKUP_MAX_BYTES` bounds backup and upload size (default 10 GiB; maximum 100 GiB). Do not put plaintext database exports or encryption keys in the repository or expose the backup directory through the web container.
+Packages use versioned manifests, per-file SHA-256 checksums, and chunked authenticated AES-256-GCM encryption. The admin staging endpoint verifies the key/tag, checksums, archive layout, and SQLite integrity before saving an uploaded encrypted package in `./data-dev/backups/staged`. `BACKUP_MAX_BYTES` bounds backup and upload size (default 10 GiB; maximum 100 GiB). Do not put plaintext database exports or encryption keys in the repository or expose the backup directory through the web container.
 
 The older Settings JSON tools remain partial data migration utilities: the legacy JSON backup covers four configuration collections, while `export-all` covers supported ORM models and omits session, recovery, failed-login, audit, and scheduler state. `/admin/upload-db` imports table records into the current database; it does not replace the SQLite file. Use encrypted full snapshots for disaster recovery.
 
@@ -148,7 +148,7 @@ The backup directory labels pre-restore safety snapshots separately from user-cr
 
 Allow sufficient free space for the uploaded package, a temporary database snapshot/archive, the current database, and the encrypted pre-restore safety backup. Large databases can require several times their file size during restore.
 
-After a successful restore, verify `docker compose ps`, `curl http://localhost:8101/ready`, administrator sign-in with a newly issued session, dashboards, feeds, RCA data, email configuration, and WebSocket updates. Record the package timestamp and restore result. Ensure the key map contains the key ID used by the package and preserve the `.env`/environment configuration separately.
+After a successful restore, verify `docker compose ps`, `curl http://localhost:8102/ready`, administrator sign-in with a newly issued session, dashboards, feeds, RCA data, email configuration, and WebSocket updates. Record the package timestamp and restore result. Ensure the key map contains the key ID used by the package and preserve the `.env`/environment configuration separately.
 
 For a failed release, use the rollback tag or a previously verified image/commit. Do not move a published release tag; create a corrective release instead.
 
@@ -240,10 +240,10 @@ $ docker compose up --build -d
 
 ```bash
 $ docker compose ps
-$ curl -fsS http://localhost:8101/health
-$ curl -fsS http://localhost:8101/ready
-$ curl -fsS http://localhost:8100/health
-$ curl -fsSI http://localhost:8501
+$ curl -fsS http://localhost:8102/health
+$ curl -fsS http://localhost:8102/ready
+$ curl -fsS http://localhost:8099/health
+$ curl -fsSI http://localhost:8502
 $ docker compose logs --tail=100 api worker webhook web
 ```
 

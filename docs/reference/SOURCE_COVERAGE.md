@@ -18,6 +18,7 @@ This index records the current source-to-reference mapping after the reference c
 | `src/core/db.py` | `core/db.md` |
 | `src/core/migration_runner.py`, `alembic.ini`, `migrations/env.py`, `migrations/schema_v1.py`, `migrations/versions/*.py` | `core/migration_runner.md`, `../MIGRATION_COMPATIBILITY.md`, `../DATABASE_SCHEMA.md` |
 | `src/core/bootstrap.py` | `core/bootstrap.md` |
+| `src/core/operational_email.py` | `core/operational_email.md`, `../SCHEDULER.md`, `../DATABASE_SCHEMA.md`, `../API.md` |
 | `src/core/permissions.py` | `core/permissions.md`, `../API.md`, `../ARCHITECTURE.md` |
 | `src/core/scheduler_registry.py` | `core/scheduler_registry.md`, `../SCHEDULER.md` |
 | `src/core/site_contact_validation.py` | `core/site_contact_validation.md`, `services/services.md`, `../API.md`, `../ESCALATION.md` |
@@ -51,6 +52,7 @@ This index records the current source-to-reference mapping after the reference c
 | `web/src/App.tsx` | `web/App.md` |
 | `web/src/main.tsx` | `web/main.md` |
 | `web/src/pages/*.tsx` | `web/pages/*.md` (one page per route component) |
+| `web/src/pages/OperationalEmailPage.tsx` | `web/pages/OperationalEmailPage.md`, `../USER_GUIDE.md`, `../FRONTEND.md` |
 | `web/src/components/*.tsx` | `web/components/*.md` (one page per component) |
 | `web/src/hooks/*.ts` | `web/hooks/*.md` |
 | `web/src/store/*.ts` | `web/store/*.md` |

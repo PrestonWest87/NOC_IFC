@@ -16,6 +16,7 @@ PAGE_CATALOG = [
     {"key": "AIOps RCA", "route": "/aiops-rca", "description": "Operational alerts, correlation, and RCA."},
     {"key": "Shift Logbook", "route": "/shift-logbook", "description": "Shift notes and handoff history."},
     {"key": "Reporting & Briefings", "route": "/reporting", "description": "Reports, briefings, and shared reports."},
+    {"key": "Operational Email", "route": "/operational-email", "description": "Compose, send, schedule, and review operational email."},
     {"key": "Settings & Admin", "route": "/settings", "description": "Profile, application settings, and user administration."},
     {"key": "Keyword Analysis", "route": "/keyword-analysis", "description": "Scoring and keyword analytics."},
 ]

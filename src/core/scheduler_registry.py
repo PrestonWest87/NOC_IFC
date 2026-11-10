@@ -110,6 +110,13 @@ JOB_REGISTRY = {
         "function": "run_daily_report", "schedule_type": "daily", "run_at": "06:00",
         "timezone": "America/Chicago", "enabled": True, "can_disable": True, "startup_run": False,
     },
+    "operational_email_queue": {
+        "label": "Operational email queue",
+        "description": "Deliver persisted one-time and recurring Operational Email schedules.",
+        "function": "job_operational_email_queue", "schedule_type": "interval", "every_value": 1,
+        "unit": "minutes", "min_value": 1, "max_value": 1, "enabled": True,
+        "can_disable": False, "startup_run": False,
+    },
     "database_backup": {
         "label": "Encrypted database backup",
         "description": "Create a full encrypted SQLite backup and retain the latest three scheduled copies.",

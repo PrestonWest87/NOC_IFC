@@ -16,10 +16,10 @@ This document describes the checked-in runtime. The authoritative implementation
 Browser
   | HTTP / WebSocket
   v
-web:8501 or web-dev:5173
+host web:8502 or web-dev:5174
   | /api/v1 and /ws
   v
-api:8101 --------------------+
+host api:8102 -> api:8101 --+
   | REST, auth, WebSocket     |
   |                           v
   +---------------------- shared database
@@ -29,28 +29,28 @@ worker ----------------------+
   v
 external feeds and SMTP
 
-SolarWinds -> webhook:8100 -> shared database
+SolarWinds -> host webhook:8099 -> webhook:8100 -> shared database
 ```
 
 ## Deployable Services
 
 | Service | Entrypoint | Port | Responsibility |
 |---|---|---:|---|
-| `api` | `uvicorn src.api.main:app --host 0.0.0.0 --port 8101` | 8101 | REST API, auth middleware, health/readiness, WebSocket endpoint |
+| `api` | `uvicorn src.api.main:app --host 0.0.0.0 --port 8101` | host 8102 -> container 8101 | REST API, auth middleware, health/readiness, WebSocket endpoint |
 | `worker` | `python -u src/scheduler.py` | none | Scheduled ingestion, enrichment, scoring, reports, maintenance, escalation |
-| `webhook` | `python -u src/webhook_listener.py` | 8100 | SolarWinds webhook validation, normalization, and persistence |
-| `web` | `web/Dockerfile` | host 8501 -> container 5173 | Production React build served by nginx |
-| `web-dev` | Vite under the `dev` profile | 5173 | Development frontend with source mounts and HMR |
+| `webhook` | `python -u src/webhook_listener.py` | host 8099 -> container 8100 | SolarWinds webhook validation, normalization, and persistence |
+| `web` | `web/Dockerfile` | host 8502 -> container 5173 | Production React build served by nginx |
+| `web-dev` | Vite under the `dev` profile | host 5174 -> container 5173 | Development frontend with source mounts and HMR |
 
-The API, worker, and webhook share `./data` as `/app/data`. SQLite is the only supported application database.
+The API, worker, and webhook share `./data-dev` as `/app/data`. The dev Compose project is named `noc-ifc-dev`, uses separate host ports/storage, and attaches to Docker's built-in bridge without allocating another subnet. The web containers reach the dev API through a unique host-gateway alias. SQLite is the only supported application database.
 
 ## Backend Boundaries
 
 ### API application
 
-`src/api/main.py` creates the FastAPI application, installs `authentication_middleware`, configures CORS from `CORS_ORIGINS`, includes 17 routers, initializes the database during lifespan startup, and starts the 10-second WebSocket broadcaster. `/health` is a liveness response; `/ready` verifies a database query and returns `503` when the database is unavailable. The current OpenAPI schema exposes 179 paths and 193 HTTP operations; `docs/API.md` inventories the operations.
+`src/api/main.py` creates the FastAPI application, installs `authentication_middleware`, configures CORS from `CORS_ORIGINS`, includes 18 routers, initializes the database during lifespan startup, and starts the 10-second WebSocket broadcaster. `/health` is a liveness response; `/ready` verifies a database query and returns `503` when the database is unavailable. `docs/API.md` inventories the generated OpenAPI operations.
 
-The 17 router modules are `auth`, `dashboard`, `threat`, `regional`, `hunting`, `rca`, `aiops`, `logbook`, `reporting`, `settings`, `settings_admin` (mounted as `/admin`), `llm`, `email`, `keyword_analysis`, `permissions`, `user_admin`, and `application_settings`.
+The 18 router modules are `auth`, `dashboard`, `threat`, `regional`, `hunting`, `rca`, `aiops`, `logbook`, `reporting`, `settings`, `settings_admin` (mounted as `/admin`), `llm`, `email`, `operational_email`, `keyword_analysis`, `permissions`, `user_admin`, and `application_settings`.
 
 ### Data access and compatibility modules
 

@@ -21,7 +21,7 @@ external feeds / webhook / API actions
       FastAPI, React, WebSocket, SMTP
 ```
 
-API, worker, and webhook use one shared SQLite file on the `./data` volume. Migrations execute before normal service work. Full encrypted backups snapshot the SQLite file and persistent model artifact; environment secrets remain outside the package.
+API, worker, and webhook use one shared SQLite file on the `./data-dev` volume in this dev Compose project. Migrations execute before normal service work. Full encrypted backups snapshot the SQLite file and persistent model artifact; environment secrets remain outside the package.
 
 ## 1. RSS ingestion, scoring, and article enrichment
 

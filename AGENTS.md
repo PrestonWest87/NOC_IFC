@@ -4,9 +4,20 @@
 
 Enterprise intelligence HUD for Network Operations Centers. Ingests RSS feeds, weather/telemetry data, crime incidents, and SolarWinds alerts. Processes through an AI-powered correlation engine with CIS scoring, generates risk briefs, and provides real-time visualization via a React SPA with WebSocket updates.
 
-The application rewrite is on `architecture/monolith-to-decoupled` — a decoupled FastAPI + React SPA. For the current implementation, the user has directed that all changes be made on `main`, then synchronized to `architecture/monolith-to-decoupled` after verification.
+The application rewrite is on `architecture/monolith-to-decoupled` — a decoupled FastAPI + React SPA. Earlier completed work was user-directed on `main`; for the current Operational Email implementation, the user has directed that all changes remain on the published `dev` branch based on `origin/main`.
 
 Automated tests under `tests/` are local-only and intentionally excluded from version control by user request. Do not stage or re-add test files unless asked.
+
+## Active Implementation Plan — Operational Email
+
+**Implementation branch:** `dev`, based on the clean `origin/main` commit and published as `origin/dev`. Keep this feature on `dev` only; do not merge it into `main` or `architecture/monolith-to-decoupled` without a later user request. Preserve the unrelated untracked integration-plan documents in the worktree. The dev Compose project is `noc-ifc-dev`, uses `./data-dev` and Docker's built-in `bridge` network, and publishes host ports 8102 (API), 8099 (webhook), 8502 (web), and 5174 (Vite HMR).
+
+- [x] Confirm the `dev` branch starts at `origin/main`, preserve untracked docs, and publish `origin/dev`.
+- [x] Add persistent editable template defaults, message/delivery history, bounded attachment storage, BCC envelope handling, and one-time/daily/weekly scheduled delivery.
+- [x] Add the top-level Operational Email page and blanket page authorization; keep shared template-default editing administrator-only and leave non-admin role grants explicit.
+- [x] Verify dev port mappings, host-gateway proxying on the built-in bridge, and isolated `data-dev` storage alongside the existing stack.
+- [x] Run Python/migration/API and frontend/Compose checks, update reference docs, and review the diff.
+- [ ] Commit intended source only and push the completed `dev` changes.
 
 ## Completed Implementation Plan — User, Permissions, and Application Settings
 
@@ -177,12 +188,12 @@ See [docs/README.md](docs/README.md) for the complete documentation catalog. The
 | [USER_GUIDE.md](docs/USER_GUIDE.md) | Current workspace features and operator workflows |
 | [API.md](docs/API.md) | Complete REST operation inventory and endpoint behavior; path/method coverage is checked against the FastAPI OpenAPI schema |
 | [PERMISSIONS.md](docs/PERMISSIONS.md) | Exact page, tab, action, site-type, built-in-role, and enforcement contracts |
-| [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | All 36 tables with columns, types, constraints, indexes, relationships, migration strategy, retention policies |
+| [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | All 40 tables with columns, types, constraints, indexes, relationships, migration strategy, retention policies |
 | [MIGRATION_COMPATIBILITY.md](docs/MIGRATION_COMPATIBILITY.md) | Supported older SQLite upgrade shapes, additive migration behavior, failure handling, and safety-test coverage |
 | [DATA_FLOWS.md](docs/DATA_FLOWS.md) | Ingestion, scoring, internal risk, reporting, webhook/AIOps, hazard/telemetry, provider-worker, and retention flows |
 | [TRIGGER_ACTION_FLOWS.md](docs/TRIGGER_ACTION_FLOWS.md) | Every trigger (webhook, scheduler, user action, WebSocket) mapped to its complete action flow |
 | [SERVICES.md](docs/SERVICES.md) | All 11 service modules with function signatures, class hierarchies, call chains, dependencies |
-| [SCHEDULER.md](docs/SCHEDULER.md) | All 21 registry-managed background jobs with schedules, execution order, thread safety, retention policies |
+| [SCHEDULER.md](docs/SCHEDULER.md) | All 22 registry-managed background jobs with schedules, execution order, thread safety, retention policies |
 | [ESCALATION.md](docs/ESCALATION.md) | Tiered alert escalation: SLA dictionaries, business hours, dispatch channels, cascade detection, flapping logic |
 | [WEBHOOK.md](docs/WEBHOOK.md) | SolarWinds webhook gateway: payload normalization, device classification, resolution detection |
 | [FRONTEND.md](docs/FRONTEND.md) | React SPA: component tree, routing, hooks, state management, theme system, WebSocket client |
@@ -204,10 +215,10 @@ See [docs/README.md](docs/README.md) for the complete documentation catalog. The
 
 | Service | Tech | Port | Purpose |
 |---------|------|------|---------|
-| `api` | FastAPI | 8101 | REST + WebSocket |
+| `api` | FastAPI | 8102 -> 8101 | REST + WebSocket |
 | `worker` | Python scheduler | — | Background jobs (RSS, scoring, escalation) |
-| `webhook` | FastAPI | 8100 | SolarWinds webhook gateway |
-| `web` | nginx / Vite | 5173/8501 | React SPA |
+| `webhook` | FastAPI | 8099 -> 8100 | SolarWinds webhook gateway |
+| `web` | nginx / Vite | 8502 / 5174 | React SPA / Vite HMR |
 
 ### Developer Commands
 
@@ -242,7 +253,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 
 - Set `DEFAULT_ADMIN_PASSWORD` before first startup; no hard-coded production password is guaranteed by the current seed logic.
 - `DEFAULT_ADMIN_EMAIL` is optional trusted bootstrap configuration. API, worker, and webhook startup can initialize an existing email-less bootstrap admin; administrator-created display accounts can remain email-less.
-- Webhook target: `POST http://host:8100/webhook/solarwinds`
+- Webhook target: `POST http://host:8099/webhook/solarwinds`
 
 ### Risk Levels
 
@@ -276,6 +287,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `/aiops-rca` | AiopsRcaPage | `web/src/pages/AiopsRcaPage.tsx` |
 | `/shift-logbook` | ShiftLogbookPage | `web/src/pages/ShiftLogbookPage.tsx` |
 | `/reporting` | ReportingPage | `web/src/pages/ReportingPage.tsx` |
+| `/operational-email` | OperationalEmailPage | `web/src/pages/OperationalEmailPage.tsx` |
 | `/settings` | SettingsPage | `web/src/pages/SettingsPage.tsx` |
 | `/#/keyword-analysis` | KeywordAnalysisPage | `web/src/pages/KeywordAnalysisPage.tsx` |
 
@@ -284,7 +296,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | File | Purpose |
 |------|---------|
 | `src/api/main.py` | FastAPI app entry, router mounting, WebSocket manager |
-| `src/api/routes/*.py` | 17 route modules, including permissions, user administration, and application settings |
+| `src/api/routes/*.py` | 18 route modules, including permissions, user administration, application settings, and Operational Email |
 | `src/services.py` | Central data-access and domain-service module |
 | `src/services/aiops_engine.py` | EnterpriseAIOpsEngine — clustering, patient zero, RCA |
 | `src/services/logic.py` | HybridScorer — keyword + ML scoring |
@@ -295,6 +307,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `migrations/schema_v1.py` | Frozen first-revision schema snapshot; keep immutable |
 | `migrations/versions/` | Versioned baseline adoption and future schema/data revisions |
 | `src/core/bootstrap.py` | Conditional role/admin/feed/keyword/system-config seed data |
+| `src/core/operational_email.py` | Operational email template defaults, validation, send history, attachments, and persisted schedule queue |
 | `src/core/config.py` | Pydantic settings + logging |
 | `src/core/runtime_settings.py` | Live database overrides and environment fallback for notification/Elastic configuration |
 | `src/core/llm_providers.py` | Supported LLM provider protocols and endpoint URL construction |
@@ -302,7 +315,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `src/core/backup_manager.py` | Authenticated encrypted full backups, retention, upload validation, and offline restore |
 | `src/core/restore_control.py` | Cross-process maintenance marker, API drain counters, and restore progress state |
 | `src/core/ui_restore.py` | UI restore orchestration, writer quiescence, and runtime refresh |
-| `src/models/schema.py` | 36 SQLAlchemy models |
+| `src/models/schema.py` | 40 SQLAlchemy models |
 | `src/core/permissions.py` | Canonical page, tab, and action permission catalog |
 | `src/core/site_contact_validation.py` | Shared server-side validation for optional site contact fields |
 | `src/core/arkansas_coverage.py` | Projected 50-mile Arkansas-border buffer, NWS geocode matching, and CAP active-time filtering |
@@ -311,6 +324,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `src/webhook_listener.py` | SolarWinds webhook gateway (port 8100) |
 | `src/utils/llm.py` | LLM interaction (OpenAI/Ollama), map-reduce brief pipeline |
 | `src/utils/mailer.py` | SMTP email sending |
+| `src/api/routes/operational_email.py` | Operational Email page API with blanket page authorization |
 | `src/utils/risk_alert.py` | Risk level change detection + alerting |
 | `web/src/components/UsersRolesTab.tsx` | User directory, invitation, display-account, and role management |
 | `web/src/components/SiteContactsDialog.tsx` | Administrator editor and client-side validation for site contacts |
@@ -318,6 +332,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `web/src/components/OperationalIntegrationSettings.tsx` | Notification destinations and Elastic settings editor |
 | `web/src/components/ConusMap.tsx` | Local contiguous-US MapLibre basemap shared by operational map views |
 | `web/src/pages/DashboardPage.tsx` | Dashboard with brief generation progress polling |
+| `web/src/pages/OperationalEmailPage.tsx` | Operational email templates, composition, attachments, schedule manager, and history |
 
 ## Scheduler Jobs
 
@@ -344,6 +359,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | Encrypted Database Backup | Sunday 00:00 America/Chicago | Full SQLite + model snapshot; retain latest three scheduled backups |
 | Daily Fusion Report | 06:00 America/Chicago | Generate and store the previous day's report |
 | Daily Email Brief | 07:00 America/Chicago | Email unified brief to recipients |
+| Operational Email Queue | 1 min | Persistent one-time/daily/weekly message delivery; cannot be disabled |
 
 ## Critical Context
 
@@ -351,7 +367,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 - **compile-map response format**: `[processed_geo, {}, diagnostics, toggled_affected_sites, master_affected_sites, analytics]` — the frontend consumes the six positions by index.
 - **Web container has source mount with hot reload** in dev mode: changes to `web/` files reflected instantly via Vite HMR.
 - **Brief generation_id persisted in sessionStorage**: survives SPA navigation; polling resumes on return.
-- **Current implementation branch:** `main`, as requested. Keep `architecture/monolith-to-decoupled` synchronized after verification; do not force-push.
+- **Current implementation branch:** `dev`, as requested for Operational Email. Keep this feature exclusively on `dev`; synchronize elsewhere only after a later user request.
 
 ## What's Been Done (Changelog)
 

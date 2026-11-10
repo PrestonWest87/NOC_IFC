@@ -1,9 +1,9 @@
 # NOC Intelligence Fusion Center — API Reference
 
-Base URL: `http://localhost:8101/api/v1`
-WebSocket: `ws://localhost:8101/ws`
+Base URL: `http://localhost:8102/api/v1`
+WebSocket: `ws://localhost:8102/ws`
 
-This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-06 (179 paths and 193 HTTP operations). The running application's OpenAPI schema remains the source of truth.
+This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-10 (188 paths and 202 HTTP operations). The running application's OpenAPI schema remains the source of truth.
 
 ## Authentication
 
@@ -15,7 +15,7 @@ The API installs `authentication_middleware` for `/api/v1/*`. Login, invitation 
 
 These unauthenticated checks are mounted outside `/api/v1`. `/health` reports process liveness. `/ready` checks database readiness and returns `503` if the database cannot be queried.
 
-The API mounts 17 routers covering REST operations, account administration, application settings, and the permission catalog. See `docs/CODE_REFERENCE.md` and `docs/reference/` for module details.
+The API mounts 18 routers covering REST operations, account administration, application settings, operational email, and the permission catalog. See `docs/CODE_REFERENCE.md` and `docs/reference/` for module details.
 
 ### POST /auth/login
 
@@ -521,7 +521,7 @@ Deletes a manual or pre-restore safety backup. Scheduled backups are managed by 
 Lists encrypted packages staged for an offline restore.
 
 ### POST /admin/backups/staged
-Multipart upload with form field `file`. Authenticates and validates the encrypted package, manifest/checksums, archive layout, and SQLite integrity before saving it under `./data/backups/staged`. It does not restore the active database.
+Multipart upload with form field `file`. Authenticates and validates the encrypted package, manifest/checksums, archive layout, and SQLite integrity before saving it under the shared `/app/data/backups/staged` path (`./data-dev/backups/staged` on this dev branch). It does not restore the active database.
 
 ### DELETE /admin/backups/staged/{stage_id}
 Deletes a staged encrypted restore package.
@@ -575,6 +575,52 @@ Body: `{llm_provider, llm_endpoint, llm_api_key?, llm_model_name}`. Tests the se
 ### POST /llm/executive-weather-brief
 Body: `{analytics, p1_at_risk}`. Generates weather brief.
 
+## Operational Email Endpoints (/operational-email)
+
+Every route requires the `Operational Email` page grant. That page grant covers template use, immediate sending, scheduling/cancellation, and delivery history. Updating shared template defaults additionally requires the built-in administrator role. All sends use the configured global SMTP sender; callers cannot supply a From address.
+
+### GET /operational-email/templates
+
+Returns the six templates, message fields, saved defaults, sender address, SMTP enabled state, and attachment limits. Templates are maintenance notification, technician dispatch request, fiber outage, after-hours ONPAGE, morning report, and maintenance complete.
+
+### PUT /operational-email/templates/{template_key}
+
+Administrator-only update of `default_subject`, `default_body`, `default_to`, `default_cc`, and (fiber outage only) `default_bcc`. Template text accepts only placeholders defined for that template. Page-authorized users can still edit each composed message without changing shared defaults.
+
+### POST /operational-email/send
+
+Body: `{template_key, to, cc?, bcc?, subject?, body?, fields?, attachments?, maintenance_notice_id?}`. Sends the message immediately and records a delivery snapshot/outcome. BCC is accepted only for the Fiber Outage template and is sent as an envelope recipient without a visible Bcc header. Attachments are accepted only for Morning Report, up to five files, 5 MiB per file, and 20 MiB combined. Maintenance Complete requires a successfully sent maintenance-notification record.
+
+### POST /operational-email/schedule
+
+Same message body as `/send`, plus `schedule`:
+
+- One-time: `{schedule_type: "once", scheduled_at: "<timezone-aware ISO 8601>"}`.
+- Daily: `{schedule_type: "daily", recurrence_time: "HH:MM", timezone: "America/Chicago"}`.
+- Weekly: `{schedule_type: "weekly", recurrence_time: "HH:MM", recurrence_weekday: 0..6, timezone: "America/Chicago"}`, where Monday is 0 and Sunday is 6.
+
+The server stores a message/attachment snapshot. The worker processes schedules every minute; recurrence uses Central wall-clock time and observes daylight-saving changes.
+
+### GET /operational-email/scheduled
+
+Lists pending, recurring, and currently processing email schedules.
+
+### DELETE /operational-email/scheduled/{email_id}
+
+Cancels a pending one-time or recurring send. An SMTP send already in progress returns `409`.
+
+### GET /operational-email/history?limit=100
+
+Returns recent SMTP attempts, outcomes, recipients, subject, sender, and attachment names. `limit` is bounded to 1–250.
+
+### GET /operational-email/history/{delivery_id}
+
+Returns the full stored message and recipient snapshot for one delivery attempt.
+
+### GET /operational-email/maintenance-notices?limit=100
+
+Lists successfully sent maintenance notifications available to a Maintenance Complete composition.
+
 ## Email Endpoints (/email)
 
 ### POST /email/send
@@ -591,7 +637,7 @@ Body: `{email}`. Sends the last complete internal asset risk brief via email (pu
 
 ## WebSocket
 
-Connect to `ws://localhost:8101/ws?token=<session-token>` (or `wss` through HTTPS). The user must have the `AIOps RCA` page and `Tab: AIOps RCA -> Active Board` grants. Dashboard pushes are filtered by allowed site types, and the connection is periodically revalidated so revoked sessions or grants are closed.
+Connect to `ws://localhost:8102/ws?token=<session-token>` (or `wss` through HTTPS). The user must have the `AIOps RCA` page and `Tab: AIOps RCA -> Active Board` grants. Dashboard pushes are filtered by allowed site types, and the connection is periodically revalidated so revoked sessions or grants are closed.
 
 Receives JSON messages with type `dashboard_update` every 10 seconds containing alerts, timeline events, grid outages, per-site unresolved-alert counts, and alert count.
 

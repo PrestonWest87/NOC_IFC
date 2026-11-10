@@ -26,12 +26,15 @@ Routes are hash-based (for example `/#/regional-grid`). The backend page permiss
 | `#/aiops-rca` | AIOps RCA | `AIOps RCA` |
 | `#/shift-logbook` | Shift Logbook | `Shift Logbook` |
 | `#/reporting` | Reporting & Briefings | `Reporting & Briefings` |
+| `#/operational-email` | Operational Email | `Operational Email` |
 | `#/settings` | Settings & Admin | `Settings & Admin` |
 | `#/keyword-analysis` | Keyword Analysis | `Keyword Analysis` |
 
 After successful login, the browser navigates to the first page in `user.allowed_pages` that maps to a frontend route. `ProtectedRoute` checks the exact page grant. A logged-in user lacking a page grant sees an access-denied message inside the normal layout; the guard does not silently log the user out or redirect to another page.
 
 Tabs are filtered by `web/src/utils/permissions.ts`. Some Settings views are self-service: Profile and Theme appear to any authenticated user who can enter Settings. Other Settings tabs require their exact `Tab: Settings -> ...` grant. Individual controls may need a distinct action grant. Server dependencies remain authoritative for all reads/writes. See [`PERMISSIONS.md`](PERMISSIONS.md) and [`API.md`](API.md).
+
+Operational Email is a standalone page protected by its page grant. Its compose panel supports six structured templates, message-level edits, one-time/daily/weekly schedules, fiber BCC, morning-report attachments, and sent-notice selection for maintenance completion. Shared template defaults are administrator-managed; each page-authorized user can customize their own outgoing message.
 
 ## Authentication and REST client
 
@@ -42,7 +45,7 @@ Tabs are filtered by `web/src/utils/permissions.ts`. Some Settings views are sel
 - On 401, clears credentials, emits `noc:unauthorized`, redirects to `#/login`, and rejects the original request.
 - On 403, emits `noc:permission-denied`, preserves the session, and exposes the structured permission message to the UI.
 
-Production nginx proxies `/api/` and `/ws` to the API. The Vite dev server proxies the same paths to `VITE_API_URL` (default `http://localhost:8101`; Compose sets `http://api:8101` inside `web-dev`).
+Production nginx proxies `/api/` and `/ws` to the API. The Vite dev server proxies the same paths to `VITE_API_URL` (default `http://localhost:8102` on this branch; Compose uses the `noc-ifc-dev-api` host-gateway alias).
 
 ## Page guide
 
@@ -128,4 +131,4 @@ npm run dev
 npm run build
 ```
 
-The Vite development server listens on port 5173 and uses polling for Docker file mounts. Production `web/Dockerfile` compiles to `dist/` and serves the static bundle through nginx on container port 5173 (host port 8501). Production frontend changes require rebuilding/recreating `web`.
+The Vite development server listens on container port 5173 and uses polling for Docker file mounts; Compose publishes HMR on host port 5174. Production `web/Dockerfile` compiles to `dist/` and serves the static bundle through nginx on container port 5173 (host port 8502). Production frontend changes require rebuilding/recreating `web`.

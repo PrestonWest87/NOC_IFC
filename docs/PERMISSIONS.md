@@ -23,6 +23,7 @@ The built-in `admin` and `administrator` role names receive the administrator ov
 | `AIOps RCA` | `/aiops-rca` | Infrastructure alerts, correlation, and response |
 | `Shift Logbook` | `/shift-logbook` | Shift notes and handoff history |
 | `Reporting & Briefings` | `/reporting` | Reports, briefings, and report library |
+| `Operational Email` | `/operational-email` | Operational email templates, sends, schedules, and history |
 | `Settings & Admin` | `/settings` | Profile, application settings, and user administration |
 | `Keyword Analysis` | `/#/keyword-analysis` | Scoring and category analytics |
 
@@ -100,11 +101,13 @@ The built-in `admin` and `administrator` role names receive the administrator ov
 Bootstrap behavior is defined in `src/core/bootstrap.py`:
 
 - **`admin`** receives all page, action, and tab keys plus the current default/database site-type catalog. The runtime administrator override also applies to the `administrator` role name.
-- **`analyst`** is seeded with every page except Settings & Admin, the non-Settings operational tab grants, a selected operational action set, and the current site-type catalog. The one-time permission-catalog migration resets the built-in analyst role to this baseline and conservatively replaces the legacy AI grant on other roles; later startups do not union grants.
+- **`analyst`** is seeded with operational pages except Settings & Admin and Operational Email, the non-Settings operational tab grants, a selected operational action set, and the current site-type catalog. The one-time permission-catalog migration resets the built-in analyst role to this baseline and conservatively replaces the legacy AI grant on other roles; later startups do not union grants.
 - **`viewer`** receives Global Dashboards and Regional Grid, with the Operational dashboard and Geospatial Map tabs, and the current site-type catalog.
 - **`user-admin`** receives Settings & Admin, the Users & Roles tab, user management, password-reset review, and recovery-email approval grants; it has no site-type grants.
 
 Custom roles are not broadened on normal startup. Role creation validates grants against the current catalog. Delegated role editors cannot grant permissions or site types they do not hold, cannot assign administrator/elevated user-administration roles, and cannot edit the built-in administrator role. Existing legacy site-type grants can be retained or removed during an edit; new site-type grants must be in the live catalog.
+
+`Operational Email` is excluded from the default analyst baseline because it sends external messages. Administrators receive it through the normal full-access override; other roles receive access only when an administrator grants the page. That single page grant authorizes all operational-email page functions. Editing shared template defaults additionally requires the built-in administrator role; page-authorized users may still customize each message before sending or scheduling it.
 
 ## Enforcement by boundary
 
@@ -112,6 +115,7 @@ Custom roles are not broadened on normal startup. Role creation validates grants
 |---|---|
 | HTTP authentication | Middleware authenticates protected `/api/v1/*` requests from a Bearer token. `token` and `session_token` query parameters remain supported for compatibility. Public auth/recovery, health/readiness, and restore-status routes are explicit exceptions. |
 | Page/tab/action | Router and handler dependencies check exact catalog keys. A 401 means no valid active session; a 403 means the session is valid but a required grant is missing. |
+| Operational Email | Every `/operational-email/*` route requires the `Operational Email` page grant. Shared template-default updates also require an administrator role; sending, scheduling, cancellation, and message-level edits have no separate action grant. |
 | Legacy administrator API | The `/api/v1/admin/*` router requires the built-in administrator role. New delegated user and application-settings routes use finer-grained grants. |
 | AIOps site scope | Non-administrators' alert, timeline, grid, location, and WebSocket data are filtered to names whose site type is in `allowed_site_types`. Mutations validate the target site or every alert ID. Global RCA reports require all site types. |
 | WebSocket | Requires an active session, `AIOps RCA` page, and `Tab: AIOps RCA -> Active Board`. Sessions/grants are revalidated; client `INVESTIGATING_UPDATE` and `RCA_UPDATE` commands require `Action: Dispatch RCA Tickets`. |

@@ -14,18 +14,20 @@ docker compose logs -f webhook
 docker compose logs -f web
 docker compose restart api
 docker compose up --build -d --force-recreate web
-curl -fsS http://localhost:8101/health
-curl -fsS http://localhost:8101/ready
+curl -fsS http://localhost:8102/health
+curl -fsS http://localhost:8102/ready
 ```
 
 ## Ports
 
 | Port | Service | Check |
 |---:|---|---|
-| 8100 | Webhook | `curl http://localhost:8100/health` |
-| 8101 | API and WebSocket | `/health`, `/ready`, `/ws?token=...` |
-| 8501 | Production web | Browser or `curl` |
-| 5173 | Dev web | Browser when `dev` profile is active |
+| 8099 | Webhook (container 8100) | `curl http://localhost:8099/health` |
+| 8102 | API and WebSocket (container 8101) | `/health`, `/ready`, `/ws?token=...` |
+| 8502 | Production web (container 5173) | Browser or `curl` |
+| 5174 | Dev web (container 5173) | Browser when `dev` profile is active |
+
+The dev Compose project is named `noc-ifc-dev`, uses `./data-dev`, and attaches containers to Docker's built-in `bridge` network without allocating a new subnet. The host ports are one step from their main-instance counterparts; the webhook uses 8099 because 8101 is already the main API port. The web containers route to the dev API through the unique `noc-ifc-dev-api` host-gateway alias.
 
 ## Environment Variables
 
@@ -54,7 +56,7 @@ The rows below are a selected operations quick reference, not a complete variabl
 | `ALLOW_PRIVATE_LLM_ENDPOINTS` | `false` | Allowing private endpoints for generic OpenAI-compatible connection tests; Ollama/vLLM local provider selections support validated private targets |
 | `CORS_ORIGINS` | localhost origins | Restricting browser origins |
 | `ALLOW_UNSIGNED_WEBHOOKS` | `false` | Temporary controlled migration only; do not enable by default |
-| `PUBLIC_APP_URL` | `http://localhost:8501` | Registration links or externally advertised URLs |
+| `PUBLIC_APP_URL` | `http://localhost:8502` | Registration links or externally advertised URLs |
 | `NWS_API_USER_AGENT` | `NOC-IFC/2.0 (https://test.weasts.net)` | Identifying NWS API client; set a deployed URL, with `DEFAULT_ADMIN_EMAIL` appended when configured |
 | `REGISTRATION_INVITE_TTL_HOURS` | `72` | Changing invite expiration |
 | `RESCORE_ON_STARTUP` | `false` if absent | Explicitly rescoring all existing articles during startup |
@@ -63,7 +65,7 @@ These environment values remain supported as fallback runtime configuration. A d
 
 ## Frequency Controls
 
-The values below are registry defaults for all 21 jobs; a user with scheduler-management permission may save a different validated value in Settings > Application Settings. `src/core/scheduler_registry.py` is the source of truth. NWS alert polling is fixed at one minute and cannot be disabled.
+The values below are registry defaults for all 22 jobs; a user with scheduler-management permission may save a different validated value in Settings > Application Settings. `src/core/scheduler_registry.py` is the source of truth. NWS alert polling and the operational email queue are fixed at one minute and cannot be disabled.
 
 | Behavior | Source location | Current value |
 |---|---|---:|
@@ -86,6 +88,7 @@ The values below are registry defaults for all 21 jobs; a user with scheduler-ma
 | Global brief | `JOB_REGISTRY["global_brief"]` | Daily 02:00 America/Chicago |
 | Daily Fusion report | `JOB_REGISTRY["daily_fusion_report"]` | Daily 06:00 America/Chicago |
 | Daily email | `JOB_REGISTRY["daily_email_brief"]` | Daily 07:00 America/Chicago |
+| Operational email queue | `JOB_REGISTRY["operational_email_queue"]` | 1 minute (cannot be disabled) |
 | ML retraining | `JOB_REGISTRY["ml_retrain"]` | Sunday 02:00 America/Chicago |
 | Encrypted database backup | `JOB_REGISTRY["database_backup"]` | Sunday 00:00 America/Chicago (cannot be disabled) |
 

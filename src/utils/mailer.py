@@ -4,6 +4,7 @@ import smtplib
 import logging
 import base64
 import os
+from email.utils import getaddresses, parseaddr
 from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -13,6 +14,12 @@ from src.models.schema import SystemConfig
 logger = logging.getLogger(__name__)
 
 
+def _recipient_addresses(*values):
+    """Return envelope recipients from visible and hidden recipient fields."""
+    normalized = [str(value).replace(";", ",") for value in values if value]
+    return [address for _name, address in getaddresses(normalized) if address]
+
+
 def _recipient_count(value):
     """Count non-empty comma/semicolon-separated recipient entries for safe logging."""
     if not value:
@@ -20,11 +27,22 @@ def _recipient_count(value):
     return len([recipient for recipient in value.replace(";", ",").split(",") if recipient.strip()])
 
 
-def send_alert_email(subject: str, body: str, recipient_override: str = None, is_html: bool = True, attachments=None):
+def send_alert_email(
+    subject: str,
+    body: str,
+    recipient_override: str = None,
+    is_html: bool = True,
+    attachments=None,
+    cc_override: str = None,
+    bcc_override: str = None,
+):
     """Send configured SMTP mail and return `(success, message)` instead of raising.
 
-    An override replaces the configured default recipient. Attachments are
-    basename-sanitized, strict-base64 decoded, and limited to 5 MiB each.
+    Existing callers retain their original From/To headers and default SMTP
+    envelope behavior. The optional Cc/Bcc arguments are used by Operational
+    Email; Bcc recipients are envelope-only and never appear as a message header.
+    Attachments are basename-sanitized, strict-base64 decoded, and limited to
+    5 MiB each.
     """
     logger.info(
         "send_alert_email: subject=%s recipient_override_set=%s is_html=%s body_length=%d",
@@ -39,6 +57,8 @@ def send_alert_email(subject: str, body: str, recipient_override: str = None, is
 
         target_recipient = recipient_override if recipient_override else config.smtp_recipient
         target_count = _recipient_count(target_recipient)
+        if cc_override or bcc_override:
+            target_count = len(_recipient_addresses(target_recipient, cc_override, bcc_override))
         logger.debug("send_alert_email: target_recipient_count=%d", target_count)
 
         if not config.smtp_server or not config.smtp_sender or not target_recipient:
@@ -51,6 +71,8 @@ def send_alert_email(subject: str, body: str, recipient_override: str = None, is
         msg = MIMEMultipart()
         msg['From'] = config.smtp_sender
         msg['To'] = target_recipient
+        if cc_override:
+            msg['Cc'] = cc_override
         msg['Subject'] = f"[NOC FUSION] {subject}"
 
         if is_html:
@@ -96,7 +118,16 @@ def send_alert_email(subject: str, body: str, recipient_override: str = None, is
             logger.debug("send_alert_email: login successful")
 
         logger.debug("send_alert_email: sending message to recipient_count=%d", target_count)
-        server.send_message(msg)
+        if cc_override or bcc_override:
+            envelope_recipients = _recipient_addresses(target_recipient, cc_override, bcc_override)
+            if not envelope_recipients:
+                server.quit()
+                return False, "Email recipients are invalid or empty."
+            sender_address = parseaddr(config.smtp_sender)[1] or config.smtp_sender
+            # BCC addresses are envelope recipients only; never add a Bcc header.
+            server.send_message(msg, from_addr=sender_address, to_addrs=envelope_recipients)
+        else:
+            server.send_message(msg)
         server.quit()
         logger.info("send_alert_email: email sent successfully recipient_count=%d", target_count)
 

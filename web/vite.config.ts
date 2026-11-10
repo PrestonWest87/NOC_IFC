@@ -6,7 +6,7 @@ import { defineConfig } from "vite";
 import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
-const apiUrl = process.env.VITE_API_URL || "http://localhost:8101";
+const apiUrl = process.env.VITE_API_URL || "http://localhost:8102";
 const maplibreDist = fileURLToPath(new URL("./node_modules/maplibre-gl/dist/", import.meta.url));
 const maplibreWorkerFiles = ["maplibre-gl-worker.mjs", "maplibre-gl-shared.mjs"] as const;
 const maplibreFirefoxFocusRule = /\.maplibregl-ctrl button::-moz-focus-inner\s*\{[^}]*\}/g;

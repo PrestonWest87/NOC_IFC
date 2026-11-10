@@ -36,30 +36,30 @@ Two proxy rules forward browser requests to the backend during development:
 
 | Option | Value | Description |
 |--------|-------|-------------|
-| `target` | `VITE_API_URL` env var, falls back to `http://localhost:8101` | Backend FastAPI server address. Resolved at startup from `process.env.VITE_API_URL`. |
+| `target` | `VITE_API_URL` env var, falls back to `http://localhost:8102` | Backend FastAPI server address. Resolved at startup from `process.env.VITE_API_URL`. |
 | `changeOrigin` | `true` | Rewrites the `Origin` header to match the target. Required for CORS and host-based routing. |
 
 #### `/ws` — WebSocket Proxy
 
 | Option | Value | Description |
 |--------|-------|-------------|
-| `target` | `apiUrl` with `http` replaced by `ws` (e.g., `ws://localhost:8101`) | Backend WebSocket endpoint. Protocol is rewritten from HTTP to WS. |
+| `target` | `apiUrl` with `http` replaced by `ws` (e.g., `ws://localhost:8102`) | Backend WebSocket endpoint. Protocol is rewritten from HTTP to WS. |
 | `ws` | `true` | Enables WebSocket proxying. Vite forwards WebSocket upgrade requests to the target. |
 
 **Proxy resolution logic:**
 
 ```typescript
-const apiUrl = process.env.VITE_API_URL || "http://localhost:8101";
+const apiUrl = process.env.VITE_API_URL || "http://localhost:8102";
 ```
 
-- **Development (`web-dev`):** `VITE_API_URL=http://api:8101` → the running Vite dev server proxies to the Docker-internal API service.
-- **Production (`web`):** Vite is not running. The container serves the already-built static frontend and Nginx handles `/api/` and `/ws`; the Compose `VITE_API_URL=http://localhost:8101` runtime variable is not consumed by that static bundle or Nginx configuration.
+- **Development (`web-dev`):** `VITE_API_URL=http://noc-ifc-dev-api:8102` → Vite proxies through the unique host-gateway alias to the dev API host port.
+- **Production (`web`):** Vite is not running. The container serves the already-built static frontend and Nginx handles `/api/` and `/ws`; its declared `VITE_API_URL` is not consumed by the static bundle or Nginx configuration.
 
 ## Environment Variables
 
 | Variable | Required | Default | Scope | Description |
 |----------|----------|---------|-------|-------------|
-| `VITE_API_URL` | No | `http://localhost:8101` | Vite dev server | Target used to construct development HTTP and WebSocket proxy addresses. The production React client uses relative `/api/v1` and `/ws` URLs, with Nginx as its proxy. |
+| `VITE_API_URL` | No | `http://localhost:8102` | Vite dev server | Target used to construct development HTTP and WebSocket proxy addresses. Compose uses `http://noc-ifc-dev-api:8102`; the production React client uses relative `/api/v1` and `/ws` URLs, with Nginx as its proxy. |
 
 ## Dependencies
 

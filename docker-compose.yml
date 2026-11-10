@@ -1,15 +1,22 @@
+name: noc-ifc-dev
+
 services:
   # FastAPI owns REST/WebSocket requests and runs migrations/readiness on startup.
   api:
+    network_mode: bridge
     build:
       context: .
       dockerfile: Dockerfile
     command: uvicorn src.api.main:app --host 0.0.0.0 --port 8101
     ports:
-      - "8101:8101"
+      - "8102:8101"
     env_file: .env
+    environment:
+      DATABASE_URL: sqlite:////app/data/noc_fusion.db
+      PUBLIC_APP_URL: http://localhost:8502
+      CORS_ORIGINS: http://localhost:8502,http://localhost:5174,http://localhost:5173
     volumes:
-      - ./data:/app/data
+      - ./data-dev:/app/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8101/ready', timeout=3)"]
       interval: 30s
@@ -24,14 +31,17 @@ services:
 
   # The scheduler shares the SQLite/model volume and waits for API readiness.
   worker:
+    network_mode: bridge
     build:
       context: .
       dockerfile: Dockerfile
     command: python -u src/scheduler.py
     env_file: .env
+    environment:
+      DATABASE_URL: sqlite:////app/data/noc_fusion.db
     restart: unless-stopped
     volumes:
-      - ./data:/app/data
+      - ./data-dev:/app/data
     depends_on:
       api:
         condition: service_healthy
@@ -42,15 +52,18 @@ services:
           memory: 1.5G
 
   webhook:
+    network_mode: bridge
     build:
       context: .
       dockerfile: Dockerfile
     command: python -u src/webhook_listener.py
     ports:
-      - "8100:8100"
+      - "8099:8100"
     env_file: .env
+    environment:
+      DATABASE_URL: sqlite:////app/data/noc_fusion.db
     volumes:
-      - ./data:/app/data
+      - ./data-dev:/app/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/health', timeout=3)"]
       interval: 30s
@@ -65,13 +78,16 @@ services:
 
   # Static production bundle; Nginx proxies relative /api and /ws requests.
   web:
+    network_mode: bridge
     build:
       context: ./web
       dockerfile: Dockerfile
     ports:
-      - "8501:5173"
+      - "8502:5173"
     environment:
-      - VITE_API_URL=http://localhost:8101
+      - VITE_API_URL=http://noc-ifc-dev-api:8102
+    extra_hosts:
+      - "noc-ifc-dev-api:host-gateway"
     depends_on:
       api:
         condition: service_healthy
@@ -89,14 +105,17 @@ services:
 
   # Additive dev profile: Vite runs beside the production web service.
   web-dev:
+    network_mode: bridge
     profiles: ["dev"]
     image: node:22-alpine
     working_dir: /app
     command: sh ./dev-entrypoint.sh
     ports:
-      - "5173:5173"
+      - "5174:5173"
     environment:
-      - VITE_API_URL=http://api:8101
+      - VITE_API_URL=http://noc-ifc-dev-api:8102
+    extra_hosts:
+      - "noc-ifc-dev-api:host-gateway"
     depends_on:
       - api
     volumes:

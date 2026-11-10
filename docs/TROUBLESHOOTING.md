@@ -9,8 +9,8 @@ docker compose ps
 docker compose logs --tail=200 api
 docker compose logs --tail=200 worker
 docker compose logs --tail=200 webhook
-curl -i http://localhost:8101/health
-curl -i http://localhost:8101/ready
+curl -i http://localhost:8102/health
+curl -i http://localhost:8102/ready
 docker compose stats --no-stream
 ```
 
@@ -25,7 +25,7 @@ docker compose up --build -d --force-recreate web
 For a port conflict:
 
 ```bash
-ss -ltnp | grep -E ':8100|:8101|:8501|:5173'
+ss -ltnp | grep -E ':8099|:8102|:8502|:5174'
 docker compose down
 docker compose up -d
 ```
@@ -80,7 +80,7 @@ The server broadcasts every 10 seconds only when clients are connected. Client-t
 ## SolarWinds Webhook Failures
 
 ```bash
-curl -i http://localhost:8100/health
+curl -i http://localhost:8099/health
 docker compose logs --tail=300 webhook
 ```
 

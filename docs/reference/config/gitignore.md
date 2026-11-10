@@ -9,9 +9,11 @@ Git uses this file to hide matching untracked paths from normal status/add opera
 | Pattern | Purpose |
 |---|---|
 | `.env` | Local environment/secrets file. `.env.example` is not ignored and is the checked-in template. |
+| `.env.dev` | Optional local dev environment file; keep runtime credentials out of version control. |
 | `docker-compose.yml` | Ignore pattern in this working copy. The current `docker-compose.yml` is already tracked, so Git continues to include and version it; the ignore rule does not untrack it. |
 | `src/ml_model.pkl` | Legacy generated model location; current trained model lives under `data/models/`. |
 | `data/` | Runtime SQLite database, backup packages, cached data, and persisted model artifacts. |
+| `data-dev/` | Isolated dev Compose SQLite database, backup packages, cached data, and model artifacts. |
 | `src/__pycache__/`, `__pycache__/`, `*.pyc`, `*.pyo` | Python bytecode and cache directories/files. |
 | `.vscode/`, `.idea/` | Local editor/workspace configuration. |
 | `debug_raw_payloads.json`, `export_payloads.py`, `noc_fusion_MASTER_BACKUP_2026-06-30_13-43.tar.gz` | Named local debug/export/archive artifacts. |

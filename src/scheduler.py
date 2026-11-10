@@ -1,7 +1,7 @@
 """
 NOC Intelligence Fusion Center - Background Scheduler
 
-This module registers the 21 registry-managed jobs and owns feed ingestion,
+This module registers the 22 registry-managed jobs and owns feed ingestion,
 article enrichment, escalation, retention, and report scheduling. Provider-specific
 fetchers are delegated to `src.workers` modules.
 
@@ -467,6 +467,15 @@ def job_daily_email_unified_brief():
 
     except Exception as e:
         log(f"[ERROR] Daily Email Brief Error: {e}", "SYSTEM")
+
+
+def job_operational_email_queue():
+    """Deliver due operator-created Operational Email schedules from SQLite."""
+    from src.core.operational_email import process_due_operational_emails
+
+    delivered = process_due_operational_emails()
+    if delivered:
+        log(f"[EMAIL] Processed {delivered} due operational email schedule(s).", "SYSTEM")
 
 
 # =====================================================================
@@ -1080,6 +1089,7 @@ def _scheduler_functions():
         "job_retrain_ml": job_retrain_ml,
         "job_database_backup": job_database_backup,
         "job_daily_email_unified_brief": job_daily_email_unified_brief,
+        "job_operational_email_queue": job_operational_email_queue,
         "run_daily_report": run_daily_report,
     }
 

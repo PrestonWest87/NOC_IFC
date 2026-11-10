@@ -35,15 +35,15 @@ DATABASE_URL=sqlite:////app/data/noc_fusion.db
 docker compose up --build -d
 ```
 
-This starts 4 services:
-- **`api`** — FastAPI backend on port 8101
+This starts 4 services in the separately named `noc-ifc-dev` Compose project. The dev branch uses `./data-dev` and host ports distinct from the existing deployment:
+- **`api`** — FastAPI backend on host port 8102 (container port 8101)
 - **`worker`** — Background scheduler for data ingestion
-- **`webhook`** — Webhook gateway on port 8100
-- **`web`** — React frontend exposed on port 8501 (container port 5173)
+- **`webhook`** — Webhook gateway on host port 8099 (container port 8100)
+- **`web`** — React frontend exposed on host port 8502 (container port 5173)
 
 ### 3. Access the Application
 
-Open **http://localhost:8501** in your browser.
+Open **http://localhost:8502** in your browser.
 
 Set `DEFAULT_ADMIN_PASSWORD` in `.env` before first startup. `DEFAULT_ADMIN_EMAIL` is optional; it bootstraps a verified recovery/reviewer address. If the bootstrap admin already exists without a verified email, configuring this value and restarting the API or worker will attach and verify it; a matching pending initial recovery-email request will be completed. The database creates the `admin` user only when no users exist and the password value is non-empty. There is no guaranteed hard-coded default password.
 
@@ -54,7 +54,7 @@ Set `DEFAULT_ADMIN_PASSWORD` in `.env` before first startup. `DEFAULT_ADMIN_EMAI
 docker compose ps
 
 # Check API health
-curl http://localhost:8101/health
+curl http://localhost:8102/health
 
 # Check worker logs (data ingestion should start immediately)
 docker compose logs -f worker
@@ -73,7 +73,7 @@ For hot-reload development:
 docker compose --profile dev up --build -d
 ```
 
-The `dev` profile adds a `web-dev` container with Vite's HMR (Hot Module Replacement); it does not remove the production `web` container. Use port 5173 for the HMR frontend. Frontend changes are picked up instantly via a volume mount.
+The `dev` profile adds a `web-dev` container with Vite's HMR (Hot Module Replacement); it does not remove the production `web` container. Use host port 5174 for the HMR frontend. Frontend changes are picked up instantly via a volume mount. Separate container names, host ports, and the `data-dev` mount keep the dev stack's application state separate; containers use Docker's built-in bridge network.
 
 ### Standalone Frontend Development
 
@@ -83,7 +83,7 @@ npm ci
 npm run dev
 ```
 
-This starts Vite dev server on port 5173 with proxy configuration for `/api` → `http://localhost:8101` and `/ws` → `ws://localhost:8101`.
+This starts Vite dev server on port 5173 with proxy configuration for `/api` → `http://localhost:8102` and `/ws` → `ws://localhost:8102`.
 
 ---
 
@@ -130,7 +130,7 @@ The checked-in `.env.example` is the complete environment template, and [the env
 | `WEBSOCKET_MAX_MESSAGE_BYTES` | `65536` | Maximum client WebSocket message |
 | `ALLOW_PRIVATE_LLM_ENDPOINTS` | `false` | Permit private LLM targets for generic OpenAI-compatible tests; explicit Ollama/vLLM provider selections support validated local endpoints |
 | `ALLOW_UNSIGNED_WEBHOOKS` | `false` | Controlled webhook migration exception |
-| `PUBLIC_APP_URL` | `http://localhost:8501` | Registration link base URL |
+| `PUBLIC_APP_URL` | `http://localhost:8502` | Registration link base URL |
 | `REGISTRATION_INVITE_TTL_HOURS` | `72` | Registration invite lifetime |
 | `RESCORE_ON_STARTUP` | `false` | Full article rescore during startup |
 
@@ -196,7 +196,7 @@ Configure AI in the Settings page (AI & SMTP tab):
 
 | Command | Description |
 |---------|-------------|
-| `docker compose down && rm data/noc_fusion.db && docker compose up --build -d` | Destructive full database reset (deletes all application data and re-seeds on startup); back up first and use only when a reset is intended |
+| `docker compose down && rm data-dev/noc_fusion.db && docker compose up --build -d` | Destructive dev database reset (deletes all dev application data and re-seeds on startup); back up first and use only when a reset is intended |
 | `docker compose restart api worker webhook` | Run the automatic schema-revision check on backend startup; review [migration compatibility](MIGRATION_COMPATIBILITY.md) before upgrading older databases |
 
 ---
@@ -206,7 +206,7 @@ Configure AI in the Settings page (AI & SMTP tab):
 Configure your ITSM monitoring tool to send alerts:
 
 ```
-POST http://<your-host>:8100/webhook/solarwinds
+POST http://<your-host>:8099/webhook/solarwinds
 Content-Type: application/json
 ```
 
@@ -215,7 +215,7 @@ The webhook listener accepts SolarWinds-style JSON payloads, normalizes them, an
 ### Testing the Webhook
 
 ```bash
-curl -X POST http://localhost:8100/webhook/solarwinds \
+curl -X POST http://localhost:8099/webhook/solarwinds \
   -H "Content-Type: application/json" \
   -d '{
     "Node_Details": {
@@ -239,8 +239,8 @@ curl -X POST http://localhost:8100/webhook/solarwinds \
 docker compose logs api
 
 # Check for port conflicts
-lsof -i :8101
-lsof -i :5173
+lsof -i :8102
+lsof -i :5174
 
 # Verify .env exists
 ls -la .env
@@ -278,11 +278,11 @@ Do not delete the database to recover a migration error. Full reset is destructi
 
 ```bash
 # Verify API is running
-curl http://localhost:8101/health
+curl http://localhost:8102/health
 
 # Check for proxy configuration in nginx/vite
-# Production: nginx.conf proxies /ws to http://api:8101
-# Dev: vite.config.ts proxies /ws to ws://localhost:8101
+# Production: nginx.conf proxies /ws through the dev API host-gateway alias at port 8102
+# Dev: vite.config.ts proxies /ws to ws://localhost:8102
 ```
 
 ### Frontend Shows Blank Screen
@@ -304,7 +304,7 @@ docker compose up --build -d --force-recreate web
    - Change the admin password
    - Create individual user accounts
 
-2. **Network isolation**: The webhook port (8100) and API port (8101) should not be exposed to the public internet. Only port 8501 (production frontend) should be publicly accessible.
+2. **Network isolation**: The dev-branch webhook host port (8099) and API host port (8102) should not be exposed to the public internet. Only port 8502 (frontend) should be publicly accessible.
 
 3. **Secrets management**: Session tokens are database-backed, while integration settings are supplied through the supported environment variables and Settings UI. Keep `.env` out of version control and use a secret manager in production.
 

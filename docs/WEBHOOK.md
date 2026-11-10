@@ -1,6 +1,6 @@
 # SolarWinds Webhook Gateway
 
-The standalone FastAPI gateway in `src/webhook_listener.py` listens on port 8100. It validates and normalizes incoming SolarWinds-style events, then writes alert and timeline records through a FastAPI background task. The one-minute escalation job and AIOps routes process persisted alerts afterward; the webhook handler itself does not run root-cause analysis.
+The standalone FastAPI gateway in `src/webhook_listener.py` listens on container port 8100. This dev branch publishes it on host port 8099, one below the main instance's webhook port, so both can run together. It validates and normalizes incoming SolarWinds-style events, then writes alert and timeline records through a FastAPI background task. The one-minute escalation job and AIOps routes process persisted alerts afterward; the webhook handler itself does not run root-cause analysis.
 
 ## Endpoint and successful response
 
@@ -61,4 +61,4 @@ The classifier first passes an explicit device hint through `EnterpriseAIOpsEngi
 | Signing is not configured and unsigned exception is disabled | 503 |
 | Unhandled gateway failure before acceptance | 500 |
 
-`GET /health` is an unauthenticated liveness response. Restrict host port 8100 to approved sender networks and use signed requests in production.
+`GET /health` is an unauthenticated liveness response. Restrict the published webhook host port (8099 on this branch) to approved sender networks and use signed requests in production.

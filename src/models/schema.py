@@ -4,7 +4,7 @@ These models are the runtime schema contract; versioned migrations, including
 the frozen first-revision snapshot, define how persisted databases evolve.
 """
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, JSON, ForeignKey, Index, text
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, JSON, ForeignKey, Index, LargeBinary, text
 from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime
 
@@ -143,6 +143,112 @@ class SchedulerJobConfig(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class OperationalEmailTemplate(Base):
+    """Administrator-managed subject/body and default recipients for one email template."""
+    __tablename__ = "operational_email_templates"
+    id = Column(Integer, primary_key=True, index=True)
+    template_key = Column(String(64), nullable=False, unique=True, index=True)
+    label = Column(String(128), nullable=False)
+    description = Column(Text, nullable=False, default="")
+    default_subject = Column(String(500), nullable=False)
+    default_body = Column(Text, nullable=False)
+    default_to = Column(Text, nullable=False, default="")
+    default_cc = Column(Text, nullable=False, default="")
+    default_bcc = Column(Text, nullable=False, default="")
+    updated_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class OperationalEmail(Base):
+    """Immutable message snapshot or persistent one-time/recurring send schedule."""
+    __tablename__ = "operational_emails"
+    id = Column(Integer, primary_key=True, index=True)
+    template_key = Column(String(64), nullable=False, index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    parent_email_id = Column(Integer, ForeignKey("operational_emails.id"), nullable=True, index=True)
+    subject = Column(String(500), nullable=False)
+    body = Column(Text, nullable=False)
+    fields_json = Column(JSON, nullable=False, default=dict)
+    to_recipients = Column(JSON, nullable=False, default=list)
+    cc_recipients = Column(JSON, nullable=False, default=list)
+    bcc_recipients = Column(JSON, nullable=False, default=list)
+    schedule_type = Column(String(16), nullable=False, default="immediate", index=True)
+    timezone = Column(String(64), nullable=False, default="America/Chicago")
+    scheduled_at = Column(DateTime, nullable=True)
+    recurrence_time = Column(String(5), nullable=True)
+    recurrence_weekday = Column(Integer, nullable=True)
+    next_run_at = Column(DateTime, nullable=True, index=True)
+    processing_started_at = Column(DateTime, nullable=True)
+    status = Column(String(24), nullable=False, default="sending", index=True)
+    last_sent_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    attachments = relationship(
+        "OperationalEmailAttachment",
+        back_populates="email",
+        cascade="all, delete-orphan",
+        order_by="OperationalEmailAttachment.id",
+    )
+    deliveries = relationship(
+        "OperationalEmailDelivery",
+        back_populates="email",
+        cascade="all, delete-orphan",
+        order_by="OperationalEmailDelivery.attempted_at.desc()",
+    )
+    parent_email = relationship("OperationalEmail", remote_side=[id], uselist=False)
+
+
+Index(
+    "ix_operational_emails_due",
+    OperationalEmail.status,
+    OperationalEmail.next_run_at,
+)
+
+
+class OperationalEmailAttachment(Base):
+    """Bounded attachment bytes retained with a sent message or scheduled payload."""
+    __tablename__ = "operational_email_attachments"
+    id = Column(Integer, primary_key=True, index=True)
+    operational_email_id = Column(
+        Integer,
+        ForeignKey("operational_emails.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    filename = Column(String(120), nullable=False)
+    content_type = Column(String(100), nullable=False, default="application/octet-stream")
+    content = Column(LargeBinary, nullable=False)
+    size_bytes = Column(Integer, nullable=False)
+    email = relationship("OperationalEmail", back_populates="attachments")
+
+
+class OperationalEmailDelivery(Base):
+    """Auditable outcome and recipient/content snapshot for one SMTP attempt."""
+    __tablename__ = "operational_email_deliveries"
+    id = Column(Integer, primary_key=True, index=True)
+    operational_email_id = Column(
+        Integer,
+        ForeignKey("operational_emails.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status = Column(String(16), nullable=False, index=True)
+    sender_address = Column(String(254), nullable=True)
+    to_recipients = Column(JSON, nullable=False, default=list)
+    cc_recipients = Column(JSON, nullable=False, default=list)
+    bcc_recipients = Column(JSON, nullable=False, default=list)
+    subject = Column(String(500), nullable=False)
+    body = Column(Text, nullable=False)
+    fields_json = Column(JSON, nullable=False, default=dict)
+    attachment_names = Column(JSON, nullable=False, default=list)
+    attempted_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    sent_at = Column(DateTime, nullable=True, index=True)
+    error_message = Column(Text, nullable=True)
+    email = relationship("OperationalEmail", back_populates="deliveries")
+
+
 class Role(Base):
     """Named page, tab/action, and site-type grants used by role resolution."""
     __tablename__ = "roles"
@@ -232,7 +338,7 @@ class SystemConfig(Base):
     alerted_wildfire_ids = Column(Text, default="[]")
     wildfire_proximity_state = Column(Text, default="{}")
     llm_context_window = Column(Integer, default=128000)
-    public_app_url = Column(String, default="http://localhost:8501")
+    public_app_url = Column(String, default="http://localhost:8502")
     risk_alert_recipients = Column(Text, nullable=True)
     remedyforce_ticket_email = Column(Text, nullable=True)
     noc_notify_email = Column(Text, nullable=True)

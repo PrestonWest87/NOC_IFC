@@ -19,7 +19,9 @@ def send_alert_email(
     body: str,
     recipient_override: str = None,
     is_html: bool = True,
-    attachments=None
+    attachments=None,
+    cc_override: str = None,
+    bcc_override: str = None,
 ) -> tuple[bool, str]
 ```
 
@@ -30,6 +32,8 @@ def send_alert_email(
 | `subject` | `str` | Email subject line (prefixed with `[NOC FUSION] ` automatically) |
 | `body` | `str` | Email body content |
 | `recipient_override` | `str \| None` | Optional override recipient email address; if `None`, uses `config.smtp_recipient` |
+| `cc_override` | `str \| None` | Optional visible Cc recipients |
+| `bcc_override` | `str \| None` | Optional hidden Bcc recipients, included only in the SMTP envelope |
 | `is_html` | `bool` | Whether to render the body as HTML; defaults to `True`. When enabled, performs lightweight Markdown-to-HTML conversion (line breaks, bold, headers) |
 | `attachments` | `list[dict] \| None` | Optional list of `{filename, content_type, content_base64}` objects. Filenames are reduced to a basename, base64 must validate, and each decoded attachment is limited to 5 MiB. The HTTP model allows at most five attachments. |
 
@@ -49,7 +53,8 @@ def send_alert_email(
    - Returns `(False, "SMTP configuration is incomplete...")` if `smtp_server`, `smtp_sender`, or resolved recipient are missing
 4. Determines target recipient: `recipient_override` if provided, otherwise `config.smtp_recipient`
 5. Constructs a `MIMEMultipart` email:
-   - Sets `From`, `To`, and `Subject` headers (subject is prefixed with `[NOC FUSION] `)
+   - Sets `From`, `To`, optional `Cc`, and `Subject` headers (subject is prefixed with `[NOC FUSION] `)
+   - Resolves To/Cc/Bcc addresses into the SMTP envelope without adding a `Bcc` message header
 6. If `is_html` is `True`:
    - Converts newlines to `<br>`, `**` to `<b>`, `##`/`###` to `<h2>`/`<h3>`
    - Attaches as `MIMEText` with `'html'` subtype
@@ -58,7 +63,7 @@ def send_alert_email(
 8. Connects to SMTP server at `config.smtp_server:config.smtp_port`
 9. Calls `starttls()` with a 10-second SMTP connection timeout. A TLS negotiation failure closes the server and returns a failure result.
 10. Logs in with `smtp_username`/`smtp_password` only when both are configured.
-11. Sends the message via `server.send_message()` and quits the connection.
+11. Sends the message via `server.send_message(msg, from_addr=..., to_addrs=...)` and quits the connection.
 12. Returns `(True, "Email sent successfully.")` on success. SMTP/authentication/connect/general errors are caught and returned as `(False, message)`.
 13. Closes the database session in `finally`.
 
@@ -69,6 +74,7 @@ def send_alert_email(
 | `smtplib` | SMTP connection and email transmission |
 | `email.mime.text.MIMEText` | MIME text payload creation |
 | `email.mime.multipart.MIMEMultipart` | Multipart email container |
+| `email.utils.getaddresses`, `email.utils.parseaddr` | Resolve envelope and sender addresses |
 | `src.core.db.SessionLocal` | Database session factory |
 | `src.models.schema.SystemConfig` | Database model for SMTP configuration |
 

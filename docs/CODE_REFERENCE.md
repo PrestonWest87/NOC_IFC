@@ -19,6 +19,7 @@ The detailed module pages live under `docs/reference/`. The current source-to-re
 | Scheduler registry | `src/core/scheduler_registry.py` | `reference/core/scheduler_registry.md`, `SCHEDULER.md` |
 | Persistent data/model paths | `src/core/paths.py` | `reference/core/paths.md` |
 | Encrypted backups and restore | `src/core/backup_manager.py`, `src/core/restore_control.py`, `src/core/ui_restore.py` | `reference/core/backup_restore.md`, `MAINTENANCE.md` |
+| Operational email persistence and scheduling | `src/core/operational_email.py` | `reference/core/operational_email.md`, `SCHEDULER.md`, `DATABASE_SCHEMA.md` |
 | Database compatibility surface | `src/database.py` | `reference/database_compat.md` |
 | Model package | `src/models/__init__.py` | `reference/models/__init__.md` |
 | API lifecycle/auth/health | `src/api/main.py`, `src/api/auth_guard.py` | `reference/api/main.md` |
@@ -30,7 +31,7 @@ The detailed module pages live under `docs/reference/`. The current source-to-re
 | Categorization | `src/services/categorizer.py` | `reference/services/categorizer.md` |
 | IOC extraction | `src/services/ioc_extractor.py` | `reference/services/ioc_extractor.md` |
 | LLM/map-reduce | `src/utils/llm.py` | `reference/utils/llm.md` |
-| Email delivery | `src/utils/mailer.py` | `reference/utils/mailer.md` |
+| SMTP email delivery | `src/utils/mailer.py` | `reference/utils/mailer.md` |
 | Risk alerts | `src/utils/risk_alert.py` | `reference/utils/risk_alert.md` |
 | Utility package | `src/utils/__init__.py` | `reference/utils/__init__.md` |
 | Scheduler | `src/scheduler.py` | `SCHEDULER.md`, `reference/scheduler.md` |
