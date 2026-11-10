@@ -19,7 +19,7 @@ This guide provides recurring maintenance procedures for operators and maintaine
 | `api` | REST API, authentication, readiness, WebSocket | `curl -fsS http://localhost:8102/ready` |
 | `worker` | Ingestion, scoring, briefs, maintenance, escalation | `docker compose ps`, worker logs |
 | `webhook` | SolarWinds gateway | `curl -fsS http://localhost:8099/health` |
-| `web` | Production React workspace | `curl -I http://localhost:8502` |
+| `web` | Production React workspace | `curl -I http://localhost:8503` |
 | Database | Isolated dev SQLite in `./data-dev` | API `/ready` and database backup |
 
 ## Before Maintenance
@@ -243,7 +243,7 @@ $ docker compose ps
 $ curl -fsS http://localhost:8102/health
 $ curl -fsS http://localhost:8102/ready
 $ curl -fsS http://localhost:8099/health
-$ curl -fsSI http://localhost:8502
+$ curl -fsSI http://localhost:8503
 $ docker compose logs --tail=100 api worker webhook web
 ```
 

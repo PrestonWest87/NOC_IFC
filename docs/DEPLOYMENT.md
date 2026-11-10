@@ -9,7 +9,7 @@
 | RAM | Minimum 2 GB available (4 GB+ recommended for production) |
 | Disk | Minimum 10 GB free (20 GB+ recommended for data retention) |
 | LLM Endpoint | Optional OpenAI-compatible or local Ollama endpoint; required only for AI-generated features |
-| Network | Dev branch host ports 8099, 8102, 8502, and optionally 5174 must be available |
+| Network | Dev branch host ports 8099, 8102, 8503, and optionally 5174 must be available |
 
 Verify prerequisites:
 
@@ -40,7 +40,7 @@ docker compose ps
 curl http://localhost:8102/health
 ```
 
-On this dev branch, access the UI at `http://localhost:8502`. The Compose project uses its own `noc-ifc-dev` name and `./data-dev` storage. Log in as `admin` using the value configured in `DEFAULT_ADMIN_PASSWORD`.
+On this dev branch, access the UI at `http://localhost:8503`. The Compose project uses its own `noc-ifc-dev` name and `./data-dev` storage. Log in as `admin` using the value configured in `DEFAULT_ADMIN_PASSWORD`.
 
 ---
 
@@ -90,7 +90,7 @@ Receives SolarWinds alerts at `POST http://localhost:8099/webhook/solarwinds`.
 | Property | Value |
 |----------|-------|
 | Dockerfile | `web/Dockerfile` (multi-stage: `node:22-alpine` build + `nginx:alpine` serve) |
-| Port | host `8502` → internal `5173` |
+| Port | host `8503` → internal `5173` |
 | Env | Compose declares `VITE_API_URL=http://noc-ifc-dev-api:8102`; the static bundle does not consume it, and Nginx uses this host-gateway alias |
 | Depends on | `api` healthy |
 | Static build | No HMR; rebuild required for frontend changes |
@@ -145,7 +145,7 @@ cp .env.example .env
 | `ALLOW_PRIVATE_LLM_ENDPOINTS` | No | `false` | Permit private targets for generic OpenAI-compatible connection tests; selected Ollama/vLLM providers can use validated local endpoints |
 | `CORS_ORIGINS` | No | localhost origins | Comma-separated allowed browser origins |
 | `ALLOW_UNSIGNED_WEBHOOKS` | No | `false` | Controlled webhook migration exception |
-| `PUBLIC_APP_URL` | No | `http://localhost:8502` | Registration link base URL |
+| `PUBLIC_APP_URL` | No | `http://localhost:8503` | Registration link base URL |
 | `NWS_API_USER_AGENT` | No | `NOC-IFC/2.0 (https://test.weasts.net)` | Identifying User-Agent for centralized NWS API requests; set the deployed public URL, and `DEFAULT_ADMIN_EMAIL` is appended as contact when configured |
 | `REGISTRATION_INVITE_TTL_HOURS` | No | `72` | Registration invite lifetime |
 | `BACKUP_ENCRYPTION_ACTIVE_KEY_ID` | For backups | `primary` | Key ID used for newly created encrypted full backups |
@@ -260,7 +260,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/noc.example.com/privkey.pem;
 
     location / {
-        proxy_pass http://127.0.0.1:8502;
+        proxy_pass http://127.0.0.1:8503;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -344,7 +344,7 @@ services:
 └─────────────────────────────────────────────────────────────┘
 
 External Access:
-  localhost:8502 → web (production, nginx static)
+  localhost:8503 → web (production, nginx static)
   localhost:5174 → web-dev (development, Vite HMR)
   localhost:8102 → api (FastAPI + WebSocket)
   localhost:8099 → webhook (SolarWinds gateway)

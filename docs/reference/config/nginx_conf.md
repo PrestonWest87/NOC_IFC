@@ -6,7 +6,7 @@ Production nginx server block copied to `/etc/nginx/conf.d/default.conf` by `web
 
 | Directive | Current value | Behavior |
 |---|---|---|
-| `listen` | `5173` | Container listener; dev Compose maps host `8502` to it. |
+| `listen` | `5173` | Container listener; dev Compose maps host `8503` to it. |
 | `server_name` | `localhost test.weasts.net` | Accepted host names. |
 | `resolver` | `127.0.0.11 valid=30s` | Retained Nginx Docker resolver configuration. |
 | `client_max_body_size` | `101g` | Nginx-level request-body ceiling; API-level backup-upload limits remain controlled separately by `BACKUP_MAX_BYTES`. |

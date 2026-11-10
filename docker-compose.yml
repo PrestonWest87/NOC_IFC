@@ -13,8 +13,8 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: sqlite:////app/data/noc_fusion.db
-      PUBLIC_APP_URL: http://localhost:8502
-      CORS_ORIGINS: http://localhost:8502,http://localhost:5174,http://localhost:5173
+      PUBLIC_APP_URL: http://localhost:8503
+      CORS_ORIGINS: http://localhost:8503,http://localhost:5174,http://localhost:5173
     volumes:
       - ./data-dev:/app/data
     healthcheck:
@@ -83,7 +83,7 @@ services:
       context: ./web
       dockerfile: Dockerfile
     ports:
-      - "8502:5173"
+      - "8503:5173"
     environment:
       - VITE_API_URL=http://noc-ifc-dev-api:8102
     extra_hosts:

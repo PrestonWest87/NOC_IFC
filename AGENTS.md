@@ -10,7 +10,7 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 
 ## Active Implementation Plan — Operational Email
 
-**Implementation branch:** `dev`, based on the clean `origin/main` commit and published as `origin/dev`. Keep this feature on `dev` only; do not merge it into `main` or `architecture/monolith-to-decoupled` without a later user request. Preserve the unrelated untracked integration-plan documents in the worktree. The dev Compose project is `noc-ifc-dev`, uses `./data-dev` and Docker's built-in `bridge` network, and publishes host ports 8102 (API), 8099 (webhook), 8502 (web), and 5174 (Vite HMR).
+**Implementation branch:** `dev`, based on the clean `origin/main` commit and published as `origin/dev`. Keep this feature on `dev` only; do not merge it into `main` or `architecture/monolith-to-decoupled` without a later user request. Preserve the unrelated untracked integration-plan documents in the worktree. The dev Compose project is `noc-ifc-dev`, uses `./data-dev` and Docker's built-in `bridge` network, and publishes host ports 8102 (API), 8099 (webhook), 8503 (web), and 5174 (Vite HMR).
 
 - [x] Confirm the `dev` branch starts at `origin/main`, preserve untracked docs, and publish `origin/dev`.
 - [x] Add persistent editable template defaults, message/delivery history, bounded attachment storage, BCC envelope handling, and one-time/daily/weekly scheduled delivery.
@@ -218,7 +218,7 @@ See [docs/README.md](docs/README.md) for the complete documentation catalog. The
 | `api` | FastAPI | 8102 -> 8101 | REST + WebSocket |
 | `worker` | Python scheduler | — | Background jobs (RSS, scoring, escalation) |
 | `webhook` | FastAPI | 8099 -> 8100 | SolarWinds webhook gateway |
-| `web` | nginx / Vite | 8502 / 5174 | React SPA / Vite HMR |
+| `web` | nginx / Vite | 8503 / 5174 | React SPA / Vite HMR |
 
 ### Developer Commands
 

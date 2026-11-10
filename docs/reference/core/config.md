@@ -31,9 +31,9 @@ Loads typed environment configuration with Pydantic Settings, imports `.env` val
 | `webhook_max_body_bytes` | `int` | `1048576` | Maximum webhook request body. |
 | `websocket_max_message_bytes` | `int` | `65536` | Maximum client WebSocket message. |
 | `allow_private_llm_endpoints` | `bool` | `False` | Allows private LLM endpoint URLs for generic OpenAI-compatible provider tests; selected Ollama/vLLM local providers can use validated private targets. |
-| `cors_origins` | `str` | `http://localhost:8502,http://localhost:5174,http://localhost:5173` | Comma-separated CORS origin list. |
+| `cors_origins` | `str` | `http://localhost:8503,http://localhost:5174,http://localhost:5173` | Comma-separated CORS origin list. |
 | `allow_unsigned_webhooks` | `bool` | `False` | Explicit migration exception for unsigned webhook requests. |
-| `public_app_url` | `str` | `http://localhost:8502` | Base URL used for registration links. |
+| `public_app_url` | `str` | `http://localhost:8503` | Base URL used for registration links. |
 | `nws_api_user_agent` | `str` | `NOC-IFC/2.0 (https://test.weasts.net)` | Identifying User-Agent for NWS API requests; bootstrap admin email is appended when configured. |
 | `default_admin_email` | `str` | Empty | Optional verified email for the bootstrap admin/recovery reviewer. |
 | `registration_invite_ttl_hours` | `int` | `72` | Default registration invite lifetime. |

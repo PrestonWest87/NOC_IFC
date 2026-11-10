@@ -16,7 +16,7 @@ This document describes the checked-in runtime. The authoritative implementation
 Browser
   | HTTP / WebSocket
   v
-host web:8502 or web-dev:5174
+host web:8503 or web-dev:5174
   | /api/v1 and /ws
   v
 host api:8102 -> api:8101 --+
@@ -39,7 +39,7 @@ SolarWinds -> host webhook:8099 -> webhook:8100 -> shared database
 | `api` | `uvicorn src.api.main:app --host 0.0.0.0 --port 8101` | host 8102 -> container 8101 | REST API, auth middleware, health/readiness, WebSocket endpoint |
 | `worker` | `python -u src/scheduler.py` | none | Scheduled ingestion, enrichment, scoring, reports, maintenance, escalation |
 | `webhook` | `python -u src/webhook_listener.py` | host 8099 -> container 8100 | SolarWinds webhook validation, normalization, and persistence |
-| `web` | `web/Dockerfile` | host 8502 -> container 5173 | Production React build served by nginx |
+| `web` | `web/Dockerfile` | host 8503 -> container 5173 | Production React build served by nginx |
 | `web-dev` | Vite under the `dev` profile | host 5174 -> container 5173 | Development frontend with source mounts and HMR |
 
 The API, worker, and webhook share `./data-dev` as `/app/data`. The dev Compose project is named `noc-ifc-dev`, uses separate host ports/storage, and attaches to Docker's built-in bridge without allocating another subnet. The web containers reach the dev API through a unique host-gateway alias. SQLite is the only supported application database.

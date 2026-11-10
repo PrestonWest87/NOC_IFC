@@ -333,7 +333,7 @@ Column types and nullability reflect the current SQLAlchemy mappings in `src/mod
 | `alerted_wildfire_ids` | Text | YES | `"[]"` | — |
 | `wildfire_proximity_state` | Text | YES | `"{}"` | — |
 | `llm_context_window` | Integer | YES | `128000` | — |
-| `public_app_url` | String | YES | `"http://localhost:8502"` | — |
+| `public_app_url` | String | YES | `"http://localhost:8503"` | — |
 | `risk_alert_recipients` | Text | YES | NULL | — | Database override; NULL uses `RISK_ALERT_RECIPIENTS` environment fallback |
 | `remedyforce_ticket_email` | Text | YES | NULL | — | Database override; NULL uses `REMEDYFORCE_TICKET_EMAIL` |
 | `noc_notify_email` | Text | YES | NULL | — | Database override; NULL uses `NOC_NOTIFY_EMAIL` |

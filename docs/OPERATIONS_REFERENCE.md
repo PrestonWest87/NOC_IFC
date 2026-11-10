@@ -24,10 +24,10 @@ curl -fsS http://localhost:8102/ready
 |---:|---|---|
 | 8099 | Webhook (container 8100) | `curl http://localhost:8099/health` |
 | 8102 | API and WebSocket (container 8101) | `/health`, `/ready`, `/ws?token=...` |
-| 8502 | Production web (container 5173) | Browser or `curl` |
+| 8503 | Production web (container 5173) | Browser or `curl` |
 | 5174 | Dev web (container 5173) | Browser when `dev` profile is active |
 
-The dev Compose project is named `noc-ifc-dev`, uses `./data-dev`, and attaches containers to Docker's built-in `bridge` network without allocating a new subnet. The host ports are one step from their main-instance counterparts; the webhook uses 8099 because 8101 is already the main API port. The web containers route to the dev API through the unique `noc-ifc-dev-api` host-gateway alias.
+The dev Compose project is named `noc-ifc-dev`, uses `./data-dev`, and attaches containers to Docker's built-in `bridge` network without allocating a new subnet. API and HMR ports are one above main; webhook uses 8099 because 8101 is already the main API port. The web address is 8503 as configured. The web containers route to the dev API through the unique `noc-ifc-dev-api` host-gateway alias.
 
 ## Environment Variables
 
@@ -56,7 +56,7 @@ The rows below are a selected operations quick reference, not a complete variabl
 | `ALLOW_PRIVATE_LLM_ENDPOINTS` | `false` | Allowing private endpoints for generic OpenAI-compatible connection tests; Ollama/vLLM local provider selections support validated private targets |
 | `CORS_ORIGINS` | localhost origins | Restricting browser origins |
 | `ALLOW_UNSIGNED_WEBHOOKS` | `false` | Temporary controlled migration only; do not enable by default |
-| `PUBLIC_APP_URL` | `http://localhost:8502` | Registration links or externally advertised URLs |
+| `PUBLIC_APP_URL` | `http://localhost:8503` | Registration links or externally advertised URLs |
 | `NWS_API_USER_AGENT` | `NOC-IFC/2.0 (https://test.weasts.net)` | Identifying NWS API client; set a deployed URL, with `DEFAULT_ADMIN_EMAIL` appended when configured |
 | `REGISTRATION_INVITE_TTL_HOURS` | `72` | Changing invite expiration |
 | `RESCORE_ON_STARTUP` | `false` if absent | Explicitly rescoring all existing articles during startup |

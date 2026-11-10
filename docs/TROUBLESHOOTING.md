@@ -25,7 +25,7 @@ docker compose up --build -d --force-recreate web
 For a port conflict:
 
 ```bash
-ss -ltnp | grep -E ':8099|:8102|:8502|:5174'
+ss -ltnp | grep -E ':8099|:8102|:8503|:5174'
 docker compose down
 docker compose up -d
 ```

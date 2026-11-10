@@ -119,7 +119,7 @@ The project runs as a Docker Compose stack:
 Analyst browser
       |
       v
-React web workspace :8502
+React web workspace :8503
       |
       +---- REST API host :8102 (container :8101)
       |             |
@@ -136,7 +136,7 @@ SolarWinds Orion ---> Webhook gateway host :8099 (container :8100) ---> Shared d
 | `api` | REST API, authentication, health checks, and live WebSocket updates | 8102 (container 8101) |
 | `worker` | Scheduled ingestion, enrichment, scoring, reports, maintenance, and escalation | None |
 | `webhook` | SolarWinds request validation and alert processing | 8099 (container 8100) |
-| `web` | Production React workspace served by nginx | 8502 (container 5173) |
+| `web` | Production React workspace served by nginx | 8503 (container 5173) |
 | `web-dev` | Optional Vite development workspace with hot reload | 5174 (container 5173) |
 
 The `dev` branch Compose project is named `noc-ifc-dev`; it uses SQLite stored in `./data-dev`, separate from the existing instance's `./data`. The API, worker, and webhook share the dev database file and attach to Docker's built-in bridge network without allocating another subnet.
@@ -163,7 +163,7 @@ Set `DEFAULT_ADMIN_PASSWORD` in `.env` before the first startup. Then build and 
 docker compose up --build -d
 ```
 
-Open `http://localhost:8502` and sign in as `admin` using the configured password.
+Open `http://localhost:8503` and sign in as `admin` using the configured password.
 
 Verify the deployment:
 
@@ -182,7 +182,7 @@ Development mode adds a Vite workspace with hot reload on host port `5174` (cont
 docker compose --profile dev up --build -d
 ```
 
-The Nginx web container is exposed on host port `8502`; the `web-dev` container is available on host port `5174`. The dev host ports are one number away from the main ports; webhook uses 8099 because 8101 is the main API port.
+The Nginx web container is exposed on host port `8503`; the `web-dev` container is available on host port `5174`. The API, webhook, and HMR ports are adjacent to main's ports; the dev UI uses 8503 as configured.
 
 ## Initial Configuration
 

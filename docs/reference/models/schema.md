@@ -216,7 +216,7 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `alerted_wildfire_ids` | `Text` | `"[]"` | JSON list of alerted wildfire IDs |
 | `wildfire_proximity_state` | `Text` | `"{}"` | JSON wildfire proximity state |
 | `llm_context_window` | `Integer` | `128000` | Effective LLM context-window limit |
-| `public_app_url` | `String` | `http://localhost:8502` | Base URL used for registration links |
+| `public_app_url` | `String` | `http://localhost:8503` | Base URL used for registration links |
 | `risk_alert_recipients` | `Text` | `nullable` | Database override for `RISK_ALERT_RECIPIENTS`; NULL uses the environment |
 | `remedyforce_ticket_email` | `Text` | `nullable` | Database override for `REMEDYFORCE_TICKET_EMAIL` |
 | `noc_notify_email` | `Text` | `nullable` | Database override for `NOC_NOTIFY_EMAIL` |

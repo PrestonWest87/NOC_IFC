@@ -39,11 +39,11 @@ This starts 4 services in the separately named `noc-ifc-dev` Compose project. Th
 - **`api`** — FastAPI backend on host port 8102 (container port 8101)
 - **`worker`** — Background scheduler for data ingestion
 - **`webhook`** — Webhook gateway on host port 8099 (container port 8100)
-- **`web`** — React frontend exposed on host port 8502 (container port 5173)
+- **`web`** — React frontend exposed on host port 8503 (container port 5173)
 
 ### 3. Access the Application
 
-Open **http://localhost:8502** in your browser.
+Open **http://localhost:8503** in your browser.
 
 Set `DEFAULT_ADMIN_PASSWORD` in `.env` before first startup. `DEFAULT_ADMIN_EMAIL` is optional; it bootstraps a verified recovery/reviewer address. If the bootstrap admin already exists without a verified email, configuring this value and restarting the API or worker will attach and verify it; a matching pending initial recovery-email request will be completed. The database creates the `admin` user only when no users exist and the password value is non-empty. There is no guaranteed hard-coded default password.
 
@@ -130,7 +130,7 @@ The checked-in `.env.example` is the complete environment template, and [the env
 | `WEBSOCKET_MAX_MESSAGE_BYTES` | `65536` | Maximum client WebSocket message |
 | `ALLOW_PRIVATE_LLM_ENDPOINTS` | `false` | Permit private LLM targets for generic OpenAI-compatible tests; explicit Ollama/vLLM provider selections support validated local endpoints |
 | `ALLOW_UNSIGNED_WEBHOOKS` | `false` | Controlled webhook migration exception |
-| `PUBLIC_APP_URL` | `http://localhost:8502` | Registration link base URL |
+| `PUBLIC_APP_URL` | `http://localhost:8503` | Registration link base URL |
 | `REGISTRATION_INVITE_TTL_HOURS` | `72` | Registration invite lifetime |
 | `RESCORE_ON_STARTUP` | `false` | Full article rescore during startup |
 
@@ -304,7 +304,7 @@ docker compose up --build -d --force-recreate web
    - Change the admin password
    - Create individual user accounts
 
-2. **Network isolation**: The dev-branch webhook host port (8099) and API host port (8102) should not be exposed to the public internet. Only port 8502 (frontend) should be publicly accessible.
+2. **Network isolation**: The dev-branch webhook host port (8099) and API host port (8102) should not be exposed to the public internet. Only port 8503 (frontend) should be publicly accessible.
 
 3. **Secrets management**: Session tokens are database-backed, while integration settings are supplied through the supported environment variables and Settings UI. Keep `.env` out of version control and use a secret manager in production.
 

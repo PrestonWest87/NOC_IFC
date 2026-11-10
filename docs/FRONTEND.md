@@ -131,4 +131,4 @@ npm run dev
 npm run build
 ```
 
-The Vite development server listens on container port 5173 and uses polling for Docker file mounts; Compose publishes HMR on host port 5174. Production `web/Dockerfile` compiles to `dist/` and serves the static bundle through nginx on container port 5173 (host port 8502). Production frontend changes require rebuilding/recreating `web`.
+The Vite development server listens on container port 5173 and uses polling for Docker file mounts; Compose publishes HMR on host port 5174. Production `web/Dockerfile` compiles to `dist/` and serves the static bundle through nginx on container port 5173 (host port 8503). Production frontend changes require rebuilding/recreating `web`.

@@ -59,7 +59,7 @@ The dev branch sets the Compose project name to `noc-ifc-dev`, publishes distinc
 | `build.context` | `./web` | Web subdirectory as build context. |
 | `build.dockerfile` | `Dockerfile` | Uses the multi-stage web Dockerfile. |
 | `network_mode` | `bridge` | Uses Docker's built-in bridge network. |
-| `ports` | `"8502:5173"` | Maps dev host port 8502 (one above main web 8501) to container port 5173. |
+| `ports` | `"8503:5173"` | Maps the dev Nginx web container to host port 8503. |
 | `environment.VITE_API_URL` | `http://noc-ifc-dev-api:8102` | The static bundle does not consume this runtime variable; Nginx proxies `/api/` and `/ws` through this unique host-gateway alias. |
 | `extra_hosts` | `noc-ifc-dev-api:host-gateway` | Resolves the API host port without depending on the existing project's `api` DNS alias. |
 | `depends_on` | `api` with `condition: service_healthy` | Waits for API readiness before starting the production web container. |
@@ -94,8 +94,8 @@ Key environment variable consumed:
 | `REMEDYFORCE_TICKET_EMAIL`, `NOC_*_EMAIL`, `ITNETWORK_ONPAGE_EMAIL` | worker | Environment fallbacks for escalation/wildfire destinations; Application Settings database overrides take precedence. |
 | `ELASTIC_*`, `CRIME_ALERT_*` | api, worker | Environment fallbacks for Elastic and crime alerts; Application Settings database overrides take precedence. |
 | `WEBHOOK_*` | webhook | HMAC, replay, and body-size controls. |
-| `CORS_ORIGINS` | api | Allowed browser origins; defaults include ports 8502, 5174, and standalone Vite port 5173. |
-| `PUBLIC_APP_URL`, `REGISTRATION_INVITE_TTL_HOURS` | api | Registration URL (8502 by default) and invite lifetime. |
+| `CORS_ORIGINS` | api | Allowed browser origins; defaults include ports 8503, 5174, and standalone Vite port 5173. |
+| `PUBLIC_APP_URL`, `REGISTRATION_INVITE_TTL_HOURS` | api | Registration URL (8503 by default) and invite lifetime. |
 
 ## Profiles
 

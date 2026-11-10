@@ -64,7 +64,7 @@ These are implementation inconsistencies, not documentation facts to conceal:
 | Python regression suite | Passed: 195 local-only tests, including Operational Email validation, BCC, maintenance linking, scheduling, and permission coverage; test files remain excluded from version control. |
 | Frontend production build | Passed in the Node 22 web image; the existing large MapLibre/deck.gl chunk warning remains. |
 | Backend image and Python compilation | Passed using the Python 3.11 API image. |
-| Docker Compose configuration | Passed: host ports 8099, 8102, 8502, and 5174; isolated `data-dev`; Docker's built-in bridge without a new subnet. |
+| Docker Compose configuration | Passed: host ports 8099, 8102, 8503, and 5174; isolated `data-dev`; Docker's built-in bridge without a new subnet. |
 | Nginx configuration | Passed: `nginx -t` with the dev API host-gateway alias. |
 | Whitespace | Passed: `git diff --check`. |
 
