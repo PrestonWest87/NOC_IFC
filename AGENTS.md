@@ -17,7 +17,7 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 - [x] Add the top-level Operational Email page and blanket page authorization; keep shared template-default editing administrator-only and leave non-admin role grants explicit.
 - [x] Verify dev port mappings, host-gateway proxying on the built-in bridge, and isolated `data-dev` storage alongside the existing stack.
 - [x] Run Python/migration/API and frontend/Compose checks, update reference docs, and review the diff.
-- [ ] Commit intended source only and push the completed `dev` changes.
+- [x] Commit intended source only and push the completed `dev` changes.
 
 ## Completed Implementation Plan — User, Permissions, and Application Settings
 
