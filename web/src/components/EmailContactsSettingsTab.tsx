@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Plus, Save, Trash2 } from "lucide-react";
+import { Plus, Save, Trash2, Upload } from "lucide-react";
 import api, { getApiErrorMessage } from "../utils/api";
 
 type FiberContact = {
@@ -15,6 +15,7 @@ type OnpageContact = {
   department: string;
   email: string;
 };
+type CsvImportMode = "merge" | "replace";
 
 const cardStyle: React.CSSProperties = {
   background: "var(--bg-card)", border: "1px solid var(--border-primary)",
@@ -31,6 +32,44 @@ const buttonStyle: React.CSSProperties = {
   background: "var(--accent-blue)", color: "#fff", fontWeight: 650, cursor: "pointer",
 };
 
+function CsvImportControl({ label, pending, onImport, onError }: {
+  label: string;
+  pending: boolean;
+  onImport: (csvText: string, mode: CsvImportMode) => void;
+  onError: (message: string) => void;
+}) {
+  const [mode, setMode] = useState<CsvImportMode>("merge");
+  const readFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    if (file.size > 1_000_000) {
+      onError("CSV files must be no more than 1 MB.");
+      return;
+    }
+    try {
+      onImport(await file.text(), mode);
+    } catch {
+      onError("The selected CSV file could not be read.");
+    }
+  };
+
+  return <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--text-muted)", fontSize: "0.72rem" }}>
+      Import mode
+      <select value={mode} onChange={event => setMode(event.target.value as CsvImportMode)} disabled={pending} style={{ ...inputStyle, width: "auto" }}>
+        <option value="merge">Merge / update matches</option>
+        <option value="replace">Replace all rows</option>
+      </select>
+    </label>
+    <label style={{ ...buttonStyle, opacity: pending ? 0.7 : 1 }}>
+      <Upload size={14} />Import {label} CSV
+      <input type="file" accept=".csv,text/csv" aria-label={`Import ${label} CSV`} onChange={event => { void readFile(event); }} disabled={pending} style={{ display: "none" }} />
+    </label>
+  </div>;
+}
+
 function ContactTable({
   title,
   emptyMessage,
@@ -42,6 +81,8 @@ function ContactTable({
   onChange,
   onRemove,
   onSave,
+  onImport,
+  onImportError,
 }: {
   title: string;
   emptyMessage: string;
@@ -53,11 +94,16 @@ function ContactTable({
   onChange: (index: number, key: string, value: string) => void;
   onRemove: (index: number) => void;
   onSave: () => void;
+  onImport: (csvText: string, mode: CsvImportMode) => void;
+  onImportError: (message: string) => void;
 }) {
   return <section style={{ ...cardStyle, minWidth: 0 }}>
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
       <h3 style={{ margin: 0, fontSize: "0.95rem" }}>{title}</h3>
-      {canManage && <button type="button" style={buttonStyle} onClick={onAdd}><Plus size={14} />Add contact</button>}
+      {canManage && <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <CsvImportControl label={title} pending={pending} onImport={onImport} onError={onImportError} />
+        <button type="button" style={{ ...buttonStyle, opacity: pending ? 0.7 : 1 }} onClick={onAdd} disabled={pending}><Plus size={14} />Add contact</button>
+      </div>}
     </div>
     <div style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", minWidth: 520, borderCollapse: "collapse", fontSize: "0.78rem" }}>
@@ -127,6 +173,30 @@ export function EmailContactsSettingsTab({ canManage }: { canManage: boolean }) 
     },
     onError: error => setNotice({ message: getApiErrorMessage(error, "ONPAGE contacts could not be saved."), error: true }),
   });
+  const fiberImportMutation = useMutation({
+    mutationFn: ({ csvText, mode }: { csvText: string; mode: CsvImportMode }) => api.post("/admin/email-contacts/fiber/import", {
+      csv_text: csvText, mode,
+    }).then(response => response.data),
+    onSuccess: result => {
+      setFiber(result.rows.map((row: FiberContact) => ({ ...row, phone: row.phone || "" })));
+      setNotice({ message: result.mode === "replace"
+        ? `Fiber contacts replaced with ${result.total} CSV rows.`
+        : `Fiber CSV imported: ${result.added} added, ${result.updated} updated.` });
+    },
+    onError: error => setNotice({ message: getApiErrorMessage(error, "Fiber CSV could not be imported."), error: true }),
+  });
+  const onpageImportMutation = useMutation({
+    mutationFn: ({ csvText, mode }: { csvText: string; mode: CsvImportMode }) => api.post("/admin/email-contacts/onpage/import", {
+      csv_text: csvText, mode,
+    }).then(response => response.data),
+    onSuccess: result => {
+      setOnpage(result.rows);
+      setNotice({ message: result.mode === "replace"
+        ? `ONPAGE contacts replaced with ${result.total} CSV rows.`
+        : `ONPAGE CSV imported: ${result.added} added, ${result.updated} updated.` });
+    },
+    onError: error => setNotice({ message: getApiErrorMessage(error, "ONPAGE CSV could not be imported."), error: true }),
+  });
 
   if (contactsQuery.isLoading) return <div style={{ color: "var(--text-secondary)" }}>Loading email contacts...</div>;
   if (contactsQuery.isError) return <div role="alert" style={{ color: "var(--accent-red)" }}>{getApiErrorMessage(contactsQuery.error, "Email contacts could not be loaded.")}</div>;
@@ -150,11 +220,13 @@ export function EmailContactsSettingsTab({ canManage }: { canManage: boolean }) 
       ]}
       rows={fiber}
       canManage={canManage}
-      pending={fiberMutation.isPending}
+      pending={fiberMutation.isPending || fiberImportMutation.isPending}
       onAdd={() => { setFiber(rows => [...rows, { name: "", company: "", email: "", phone: "" }]); setNotice(null); }}
       onChange={(index, key, value) => setFiber(rows => rows.map((row, rowIndex) => rowIndex === index ? { ...row, [key]: value } : row))}
       onRemove={index => setFiber(rows => rows.filter((_row, rowIndex) => rowIndex !== index))}
       onSave={() => { setNotice(null); fiberMutation.mutate(fiber); }}
+      onImport={(csvText, mode) => { setNotice(null); fiberImportMutation.mutate({ csvText, mode }); }}
+      onImportError={message => setNotice({ message, error: true })}
     />
     <ContactTable
       title="ONPAGE"
@@ -165,11 +237,13 @@ export function EmailContactsSettingsTab({ canManage }: { canManage: boolean }) 
       ]}
       rows={onpage}
       canManage={canManage}
-      pending={onpageMutation.isPending}
+      pending={onpageMutation.isPending || onpageImportMutation.isPending}
       onAdd={() => { setOnpage(rows => [...rows, { department: "", email: "" }]); setNotice(null); }}
       onChange={(index, key, value) => setOnpage(rows => rows.map((row, rowIndex) => rowIndex === index ? { ...row, [key]: value } : row))}
       onRemove={index => setOnpage(rows => rows.filter((_row, rowIndex) => rowIndex !== index))}
       onSave={() => { setNotice(null); onpageMutation.mutate(onpage); }}
+      onImport={(csvText, mode) => { setNotice(null); onpageImportMutation.mutate({ csvText, mode }); }}
+      onImportError={message => setNotice({ message, error: true })}
     />
   </div>;
 }

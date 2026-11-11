@@ -3,7 +3,7 @@
 Base URL: `http://localhost:8102/api/v1`
 WebSocket: `ws://localhost:8102/ws`
 
-This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-11 (197 paths and 213 HTTP operations). The running application's OpenAPI schema remains the source of truth.
+This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-11 (200 paths and 216 HTTP operations). The running application's OpenAPI schema remains the source of truth.
 
 ## Authentication
 
@@ -501,9 +501,17 @@ Administrator-only replacement request: `{"contacts":[{"name":"Duty Manager","ph
 
 Administrator-only replacement endpoints for the Email Contacts tab. Fiber body: `{contacts:[{name,company,email,phone?}]}`. ONPAGE body: `{contacts:[{department,email}]}`. Each list accepts up to 250 rows, trims text, validates one email address per row and validates optional Fiber phone numbers. Empty lists clear that section. Successful changes create audit entries with the saved count, not contact details.
 
+### POST /admin/email-contacts/fiber/import and POST /admin/email-contacts/onpage/import
+
+Administrator-only CSV imports with JSON body `{csv_text,mode?}` (`mode` defaults to `merge`; `replace` replaces all rows in that directory). Fiber headers are `name,company,email` with optional `phone`; ONPAGE headers are `department,email`. Header names are case-insensitive. Merge updates Fiber contacts by email and ONPAGE contacts by department, preserving existing order and appending new entries. If a Fiber CSV omits the phone column, matching contacts keep their current phone; a blank phone cell clears it. CSV parsing reports row-level validation errors.
+
 ### PUT /admin/network-orders
 
 Administrator-only replacement endpoint for Network Orders & Circuits. Body: `{records:[{a_location,z_location,circuit_network_order_id,company}]}`; up to 250 complete rows are accepted. Text is trimmed and bounded, and an empty list clears the directory.
+
+### POST /admin/network-orders/import
+
+Administrator-only CSV import with JSON body `{csv_text,mode?}` (`merge` by Circuit/Network Order ID by default, or `replace` all rows). Required headers are `a_location,z_location,circuit_network_order_id,company`; display headers such as `A location`, `Z location`, and `Circuit/Network Order ID` are accepted. Imports are limited to 1 MB and 250 data rows.
 
 ### POST /admin/location/import?mode=add|upsert|replace
 Body: array of location dicts. `replace` retains contacts for sites with the same name in the imported site list and removes contacts for sites that are removed.

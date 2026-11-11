@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Plus, Save, Trash2 } from "lucide-react";
+import { Plus, Save, Trash2, Upload } from "lucide-react";
 import api, { getApiErrorMessage } from "../utils/api";
 
 type NetworkOrderRow = {
@@ -10,6 +10,7 @@ type NetworkOrderRow = {
   circuit_network_order_id: string;
   company: string;
 };
+type CsvImportMode = "merge" | "replace";
 
 const cardStyle: React.CSSProperties = {
   background: "var(--bg-card)", border: "1px solid var(--border-primary)",
@@ -35,6 +36,42 @@ const columns: { key: keyof NetworkOrderRow; label: string }[] = [
   { key: "company", label: "Company" },
 ];
 
+function CsvImportControl({ pending, onImport, onError }: {
+  pending: boolean;
+  onImport: (csvText: string, mode: CsvImportMode) => void;
+  onError: (message: string) => void;
+}) {
+  const [mode, setMode] = useState<CsvImportMode>("merge");
+  const readFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    if (file.size > 1_000_000) {
+      onError("CSV files must be no more than 1 MB.");
+      return;
+    }
+    try {
+      onImport(await file.text(), mode);
+    } catch {
+      onError("The selected CSV file could not be read.");
+    }
+  };
+  return <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--text-muted)", fontSize: "0.72rem" }}>
+      Import mode
+      <select value={mode} onChange={event => setMode(event.target.value as CsvImportMode)} disabled={pending} style={{ ...inputStyle, width: "auto" }}>
+        <option value="merge">Merge / update matches</option>
+        <option value="replace">Replace all rows</option>
+      </select>
+    </label>
+    <label style={{ ...buttonStyle, opacity: pending ? 0.7 : 1 }}>
+      <Upload size={14} />Import CSV
+      <input type="file" accept=".csv,text/csv" aria-label="Import network orders and circuits CSV" onChange={event => { void readFile(event); }} disabled={pending} style={{ display: "none" }} />
+    </label>
+  </div>;
+}
+
 export function NetworkOrdersCircuitsTab({ canManage }: { canManage: boolean }) {
   const [records, setRecords] = useState<NetworkOrderRow[]>([]);
   const [notice, setNotice] = useState<{ message: string; error?: boolean } | null>(null);
@@ -59,6 +96,18 @@ export function NetworkOrdersCircuitsTab({ canManage }: { canManage: boolean }) 
     },
     onError: error => setNotice({ message: getApiErrorMessage(error, "Network orders and circuits could not be saved."), error: true }),
   });
+  const importMutation = useMutation({
+    mutationFn: ({ csvText, mode }: { csvText: string; mode: CsvImportMode }) => api.post("/admin/network-orders/import", {
+      csv_text: csvText, mode,
+    }).then(response => response.data),
+    onSuccess: result => {
+      setRecords(result.rows);
+      setNotice({ message: result.mode === "replace"
+        ? `Network-order/circuit records replaced with ${result.total} CSV rows.`
+        : `CSV imported: ${result.added} added, ${result.updated} updated.` });
+    },
+    onError: error => setNotice({ message: getApiErrorMessage(error, "Network orders and circuits CSV could not be imported."), error: true }),
+  });
 
   if (recordsQuery.isLoading) return <div style={{ color: "var(--text-secondary)" }}>Loading network orders and circuits...</div>;
   if (recordsQuery.isError) return <div role="alert" style={{ color: "var(--accent-red)" }}>{getApiErrorMessage(recordsQuery.error, "Network orders and circuits could not be loaded.")}</div>;
@@ -72,7 +121,14 @@ export function NetworkOrdersCircuitsTab({ canManage }: { canManage: boolean }) 
     <section style={{ ...cardStyle, minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
         <h4 style={{ margin: 0, fontSize: "0.9rem" }}>Circuit / Network Order Records</h4>
-        {canManage && <button type="button" style={buttonStyle} onClick={() => { setRecords(rows => [...rows, { ...emptyRow }]); setNotice(null); }}><Plus size={14} />Add record</button>}
+        {canManage && <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <CsvImportControl
+            pending={saveMutation.isPending || importMutation.isPending}
+            onImport={(csvText, mode) => { setNotice(null); importMutation.mutate({ csvText, mode }); }}
+            onError={message => setNotice({ message, error: true })}
+          />
+          <button type="button" style={buttonStyle} onClick={() => { setRecords(rows => [...rows, { ...emptyRow }]); setNotice(null); }}><Plus size={14} />Add record</button>
+        </div>}
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", minWidth: 760, borderCollapse: "collapse", fontSize: "0.78rem" }}>
@@ -86,7 +142,7 @@ export function NetworkOrdersCircuitsTab({ canManage }: { canManage: boolean }) 
                 aria-label={`${column.label} ${index + 1}`}
                 value={row[column.key]}
                 maxLength={column.key === "a_location" || column.key === "z_location" ? 250 : column.key === "circuit_network_order_id" ? 200 : 200}
-                disabled={!canManage || saveMutation.isPending}
+                disabled={!canManage || saveMutation.isPending || importMutation.isPending}
                 onChange={event => setRecords(current => current.map((record, rowIndex) => rowIndex === index
                   ? { ...record, [column.key]: event.target.value }
                   : record))}
@@ -94,7 +150,7 @@ export function NetworkOrdersCircuitsTab({ canManage }: { canManage: boolean }) 
               />
             </td>)}
             {canManage && <td style={{ padding: "0.4rem", borderBottom: "1px solid var(--border-primary)" }}>
-              <button type="button" aria-label={`Remove network order row ${index + 1}`} onClick={() => setRecords(current => current.filter((_record, rowIndex) => rowIndex !== index))} disabled={saveMutation.isPending}
+              <button type="button" aria-label={`Remove network order row ${index + 1}`} onClick={() => setRecords(current => current.filter((_record, rowIndex) => rowIndex !== index))} disabled={saveMutation.isPending || importMutation.isPending}
                 style={{ background: "transparent", border: 0, color: "var(--accent-red)", cursor: "pointer" }}><Trash2 size={16} /></button>
             </td>}
           </tr>)}
@@ -102,7 +158,7 @@ export function NetworkOrdersCircuitsTab({ canManage }: { canManage: boolean }) 
           </tbody>
         </table>
       </div>
-      {canManage && <div style={{ marginTop: 12 }}><button type="button" onClick={() => { setNotice(null); saveMutation.mutate(records); }} disabled={saveMutation.isPending} style={{ ...buttonStyle, opacity: saveMutation.isPending ? 0.7 : 1 }}><Save size={14} />{saveMutation.isPending ? "Saving..." : "Save records"}</button></div>}
+      {canManage && <div style={{ marginTop: 12 }}><button type="button" onClick={() => { setNotice(null); saveMutation.mutate(records); }} disabled={saveMutation.isPending || importMutation.isPending} style={{ ...buttonStyle, opacity: saveMutation.isPending ? 0.7 : 1 }}><Save size={14} />{saveMutation.isPending ? "Saving..." : "Save records"}</button></div>}
     </section>
   </div>;
 }

@@ -144,11 +144,11 @@ The UI contains Profile, Theme, Facilities, Email Contacts, Network Orders & Cir
 
 ### Email Contacts
 
-Administrators maintain separate Fiber contacts (Name, Company, Email, Phone) and ONPAGE contacts (Department, Email). Contacts are trimmed, validated, and saved as ordered directory rows. A tab grant is required to read the directory; only administrators can replace its rows.
+Administrators maintain separate Fiber contacts (Name, Company, Email, Phone) and ONPAGE contacts (Department, Email). Rows can be edited directly or imported from separate CSV files. CSV import defaults to merging/updating matching records; choose Replace all rows to replace that directory with the file. A tab grant is required to read the directory; only administrators can save or import rows.
 
 ### Network Orders & Circuits
 
-This tab stores circuit/network-order mappings with A location, Z location, Circuit/Network Order ID, and Company. Administrators can add, edit, remove, and save up to 250 ordered records. A separate tab grant controls directory read access.
+This tab stores circuit/network-order mappings with A location, Z location, Circuit/Network Order ID, and Company. Administrators can add, edit, remove, save, or import CSV files containing these columns. Import defaults to merging by Circuit/Network Order ID; Replace all rows is also available. A separate tab grant controls directory read access.
 
 ### Users & Roles
 

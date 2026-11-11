@@ -35,7 +35,7 @@ Operational Email uses the global SMTP sender configured in Settings > AI & SMTP
 
 The Morning Report takes `SystemConfig.rolling_summary` (the latest Global Dashboard shift analysis) at delivery time and sends the stored text without a generated report header or executive-summary wrapper. Fiber outage follow-ups and resolution emails require a successfully sent Fiber Outage source record. Admin-managed signatures are optional and captured in message/schedule snapshots; deactivating a signature does not change existing scheduled sends or delivery history.
 
-Settings > Email Contacts contains separate Fiber company and ONPAGE department directories. Settings > Network Orders & Circuits contains ordered A/Z location, circuit/network-order ID, and company mappings. Reads require the matching Settings tab grant; directory replacements are administrator-only and audited without including row values in audit details.
+Settings > Email Contacts contains separate Fiber company and ONPAGE department directories. Settings > Network Orders & Circuits contains ordered A/Z location, circuit/network-order ID, and company mappings. Each directory supports CSV imports; merge/update is the default and replace-all mode is explicit. Reads require the matching Settings tab grant; changes are administrator-only and audited without including row values in audit details.
 
 ## Environment Variables
 

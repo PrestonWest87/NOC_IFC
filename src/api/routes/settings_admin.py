@@ -11,7 +11,7 @@ import json
 from fastapi import APIRouter, Query, Body, HTTPException, UploadFile, File, Depends, BackgroundTasks, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
-from typing import Any
+from typing import Any, Literal
 
 from src import services as svc
 from src.api.auth_guard import require_admin
@@ -97,6 +97,14 @@ class NetworkOrderCircuitsUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     records: list[NetworkOrderCircuitInput] = Field(max_length=250)
+
+
+class SettingsDirectoryCsvImport(BaseModel):
+    """CSV file contents and safe merge/replace mode for a Settings directory."""
+    model_config = ConfigDict(extra="forbid")
+
+    csv_text: str = Field(min_length=1, max_length=1_000_000)
+    mode: Literal["merge", "replace"] = "merge"
 
 
 def _send_invitation_email(recipient: str, username: str, role: str, link: str, expires_at: str):
@@ -379,6 +387,20 @@ def update_fiber_email_contacts(data: FiberEmailContactsUpdate, user=Depends(req
     return {"status": "ok", "contacts": contacts}
 
 
+@router.post("/email-contacts/fiber/import")
+def import_fiber_email_contacts(data: SettingsDirectoryCsvImport, user=Depends(require_admin)):
+    """Import Fiber contacts from CSV using merge-by-email or replace mode."""
+    try:
+        result = svc.import_fiber_email_contacts_csv(data.csv_text, data.mode, user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    logger.info(
+        "POST /admin/email-contacts/fiber/import mode=%s imported=%d total=%d",
+        data.mode, result["imported_rows"], result["total"],
+    )
+    return result
+
+
 @router.put("/email-contacts/onpage")
 def update_onpage_email_contacts(data: OnpageEmailContactsUpdate, user=Depends(require_admin)):
     """Replace ONPAGE department email rows; messages are not sent to these contacts automatically."""
@@ -393,6 +415,20 @@ def update_onpage_email_contacts(data: OnpageEmailContactsUpdate, user=Depends(r
     return {"status": "ok", "contacts": contacts}
 
 
+@router.post("/email-contacts/onpage/import")
+def import_onpage_email_contacts(data: SettingsDirectoryCsvImport, user=Depends(require_admin)):
+    """Import ONPAGE contacts from CSV using merge-by-department or replace mode."""
+    try:
+        result = svc.import_onpage_email_contacts_csv(data.csv_text, data.mode, user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    logger.info(
+        "POST /admin/email-contacts/onpage/import mode=%s imported=%d total=%d",
+        data.mode, result["imported_rows"], result["total"],
+    )
+    return result
+
+
 @router.put("/network-orders")
 def update_network_order_circuits(data: NetworkOrderCircuitsUpdate, user=Depends(require_admin)):
     """Replace the A/Z circuit/network-order table and audit the record count only."""
@@ -405,6 +441,20 @@ def update_network_order_circuits(data: NetworkOrderCircuitsUpdate, user=Depends
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     logger.info("PUT /admin/network-orders count=%d", len(records))
     return {"status": "ok", "records": records}
+
+
+@router.post("/network-orders/import")
+def import_network_order_circuits(data: SettingsDirectoryCsvImport, user=Depends(require_admin)):
+    """Import circuits/network orders from CSV using merge-by-ID or replace mode."""
+    try:
+        result = svc.import_network_order_circuits_csv(data.csv_text, data.mode, user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    logger.info(
+        "POST /admin/network-orders/import mode=%s imported=%d total=%d",
+        data.mode, result["imported_rows"], result["total"],
+    )
+    return result
 
 
 @router.post("/location/import")

@@ -310,20 +310,22 @@ def get_fiber_email_contacts():
     return _serialize_settings_reference_rows(FiberEmailContact)
 
 
+def _normalize_fiber_email_contact(contact):
+    email = normalize_site_contact_value("email", contact.get("email"))
+    if not email:
+        raise ValueError("Fiber contact email is required.")
+    return {
+        "name": _required_reference_text(contact.get("name"), "Name", 128),
+        "company": _required_reference_text(contact.get("company"), "Company", 200),
+        "email": email,
+        "phone": normalize_site_contact_value("phone", contact.get("phone")),
+    }
+
+
 def replace_fiber_email_contacts(contacts, actor_user_id):
     """Replace Fiber contacts after validating name, company, single email, and phone."""
     _validate_reference_rows(contacts, "Fiber contacts", {"name", "company", "email", "phone"})
-    normalized = []
-    for contact in contacts:
-        email = normalize_site_contact_value("email", contact.get("email"))
-        if not email:
-            raise ValueError("Fiber contact email is required.")
-        normalized.append({
-            "name": _required_reference_text(contact.get("name"), "Name", 128),
-            "company": _required_reference_text(contact.get("company"), "Company", 200),
-            "email": email,
-            "phone": normalize_site_contact_value("phone", contact.get("phone")),
-        })
+    normalized = [_normalize_fiber_email_contact(contact) for contact in contacts]
     return _replace_settings_reference_rows(
         FiberEmailContact,
         normalized,
@@ -337,18 +339,20 @@ def get_onpage_email_contacts():
     return _serialize_settings_reference_rows(OnpageEmailContact)
 
 
+def _normalize_onpage_email_contact(contact):
+    email = normalize_site_contact_value("email", contact.get("email"))
+    if not email:
+        raise ValueError("ONPAGE contact email is required.")
+    return {
+        "department": _required_reference_text(contact.get("department"), "Department", 128),
+        "email": email,
+    }
+
+
 def replace_onpage_email_contacts(contacts, actor_user_id):
     """Replace ONPAGE routing contacts after validating department and single email."""
     _validate_reference_rows(contacts, "ONPAGE contacts", {"department", "email"})
-    normalized = []
-    for contact in contacts:
-        email = normalize_site_contact_value("email", contact.get("email"))
-        if not email:
-            raise ValueError("ONPAGE contact email is required.")
-        normalized.append({
-            "department": _required_reference_text(contact.get("department"), "Department", 128),
-            "email": email,
-        })
+    normalized = [_normalize_onpage_email_contact(contact) for contact in contacts]
     return _replace_settings_reference_rows(
         OnpageEmailContact,
         normalized,
@@ -362,6 +366,17 @@ def get_network_order_circuits():
     return _serialize_settings_reference_rows(NetworkOrderCircuit)
 
 
+def _normalize_network_order_circuit(record):
+    return {
+        "a_location": _required_reference_text(record.get("a_location"), "A location", 250),
+        "z_location": _required_reference_text(record.get("z_location"), "Z location", 250),
+        "circuit_network_order_id": _required_reference_text(
+            record.get("circuit_network_order_id"), "Circuit/Network Order ID", 200
+        ),
+        "company": _required_reference_text(record.get("company"), "Company", 200),
+    }
+
+
 def replace_network_order_circuits(records, actor_user_id):
     """Replace network-order/circuit records after validating every displayed field."""
     _validate_reference_rows(
@@ -369,21 +384,194 @@ def replace_network_order_circuits(records, actor_user_id):
         "Network orders and circuits",
         {"a_location", "z_location", "circuit_network_order_id", "company"},
     )
-    normalized = []
-    for record in records:
-        normalized.append({
-            "a_location": _required_reference_text(record.get("a_location"), "A location", 250),
-            "z_location": _required_reference_text(record.get("z_location"), "Z location", 250),
-            "circuit_network_order_id": _required_reference_text(
-                record.get("circuit_network_order_id"), "Circuit/Network Order ID", 200
-            ),
-            "company": _required_reference_text(record.get("company"), "Company", 200),
-        })
+    normalized = [_normalize_network_order_circuit(record) for record in records]
     return _replace_settings_reference_rows(
         NetworkOrderCircuit,
         normalized,
         actor_user_id=actor_user_id,
         event_type="network_order_circuits_replaced",
+    )
+
+
+def _parse_settings_reference_csv(csv_text, directory, aliases, required_fields, normalize_row):
+    """Parse a bounded CSV whose header names map to one Settings reference table."""
+    import csv
+    import io
+
+    if not isinstance(csv_text, str) or not csv_text.strip():
+        raise ValueError("CSV content is required.")
+    if len(csv_text) > 1_000_000:
+        raise ValueError("CSV content must be no more than 1,000,000 characters.")
+
+    try:
+        reader = csv.DictReader(io.StringIO(csv_text, newline=""))
+        headers = reader.fieldnames or []
+        if not headers:
+            raise ValueError("CSV must include a header row.")
+        header_map = {}
+        unknown_headers = []
+        duplicate_headers = []
+        for source_header in headers:
+            normalized_header = re.sub(
+                r"[^a-z0-9]+", "_", str(source_header).lstrip("\ufeff").strip().casefold()
+            ).strip("_")
+            field_name = aliases.get(normalized_header)
+            if not field_name:
+                unknown_headers.append(str(source_header))
+            elif field_name in header_map:
+                duplicate_headers.append(field_name)
+            else:
+                header_map[field_name] = source_header
+        if unknown_headers:
+            raise ValueError(f"Unsupported {directory} CSV column(s): {', '.join(unknown_headers)}.")
+        if duplicate_headers:
+            raise ValueError(f"CSV contains duplicate columns for: {', '.join(sorted(set(duplicate_headers)))}.")
+        missing = set(required_fields) - set(header_map)
+        if missing:
+            raise ValueError(f"{directory} CSV is missing required column(s): {', '.join(sorted(missing))}.")
+
+        records = []
+        for row_number, source_row in enumerate(reader, start=2):
+            if None in source_row:
+                raise ValueError(f"CSV row {row_number} has more values than the header row.")
+            row = {field: source_row.get(header, "") for field, header in header_map.items()}
+            if all(value is None or not str(value).strip() for value in row.values()):
+                continue
+            try:
+                records.append(normalize_row(row))
+            except ValueError as exc:
+                raise ValueError(f"CSV row {row_number}: {exc}") from exc
+            if len(records) > SETTINGS_REFERENCE_MAX_ROWS:
+                raise ValueError(f"{directory} CSV can contain at most {SETTINGS_REFERENCE_MAX_ROWS} data rows.")
+        return records, set(header_map)
+    except csv.Error as exc:
+        raise ValueError(f"CSV could not be parsed: {exc}") from exc
+
+
+def _merge_settings_reference_rows(
+    existing,
+    incoming,
+    fields,
+    identity_fields,
+    *,
+    provided_fields,
+    preserve_if_unprovided=(),
+):
+    """Merge imported entries by a case-insensitive natural key, preserving list order."""
+    merged = [{field: row[field] for field in fields} for row in existing]
+    positions = {
+        tuple(str(row[field]).casefold() for field in identity_fields): index
+        for index, row in enumerate(merged)
+    }
+    added = 0
+    updated = 0
+    for row in incoming:
+        identity = tuple(str(row[field]).casefold() for field in identity_fields)
+        if identity in positions:
+            index = positions[identity]
+            updated_row = dict(row)
+            for field in preserve_if_unprovided:
+                if field not in provided_fields:
+                    updated_row[field] = merged[index].get(field)
+            merged[index] = updated_row
+            updated += 1
+        else:
+            positions[identity] = len(merged)
+            merged.append(row)
+            added += 1
+    return merged, added, updated
+
+
+def _import_settings_reference_csv(csv_text, mode, *, directory, aliases, required_fields,
+                                   normalize_row, current_rows, fields, identity_fields,
+                                   replace_rows, actor_user_id, preserve_if_unprovided=()):
+    if mode not in {"merge", "replace"}:
+        raise ValueError("CSV import mode must be 'merge' or 'replace'.")
+    incoming, provided_fields = _parse_settings_reference_csv(
+        csv_text, directory, aliases, required_fields, normalize_row
+    )
+    if mode == "replace":
+        rows = incoming
+        added = len(incoming)
+        updated = 0
+    else:
+        existing = current_rows()
+        rows, added, updated = _merge_settings_reference_rows(
+            existing,
+            incoming,
+            fields,
+            identity_fields,
+            provided_fields=provided_fields,
+            preserve_if_unprovided=preserve_if_unprovided,
+        )
+    saved = replace_rows(rows, actor_user_id)
+    return {
+        "status": "imported",
+        "mode": mode,
+        "imported_rows": len(incoming),
+        "added": added,
+        "updated": updated,
+        "total": len(saved),
+        "rows": saved,
+    }
+
+
+def import_fiber_email_contacts_csv(csv_text, mode, actor_user_id):
+    """Import a Fiber contact CSV, merging by email or replacing the list."""
+    return _import_settings_reference_csv(
+        csv_text,
+        mode,
+        directory="Fiber contacts",
+        aliases={"name": "name", "company": "company", "email": "email", "phone": "phone"},
+        required_fields={"name", "company", "email"},
+        normalize_row=_normalize_fiber_email_contact,
+        current_rows=get_fiber_email_contacts,
+        fields=("name", "company", "email", "phone"),
+        identity_fields=("email",),
+        replace_rows=replace_fiber_email_contacts,
+        actor_user_id=actor_user_id,
+        preserve_if_unprovided=("phone",),
+    )
+
+
+def import_onpage_email_contacts_csv(csv_text, mode, actor_user_id):
+    """Import an ONPAGE contact CSV, merging by department or replacing the list."""
+    return _import_settings_reference_csv(
+        csv_text,
+        mode,
+        directory="ONPAGE contacts",
+        aliases={"department": "department", "email": "email"},
+        required_fields={"department", "email"},
+        normalize_row=_normalize_onpage_email_contact,
+        current_rows=get_onpage_email_contacts,
+        fields=("department", "email"),
+        identity_fields=("department",),
+        replace_rows=replace_onpage_email_contacts,
+        actor_user_id=actor_user_id,
+    )
+
+
+def import_network_order_circuits_csv(csv_text, mode, actor_user_id):
+    """Import network circuit/order CSV, merging by circuit/order ID or replacing the list."""
+    return _import_settings_reference_csv(
+        csv_text,
+        mode,
+        directory="Network orders and circuits",
+        aliases={
+            "a_location": "a_location",
+            "z_location": "z_location",
+            "circuit_network_order_id": "circuit_network_order_id",
+            "circuit_id": "circuit_network_order_id",
+            "network_order_id": "circuit_network_order_id",
+            "company": "company",
+        },
+        required_fields={"a_location", "z_location", "circuit_network_order_id", "company"},
+        normalize_row=_normalize_network_order_circuit,
+        current_rows=get_network_order_circuits,
+        fields=("a_location", "z_location", "circuit_network_order_id", "company"),
+        identity_fields=("circuit_network_order_id",),
+        replace_rows=replace_network_order_circuits,
+        actor_user_id=actor_user_id,
     )
 
 
