@@ -37,7 +37,7 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 - [x] Add separate CSV import workflows for Fiber contacts, ONPAGE contacts, and network-order/circuit records.
 - [x] Validate row fields, bounds, single email addresses/phones, preserve display order, and audit replacements without storing contact values in audit details.
 - [x] Update API, permission, schema, Settings UI/source documentation, and local-only service/API/migration tests.
-- [ ] Verify fresh and existing SQLite migrations, Python suite, frontend/API/Compose builds, docs contracts, and dev health; review and push intended source/docs only to `dev`.
+- [x] Verify fresh and existing SQLite migrations, Python suite, frontend/API/Compose builds, docs contracts, and dev health; review and push intended source/docs only to `dev`.
 
 ## Completed Implementation Plan — User, Permissions, and Application Settings
 
