@@ -4,7 +4,7 @@
 
 Enterprise intelligence HUD for Network Operations Centers. Ingests RSS feeds, weather/telemetry data, crime incidents, and SolarWinds alerts. Processes through an AI-powered correlation engine with CIS scoring, generates risk briefs, and provides real-time visualization via a React SPA with WebSocket updates.
 
-The application rewrite is on `architecture/monolith-to-decoupled` — a decoupled FastAPI + React SPA. Earlier completed work was user-directed on `main`; for the current Operational Email implementation, the user has directed that all changes remain on the published `dev` branch based on `origin/main`.
+The application rewrite is on `architecture/monolith-to-decoupled` — a decoupled FastAPI + React SPA. Earlier completed work was user-directed on `main`; current Operational Email and Settings reference-directory work remains on the published `dev` branch based on `origin/main`.
 
 Automated tests under `tests/` are local-only and intentionally excluded from version control by user request. Do not stage or re-add test files unless asked.
 
@@ -27,6 +27,16 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 - [x] Add administrator-managed signatures with default/optional selection and immutable sent/scheduled snapshots.
 - [x] Update migration, API/UI/source docs, local-only tests, and verify fresh/existing SQLite upgrades, Python suite, frontend/container builds, and dev Compose health.
 - [x] Review and push intended source/docs only to `dev`; preserve unrelated untracked integration-plan documents and keep test files unstaged.
+
+## Active Implementation Plan — Settings Email Contacts and Network Orders
+
+**Implementation branch:** `dev`. Keep this user-directed feature on `dev`; do not merge it into `main` or `architecture/monolith-to-decoupled` without a later request. Preserve unrelated untracked integration-plan documents and keep local-only tests unstaged.
+
+- [x] Add Fiber and ONPAGE email contact directories and an A/Z network-order/circuit reference table with an additive SQLite migration.
+- [x] Add the Email Contacts and Network Orders & Circuits Settings tabs, explicit tab grants, read endpoints, and administrator-only table replacement endpoints.
+- [x] Validate row fields, bounds, single email addresses/phones, preserve display order, and audit replacements without storing contact values in audit details.
+- [x] Update API, permission, schema, Settings UI/source documentation, and local-only service/API/migration tests.
+- [ ] Verify fresh and existing SQLite migrations, Python suite, frontend/API/Compose builds, docs contracts, and dev health; review and push intended source/docs only to `dev`.
 
 ## Completed Implementation Plan — User, Permissions, and Application Settings
 
@@ -197,7 +207,7 @@ See [docs/README.md](docs/README.md) for the complete documentation catalog. The
 | [USER_GUIDE.md](docs/USER_GUIDE.md) | Current workspace features and operator workflows |
 | [API.md](docs/API.md) | Complete REST operation inventory and endpoint behavior; path/method coverage is checked against the FastAPI OpenAPI schema |
 | [PERMISSIONS.md](docs/PERMISSIONS.md) | Exact page, tab, action, site-type, built-in-role, and enforcement contracts |
-| [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | All 41 tables with columns, types, constraints, indexes, relationships, migration strategy, retention policies |
+| [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | All 44 tables with columns, types, constraints, indexes, relationships, migration strategy, retention policies |
 | [MIGRATION_COMPATIBILITY.md](docs/MIGRATION_COMPATIBILITY.md) | Supported older SQLite upgrade shapes, additive migration behavior, failure handling, and safety-test coverage |
 | [DATA_FLOWS.md](docs/DATA_FLOWS.md) | Ingestion, scoring, internal risk, reporting, webhook/AIOps, hazard/telemetry, provider-worker, and retention flows |
 | [TRIGGER_ACTION_FLOWS.md](docs/TRIGGER_ACTION_FLOWS.md) | Every trigger (webhook, scheduler, user action, WebSocket) mapped to its complete action flow |
@@ -324,9 +334,12 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `src/core/backup_manager.py` | Authenticated encrypted full backups, retention, upload validation, and offline restore |
 | `src/core/restore_control.py` | Cross-process maintenance marker, API drain counters, and restore progress state |
 | `src/core/ui_restore.py` | UI restore orchestration, writer quiescence, and runtime refresh |
-| `src/models/schema.py` | 41 SQLAlchemy models |
+| `src/models/schema.py` | 44 SQLAlchemy models |
 | `src/core/permissions.py` | Canonical page, tab, and action permission catalog |
 | `src/core/site_contact_validation.py` | Shared server-side validation for optional site contact fields |
+| `src/api/routes/settings.py` | Settings reads, including tab-authorized Email Contacts and Network Orders directories |
+| `web/src/components/EmailContactsSettingsTab.tsx` | Fiber and ONPAGE email-contact directory editor/read view |
+| `web/src/components/NetworkOrdersCircuitsTab.tsx` | A/Z circuit and network-order directory editor/read view |
 | `src/core/arkansas_coverage.py` | Projected 50-mile Arkansas-border buffer, NWS geocode matching, and CAP active-time filtering |
 | `src/core/scheduler_registry.py` | Scheduler defaults, bounds, timezone, and startup policy |
 | `src/scheduler.py` | Background job orchestrator and frequency controls |
@@ -376,7 +389,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 - **compile-map response format**: `[processed_geo, {}, diagnostics, toggled_affected_sites, master_affected_sites, analytics]` — the frontend consumes the six positions by index.
 - **Web container has source mount with hot reload** in dev mode: changes to `web/` files reflected instantly via Vite HMR.
 - **Brief generation_id persisted in sessionStorage**: survives SPA navigation; polling resumes on return.
-- **Current implementation branch:** `dev`, as requested for Operational Email. Keep this feature exclusively on `dev`; synchronize elsewhere only after a later user request.
+- **Current implementation branch:** `dev`, as directed for Operational Email and the Settings reference-directory work. Keep these changes on `dev`; synchronize elsewhere only after a later user request.
 
 ## What's Been Done (Changelog)
 

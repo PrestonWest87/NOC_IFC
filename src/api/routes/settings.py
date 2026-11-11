@@ -65,6 +65,27 @@ def get_facility_locations(user=Depends(get_current_user)):
     return [location for location in locations if location.get("loc_type") in allowed_types]
 
 
+@router.get("/email-contacts", dependencies=[
+    Depends(require_page("Settings & Admin")),
+    Depends(require_action("Tab: Settings -> Email Contacts")),
+])
+def get_email_contacts():
+    """Return Fiber and ONPAGE contact directories to users granted this Settings tab."""
+    return {
+        "fiber": svc.get_fiber_email_contacts(),
+        "onpage": svc.get_onpage_email_contacts(),
+    }
+
+
+@router.get("/network-orders", dependencies=[
+    Depends(require_page("Settings & Admin")),
+    Depends(require_action("Tab: Settings -> Network Orders & Circuits")),
+])
+def get_network_orders():
+    """Return the circuit/network-order directory to users granted its Settings tab."""
+    return {"records": svc.get_network_order_circuits()}
+
+
 @router.get("/rss", dependencies=[
     Depends(require_page("Settings & Admin")),
     Depends(require_action("Tab: Settings -> RSS Sources")),

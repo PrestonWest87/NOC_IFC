@@ -11,7 +11,7 @@ This module is loaded through `src/services/__init__.py` and is the active data-
 - Article/report helpers: `get_article_detail`, `get_articles_by_ids`, `parse_search_terms`, `generate_custom_report_email_html`.
 - Brief helpers: `generate_global_brief_email_html`, `generate_internal_brief_email_html`, `trigger_global_brief`, `trigger_internal_brief`, and progress-generation IDs.
 - Import/export helpers: `import_software_assets_csv`, `import_hardware_assets_csv`, `export_all_tables`, `import_all_tables`, `restore_from_db_upload`.
-- Site contact operations: `get_site_contacts`, `replace_site_contacts`, and shared field validation in `src.core.site_contact_validation`.
+- Site/reference directory operations: `get_site_contacts`, `replace_site_contacts`, Fiber/ONPAGE email contacts, network-order circuits, and shared contact validation in `src.core.site_contact_validation`.
 - Regional helpers: `get_trigger_token`, `get_eq_color`, `process_usgs_quakes`, `rank_hazard`, and `get_primary_label`.
 - Scoring/AI helpers: `update_keyword_weight`, `_build_fallback_summary`, and `run_llm`.
 - Account administration: user-directory/profile/role/status helpers, individual invitations, email-change review and verification, password-reset review and single-use tokens, session revocation, and account audit events.
@@ -162,6 +162,16 @@ A utility class extending `dict` to allow dot-notation attribute access.
 **Validation:** Shared normalization bounds names to 128 characters, phones to 64, emails to 254, and contacts to 50 per site. A nonblank email must be one valid address; a nonblank phone supports common international formatting and optional extensions, with 7–15 number digits.
 
 **Dependencies:** `MonitoredLocation`, `MonitoredLocationContact`, `SessionLocal`, `src.core.site_contact_validation`
+
+---
+
+### Settings email-contact and network-order directories
+
+`get_fiber_email_contacts()`, `replace_fiber_email_contacts(contacts, actor_user_id)`, `get_onpage_email_contacts()`, `replace_onpage_email_contacts(contacts, actor_user_id)`, `get_network_order_circuits()`, and `replace_network_order_circuits(records, actor_user_id)` read or replace their ordered Settings reference tables.
+
+Replacement validates required text, length/control-character bounds, a single email address per contact, and optional international-style Fiber phone values. Each directory is capped at 250 rows; replacement preserves submitted order and supports an empty-list clear. Account-audit events record the directory operation and row count only, not contact or circuit values.
+
+**Dependencies:** `FiberEmailContact`, `OnpageEmailContact`, `NetworkOrderCircuit`, `AccountAuditEvent`, `SessionLocal`, `src.core.site_contact_validation`
 
 ---
 

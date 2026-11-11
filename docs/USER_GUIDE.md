@@ -140,7 +140,15 @@ Overview, keyword ranking, category breakdown, timeline, score distribution, and
 
 ## Settings & Admin (`#/settings`)
 
-The UI contains Profile, Theme, Facilities, Internal Assets, RSS Sources, ML Training, AI & SMTP, Application Settings, Users & Roles, Backup & Restore, and Danger Zone. Profile and Theme are self-service views once the Settings page is granted. The other sections use independent tab permissions; data changes require additional action permissions or the built-in administrator role.
+The UI contains Profile, Theme, Facilities, Email Contacts, Network Orders & Circuits, Internal Assets, RSS Sources, ML Training, AI & SMTP, Application Settings, Users & Roles, Backup & Restore, and Danger Zone. Profile and Theme are self-service views once the Settings page is granted. The other sections use independent tab permissions; data changes require additional action permissions or the built-in administrator role.
+
+### Email Contacts
+
+Administrators maintain separate Fiber contacts (Name, Company, Email, Phone) and ONPAGE contacts (Department, Email). Contacts are trimmed, validated, and saved as ordered directory rows. A tab grant is required to read the directory; only administrators can replace its rows.
+
+### Network Orders & Circuits
+
+This tab stores circuit/network-order mappings with A location, Z location, Circuit/Network Order ID, and Company. Administrators can add, edit, remove, and save up to 250 ordered records. A separate tab grant controls directory read access.
 
 ### Users & Roles
 

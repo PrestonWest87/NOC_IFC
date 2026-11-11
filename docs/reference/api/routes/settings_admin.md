@@ -30,10 +30,15 @@ Prefix: `/api/v1/admin`. The entire router has `Depends(require_admin)`: a built
 | `GET /location` | Returns cached monitored locations (unscoped administrator view). |
 | `GET /location/{location_id}/contacts` | Returns `{contacts:[...]}` for one site; contacts are separate from shared location payloads. |
 | `PUT /location/{location_id}/contacts` | Administrator-only replacement with `{contacts:[{name,phone,email}]}`. Fields are optional; email and international-style phone values are validated, entries are trimmed, and fully blank rows are dropped. Maximum 50 contacts per site. |
+| `PUT /email-contacts/fiber` | Replace up to 250 Fiber contacts with `{contacts:[{name,company,email,phone?}]}`; email is required, phone is optional, values are validated, and the saved count is audited. |
+| `PUT /email-contacts/onpage` | Replace up to 250 ONPAGE department destinations with `{contacts:[{department,email}]}`; both fields are required and validated. |
+| `PUT /network-orders` | Replace up to 250 `{a_location,z_location,circuit_network_order_id,company}` reference rows. |
 | `POST /location/import?mode=add|upsert|replace` | JSON array of location objects. The route validates mode, returns `{status, mode, count}`, and clears the location cache. `replace` recreates the site list while preserving contacts for sites whose names remain in the imported list. |
 | `PUT /location` | JSON array of edited location records; service updates rows by ID and clears the location cache. |
 
-Contact API responses and writes are administrator-only. They are not included in `GET /location`, `/settings/facilities`, regional, or AIOps site payloads. Contact emails appear as text only in automatic ONPAGE message bodies and are not used as recipients.
+Monitored-site contact API responses and writes are administrator-only. These site contacts are not included in `GET /location`, `/settings/facilities`, regional, or AIOps site payloads; their email addresses appear as reference text only in automatic ONPAGE message bodies and are not used as recipients.
+
+The Fiber, ONPAGE, and network-order directories are independent Settings reference data. Reads require their respective Settings tab grants; writes are administrator-only. Replacement preserves row order and records only counts in the audit trail.
 
 The full role-aware individual/display-account workflow, invitation queue, recovery review, session revocation, and audit behavior is documented in [`routes/user_admin.md`](user_admin.md).
 

@@ -1,18 +1,18 @@
 # SettingsPage.tsx
 
-Settings & Admin page. Provides eleven tabs: Profile, Theme, Facilities, Internal Assets, RSS Sources, ML Training, AI & SMTP, Application Settings, Users & Roles, Backup & Restore, and Danger Zone.
+Settings & Admin page. Provides thirteen tabs: Profile, Theme, Facilities, Email Contacts, Network Orders & Circuits, Internal Assets, RSS Sources, ML Training, AI & SMTP, Application Settings, Users & Roles, Backup & Restore, and Danger Zone.
 
 ## Current Source Behavior
 
-The role editor loads the backend permission catalog and groups page, tab, action, and site-type grants. User management is a searchable directory with separate individual-invitation and display-account creation, account status and access history, session revocation, and reviewed recovery requests. Application Settings contains risk scoring, scheduler, and global defaults. A tab grant controls visibility; component permissions and backend route dependencies control edits. Backup, restore, and danger-zone operations remain administrator-only.
+The Email Contacts tab contains editable Fiber (Name, Company, Email, Phone) and ONPAGE (Department, Email) directories. Network Orders & Circuits stores A location, Z location, Circuit/Network Order ID, and Company. Administrators can add, edit, remove, and save ordered rows; users with the respective tab grant can read them. The role editor loads the backend permission catalog and groups page, tab, action, and site-type grants. User management is a searchable directory with separate individual-invitation and display-account creation, account status and access history, session revocation, and reviewed recovery requests. Application Settings contains risk scoring, scheduler, and global defaults. A tab grant controls visibility; component permissions and backend route dependencies control edits. Backup, restore, and danger-zone operations remain administrator-only.
 
 ---
 
 ## Constants
 
 ### `TABS`
-Array of 11 tab configuration objects. Tab visibility is filtered by the current user's `Tab: Settings -> ...` grants; administrators see every tab:
-`profile`, `theme`, `facilities`, `assets`, `rss`, `ml`, `ai-smtp`, `application`, `users`, `backup`, `danger`.
+Array of 13 tab configuration objects. Tab visibility is filtered by the current user's `Tab: Settings -> ...` grants; administrators see every tab:
+`profile`, `theme`, `facilities`, `email-contacts`, `network-orders`, `assets`, `rss`, `ml`, `ai-smtp`, `application`, `users`, `backup`, `danger`.
 
 ### `btn(color)`
 Returns a `React.CSSProperties` object with the given background color.
@@ -80,7 +80,7 @@ None (uses `useAuth` for user context).
 ### Flow
 1. Reads `currentUser` from `useAuth()`.
 2. Calls `getAllowedTabs(currentUser?.allowed_actions, "settings")`; Profile and Theme are available to signed-in users, while administrators see all tabs.
-3. Enables tab-specific queries only while their tab is active: AI/SMTP config, facilities, RSS/keywords, or ML counts.
+3. Enables tab-specific queries only while their tab is active: AI/SMTP config, facilities, contact/circuit directories, RSS/keywords, or ML counts.
 4. Keeps AI/SMTP changes in `saveConfigMutation`; permission-sensitive sections continue to rely on backend route authorization.
 5. Delegates account/role management to `UsersRolesTab` and risk/scheduler/global settings to `ApplicationSettingsTab`.
 

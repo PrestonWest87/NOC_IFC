@@ -50,6 +50,55 @@ class SiteContactsUpdate(BaseModel):
     contacts: list[SiteContactInput] = Field(max_length=SITE_CONTACT_MAX_ENTRIES)
 
 
+class FiberEmailContactInput(BaseModel):
+    """One Fiber company contact row in the administrator-maintained directory."""
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=128)
+    company: str = Field(min_length=1, max_length=200)
+    email: str = Field(min_length=1, max_length=254)
+    phone: str | None = Field(default=None, max_length=64)
+
+
+class FiberEmailContactsUpdate(BaseModel):
+    """Replace the ordered Fiber contact directory."""
+    model_config = ConfigDict(extra="forbid")
+
+    contacts: list[FiberEmailContactInput] = Field(max_length=250)
+
+
+class OnpageEmailContactInput(BaseModel):
+    """One department routing destination for ONPAGE messages."""
+    model_config = ConfigDict(extra="forbid")
+
+    department: str = Field(min_length=1, max_length=128)
+    email: str = Field(min_length=1, max_length=254)
+
+
+class OnpageEmailContactsUpdate(BaseModel):
+    """Replace the ordered ONPAGE department contact directory."""
+    model_config = ConfigDict(extra="forbid")
+
+    contacts: list[OnpageEmailContactInput] = Field(max_length=250)
+
+
+class NetworkOrderCircuitInput(BaseModel):
+    """One A/Z location and circuit/network-order mapping."""
+    model_config = ConfigDict(extra="forbid")
+
+    a_location: str = Field(min_length=1, max_length=250)
+    z_location: str = Field(min_length=1, max_length=250)
+    circuit_network_order_id: str = Field(min_length=1, max_length=200)
+    company: str = Field(min_length=1, max_length=200)
+
+
+class NetworkOrderCircuitsUpdate(BaseModel):
+    """Replace the ordered circuit/network-order reference table."""
+    model_config = ConfigDict(extra="forbid")
+
+    records: list[NetworkOrderCircuitInput] = Field(max_length=250)
+
+
 def _send_invitation_email(recipient: str, username: str, role: str, link: str, expires_at: str):
     """Deliver a compatibility-route invite without logging its registration token."""
     from src.utils.mailer import send_alert_email
@@ -314,6 +363,48 @@ def update_location_contacts(location_id: int, data: SiteContactsUpdate):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     logger.info("PUT /admin/location/%d/contacts count=%d", location_id, len(contacts))
     return {"status": "ok", "contacts": contacts}
+
+
+@router.put("/email-contacts/fiber")
+def update_fiber_email_contacts(data: FiberEmailContactsUpdate, user=Depends(require_admin)):
+    """Replace Fiber contact rows after backend validation and audit the count only."""
+    try:
+        contacts = svc.replace_fiber_email_contacts(
+            [contact.model_dump() for contact in data.contacts],
+            actor_user_id=user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    logger.info("PUT /admin/email-contacts/fiber count=%d", len(contacts))
+    return {"status": "ok", "contacts": contacts}
+
+
+@router.put("/email-contacts/onpage")
+def update_onpage_email_contacts(data: OnpageEmailContactsUpdate, user=Depends(require_admin)):
+    """Replace ONPAGE department email rows; messages are not sent to these contacts automatically."""
+    try:
+        contacts = svc.replace_onpage_email_contacts(
+            [contact.model_dump() for contact in data.contacts],
+            actor_user_id=user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    logger.info("PUT /admin/email-contacts/onpage count=%d", len(contacts))
+    return {"status": "ok", "contacts": contacts}
+
+
+@router.put("/network-orders")
+def update_network_order_circuits(data: NetworkOrderCircuitsUpdate, user=Depends(require_admin)):
+    """Replace the A/Z circuit/network-order table and audit the record count only."""
+    try:
+        records = svc.replace_network_order_circuits(
+            [record.model_dump() for record in data.records],
+            actor_user_id=user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    logger.info("PUT /admin/network-orders count=%d", len(records))
+    return {"status": "ok", "records": records}
 
 
 @router.post("/location/import")

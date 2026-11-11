@@ -1,6 +1,6 @@
 # Module: `src.models.schema`
 
-SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declarative schema contains 41 mapped tables/classes; migrations may add compatibility columns to existing deployments.
+SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declarative schema contains 44 mapped tables/classes; migrations may add compatibility columns to existing deployments.
 
 ---
 
@@ -49,6 +49,9 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declar
 | 39 | `operational_emails` | `OperationalEmail` | Composed message/signature snapshots and persistent schedules |
 | 40 | `operational_email_attachments` | `OperationalEmailAttachment` | Bounded attachment content persisted with messages |
 | 41 | `operational_email_deliveries` | `OperationalEmailDelivery` | SMTP outcome and immutable send/signature snapshot |
+| 42 | `fiber_email_contacts` | `FiberEmailContact` | Administrator-maintained Fiber company contacts |
+| 43 | `onpage_email_contacts` | `OnpageEmailContact` | Administrator-maintained ONPAGE department destinations |
+| 44 | `network_order_circuits` | `NetworkOrderCircuit` | A/Z circuit and network-order reference rows |
 
 ---
 
@@ -504,6 +507,9 @@ The admin-only site-contact API validates fields. Automatic escalation includes 
 | `operational_emails` | `id`, `template_key`, recipients, schedule fields, status, `parent_email_id` | Message snapshots and one-time/daily/weekly schedules |
 | `operational_email_attachments` | `id`, `operational_email_id`, filename, content type, binary content | Bounded files persisted with scheduled messages |
 | `operational_email_deliveries` | `id`, `operational_email_id`, sender, recipients, status, attempted/sent timestamps | Immutable SMTP attempt history, including hidden BCC envelope addresses |
+| `fiber_email_contacts` | `id`, `name`, `company`, `email`, optional `phone`, `sort_order` | Ordered Fiber contact directory managed through Settings & Admin |
+| `onpage_email_contacts` | `id`, `department`, `email`, `sort_order` | Ordered ONPAGE department contact directory |
+| `network_order_circuits` | `id`, A/Z locations, circuit/network-order ID, company, `sort_order` | Ordered network circuit reference table |
 
 ---
 

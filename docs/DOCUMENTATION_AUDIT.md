@@ -1,8 +1,8 @@
 # Documentation Audit and Verification Record
 
-**Audit date:** 2026-11-10
+**Audit date:** 2026-11-11
 **Implementation branch:** `dev`
-**Change scope:** Operational Email templates/signatures, isolated dev Compose defaults, and source-aligned documentation.
+**Change scope:** Operational Email enhancements, Settings contact/network reference directories, isolated dev Compose defaults, and source-aligned documentation.
 **Previous full source/docs audit:** 2026-10-26. Its build and test results are historical checkpoints, not current verification results.
 
 ## Audit method and source inventory
@@ -12,27 +12,27 @@ Documentation claims were checked against the current tracked Python, TypeScript
 The implementation inventory checked includes:
 
 - FastAPI lifecycle, all 18 router modules, auth/permission middleware, and WebSocket manager.
-- SQLite models and migration revisions; 41 mapped ORM tables.
+- SQLite models and migration revisions; 44 mapped ORM tables.
 - The 22-job scheduler registry, startup-run groups, dynamic reload path, worker and maintenance entry points.
 - Data-access/service algorithms, scoring/categorization/IOC extraction, AIOps correlation, LLM, email, and model training.
 - The React SPA route map, user/session state, permission utilities, pages, shared components, and web runtime configuration.
 - `docker-compose.yml`, Dockerfiles, nginx/Vite configuration, Python/Node dependency manifests, `.env.example`, and operational/restore scripts.
 
-The OpenAPI schema generated from the checked-out source contains **192 paths and 208 HTTP operations**. The source defines 22 registry-managed scheduler jobs and 15 routed React page components (including public account-recovery pages). The current single Alembic head is `20261110_0010`.
+The OpenAPI schema generated from the checked-out source contains **197 paths and 213 HTTP operations**. The source defines 22 registry-managed scheduler jobs and 15 routed React page components (including public account-recovery pages). The current single Alembic head is `20261111_0011`.
 
 ## Corrections made in this documentation pass
 
 The guides and module references were refreshed to describe current behavior for:
 
-- The 192-path/208-operation API inventory, including Operational Email signature and fiber-source endpoints.
+- The 197-path/213-operation API inventory, including Operational Email and Settings reference-directory endpoints.
 - All 22 scheduler jobs, including the non-disableable Operational Email queue, their startup policy, Central-time schedules, dynamic reload, and the consolidated Daily Fusion scheduler.
 - The internal AIOps ontology spelling (`INTERNET`), rather than treating `PRIMARY_INTERNET` as the engine's canonical domain.
 - Current scoring and asset-correlation windows, category names, IOC output/number of rules, and map/reduce execution semantics.
 - Dynamic alert/Elastic settings, the supported LLM provider protocols, and the Arkansas 50-mile coverage/CAP filtering module.
 - The webhook's actual acceptance response (HTTP 200 with an accepted body), HMAC/replay checks, and background persistence boundary.
 - Bearer/session storage, structured 401/403 behavior, per-tab/action grants, site-type scoping, and WebSocket authorization/revalidation.
-- The current dashboard/settings/reporting/AIOps/logbook UI and the Operational Email workspace with its page-level permission.
-- Backup/restore operations, legacy partial imports, SQLite migration ordering through `20261110_0010`, request limits, and dev Compose port/network/data isolation.
+- The current dashboard/settings/reporting/AIOps/logbook UI, Operational Email workspace, and permissioned Email Contacts/Network Orders Settings tabs.
+- Backup/restore operations, legacy partial imports, SQLite migration ordering through `20261111_0011`, request limits, and dev Compose port/network/data isolation.
 - Current model/job/API inventory counts, source-reference mappings, and the optional `DATABASE_URL` template description.
 
 ## Source-level mismatches surfaced during the audit
@@ -50,18 +50,18 @@ These are implementation inconsistencies, not documentation facts to conceal:
 
 ## Verification record
 
-**Completed:** 2026-11-10. The Operational Email branch was checked against the generated OpenAPI schema, all mapped ORM tables, the scheduler registry, frontend/API source references, and dev Compose settings.
+**Completed:** 2026-11-11. The dev branch was checked against the generated OpenAPI schema, all mapped ORM tables, the scheduler registry, frontend/API source references, and dev Compose settings.
 
 | Check | Outcome |
 |---|---|
-| OpenAPI inventory | Passed: 192 paths / 208 HTTP operations from `app.openapi()`; every operation is represented in `docs/API.md`. |
-| Permission catalog | Passed: all 10 page, 23 action, and 34 tab keys from `src/core/permissions.py` are represented in `docs/PERMISSIONS.md`. |
-| ORM schema | Passed: all 41 mapped tables are represented in `docs/DATABASE_SCHEMA.md`. |
+| OpenAPI inventory | Passed: 197 paths / 213 HTTP operations from `app.openapi()`; every operation is represented in `docs/API.md`. |
+| Permission catalog | Passed: all 10 page, 23 action, and 36 tab keys from `src/core/permissions.py` are represented in `docs/PERMISSIONS.md`. |
+| ORM schema | Passed: all 44 mapped tables are represented in `docs/DATABASE_SCHEMA.md`. |
 | Scheduler registry | Passed: all 22 jobs are counted in the scheduler reference and trigger-flow summary. |
-| Migration head | Passed: Alembic reports `20261110_0010` as the single head; fresh and legacy-upgrade tests pass. |
+| Migration head | Passed: Alembic reports `20261111_0011` as the single head; fresh and legacy-upgrade tests pass. |
 | Local Markdown links | Passed: local target paths resolve across the available repository documentation. |
 | Documentation contracts | Passed: API operations, schema columns/nullability/indexes, environment references, routed source pages, and scheduler defaults match source. |
-| Python regression suite | Passed: 201 local-only tests, including universal Operational Email BCC, linked fiber follow-ups/resolution, Morning Report live-source refresh, signature snapshots/admin authorization, migration coverage, and existing-email regression; test files remain excluded from version control. |
+| Python regression suite | Passed: 206 local-only tests, including Operational Email regressions, Settings email/network directory validation, tab/admin authorization, additive migration coverage, and documentation contracts; test files remain excluded from version control. |
 | Frontend production build | Passed in the Node 22 web image; the existing large MapLibre/deck.gl chunk warning remains. |
 | Backend image and Python compilation | Passed using the Python 3.11 API image. |
 | Docker Compose configuration | Passed: host ports 8099, 8102, 8503, and 5174; isolated `data-dev`; Docker's built-in bridge without a new subnet. |

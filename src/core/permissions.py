@@ -91,6 +91,8 @@ TAB_CATALOG = {
     ],
     "settings": [
         {"key": "Tab: Settings -> Facility Locations", "tab": "facilities", "label": "Facility Locations"},
+        {"key": "Tab: Settings -> Email Contacts", "tab": "email-contacts", "label": "Email Contacts"},
+        {"key": "Tab: Settings -> Network Orders & Circuits", "tab": "network-orders", "label": "Network Orders & Circuits"},
         {"key": "Tab: Settings -> Internal Assets", "tab": "assets", "label": "Internal Assets"},
         {"key": "Tab: Settings -> RSS Sources", "tab": "rss", "label": "RSS Sources"},
         {"key": "Tab: Settings -> ML Training", "tab": "ml", "label": "ML Training"},

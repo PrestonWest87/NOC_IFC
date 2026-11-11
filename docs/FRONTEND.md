@@ -36,6 +36,8 @@ Tabs are filtered by `web/src/utils/permissions.ts`. Some Settings views are sel
 
 Operational Email is a standalone page protected by its page grant. Its compose panel supports nine structured templates, BCC for every template, Central time labels, one-time/daily/weekly schedules, attached Morning Reports sourced from the latest Global Dashboard shift analysis, and linked maintenance/fiber-outage follow-ups. Administrators manage shared template defaults and reusable signatures; each page-authorized user can customize a message and select the default, another active signature, or no signature.
 
+Settings & Admin includes Email Contacts and Network Orders & Circuits tabs. Their React Query views load the ordered Fiber/ONPAGE directories and A/Z circuit mappings from tab-authorized read endpoints; administrator-only replacement endpoints save edits.
+
 ## Authentication and REST client
 
 `AuthContext` keeps the opaque API session token and public user object in `sessionStorage` (`noc_token`, `noc_user`). It refreshes with `GET /auth/me`; a transient network/API error retains the session, while an explicit 401 clears it. Logout requests server revocation and clears the browser state immediately. Recovery-email verification signals a user refresh in the current tab and same-origin tabs.
@@ -104,7 +106,7 @@ Five tabs: Overview, Keyword Analysis, Category Breakdown, Timeline, and Cross-R
 
 ### Settings & Admin
 
-Eleven UI sections: Profile, Theme, Facilities, Internal Assets, RSS Sources, ML Training, AI & SMTP, Application Settings, Users & Roles, Backup & Restore, and Danger Zone. The nine operational Settings sections use tab grants; Profile/Theme are self-service views. Tab visibility does not imply mutation permission.
+Thirteen UI sections: Profile, Theme, Facilities, Email Contacts, Network Orders & Circuits, Internal Assets, RSS Sources, ML Training, AI & SMTP, Application Settings, Users & Roles, Backup & Restore, and Danger Zone. The eleven operational Settings sections use tab grants; Profile/Theme are self-service views. Tab visibility does not imply mutation permission.
 
 `UsersRolesTab` handles searchable user directories, invitations, display accounts, roles, account status, session revocation, and reviewed recovery requests. `ApplicationSettingsTab` separates global defaults/failed-login alerting, notification destinations and Elastic configuration, risk scoring, and scheduler settings by action grant. `OperationalIntegrationSettings` shows whether values come from the environment or database, masks the Elastic key, and supports resetting overrides. The AI & SMTP panel selects OpenAI-compatible, Ollama OpenAI-compatible, Ollama native, or vLLM for connection testing. Backup and destructive controls are shown only for built-in administrators; the legacy JSON and `.db` migration tools are labeled as partial operations.
 

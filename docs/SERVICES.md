@@ -21,7 +21,7 @@ Webhook gateway ────────┘                     │
 
 | Module | Responsibility | Detailed reference |
 |---|---|---|
-| `src/services.py` | Central data-access, scoring orchestration, account/recovery, site-scope/contact, regional analytics, reporting, and compatibility operations | [`reference/services/services.md`](reference/services/services.md) |
+| `src/services.py` | Central data-access, scoring orchestration, account/recovery, site-scope and Settings reference directories, regional analytics, reporting, and compatibility operations | [`reference/services/services.md`](reference/services/services.md) |
 | `src/services/logic.py` | Keyword-plus-ML article score and lazy scorer reload | [`reference/services/logic.md`](reference/services/logic.md) |
 | `src/services/categorizer.py` | Regex categorization of article title/summary/full text | [`reference/services/categorizer.md`](reference/services/categorizer.md) |
 | `src/services/ioc_extractor.py` | Defanged indicator normalization, extraction, public-IP/domain filters, and context | [`reference/services/ioc_extractor.md`](reference/services/ioc_extractor.md) |

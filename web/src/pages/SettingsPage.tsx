@@ -7,11 +7,13 @@ import { hasActionPermission, isAdministrator } from "../utils/permissions";
 import { UsersRolesTab } from "../components/UsersRolesTab";
 import { ApplicationSettingsTab } from "../components/ApplicationSettingsTab";
 import { SiteContactsDialog } from "../components/SiteContactsDialog";
+import { EmailContactsSettingsTab } from "../components/EmailContactsSettingsTab";
+import { NetworkOrdersCircuitsTab } from "../components/NetworkOrdersCircuitsTab";
 import { ConusMap } from "../components/ConusMap";
 import {
   Trash2, Upload, Download, RefreshCw, AlertTriangle, Save,
    Key, Shield, Settings as SettingsIcon, Database, FileJson,
-  Rss, Cpu, Brain, Mail, Users, HardDrive, Skull, Server, Globe,
+   Rss, Cpu, Brain, Mail, Users, HardDrive, Skull, Server, Globe, Network,
   FileSpreadsheet, Plus, Eye, EyeOff, X, User, Loader2, Palette,
   Pin, PinOff, ThumbsUp, ThumbsDown
 } from "lucide-react";
@@ -23,6 +25,8 @@ const TABS = [
   { id: "profile", label: "Profile", icon: User },
   { id: "theme", label: "Theme", icon: Palette },
   { id: "facilities", label: "Facilities", icon: Globe },
+  { id: "email-contacts", label: "Email Contacts", icon: Mail },
+  { id: "network-orders", label: "Network Orders & Circuits", icon: Network },
   { id: "assets", label: "Internal Assets", icon: Server },
   { id: "rss", label: "RSS Sources", icon: Rss },
   { id: "ml", label: "ML Training", icon: Brain },
@@ -189,6 +193,8 @@ export function SettingsPage() {
       {tab === "profile" && <ProfileTab user={currentUser} onProfileUpdated={refreshUser} />}
       {tab === "theme" && <ThemeTab />}
       {tab === "facilities" && <FacilitiesTab locations={locations} locationsLoading={locationsLoading} locationsError={locationsError} refetchLocations={refetchLocations} queryClient={queryClient} canEdit={isAdmin} />}
+      {tab === "email-contacts" && <EmailContactsSettingsTab canManage={isAdmin} />}
+      {tab === "network-orders" && <NetworkOrdersCircuitsTab canManage={isAdmin} />}
       {tab === "assets" && <AssetsTab canManage={isAdmin} />}
       {tab === "rss" && <RssTab lists={lists} queryClient={queryClient} canManage={isAdmin} />}
       {tab === "ml" && <MlTab mlCounts={mlCounts} canTrain={isAdmin || hasActionPermission(currentUser, "Action: Train ML Model")} />}

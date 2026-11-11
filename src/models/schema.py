@@ -675,6 +675,37 @@ class MonitoredLocationContact(Base):
     location = relationship("MonitoredLocation", back_populates="contacts")
 
 
+class FiberEmailContact(Base):
+    """Administrator-maintained Fiber contact directory entry."""
+    __tablename__ = "fiber_email_contacts"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(128), nullable=False)
+    company = Column(String(200), nullable=False)
+    email = Column(String(254), nullable=False)
+    phone = Column(String(64), nullable=True)
+    sort_order = Column(Integer, nullable=False, default=0, server_default=text("0"))
+
+
+class OnpageEmailContact(Base):
+    """Administrator-maintained department routing contact for ONPAGE messages."""
+    __tablename__ = "onpage_email_contacts"
+    id = Column(Integer, primary_key=True, index=True)
+    department = Column(String(128), nullable=False)
+    email = Column(String(254), nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0, server_default=text("0"))
+
+
+class NetworkOrderCircuit(Base):
+    """A circuit/network-order record connecting A and Z locations."""
+    __tablename__ = "network_order_circuits"
+    id = Column(Integer, primary_key=True, index=True)
+    a_location = Column(String(250), nullable=False)
+    z_location = Column(String(250), nullable=False)
+    circuit_network_order_id = Column(String(200), nullable=False)
+    company = Column(String(200), nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0, server_default=text("0"))
+
+
 class CrimeIncident(Base):
     """Geocoded Little Rock CAD incident with proximity-notification state."""
     __tablename__ = "crime_incidents"

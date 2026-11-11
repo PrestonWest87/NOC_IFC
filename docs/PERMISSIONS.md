@@ -57,6 +57,8 @@ The built-in `admin` and `administrator` role names receive the administrator ov
 | | `Tab: Reporting -> Report Builder` | `1` |
 | | `Tab: Reporting -> Shared Library` | `2` |
 | Settings | `Tab: Settings -> Facility Locations` | `facilities` |
+| | `Tab: Settings -> Email Contacts` | `email-contacts` |
+| | `Tab: Settings -> Network Orders & Circuits` | `network-orders` |
 | | `Tab: Settings -> Internal Assets` | `assets` |
 | | `Tab: Settings -> RSS Sources` | `rss` |
 | | `Tab: Settings -> ML Training` | `ml` |
@@ -116,6 +118,8 @@ Custom roles are not broadened on normal startup. Role creation validates grants
 | HTTP authentication | Middleware authenticates protected `/api/v1/*` requests from a Bearer token. `token` and `session_token` query parameters remain supported for compatibility. Public auth/recovery, health/readiness, and restore-status routes are explicit exceptions. |
 | Page/tab/action | Router and handler dependencies check exact catalog keys. A 401 means no valid active session; a 403 means the session is valid but a required grant is missing. |
 | Operational Email | Every `/operational-email/*` route requires the `Operational Email` page grant. Shared template-default updates also require an administrator role; sending, scheduling, cancellation, and message-level edits have no separate action grant. |
+| Email Contacts | Directory reads require the Settings & Admin page and `Tab: Settings -> Email Contacts`; Fiber/ONPAGE contact replacements require an administrator role. |
+| Network Orders & Circuits | Directory reads require the Settings & Admin page and `Tab: Settings -> Network Orders & Circuits`; table replacement requires an administrator role. |
 | Legacy administrator API | The `/api/v1/admin/*` router requires the built-in administrator role. New delegated user and application-settings routes use finer-grained grants. |
 | AIOps site scope | Non-administrators' alert, timeline, grid, location, and WebSocket data are filtered to names whose site type is in `allowed_site_types`. Mutations validate the target site or every alert ID. Global RCA reports require all site types. |
 | WebSocket | Requires an active session, `AIOps RCA` page, and `Tab: AIOps RCA -> Active Board`. Sessions/grants are revalidated; client `INVESTIGATING_UPDATE` and `RCA_UPDATE` commands require `Action: Dispatch RCA Tickets`. |

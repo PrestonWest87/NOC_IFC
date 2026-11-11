@@ -3,7 +3,7 @@
 Base URL: `http://localhost:8102/api/v1`
 WebSocket: `ws://localhost:8102/ws`
 
-This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-10 (192 paths and 208 HTTP operations). The running application's OpenAPI schema remains the source of truth.
+This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-11 (197 paths and 213 HTTP operations). The running application's OpenAPI schema remains the source of truth.
 
 ## Authentication
 
@@ -422,6 +422,10 @@ Compatibility endpoint for the user directory; requires `Tab: Settings -> Users 
 
 `/settings/facilities` returns locations filtered by the current user's allowed site types (administrators receive all). `/settings/rss` returns keyword and feed data for the RSS settings view; it does not return the legacy user list.
 
+### GET /settings/email-contacts and GET /settings/network-orders
+
+Both reads require the Settings & Admin page plus their corresponding tab grant. Email Contacts returns `{fiber:[{id,name,company,email,phone,sort_order}],onpage:[{id,department,email,sort_order}]}`. Network Orders returns `{records:[{id,a_location,z_location,circuit_network_order_id,company,sort_order}]}`.
+
 ## Application Settings (`/application-settings`)
 
 - `GET /application-settings` and `PUT /application-settings` — global application defaults and failed-login alert settings.
@@ -492,6 +496,14 @@ Returns `{"contacts":[...]}` for the requested site; a missing site returns `404
 ### PUT /admin/location/{location_id}/contacts
 
 Administrator-only replacement request: `{"contacts":[{"name":"Duty Manager","phone":"+1 (501) 555-0100 ext 4","email":"duty@example.com"}]}`. Contact entries support up to 50 rows, with each name, phone, and email optional. Values are trimmed; fully blank entries are omitted. A blank or `null` phone/email is allowed, while nonblank emails must be one valid address (max 254 characters) and nonblank phones must use a supported international-style number format, 7–15 digits, and an optional extension. Names are limited to 128 characters and phone values to 64. Invalid fields return `422`; an empty contacts list clears the site's contacts. Contact emails remain reference text and are never selected as mail recipients.
+
+### PUT /admin/email-contacts/fiber and PUT /admin/email-contacts/onpage
+
+Administrator-only replacement endpoints for the Email Contacts tab. Fiber body: `{contacts:[{name,company,email,phone?}]}`. ONPAGE body: `{contacts:[{department,email}]}`. Each list accepts up to 250 rows, trims text, validates one email address per row and validates optional Fiber phone numbers. Empty lists clear that section. Successful changes create audit entries with the saved count, not contact details.
+
+### PUT /admin/network-orders
+
+Administrator-only replacement endpoint for Network Orders & Circuits. Body: `{records:[{a_location,z_location,circuit_network_order_id,company}]}`; up to 250 complete rows are accepted. Text is trimmed and bounded, and an empty list clears the directory.
 
 ### POST /admin/location/import?mode=add|upsert|replace
 Body: array of location dicts. `replace` retains contacts for sites with the same name in the imported site list and removes contacts for sites that are removed.

@@ -37,13 +37,18 @@ from src.database import (
     ExtractedIOC, MonitoredLocation, MonitoredLocationContact, SolarWindsAlert, TimelineEvent,
     RegionalOutage, BgpAnomaly, GeoJsonCache, DailyThreatScore, ShiftLogEntry,
     SoftwareAsset, HardwareAsset, InternalRiskSnapshot, CrimeIncident,
-    ElasticEvent, UserWeatherPreference, NodeAlias
+    ElasticEvent, UserWeatherPreference, NodeAlias, FiberEmailContact,
+    OnpageEmailContact, NetworkOrderCircuit,
 )
 from src.core.permissions import (
     ACTION_KEYS, ADMIN_ACTIONS, PAGE_KEYS, TAB_KEYS,
 )
 from src.core.scheduler_registry import JOB_REGISTRY, default_schedule, validate_schedule
-from src.core.site_contact_validation import normalize_site_contact, normalize_site_contacts
+from src.core.site_contact_validation import (
+    normalize_site_contact,
+    normalize_site_contact_value,
+    normalize_site_contacts,
+)
 
 LOCAL_TZ = ZoneInfo("America/Chicago")
 VALID_THEMES = {
@@ -237,6 +242,149 @@ def replace_site_contacts(location_id, contacts):
             }
             for contact in saved
         ]
+
+
+SETTINGS_REFERENCE_MAX_ROWS = 250
+
+
+def _required_reference_text(value, label, max_length):
+    """Normalize one required directory field and reject controls or empty values."""
+    if not isinstance(value, str):
+        raise ValueError(f"{label} must be text.")
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise ValueError(f"{label} cannot contain control characters.")
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"{label} is required.")
+    if len(normalized) > max_length:
+        raise ValueError(f"{label} must be at most {max_length} characters.")
+    return normalized
+
+
+def _validate_reference_rows(rows, label, allowed_fields):
+    if not isinstance(rows, list):
+        raise ValueError(f"{label} must be a list.")
+    if len(rows) > SETTINGS_REFERENCE_MAX_ROWS:
+        raise ValueError(f"{label} can contain at most {SETTINGS_REFERENCE_MAX_ROWS} rows.")
+    if any(not isinstance(row, dict) for row in rows):
+        raise ValueError(f"Each row in {label} must be an object.")
+    for row in rows:
+        unknown = set(row) - set(allowed_fields)
+        if unknown:
+            raise ValueError(f"Unsupported {label.lower()} field(s): {', '.join(sorted(unknown))}.")
+
+
+def _serialize_settings_reference_rows(model):
+    with SessionLocal() as db:
+        rows = db.query(model).order_by(model.sort_order, model.id).all()
+        return [
+            {column.name: getattr(row, column.name) for column in model.__table__.columns}
+            for row in rows
+        ]
+
+
+def _replace_settings_reference_rows(model, rows, *, actor_user_id, event_type):
+    with SessionLocal() as db:
+        db.query(model).delete(synchronize_session=False)
+        db.add_all(
+            model(sort_order=order, **values)
+            for order, values in enumerate(rows)
+        )
+        _audit_account_event(
+            db,
+            event_type,
+            actor_user_id=actor_user_id,
+            subject_user_id=None,
+            detail={"row_count": len(rows)},
+        )
+        db.commit()
+        saved = db.query(model).order_by(model.sort_order, model.id).all()
+        return [
+            {column.name: getattr(row, column.name) for column in model.__table__.columns}
+            for row in saved
+        ]
+
+
+def get_fiber_email_contacts():
+    """Return the ordered Fiber contact directory for the Settings tab."""
+    return _serialize_settings_reference_rows(FiberEmailContact)
+
+
+def replace_fiber_email_contacts(contacts, actor_user_id):
+    """Replace Fiber contacts after validating name, company, single email, and phone."""
+    _validate_reference_rows(contacts, "Fiber contacts", {"name", "company", "email", "phone"})
+    normalized = []
+    for contact in contacts:
+        email = normalize_site_contact_value("email", contact.get("email"))
+        if not email:
+            raise ValueError("Fiber contact email is required.")
+        normalized.append({
+            "name": _required_reference_text(contact.get("name"), "Name", 128),
+            "company": _required_reference_text(contact.get("company"), "Company", 200),
+            "email": email,
+            "phone": normalize_site_contact_value("phone", contact.get("phone")),
+        })
+    return _replace_settings_reference_rows(
+        FiberEmailContact,
+        normalized,
+        actor_user_id=actor_user_id,
+        event_type="fiber_email_contacts_replaced",
+    )
+
+
+def get_onpage_email_contacts():
+    """Return ordered ONPAGE department email destinations for the Settings tab."""
+    return _serialize_settings_reference_rows(OnpageEmailContact)
+
+
+def replace_onpage_email_contacts(contacts, actor_user_id):
+    """Replace ONPAGE routing contacts after validating department and single email."""
+    _validate_reference_rows(contacts, "ONPAGE contacts", {"department", "email"})
+    normalized = []
+    for contact in contacts:
+        email = normalize_site_contact_value("email", contact.get("email"))
+        if not email:
+            raise ValueError("ONPAGE contact email is required.")
+        normalized.append({
+            "department": _required_reference_text(contact.get("department"), "Department", 128),
+            "email": email,
+        })
+    return _replace_settings_reference_rows(
+        OnpageEmailContact,
+        normalized,
+        actor_user_id=actor_user_id,
+        event_type="onpage_email_contacts_replaced",
+    )
+
+
+def get_network_order_circuits():
+    """Return ordered A/Z circuit and network-order reference records."""
+    return _serialize_settings_reference_rows(NetworkOrderCircuit)
+
+
+def replace_network_order_circuits(records, actor_user_id):
+    """Replace network-order/circuit records after validating every displayed field."""
+    _validate_reference_rows(
+        records,
+        "Network orders and circuits",
+        {"a_location", "z_location", "circuit_network_order_id", "company"},
+    )
+    normalized = []
+    for record in records:
+        normalized.append({
+            "a_location": _required_reference_text(record.get("a_location"), "A location", 250),
+            "z_location": _required_reference_text(record.get("z_location"), "Z location", 250),
+            "circuit_network_order_id": _required_reference_text(
+                record.get("circuit_network_order_id"), "Circuit/Network Order ID", 200
+            ),
+            "company": _required_reference_text(record.get("company"), "Company", 200),
+        })
+    return _replace_settings_reference_rows(
+        NetworkOrderCircuit,
+        normalized,
+        actor_user_id=actor_user_id,
+        event_type="network_order_circuits_replaced",
+    )
 
 
 REGIONAL_GEOJSON_FEEDS = (

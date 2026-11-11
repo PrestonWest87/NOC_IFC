@@ -3,9 +3,9 @@
 > **Source of truth:** `src/models/schema.py` (SQLAlchemy declarative models)
 > **Engine:** SQLite via `DATABASE_URL`
 > **Driver:** SQLAlchemy 2.x with `NullPool`
-> **Last verified:** 2026-11-10
+> **Last verified:** 2026-11-11
 
-The mapped table names, column names, SQLAlchemy types, and nullability in this reference reflect the 41 mapped models in `src/models/schema.py`.
+The mapped table names, column names, SQLAlchemy types, and nullability in this reference reflect the 44 mapped models in `src/models/schema.py`.
 
 ---
 
@@ -222,7 +222,7 @@ The legacy ER diagram is conceptual: its `(FK→)` labels do not distinguish enf
 
 ## 2. Complete Table Reference
 
-Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state; revision `20261102_0006` adds the site-contact table; revision `20261103_0007` adds NWS alert lifecycle and provider freshness fields; revision `20261105_0008` adds LLM provider selection and nullable alert/Elastic environment overrides; revision `20261110_0009` adds Operational Email tables; revision `20261110_0010` adds signatures and message signature snapshots.
+Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state; revision `20261102_0006` adds the site-contact table; revision `20261103_0007` adds NWS alert lifecycle and provider freshness fields; revision `20261105_0008` adds LLM provider selection and nullable alert/Elastic environment overrides; revision `20261110_0009` adds Operational Email tables; revision `20261110_0010` adds signatures and message signature snapshots; revision `20261111_0011` adds Fiber/ONPAGE email contacts and network-order/circuit references.
 
 ### 2.1 `users` — User Accounts
 
@@ -917,6 +917,43 @@ Stores an immutable recipient/content/signature snapshot and the result of each 
 | `sent_at` | DateTime | YES | NULL | Indexed successful send time |
 | `error_message` | Text | YES | NULL | SMTP/validation failure detail |
 
+### 2.42 `fiber_email_contacts` — Fiber Email Directory (6 columns)
+
+Stores ordered Fiber company contacts maintained through Settings & Admin.
+
+| Column | Type | Nullable | Default | Index / constraint |
+|---|---|---|---|---|
+| `id` | Integer | NO | autoincrement | Primary key; indexed |
+| `name` | String(128) | NO | — | Contact name |
+| `company` | String(200) | NO | — | Provider/company |
+| `email` | String(254) | NO | — | One validated email address |
+| `phone` | String(64) | YES | NULL | Optional validated phone/extension |
+| `sort_order` | Integer | NO | `0` (server) | Directory display order |
+
+### 2.43 `onpage_email_contacts` — ONPAGE Department Directory (4 columns)
+
+Stores ordered department-to-email reference rows for ONPAGE operations.
+
+| Column | Type | Nullable | Default | Index / constraint |
+|---|---|---|---|---|
+| `id` | Integer | NO | autoincrement | Primary key; indexed |
+| `department` | String(128) | NO | — | Department name |
+| `email` | String(254) | NO | — | One validated email address |
+| `sort_order` | Integer | NO | `0` (server) | Directory display order |
+
+### 2.44 `network_order_circuits` — Circuit and Network-Order References (6 columns)
+
+Stores ordered circuit/network-order IDs and the associated A/Z endpoint and company.
+
+| Column | Type | Nullable | Default | Index / constraint |
+|---|---|---|---|---|
+| `id` | Integer | NO | autoincrement | Primary key; indexed |
+| `a_location` | String(250) | NO | — | A endpoint/location |
+| `z_location` | String(250) | NO | — | Z endpoint/location |
+| `circuit_network_order_id` | String(200) | NO | — | Circuit or network order identifier |
+| `company` | String(200) | NO | — | Provider/company |
+| `sort_order` | Integer | NO | `0` (server) | Directory display order |
+
 ---
 
 ## 3. Schema Evolution Strategy
@@ -1076,7 +1113,7 @@ After migrations, startup enables persistent WAL mode. The SQLAlchemy connection
 
 ### Phase 2 — One-time legacy adoption
 
-Revision `20261002_0001` uses the frozen `migrations/schema_v1.py` snapshot to create missing baseline tables, adds only missing legacy columns, creates missing indexes, and applies one-time user, invitation, and priority backfills. Revision `20261002_0002` adds `registration_invites.revoked_at` for auditable invite invalidation during full restore. Revision `20261005_0003` adds a false-default `solarwinds_alerts.needs_dispatch` flag while preserving existing alerts. Revision `20261005_0004` fills `timeline_events.site_name` only for legacy generated webhook alerts with a suffix matching a monitored location. Revision `20261013_0005` adds nullable `solarwinds_alerts.onpage_sent_at` so successful on-page delivery can be tracked per active node incident. Revision `20261102_0006` creates `monitored_location_contacts` and its site lookup index without changing existing site rows. Revision `20261103_0007` adds additive NWS CAP lifecycle columns and provider-attempt metadata; legacy weather rows begin as `unknown` and are not treated as verified active alerts. Revision `20261105_0008` adds nullable integration overrides and a default `openai_compatible` provider to `system_config`. Revision `20261110_0009` creates operational email templates, message/schedule snapshots, bounded attachment storage, and SMTP attempt history. Revision `20261110_0010` adds administrator-managed signatures and signature name/content snapshots. Existing tables and records are retained. Duplicate normalized email values that prevent creation of the unique index fail with an actionable error.
+Revision `20261002_0001` uses the frozen `migrations/schema_v1.py` snapshot to create missing baseline tables, adds only missing legacy columns, creates missing indexes, and applies one-time user, invitation, and priority backfills. Revision `20261002_0002` adds `registration_invites.revoked_at` for auditable invite invalidation during full restore. Revision `20261005_0003` adds a false-default `solarwinds_alerts.needs_dispatch` flag while preserving existing alerts. Revision `20261005_0004` fills `timeline_events.site_name` only for legacy generated webhook alerts with a suffix matching a monitored location. Revision `20261013_0005` adds nullable `solarwinds_alerts.onpage_sent_at` so successful on-page delivery can be tracked per active node incident. Revision `20261102_0006` creates `monitored_location_contacts` and its site lookup index without changing existing site rows. Revision `20261103_0007` adds additive NWS CAP lifecycle columns and provider-attempt metadata; legacy weather rows begin as `unknown` and are not treated as verified active alerts. Revision `20261105_0008` adds nullable integration overrides and a default `openai_compatible` provider to `system_config`. Revision `20261110_0009` creates operational email templates, message/schedule snapshots, bounded attachment storage, and SMTP attempt history. Revision `20261110_0010` adds administrator-managed signatures and signature name/content snapshots. Revision `20261111_0011` adds Fiber/ONPAGE email contact directories and network-order/circuit references. Existing tables and records are retained. Duplicate normalized email values that prevent creation of the unique index fail with an actionable error.
 
 The explicit compatibility column map covers account/recovery fields, scheduler revisions, scoring and alert settings, article enrichment metadata, role site types, alert dispatch fields, location tracking, shift-log state, crime dispatch state, and timeline site metadata. The adoption revision validates every frozen-baseline table's final column set before recording success; later revisions add their versioned fields.
 
@@ -1257,4 +1294,7 @@ Centralized retention is enforced by the hourly **`database_maintenance` schedul
 | `operational_emails` | Sent-message and recurring-schedule records are retained; no automatic purge |
 | `operational_email_attachments` | Persisted attachment bytes are retained with their message |
 | `operational_email_deliveries` | SMTP attempt and recipient/body history is retained |
+| `fiber_email_contacts` | Fiber contact rows are retained until edited by an administrator |
+| `onpage_email_contacts` | ONPAGE department destinations are retained until edited by an administrator |
+| `network_order_circuits` | Circuit/network-order references are retained until edited by an administrator |
 | `geojson_cache` | Overwritten on each fetch, not purged |
