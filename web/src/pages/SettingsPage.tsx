@@ -1128,7 +1128,7 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation, readOnly }: { co
           <section style={{ border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.8rem" }}>
             <SectionTitle text="Gmail profile" />
             <div style={{ color: "var(--text-muted)", fontSize: "0.72rem", margin: "-0.2rem 0 0.7rem" }}>
-              Uses smtp.gmail.com:587 with STARTTLS and Google OAuth 2.0 XOAUTH2. Grant the <code>https://mail.google.com/</code> scope and an offline refresh token. Obtain one with the <a href="https://developers.google.com/oauthplayground/" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-blue)" }}>Google OAuth 2.0 Playground</a>; Workspace admin approval may be required. Google test-mode grants can expire after seven days. No account or App Password is used.
+              Uses smtp.gmail.com:587 with STARTTLS and Google OAuth 2.0 XOAUTH2. Use a Web application OAuth client, grant the <code>https://mail.google.com/</code> scope, and obtain an offline refresh token with the <a href="https://developers.google.com/oauthplayground/" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-blue)" }}>Google OAuth 2.0 Playground</a>. Workspace admins may need to trust the OAuth client and allow the Gmail scope. Google test-mode grants can expire after seven days. No account or App Password is used.
             </div>
             <div style={{ display: "grid", gap: "0.65rem" }}>
               <label style={{ fontSize: "0.76rem" }}>

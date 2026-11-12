@@ -89,7 +89,7 @@ Check port/firewall routing, JSON content type, body size, HMAC secret/header na
 ## No Emails, Tickets, or On-Page Alerts
 
 1. In Settings > AI & SMTP, confirm the active sender selector, that the selected profile is enabled, and use Send Test Email after saving the configuration.
-2. For Gmail, confirm the account address, OAuth client ID/secret, and offline refresh token are configured; the OAuth grant must include `https://mail.google.com/` and be allowed by Workspace policy. A `401 invalid_client` means the client ID/secret is wrong or does not match the client used to create the refresh token. A `400 invalid_grant` means reauthorize and replace the refresh token.
+2. For Gmail, confirm the account address, OAuth client ID/secret, and offline refresh token are configured; use a Web application OAuth client and grant `https://mail.google.com/`. A `401 invalid_client` means the client ID/secret is wrong or does not match the client used to create the refresh token. An `unauthorized_client` means Google/Workspace policy does not allow that client or refresh-token grant; have a Workspace administrator trust the client and permit the Gmail scope. A `400 invalid_grant` means reauthorize and replace the refresh token.
 3. Confirm the effective recipient destinations in Settings > Application Settings; unset database overrides use `RISK_ALERT_RECIPIENTS`, `REMEDYFORCE_TICKET_EMAIL`, `NOC_NOTIFY_EMAIL`, `NOC_ONPAGE_EMAIL`, and `ITNETWORK_ONPAGE_EMAIL` from the environment.
 4. Read worker logs for `SMTP Error`, `missing`, or `Skipping` messages.
 5. Confirm the event is in the applicable Central-time day/after-hours window and has passed its tier wait.

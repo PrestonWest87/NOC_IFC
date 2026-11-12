@@ -16,8 +16,8 @@ _OAUTH_ERROR_MESSAGES = {
         "a new offline refresh token using the configured OAuth client."
     ),
     "unauthorized_client": (
-        "Google has not authorized this OAuth client for the requested grant. Check the client "
-        "type and Workspace OAuth policy."
+        "Google does not allow this OAuth client to use the refresh-token grant (unauthorized_client). "
+        "Use a Web application OAuth client and ensure Workspace policy allows it to request Gmail access."
     ),
     "invalid_scope": (
         "The Google OAuth grant does not include the Gmail SMTP scope https://mail.google.com/."

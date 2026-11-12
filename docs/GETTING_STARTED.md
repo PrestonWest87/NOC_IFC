@@ -142,7 +142,7 @@ The SMTP Broadcast panel stores the existing relay and a Gmail/Google Workspace 
 
 ### Gmail OAuth Setup
 
-1. In Google Cloud Console, configure the OAuth consent screen and create an OAuth client. For Workspace, use an internal app where possible and ask the Workspace administrator to allow the client and Gmail scope if policy requires it.
+1. In Google Cloud Console, configure the OAuth consent screen and create a **Web application** OAuth client. Add `https://developers.google.com/oauthplayground` as an authorized redirect URI. For Workspace, use an internal app where possible and ask the Workspace administrator to trust the client and allow the Gmail scope if policy requires it.
 2. To obtain a refresh token, open the [Google OAuth 2.0 Playground](https://developers.google.com/oauthplayground/), enable **Use your own OAuth credentials**, and enter the OAuth client ID/secret. Add the scope `https://mail.google.com/`, request offline access, authorize the sending account, exchange the authorization code, and copy the returned refresh token. The OAuth client must allow the Playground redirect URI `https://developers.google.com/oauthplayground`.
 3. In Settings > AI & SMTP, enter the Gmail account address, OAuth client ID, client secret, and refresh token. Set the optional From address, enable Gmail, select it as the active sender, save, and send a test email.
 

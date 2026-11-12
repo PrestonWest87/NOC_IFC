@@ -58,7 +58,7 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 - [x] Route all outbound mail, including risk alerts and scheduled Operational Email, through the selected profile while preserving existing SMTP behavior by default.
 - [x] Poll Microsoft's public service-health RSS feed, track poll freshness/last-good incidents, and show incident status per Outlook/Exchange, Teams, SharePoint, OneDrive, and related Microsoft 365 services under Cloud Services.
 - [x] Add an additive SQLite migration and update API, UI, migration, schema, worker, and user documentation.
-- [x] Run 222 Python tests, Python compilation, frontend/API image builds, OpenAPI/docs contracts, and `git diff --check`; preserve unrelated untracked integration-plan documents and keep tests unstaged.
+- [x] Run 223 Python tests, Python compilation, frontend/API image builds, OpenAPI/docs contracts, and `git diff --check`; preserve unrelated untracked integration-plan documents and keep tests unstaged.
 
 ## Completed Implementation Plan — User, Permissions, and Application Settings
 
