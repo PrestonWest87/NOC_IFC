@@ -183,7 +183,7 @@ Wildfire map data comes from WFCA WFS incidents/perimeters and recent FIRMS foot
 | Worker | Source/processing | Stored state |
 |---|---|---|
 | CISA KEV | Fetches the CISA JSON catalog, batch-loads known CVE IDs, inserts only new records | `cve_items` |
-| Cloud | Fetches configured provider RSS/Atom feeds with up to five concurrent requests, considers up to 15 recent entries/provider, skips future maintenance and foreign-only entries, and marks matching reports resolved | `cloud_outages` |
+| Cloud | Fetches 19 provider RSS/Atom feeds with up to five concurrent requests and considers up to 15 recent entries/provider. Generic feeds filter future maintenance/foreign-only events; Microsoft 365 uses structured lifecycle codes and stable feed IDs, and records poll freshness without discarding last-good incidents. | `cloud_outages`, `microsoft_365_status_state` |
 | Elastic | Searches non-hidden indices for recent high severity (`log.level` or ECS `event.severity`), uses bounded scroll pages, index-qualifies IDs, normalizes ECS fields | `elastic_events` |
 | Little Rock crime | POSTs to Little Rock CAD, uses ArcGIS geocoding with bounded in-memory LRU, generates an incident ID, classifies category/severity, writes in batches of 100, and purges >7-day records | `crime_incidents` |
 

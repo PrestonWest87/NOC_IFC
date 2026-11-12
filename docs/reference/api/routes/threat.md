@@ -8,6 +8,7 @@ Prefix: `/api/v1/threat`. Every route requires page permission `Threat Telemetry
 |---|---|---|
 | `GET /cves` | `Tab: Threat Telemetry -> CISA KEV` | `limit` 1–200 (default 50), `days_back` 1–365 (default 30); returns CISA KEV rows. |
 | `GET /cloud-outages` | `Tab: Threat Telemetry -> Cloud Services` | `active_only` default true; `days_back` 1–90 (default 7); there is no `limit` query parameter on this route. |
+| `GET /microsoft-365-status` | `Tab: Threat Telemetry -> Cloud Services` | Returns public Microsoft feed freshness and per-application incident notices. “No active incident reported” is not a tenant-specific health check. |
 | `GET /crime-incidents` | `Tab: Threat Telemetry -> Perimeter Crime` | `hours_back` 1–168 (default 24), `max_distance` at least 0.1 miles (default 1.0). Stored distance is measured from the Little Rock headquarters point by the current crime worker. |
 | `GET /articles` | `Tab: Threat Telemetry -> RSS Triage` | `category` is `live|pinned|low|search`; page starts at 1; `page_size` 5–100; optional `cat_filter`, `search_term`, and `min_score>=0`. Returns `{items,total,total_pages,page}`. |
 | `GET /articles/{article_id}` | RSS Triage tab | Returns article detail, matched keyword weights, summed keyword contribution, and extracted IOCs; missing article currently returns `{error:"Article not found"}` in a normal response. |

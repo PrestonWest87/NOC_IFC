@@ -16,7 +16,7 @@ Intervals below are the values in the scheduler source, not historical product t
 | Elasticsearch cache | Every 6 minutes | `job_sync_elastic` | Queries configured Elasticsearch and stores high-severity events in `ElasticEvent` |
 | NWS active alerts | Every 1 minute | `fetch_nws_alerts` | One combined AR/LA/TX/MS/MO/OK/TN alert request; conditional validators, CAP lifecycle reconciliation, and 50-mile Arkansas-border filtering |
 | Regional hazards | Every 7 minutes | `fetch_regional_hazards` | SPC/USGS/WFCA; updates regional layers and may send earthquake/wildfire proximity alerts |
-| Cloud outages | Every 8 minutes | `fetch_cloud_outages` | Provider status sources; updates `CloudOutage` |
+| Cloud outages | Every 8 minutes | `fetch_cloud_outages` | 19 public status feeds, including Microsoft 365; updates `CloudOutage` and Microsoft feed freshness |
 | Crime | Every 10 minutes | `fetch_live_crimes` | Crime source; writes incidents and may alert |
 | Database maintenance | Every 60 minutes | `run_database_maintenance` | Retention deletes, orphan cleanup, SQLite optimize/checkpoint |
 | Internal risk | Every 2 hours | `job_internal_risk` | Asset/CVE/OSINT state; saves an `InternalRiskSnapshot` |

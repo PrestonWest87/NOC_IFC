@@ -3,9 +3,9 @@
 > **Source of truth:** `src/models/schema.py` (SQLAlchemy declarative models)
 > **Engine:** SQLite via `DATABASE_URL`
 > **Driver:** SQLAlchemy 2.x with `NullPool`
-> **Last verified:** 2026-11-11
+> **Last verified:** 2026-11-12
 
-The mapped table names, column names, SQLAlchemy types, and nullability in this reference reflect the 44 mapped models in `src/models/schema.py`.
+The mapped table names, column names, SQLAlchemy types, and nullability in this reference reflect the 45 mapped models in `src/models/schema.py`.
 
 ---
 
@@ -115,6 +115,8 @@ The legacy ER diagram is conceptual: its `(FK→)` labels do not distinguish enf
 │   port, user, pass, │                                  │
 │   sender, rcpt,     │                                  │
 │   enabled)          │                                  │
+│ active SMTP provider│                                  │
+│ Gmail account/app   │                                  │
 │ scoring_mode        │                                  │
 │ *_override_*        │                                  │
 │ unified_brief       │                                  │
@@ -222,9 +224,9 @@ The legacy ER diagram is conceptual: its `(FK→)` labels do not distinguish enf
 
 ## 2. Complete Table Reference
 
-Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state; revision `20261102_0006` adds the site-contact table; revision `20261103_0007` adds NWS alert lifecycle and provider freshness fields; revision `20261105_0008` adds LLM provider selection and nullable alert/Elastic environment overrides; revision `20261110_0009` adds Operational Email tables; revision `20261110_0010` adds signatures and message signature snapshots; revision `20261111_0011` adds Fiber/ONPAGE email contacts and network-order/circuit references.
+Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state; revision `20261102_0006` adds the site-contact table; revision `20261103_0007` adds NWS alert lifecycle and provider freshness fields; revision `20261105_0008` adds LLM provider selection and nullable alert/Elastic environment overrides; revision `20261110_0009` adds Operational Email tables; revision `20261110_0010` adds signatures and message signature snapshots; revision `20261111_0011` adds Fiber/ONPAGE email contacts and network-order/circuit references; revision `20261112_0013` adds the selectable Gmail sender profile, email-provider delivery snapshots, Microsoft 365 feed freshness, and stable Microsoft incident fields.
 
-The current migration head is `20261111_0012`; that revision conditionally refreshes unchanged Operational Email compose defaults and does not alter the schema.
+The current migration head is `20261112_0013`; preceding revision `20261111_0012` conditionally refreshes unchanged Operational Email compose defaults and does not alter the schema.
 
 ### 2.1 `users` — User Accounts
 
@@ -309,6 +311,11 @@ The current migration head is `20261111_0012`; that revision conditionally refre
 | `smtp_sender` | String | YES | NULL | — |
 | `smtp_recipient` | String | YES | NULL | — |
 | `smtp_enabled` | Boolean | YES | `False` | — |
+| `active_smtp_provider` | String(16) | NO | `"smtp"` | — | Active global outbound profile: `smtp` or `gmail` |
+| `gmail_smtp_username` | String(254) | YES | NULL | — | Gmail/Google Workspace account address |
+| `gmail_smtp_password` | Text | YES | NULL | — | Google App Password; API responses never return it |
+| `gmail_smtp_sender` | String(254) | YES | NULL | — | Optional From address; defaults to Gmail account |
+| `gmail_smtp_enabled` | Boolean | NO | `False` | — | Enables the Gmail profile |
 | `baseline_override_cyber` | Float | YES | `0.0` | — |
 | `baseline_override_phys` | Float | YES | `0.0` | — |
 | `unified_brief` | Text | YES | NULL | — |
@@ -557,6 +564,8 @@ The current migration head is `20261111_0012`; that revision conditionally refre
 | `link` | String | YES | — | — | Status page URL |
 | `is_resolved` | Boolean | YES | `False` | YES | — |
 | `updated_at` | DateTime | YES | — | YES | — |
+| `external_id` | String(255) | YES | NULL | Composite UNIQUE with `provider` | Stable source ID when the provider supplies one |
+| `status_code` | String(64) | YES | NULL | — | Structured provider incident status, used for Microsoft 365 |
 
 ### 2.20 `bgp_anomalies` — BGP Hijack/Downtime Events
 
@@ -896,7 +905,7 @@ Stores bounded attachment bytes with the message snapshot so scheduled sends sur
 | `content` | LargeBinary | NO | — | Raw attachment bytes |
 | `size_bytes` | Integer | NO | — | Decoded file size |
 
-### 2.41 `operational_email_deliveries` — SMTP Attempt History (16 columns)
+### 2.41 `operational_email_deliveries` — SMTP Attempt History (17 columns)
 
 Stores an immutable recipient/content/signature snapshot and the result of each SMTP attempt, including each occurrence of a recurring schedule.
 
@@ -905,6 +914,7 @@ Stores an immutable recipient/content/signature snapshot and the result of each 
 | `id` | Integer | NO | autoincrement | Primary key |
 | `operational_email_id` | Integer | NO | — | Indexed FK to `operational_emails.id`, `ON DELETE CASCADE` |
 | `status` | String(16) | NO | — | Indexed `sending`, `sent`, or `failed` state |
+| `smtp_provider` | String(16) | YES | NULL | Sender profile used for the attempt (`smtp` or `gmail`) |
 | `sender_address` | String(254) | YES | NULL | Global configured From address at send time |
 | `signature_id` | Integer | YES | NULL | Indexed FK to selected signature, when present |
 | `signature_name` | String(100) | YES | NULL | Signature-name snapshot for this delivery |
@@ -955,6 +965,19 @@ Stores ordered circuit/network-order IDs and the associated A/Z endpoint and com
 | `circuit_network_order_id` | String(200) | NO | — | Circuit or network order identifier |
 | `company` | String(200) | NO | — | Provider/company |
 | `sort_order` | Integer | NO | `0` (server) | Directory display order |
+
+### 2.45 `microsoft_365_status_state` — Public Status Feed Freshness (6 columns)
+
+Stores the latest poll outcome for Microsoft's public service-health feed. Last-good incident rows remain in `cloud_outages` when a later poll fails.
+
+| Column | Type | Nullable | Default | Index / constraint |
+|---|---|---|---|---|
+| `id` | Integer | NO | — | Primary key; singleton row ID is `1` |
+| `last_attempt_at` | DateTime | YES | NULL | Most recent fetch attempt |
+| `last_success_at` | DateTime | YES | NULL | Most recent successful parse |
+| `last_duration_ms` | Integer | YES | NULL | Poll duration in milliseconds |
+| `last_http_status` | Integer | YES | NULL | Most recent HTTP status |
+| `last_error` | String(500) | YES | NULL | Sanitized fetch/parse error |
 
 ---
 
@@ -1071,6 +1094,7 @@ Entries may group independent indexes for brevity; a grouped row does not imply 
 | `cloud_outages` | `provider` | B-tree | Provider filtering |
 | `cloud_outages` | `is_resolved` | B-tree | Active filter |
 | `cloud_outages` | `updated_at` | B-tree | Time-range / purge |
+| `cloud_outages` | `provider`, `external_id` | UNIQUE composite | Stable provider incident identity |
 | `bgp_anomalies` | `asn` | B-tree | ASN filtering |
 | `bgp_anomalies` | `is_resolved` | B-tree | Active filter |
 | `crime_incidents` | `id` (String) | PK | External ID dedup |
@@ -1119,7 +1143,7 @@ Revision `20261002_0001` uses the frozen `migrations/schema_v1.py` snapshot to c
 
 The explicit compatibility column map covers account/recovery fields, scheduler revisions, scoring and alert settings, article enrichment metadata, role site types, alert dispatch fields, location tracking, shift-log state, crime dispatch state, and timeline site metadata. The adoption revision validates every frozen-baseline table's final column set before recording success; later revisions add their versioned fields.
 
-Revision `20261111_0012` follows the contact/network directory revision and updates only shipped Operational Email subjects/bodies that still exactly match the previous defaults. It adds no tables or columns and preserves administrator-customized values.
+Revision `20261111_0012` follows the contact/network directory revision and updates only shipped Operational Email subjects/bodies that still exactly match the previous defaults. It adds no tables or columns and preserves administrator-customized values. Revision `20261112_0013` additively adds the Gmail sender profile and provider snapshot column, stable cloud incident ID/status columns, the unique cloud-provider incident index, and Microsoft 365 public-feed freshness state.
 
 ### Phase 3 — SQLite runtime settings
 
@@ -1298,6 +1322,7 @@ Centralized retention is enforced by the hourly **`database_maintenance` schedul
 | `operational_emails` | Sent-message and recurring-schedule records are retained; no automatic purge |
 | `operational_email_attachments` | Persisted attachment bytes are retained with their message |
 | `operational_email_deliveries` | SMTP attempt and recipient/body history is retained |
+| `microsoft_365_status_state` | One latest-poll freshness/error row is retained and updated by each cloud-status poll |
 | `fiber_email_contacts` | Fiber contact rows are retained until edited by an administrator |
 | `onpage_email_contacts` | ONPAGE department destinations are retained until edited by an administrator |
 | `network_order_circuits` | Circuit/network-order references are retained until edited by an administrator |

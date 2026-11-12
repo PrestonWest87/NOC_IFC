@@ -295,20 +295,13 @@ def send_alert(recipients: list[str], subject: str, body: str) -> tuple[bool, st
 **Raises:** None (all exceptions are caught and returned)
 
 **Flow:**
-1. Retrieves SMTP config via `get_smtp_config()`
-2. Returns `(False, "SMTP not enabled")` if config is `None` or `smtp_enabled` is falsy
-3. Constructs a `MIMEMultipart` email with sender, comma-joined recipients, and subject
-4. Attaches body as `MIMEText` with `'plain'` subtype
-5. Connects to SMTP server at `config.smtp_server:config.smtp_port`
-6. If credentials are configured: starts TLS, logs in
-7. Sends email via `server.sendmail()`
-8. Quits the server
-9. Returns success tuple
-10. On any `Exception`, returns `(False, str(e))`
+1. Imports the shared `src.utils.mailer.send_alert_email()` lazily.
+2. Joins the recipient list and sends the plain-text body with an empty subject prefix, preserving the prior risk-alert subject format.
+3. Returns the shared mailer's success/error tuple; SMTP connection, active sender selection, Gmail app-password handling, TLS, and cleanup use the common implementation.
 
-**Dependencies:** `smtplib`, `email.mime.text.MIMEText`, `email.mime.multipart.MIMEMultipart`, `get_smtp_config`
+**Dependencies:** `src.utils.mailer.send_alert_email`
 
-`send_alert()` is separate from `src.utils.mailer.send_alert_email()`: it uses `server.sendmail()` and starts TLS/authenticates only when both SMTP username and password are present. The general mailer always attempts STARTTLS and supports base64 attachments. Both read SMTP settings from the first `SystemConfig` row.
+Risk notifications now honor the same selected SMTP/Gmail sender as all other outbound mail. `get_smtp_config()` remains a compatibility helper; send_alert no longer performs a separate SMTP connection.
 
 ---
 

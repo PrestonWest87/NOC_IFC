@@ -9,6 +9,7 @@ from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from src.core.db import SessionLocal
+from src.core.email_settings import get_active_smtp_profile
 from src.models.schema import SystemConfig
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ def send_alert_email(
     attachments=None,
     cc_override: str = None,
     bcc_override: str = None,
+    subject_prefix: str = "[NOC FUSION]",
 ):
     """Send configured SMTP mail and return `(success, message)` instead of raising.
 
@@ -49,31 +51,39 @@ def send_alert_email(
         subject, bool(recipient_override), is_html, len(body) if body else 0,
     )
     session = SessionLocal()
+    server = None
     try:
         config = session.query(SystemConfig).first()
-        if not config or not config.smtp_enabled:
-            logger.warning("send_alert_email: SMTP is disabled in Settings")
-            return False, "SMTP is disabled in Settings."
+        profile = get_active_smtp_profile(config)
+        provider_label = "Gmail SMTP" if profile["provider"] == "gmail" else "SMTP"
+        if not profile["enabled"]:
+            if profile["provider"] == "gmail":
+                logger.warning("send_alert_email: Gmail SMTP is disabled in Settings")
+            else:
+                logger.warning("send_alert_email: SMTP is disabled in Settings")
+            return False, f"{provider_label} is disabled in Settings."
 
-        target_recipient = recipient_override if recipient_override else config.smtp_recipient
+        target_recipient = recipient_override if recipient_override else profile["recipient"]
         target_count = _recipient_count(target_recipient)
         if cc_override or bcc_override:
             target_count = len(_recipient_addresses(target_recipient, cc_override, bcc_override))
         logger.debug("send_alert_email: target_recipient_count=%d", target_count)
 
-        if not config.smtp_server or not config.smtp_sender or not target_recipient:
+        if not profile["server"] or not profile["sender"] or not target_recipient:
             logger.warning(
-                "send_alert_email: incomplete SMTP config server_set=%s sender_set=%s recipient_count=%d",
-                bool(config.smtp_server), bool(config.smtp_sender), target_count,
+                "send_alert_email: incomplete provider=%s server_set=%s sender_set=%s recipient_count=%d",
+                profile["provider"], bool(profile["server"]), bool(profile["sender"]), target_count,
             )
-            return False, "SMTP configuration is incomplete (Missing Server, Sender, or Recipient)."
+            return False, f"{provider_label} configuration is incomplete (missing server, sender, or recipient)."
+        if profile["provider"] == "gmail" and (not profile["username"] or not profile["password"]):
+            return False, "Gmail SMTP requires the Gmail account address and a Google App Password."
 
         msg = MIMEMultipart()
-        msg['From'] = config.smtp_sender
+        msg['From'] = profile["sender"]
         msg['To'] = target_recipient
         if cc_override:
             msg['Cc'] = cc_override
-        msg['Subject'] = f"[NOC FUSION] {subject}"
+        msg['Subject'] = f"{subject_prefix} {subject}".strip() if subject_prefix else subject
 
         if is_html:
             html_body = body.replace("\n", "<br>").replace("**", "<b>").replace("##", "<h2>").replace("###", "<h3>")
@@ -98,9 +108,9 @@ def send_alert_email(
             part.add_header("Content-Disposition", "attachment", filename=filename)
             msg.attach(part)
 
-        logger.debug("send_alert_email: connecting to SMTP server=%s port=%s timeout=10",
-                      config.smtp_server, config.smtp_port)
-        server = smtplib.SMTP(config.smtp_server, config.smtp_port, timeout=10)
+        logger.debug("send_alert_email: connecting provider=%s server=%s port=%s timeout=10",
+                      profile["provider"], profile["server"], profile["port"])
+        server = smtplib.SMTP(profile["server"], profile["port"], timeout=10)
         logger.debug("send_alert_email: SMTP connection established")
 
         try:
@@ -109,32 +119,32 @@ def send_alert_email(
             logger.debug("send_alert_email: TLS established")
         except Exception as tls_err:
             logger.error("send_alert_email: StartTLS failed: %s", tls_err)
-            server.quit()
             return False, "SMTP TLS negotiation failed."
 
-        if config.smtp_username and config.smtp_password:
+        if profile["username"] and profile["password"]:
             logger.debug("send_alert_email: authenticating with configured SMTP credentials")
-            server.login(config.smtp_username, config.smtp_password)
+            server.login(profile["username"], profile["password"])
             logger.debug("send_alert_email: login successful")
 
         logger.debug("send_alert_email: sending message to recipient_count=%d", target_count)
         if cc_override or bcc_override:
             envelope_recipients = _recipient_addresses(target_recipient, cc_override, bcc_override)
             if not envelope_recipients:
-                server.quit()
                 return False, "Email recipients are invalid or empty."
-            sender_address = parseaddr(config.smtp_sender)[1] or config.smtp_sender
+            sender_address = parseaddr(profile["sender"])[1] or profile["sender"]
             # BCC addresses are envelope recipients only; never add a Bcc header.
             server.send_message(msg, from_addr=sender_address, to_addrs=envelope_recipients)
         else:
             server.send_message(msg)
-        server.quit()
         logger.info("send_alert_email: email sent successfully recipient_count=%d", target_count)
 
         return True, "Email sent successfully."
 
     except smtplib.SMTPAuthenticationError as auth_err:
-        logger.error("send_alert_email: SMTP authentication failed: %s", auth_err)
+        config_provider = profile.get("provider") if "profile" in locals() else "smtp"
+        logger.error("send_alert_email: SMTP authentication failed provider=%s", config_provider)
+        if config_provider == "gmail":
+            return False, "Gmail SMTP authentication failed. Check the account address and Google App Password."
         return False, f"SMTP authentication failed: {auth_err}"
     except smtplib.SMTPConnectError as conn_err:
         logger.error("send_alert_email: SMTP connection failed: %s", conn_err)
@@ -146,5 +156,10 @@ def send_alert_email(
         logger.error("send_alert_email: critical exception: %s", str(e), exc_info=True)
         return False, str(e)
     finally:
+        if server is not None:
+            try:
+                server.quit()
+            except Exception:
+                pass
         session.close()
         logger.debug("send_alert_email: session closed")

@@ -52,6 +52,8 @@ Browse the locally synchronized CISA Known Exploited Vulnerabilities records. Ma
 
 Review active and resolved status-feed items. Provider status is polled from configured RSS/Atom feeds; scheduled sync runs every eight minutes by default. Manual sync requires the same manual-sync action.
 
+The Cloud Services tab also shows Microsoft-published incident notices for Outlook/Exchange Online, Teams, SharePoint, OneDrive, and related Microsoft 365 applications. The source is Microsoft's public status feed; a service with no matching notice is labeled “No active incident reported,” not verified operational. Tenant-specific service health requires Microsoft Graph permissions and is not represented here.
+
 ### Perimeter Crime
 
 Displays incidents from the Little Rock police CAD feed. Addresses are geocoded when possible and fallback locations are marked approximate. Incident distance and the perimeter notification threshold are measured from the Little Rock headquarters point, not from each monitored facility. The page offers a display radius filter and an authorized manual fetch.
@@ -130,7 +132,7 @@ The Operational Email page uses one page permission for composing, sending, sche
 - **Morning Report** sends the latest Global Dashboard shift analysis exactly as stored, without a date, window, title, or executive summary. The source is refreshed again when a scheduled message is delivered. It supports up to five attachments, 5 MiB each, with a 20 MiB combined limit.
 - **Maintenance Complete** links the close-out to the selected sent maintenance notification.
 
-Every message uses the single global From address configured in Settings > AI & SMTP. Contact directories load from Settings reference data; other tickets can select contacts and still edit recipients manually. Administrators can edit shared template wording/recipient defaults and manage reusable signatures, including an optional default. Senders can choose that default, another active signature, or no signature. Signature content is snapshotted with sent and scheduled emails. Scheduled messages preserve their content and attachments; Morning Report alone refreshes its shift-analysis source at delivery. Delivery status and message details, including hidden BCC recipients, are available in Sent / History.
+Every message uses the currently selected global sender profile configured in Settings > AI & SMTP. Contact directories load from Settings reference data; other tickets can select contacts and still edit recipients manually. Administrators can edit shared template wording/recipient defaults and manage reusable signatures, including an optional default. Senders can choose that default, another active signature, or no signature. Signature content is snapshotted with sent and scheduled emails. Scheduled messages preserve their content and attachments; Morning Report alone refreshes its shift-analysis source at delivery. Delivery status and message details, including sender profile and hidden BCC recipients, are available in Sent / History.
 
 The page is not part of the default analyst role. Ask an administrator to grant the `Operational Email` page permission if you need access.
 
@@ -159,6 +161,8 @@ Invite an individual by email or create a display account separately. The direct
 The page separates global URL/technology/ASN and failed-login alert settings, notification destinations and Elastic integration settings, risk scoring, and the dynamic scheduler. Application defaults and integration settings use `Action: Manage Application Settings`; risk scoring and scheduler timing retain their separate grants. Environment values are fallbacks until a database override is saved. A blank destination disables it, and “Reset to environment” removes saved overrides. Elastic API keys are write-only in the UI. Scheduler edits are range/type validated and the worker applies saved revisions within 30 seconds. Escalation and encrypted backup cannot be disabled.
 
 In **Settings > AI & SMTP**, choose OpenAI-compatible, Ollama OpenAI-compatible, Ollama native, or vLLM. The connection test uses the selected provider’s API format. A saved API key is reused only with its saved provider; changing provider clears the old key unless you enter a replacement. Local model endpoints must be reachable from the API container; in Docker, use a service name or host gateway rather than the API container’s own `localhost`.
+
+The SMTP Broadcast panel keeps the existing SMTP relay and a Gmail/Google Workspace sender configuration side by side. Select the active sender, enable and save that profile, then use **Send Test Email** to verify it. Gmail uses `smtp.gmail.com:587` with STARTTLS and requires a Google App Password (with 2-Step Verification enabled); a normal account password is not accepted. Blank password fields preserve saved credentials, and the API never returns their values.
 
 ### Backup & Restore and Danger Zone
 

@@ -50,6 +50,16 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 - [x] Add local-only service/API/migration tests; verify fresh/existing upgrades, Python suite, frontend/API/Compose builds, docs contracts, and dev health.
 - [x] Review and push intended source/docs only to `dev`; preserve unrelated untracked docs and keep tests unstaged.
 
+## Active Implementation Plan — Gmail Sender and Microsoft 365 Status
+
+**Implementation branch:** `dev`. Keep this emergency integration update on `dev`; preserve unrelated untracked integration-plan documents and keep local-only tests unstaged.
+
+- [x] Keep the existing SMTP relay and Gmail App Password profile side by side; add an active-provider switch, secret-safe settings reads, a send-test route, and sender-provider history snapshots.
+- [x] Route all outbound mail, including risk alerts and scheduled Operational Email, through the selected profile while preserving existing SMTP behavior by default.
+- [x] Poll Microsoft's public service-health RSS feed, track poll freshness/last-good incidents, and show incident status per Outlook/Exchange, Teams, SharePoint, OneDrive, and related Microsoft 365 services under Cloud Services.
+- [x] Add an additive SQLite migration and update API, UI, migration, schema, worker, and user documentation.
+- [x] Run 218 Python tests, Python compilation, frontend/API image builds, OpenAPI/docs contracts, and `git diff --check`; preserve unrelated untracked integration-plan documents and keep tests unstaged.
+
 ## Completed Implementation Plan — User, Permissions, and Application Settings
 
 **Implementation branch:** `main` (user-directed). `origin/main` was pulled before work began and was already up to date. Keep this checklist current as work progresses. After implementation and verification, merge/synchronize `main` into `architecture/monolith-to-decoupled` and verify both branches contain the same intended changes. Do not force-push.
@@ -219,7 +229,7 @@ See [docs/README.md](docs/README.md) for the complete documentation catalog. The
 | [USER_GUIDE.md](docs/USER_GUIDE.md) | Current workspace features and operator workflows |
 | [API.md](docs/API.md) | Complete REST operation inventory and endpoint behavior; path/method coverage is checked against the FastAPI OpenAPI schema |
 | [PERMISSIONS.md](docs/PERMISSIONS.md) | Exact page, tab, action, site-type, built-in-role, and enforcement contracts |
-| [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | All 44 tables with columns, types, constraints, indexes, relationships, migration strategy, retention policies |
+| [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | All 45 tables with columns, types, constraints, indexes, relationships, migration strategy, retention policies |
 | [MIGRATION_COMPATIBILITY.md](docs/MIGRATION_COMPATIBILITY.md) | Supported older SQLite upgrade shapes, additive migration behavior, failure handling, and safety-test coverage |
 | [DATA_FLOWS.md](docs/DATA_FLOWS.md) | Ingestion, scoring, internal risk, reporting, webhook/AIOps, hazard/telemetry, provider-worker, and retention flows |
 | [TRIGGER_ACTION_FLOWS.md](docs/TRIGGER_ACTION_FLOWS.md) | Every trigger (webhook, scheduler, user action, WebSocket) mapped to its complete action flow |
@@ -341,12 +351,13 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `src/core/operational_email.py` | Operational email template defaults, validation, send history, attachments, and persisted schedule queue |
 | `src/core/config.py` | Pydantic settings + logging |
 | `src/core/runtime_settings.py` | Live database overrides and environment fallback for notification/Elastic configuration |
+| `src/core/email_settings.py` | Active SMTP/Gmail sender profile selection for all outbound email |
 | `src/core/llm_providers.py` | Supported LLM provider protocols and endpoint URL construction |
 | `src/core/paths.py` | Shared persistent SQLite/data/model paths |
 | `src/core/backup_manager.py` | Authenticated encrypted full backups, retention, upload validation, and offline restore |
 | `src/core/restore_control.py` | Cross-process maintenance marker, API drain counters, and restore progress state |
 | `src/core/ui_restore.py` | UI restore orchestration, writer quiescence, and runtime refresh |
-| `src/models/schema.py` | 44 SQLAlchemy models |
+| `src/models/schema.py` | 45 SQLAlchemy models |
 | `src/core/permissions.py` | Canonical page, tab, and action permission catalog |
 | `src/core/site_contact_validation.py` | Shared server-side validation for optional site contact fields |
 | `src/api/routes/settings.py` | Settings reads, including tab-authorized Email Contacts and Network Orders directories |
@@ -378,7 +389,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | Maintenance Expiry | 5 min | Clear site maintenance after its ETR |
 | Crime Fetch | 10 min | Crime API data + perimeter alert dispatch |
 | Regional Hazards | 7 min | SPC outlooks, USGS earthquakes, wildfire data, site intersections |
-| Cloud Outages | 8 min | Cloud provider status |
+| Cloud Outages | 8 min | Cloud/SaaS status feeds, including Microsoft 365 |
 | Telemetry Sync | 6 min | ORNL power, RIPE BGP visibility, and IODA ISP outages |
 | Elastic Cache Sync | 6 min | Refresh high-severity Elastic events |
 | CISA KEV | 7 hours | Known Exploited Vulnerabilities catalog |

@@ -212,14 +212,14 @@ AI & SMTP configuration.
 
 ### Returns
 - LLM Configuration card (provider selector, endpoint, optional API key with show/hide, model name, context window, enable toggle, test connection button)
-- SMTP Broadcast card (server, port, username, password, sender, recipient, enabled toggle)
-- Configuration editor covers LLM provider/endpoint/model/key and SMTP server/credentials/sender/recipient.
+- SMTP Broadcast card retains the existing SMTP relay and Gmail credentials/configuration side by side, with an active-profile selector, separate enable switches, and a saved-profile test-email control.
+- Configuration editor covers LLM provider/endpoint/model/key, the existing SMTP server/credentials/sender/recipient, Gmail account/app-password/sender, and active sender selection. SMTP and Gmail passwords are write-only; blank password fields preserve saved credentials.
 - LLM connection test uses the selected provider through `POST /api/v1/llm/test-connection`; supported options are OpenAI-compatible, Ollama OpenAI-compatible, Ollama native, and vLLM.
 - Editing is administrator-only; risk overrides, scheduler schedules, application defaults, and failed-login alert settings are in `ApplicationSettingsTab`.
 
 ### Flow
 1. Initializes `form` state from `config` data once loaded.
-2. `testConnectionMutation` tests LLM endpoint via `POST /llm/test-connection`.
+2. `testConnectionMutation` tests LLM endpoint via `POST /llm/test-connection`; `testSmtpMutation` sends a message through `POST /admin/config/test-email`.
 3. Save posts form data via `saveConfigMutation` to `POST /admin/config`.
 
 ---

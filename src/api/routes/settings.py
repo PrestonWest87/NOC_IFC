@@ -30,12 +30,18 @@ def get_config(db: Session = Depends(get_db), user=Depends(get_current_user)):
         "llm_api_key_configured": bool(config.llm_api_key),
         "llm_model_name": config.llm_model_name,
         "is_active": config.is_active,
+        "active_smtp_provider": config.active_smtp_provider or "smtp",
         "smtp_enabled": config.smtp_enabled,
         "smtp_server": config.smtp_server,
         "smtp_port": config.smtp_port,
         "smtp_username": config.smtp_username,
         "smtp_sender": config.smtp_sender,
         "smtp_recipient": config.smtp_recipient,
+        "smtp_password_configured": bool(config.smtp_password),
+        "gmail_smtp_enabled": bool(config.gmail_smtp_enabled),
+        "gmail_smtp_username": config.gmail_smtp_username or "",
+        "gmail_smtp_sender": config.gmail_smtp_sender or "",
+        "gmail_smtp_password_configured": bool(config.gmail_smtp_password),
         "llm_context_window": config.llm_context_window,
     }
 

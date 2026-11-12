@@ -320,7 +320,7 @@ services:
 ### Secrets Management
 
 - Use Docker secrets or an external vault for sensitive values
-- SMTP credentials, LLM API keys, and Elastic API keys may be stored as ordinary fields in the live SQLite `SystemConfig` row; they are not field-level encrypted at rest. The settings APIs do not return stored keys.
+- SMTP credentials (including a Gmail App Password), LLM API keys, and Elastic API keys may be stored as ordinary fields in the live SQLite `SystemConfig` row; they are not field-level encrypted at rest. The settings APIs do not return stored secrets.
 - Encrypted full-backup packages protect the database snapshot, but do not include `.env` or environment-only secrets.
 - Restrict access to the SQLite data volume and `.env`, and use host-level disk encryption or an external secret store where required by policy.
 

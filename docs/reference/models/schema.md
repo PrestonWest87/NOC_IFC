@@ -1,6 +1,6 @@
 # Module: `src.models.schema`
 
-SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declarative schema contains 44 mapped tables/classes; migrations may add compatibility columns to existing deployments.
+SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declarative schema contains 45 mapped tables/classes; migrations may add compatibility columns to existing deployments.
 
 ---
 
@@ -48,10 +48,11 @@ SQLAlchemy ORM models for the NOC Intelligence Fusion Center. The current declar
 | 38 | `operational_email_signatures` | `OperationalEmailSignature` | Administrator-managed reusable signatures |
 | 39 | `operational_emails` | `OperationalEmail` | Composed message/signature snapshots and persistent schedules |
 | 40 | `operational_email_attachments` | `OperationalEmailAttachment` | Bounded attachment content persisted with messages |
-| 41 | `operational_email_deliveries` | `OperationalEmailDelivery` | SMTP outcome and immutable send/signature snapshot |
+| 41 | `operational_email_deliveries` | `OperationalEmailDelivery` | SMTP outcome and immutable send/signature/provider snapshot |
 | 42 | `fiber_email_contacts` | `FiberEmailContact` | Administrator-maintained Fiber company contacts |
 | 43 | `onpage_email_contacts` | `OnpageEmailContact` | Administrator-maintained ONPAGE department destinations |
 | 44 | `network_order_circuits` | `NetworkOrderCircuit` | A/Z circuit and network-order reference rows |
+| 45 | `microsoft_365_status_state` | `Microsoft365StatusState` | Latest public Microsoft status-feed freshness/error |
 
 ---
 
@@ -194,6 +195,11 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `smtp_sender` | `String` | `nullable` | From address for outgoing emails |
 | `smtp_recipient` | `String` | `nullable` | Default recipient for outgoing emails |
 | `smtp_enabled` | `Boolean` | `False` | Whether SMTP is configured |
+| `active_smtp_provider` | `String(16)` | `"smtp"` | Active global sender profile: existing SMTP relay or Gmail |
+| `gmail_smtp_username` | `String(254)` | `nullable` | Gmail/Google Workspace account address |
+| `gmail_smtp_password` | `Text` | `nullable` | Google App Password; never returned by settings APIs |
+| `gmail_smtp_sender` | `String(254)` | `nullable` | Gmail From address, defaulting to account address |
+| `gmail_smtp_enabled` | `Boolean` | `False` | Gmail profile enablement |
 | `baseline_override_cyber` | `Float` | `0.0` | Manual override for cyber baseline |
 | `baseline_override_phys` | `Float` | `0.0` | Manual override for physical baseline |
 | `unified_brief` | `Text` | `nullable` | Latest AI-generated unified brief |
@@ -436,6 +442,22 @@ The admin-only site-contact API validates fields. Automatic escalation includes 
 | `link` | `String` | — | — | Status page URL |
 | `is_resolved` | `Boolean` | `False` | Y | Whether the outage is resolved |
 | `updated_at` | `DateTime` | — | Y | Last update timestamp |
+| `external_id` | `String(255)` | `nullable` | — | Provider incident ID; unique per provider when present |
+| `status_code` | `String(64)` | `nullable` | — | Structured provider status, including Microsoft 365 lifecycle values |
+
+### Microsoft365StatusState
+**Table**: `microsoft_365_status_state`
+
+Stores the latest public Microsoft 365 feed attempt/success and a sanitized error without deleting last-good incidents.
+
+| Column | Type | Default | Description |
+|--------|------|---------|-------------|
+| `id` | `Integer PK` | `1` | Singleton row key |
+| `last_attempt_at` | `DateTime` | `nullable` | Last public-feed poll attempt |
+| `last_success_at` | `DateTime` | `nullable` | Last successfully parsed poll |
+| `last_duration_ms` | `Integer` | `nullable` | Poll duration in milliseconds |
+| `last_http_status` | `Integer` | `nullable` | Last HTTP status |
+| `last_error` | `String(500)` | `nullable` | Sanitized fetch or parse error |
 
 ---
 

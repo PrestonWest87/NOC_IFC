@@ -7,5 +7,5 @@ Utilities package for the NOC Intelligence Fusion Center. Contains helper module
 | Module | Description |
 |--------|-------------|
 | `llm` | LLM interaction utilities -- AI-powered intelligence briefings, summaries, and analysis via configurable OpenAI-compatible API |
-| `mailer` | Email sending utility -- SMTP-based alert delivery using database-stored configuration |
+| `mailer` | Email sending utility -- active SMTP/Gmail profile delivery using database-stored configuration |
 | `risk_alert` | Risk alert engine -- monitors global/internal risk level escalations and sends email notifications |

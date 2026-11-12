@@ -2,16 +2,18 @@
 
 import feedparser
 import requests
+import html
 from datetime import datetime, timedelta
 import re
 import concurrent.futures
 from src.core.db import SessionLocal
-from src.models.schema import CloudOutage
+from src.models.schema import CloudOutage, Microsoft365StatusState
 
 CLOUD_FEEDS = {
     "AWS": "https://status.aws.amazon.com/rss/all.rss",
     "Google Cloud": "https://status.cloud.google.com/en/feed.atom",
     "Azure": "https://azurestatuscdn.azureedge.net/en-us/status/feed/",
+    "Microsoft 365": "https://status.cloud.microsoft/api/feed/mac",
     "Cisco Umbrella": "https://status.umbrella.com/history.rss",
     "Cisco Webex": "https://status.webex.com/history.rss",
     "Cisco Meraki": "https://status.meraki.net/history.rss",
@@ -106,7 +108,47 @@ def extract_service_name(provider, title):
     if provider == "AWS": return "AWS Infrastructure"
     if provider == "Google Cloud": return "Google Cloud Platform"
     if provider == "Azure": return "Microsoft Azure"
+    if provider == "Microsoft 365": return "Microsoft 365 Service Health"
     return "General/Multiple Services"
+
+
+_M365_RESOLVED_STATUSES = {
+    "serviceoperational", "servicerestored", "resolved", "postincidentreviewpublished", "falsepositive",
+    "mitigated", "mitigatedexternal", "resolvedexternal",
+}
+_M365_ACTIVE_STATUSES = {
+    "investigating", "servicedegradation", "serviceinterruption", "restoringservice",
+    "verifyingservice", "extendedrecovery", "investigationsuspended", "confirmed", "reported",
+}
+
+
+def _microsoft_365_status(provider, entry, title, description):
+    """Prefer Microsoft's structured status code; use feed text for older entries."""
+    if provider == "Microsoft 365":
+        code = re.sub(r"[^a-z]", "", str(entry.get("status", "")).casefold())
+        if code in _M365_RESOLVED_STATUSES:
+            return True, code
+        if code in _M365_ACTIVE_STATUSES:
+            return False, code
+    text_to_check = (title + " " + description).upper()
+    return any(keyword in text_to_check for keyword in _RESOLVED_KEYWORDS), str(entry.get("status", ""))[:64]
+
+
+def _plain_feed_text(value):
+    """Remove RSS HTML tags and decode entities for readable incident summaries."""
+    text = re.sub(r"(?i)<br\s*/?>|</(?:div|p|li|ul|ol)>|</h[1-6]>", "\n", str(value or ""))
+    text = re.sub(r"<[^>]*>", " ", text)
+    text = html.unescape(text)
+    return re.sub(r"[ \t]+", " ", text).strip()
+
+
+def _microsoft_365_fetch_error(error):
+    """Return a short non-sensitive status-feed error suitable for the settings API."""
+    if error == "timeout":
+        return "Microsoft 365 status feed request timed out."
+    if str(error).startswith("HTTP "):
+        return f"Microsoft 365 status feed returned {str(error)[:32]}."
+    return "Microsoft 365 status feed request failed."
 
 
 def _fetch_single_feed(provider_url_pair):
@@ -128,34 +170,55 @@ def fetch_cloud_outages():
     import logging
     logger = logging.getLogger(__name__)
     logger.info(f"Fetching status feeds from {len(CLOUD_FEEDS)} providers...")
+    poll_started_at = datetime.utcnow()
     added_count = 0
     resolved_count = 0
     filtered_count = 0
     failed_providers = []
 
     try:
-        recent_cutoff = datetime.utcnow() - timedelta(days=7)
+        recent_cutoff = poll_started_at - timedelta(days=7)
 
         # Phase 1: Parallel HTTP fetch
         feed_items = list(CLOUD_FEEDS.items())
         feed_results = {}
+        feed_errors = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             futures = {executor.submit(_fetch_single_feed, item): item[0] for item in feed_items}
             for future in concurrent.futures.as_completed(futures):
                 provider, content, error = future.result()
                 if error:
                     failed_providers.append(provider)
+                    feed_errors[provider] = error
                     logger.warning("cloud_worker: error fetching %s: %s", provider, error)
                 else:
                     feed_results[provider] = content
 
         # Phase 2: Process feeds sequentially (DB writes)
         with SessionLocal() as session:
+            microsoft_state = None
+            if "Microsoft 365" in CLOUD_FEEDS:
+                microsoft_state = session.query(Microsoft365StatusState).filter_by(id=1).first()
+                if microsoft_state is None:
+                    microsoft_state = Microsoft365StatusState(id=1)
+                    session.add(microsoft_state)
+                microsoft_state.last_attempt_at = poll_started_at
+                microsoft_state.last_duration_ms = None
+                microsoft_state.last_http_status = 200 if "Microsoft 365" in feed_results else None
+                microsoft_state.last_error = (
+                    _microsoft_365_fetch_error(feed_errors["Microsoft 365"])
+                    if "Microsoft 365" in feed_errors else None
+                )
+
             for provider, content in feed_results.items():
                 try:
                     feed = feedparser.parse(content)
                     feed_entries = len(feed.entries)
                     logger.debug("cloud_worker: %s returned %d entries", provider, feed_entries)
+                    if provider == "Microsoft 365" and getattr(feed, "bozo", False) and not feed_entries:
+                        microsoft_state.last_error = "Microsoft 365 status feed returned invalid XML."
+                        microsoft_state.last_http_status = 200
+                        continue
 
                     candidates = []
                     for entry in feed.entries[:15]:
@@ -171,22 +234,28 @@ def fetch_cloud_outages():
                         title = entry.get('title', 'Unknown Alert')
                         link = entry.get('link', '')
                         description = entry.get('summary', entry.get('description', ''))
+                        if provider == "Microsoft 365":
+                            description = _plain_feed_text(description)
 
-                        if is_future_maintenance(title, description):
+                        if provider != "Microsoft 365" and is_future_maintenance(title, description):
                             filtered_count += 1
                             continue
 
-                        if is_foreign_region(title + " " + description):
+                        if provider != "Microsoft 365" and is_foreign_region(title + " " + description):
                             filtered_count += 1
                             continue
 
-                        text_to_check = (title + " " + description).upper()
-                        is_resolved = any(kw in text_to_check for kw in _RESOLVED_KEYWORDS)
+                        is_resolved, status_code = _microsoft_365_status(
+                            provider, entry, title, description
+                        )
 
                         base_service = extract_service_name(provider, title)
                         us_impact = extract_us_regions(title + " " + description)
-                        region_tag = f" [{', '.join(us_impact)}]" if us_impact else ""
+                        region_tag = f" [{', '.join(us_impact)}]" if us_impact and provider != "Microsoft 365" else ""
                         final_service_name = f"{base_service}{region_tag}"
+                        external_id = ""
+                        if provider == "Microsoft 365":
+                            external_id = str(entry.get("id") or entry.get("guid") or "")[:255]
 
                         candidates.append({
                             "updated_at": updated_at,
@@ -195,6 +264,8 @@ def fetch_cloud_outages():
                             "description": description,
                             "link": link,
                             "is_resolved": is_resolved,
+                            "external_id": external_id or None,
+                            "status_code": status_code[:64] if status_code else None,
                         })
 
                     # Fetch matching existing rows once per provider instead of
@@ -207,10 +278,21 @@ def fetch_cloud_outages():
                             CloudOutage.updated_at.in_(timestamps),
                         ).all():
                             existing_by_key.setdefault((outage.title, outage.updated_at), outage)
+                    external_ids = list({item["external_id"] for item in candidates if item["external_id"]})
+                    existing_by_id = {}
+                    if external_ids:
+                        for outage in session.query(CloudOutage).filter(
+                            CloudOutage.provider == provider,
+                            CloudOutage.external_id.in_(external_ids),
+                        ).all():
+                            existing_by_id[outage.external_id] = outage
 
                     for item in candidates:
                         key = (item["title"], item["updated_at"])
-                        exists = existing_by_key.get(key)
+                        exists = (
+                            existing_by_id.get(item["external_id"])
+                            if item["external_id"] else existing_by_key.get(key)
+                        )
 
                         if not exists:
                             exists = CloudOutage(
@@ -221,18 +303,54 @@ def fetch_cloud_outages():
                                 link=item["link"],
                                 is_resolved=item["is_resolved"],
                                 updated_at=item["updated_at"],
+                                external_id=item["external_id"],
+                                status_code=item["status_code"],
                             )
                             session.add(exists)
                             existing_by_key[key] = exists
+                            if item["external_id"]:
+                                existing_by_id[item["external_id"]] = exists
                             added_count += 1
+                        elif provider == "Microsoft 365":
+                            if not exists.updated_at or item["updated_at"] >= exists.updated_at:
+                                was_resolved = bool(exists.is_resolved)
+                                exists.service = item["service"]
+                                exists.title = item["title"]
+                                exists.description = item["description"]
+                                exists.link = item["link"]
+                                exists.status_code = item["status_code"]
+                                exists.is_resolved = item["is_resolved"]
+                                exists.updated_at = item["updated_at"]
+                                if not was_resolved and item["is_resolved"]:
+                                    resolved_count += 1
                         elif item["is_resolved"] and not exists.is_resolved:
                             exists.is_resolved = True
                             exists.updated_at = item["updated_at"]
                             resolved_count += 1
 
+                    if provider == "Microsoft 365":
+                        microsoft_state.last_success_at = datetime.utcnow()
+                        microsoft_state.last_duration_ms = int(
+                            (microsoft_state.last_success_at - poll_started_at).total_seconds() * 1000
+                        )
+                        microsoft_state.last_http_status = 200
+                        microsoft_state.last_error = None
+
                 except Exception as e:
                     logger.warning("cloud_worker: error processing %s: %s", provider, e)
+                    if provider == "Microsoft 365":
+                        microsoft_state.last_error = "Microsoft 365 status feed could not be processed."
+                        microsoft_state.last_duration_ms = int(
+                            (datetime.utcnow() - poll_started_at).total_seconds() * 1000
+                        )
                     continue
+
+            if microsoft_state is not None and "Microsoft 365" in feed_errors:
+                match = re.match(r"HTTP (\d{3})", feed_errors["Microsoft 365"])
+                microsoft_state.last_http_status = int(match.group(1)) if match else None
+                microsoft_state.last_duration_ms = int(
+                    (datetime.utcnow() - poll_started_at).total_seconds() * 1000
+                )
 
             purge_cutoff = datetime.utcnow() - timedelta(days=3)
             deleted = session.query(CloudOutage).filter(CloudOutage.is_resolved == True, CloudOutage.updated_at < purge_cutoff).delete()

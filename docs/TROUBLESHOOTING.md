@@ -88,11 +88,12 @@ Check port/firewall routing, JSON content type, body size, HMAC secret/header na
 
 ## No Emails, Tickets, or On-Page Alerts
 
-1. Confirm SMTP settings in the Settings UI and test the LLM/SMTP connection where available.
-2. Confirm the effective recipient destinations in Settings > Application Settings; unset database overrides use `RISK_ALERT_RECIPIENTS`, `REMEDYFORCE_TICKET_EMAIL`, `NOC_NOTIFY_EMAIL`, `NOC_ONPAGE_EMAIL`, and `ITNETWORK_ONPAGE_EMAIL` from the environment.
-3. Read worker logs for `SMTP Error`, `missing`, or `Skipping` messages.
-4. Confirm the event is in the applicable Central-time day/after-hours window and has passed its tier wait.
-5. Check node cooldown, site mute, `is_ticketed`, and resolution status.
+1. In Settings > AI & SMTP, confirm the active sender selector, that the selected profile is enabled, and use Send Test Email after saving the configuration.
+2. For Gmail, use the account address and a Google App Password (not the normal account password); confirm 2-Step Verification is enabled and the From address is authorized for that account.
+3. Confirm the effective recipient destinations in Settings > Application Settings; unset database overrides use `RISK_ALERT_RECIPIENTS`, `REMEDYFORCE_TICKET_EMAIL`, `NOC_NOTIFY_EMAIL`, `NOC_ONPAGE_EMAIL`, and `ITNETWORK_ONPAGE_EMAIL` from the environment.
+4. Read worker logs for `SMTP Error`, `missing`, or `Skipping` messages.
+5. Confirm the event is in the applicable Central-time day/after-hours window and has passed its tier wait.
+6. Check node cooldown, site mute, `is_ticketed`, and resolution status.
 
 The escalation job skips when the effective Remedyforce destination is missing. Daily email skips when no saved unified brief or no effective risk-recipient setting exists.
 

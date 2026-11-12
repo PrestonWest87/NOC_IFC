@@ -32,6 +32,7 @@ from src.models.schema import (
     RegionalHazard,
     RegionalOutage,
     CloudOutage,
+    Microsoft365StatusState,
     BgpAnomaly,
     SolarWindsAlert,
     TimelineEvent,

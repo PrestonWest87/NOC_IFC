@@ -4,7 +4,7 @@ Router prefix: `/api/v1/settings`. The routes are read-only compatibility/data e
 
 | Method/path | Required grants | Response and behavior |
 |---|---|---|
-| `GET /config` | Page `Settings & Admin` and `Tab: Settings -> AI & SMTP` | Returns LLM provider/endpoint/model/active flag, `llm_api_key_configured`, SMTP enabled/server/port/username/sender/recipient, and `llm_context_window`. It does not return `llm_api_key` or `smtp_password`. Returns `{}` if no `SystemConfig` row exists. |
+| `GET /config` | Page `Settings & Admin` and `Tab: Settings -> AI & SMTP` | Returns LLM provider/endpoint/model/active flag, `llm_api_key_configured`, selected email provider, both profiles' non-secret fields, credential-configured flags, and `llm_context_window`. It does not return API keys, SMTP passwords, or Gmail app passwords. Returns `{}` if no `SystemConfig` row exists. |
 | `GET /users` | `Tab: Settings -> Users & Roles` and `Action: Manage Users` | Legacy user-directory endpoint. Returns `svc.get_user_directory()`; new UI uses `/user-admin/users`, which also enforces router-level Settings page and Users & Roles tab grants. |
 | `GET /facilities` | Page `Settings & Admin` and `Tab: Settings -> Facility Locations` | Returns cached monitored locations filtered by the caller's `allowed_site_types`; built-in administrators receive all locations. |
 | `GET /email-contacts` | Page `Settings & Admin` and `Tab: Settings -> Email Contacts` | Returns Fiber company contacts and ONPAGE department email contacts. |

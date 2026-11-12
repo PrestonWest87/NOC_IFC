@@ -12,6 +12,7 @@ from sqlalchemy import func
 from zoneinfo import ZoneInfo
 
 from src.core.db import SessionLocal
+from src.core.email_settings import get_active_smtp_profile, smtp_profile_is_ready
 from src.models.schema import (
     AccountAuditEvent,
     FiberEmailContact,
@@ -784,6 +785,7 @@ def get_operational_email_templates() -> dict:
             for row in db.query(OperationalEmailTemplate).all()
         }
         config = db.query(SystemConfig).first()
+        smtp_profile = get_active_smtp_profile(config)
         templates = []
         for key, definition in TEMPLATE_DEFINITIONS.items():
             row = rows[key]
@@ -804,8 +806,9 @@ def get_operational_email_templates() -> dict:
             })
         return {
             "templates": templates,
-            "sender_address": config.smtp_sender if config else "",
-            "smtp_enabled": bool(config.smtp_enabled) if config else False,
+            "sender_address": smtp_profile["sender"],
+            "smtp_provider": smtp_profile["provider"],
+            "smtp_enabled": smtp_profile_is_ready(smtp_profile),
             "timezone": EMAIL_TIMEZONE,
             "timezone_abbreviation": application_timezone_abbreviation(),
             "latest_shift_analysis": (config.rolling_summary or "") if config else "",
@@ -1233,11 +1236,12 @@ def _create_email_record(db, actor_user_id: int, prepared: dict, schedule: dict 
 def _delivery_snapshot(db, email: OperationalEmail, status: str = "sending") -> OperationalEmailDelivery:
     """Create an immutable recipient/body snapshot for one SMTP attempt."""
     config = db.query(SystemConfig).first()
-    sender = config.smtp_sender if config else None
+    smtp_profile = get_active_smtp_profile(config)
     delivery = OperationalEmailDelivery(
         operational_email_id=email.id,
         status=status,
-        sender_address=sender,
+        smtp_provider=smtp_profile["provider"],
+        sender_address=smtp_profile["sender"],
         signature_id=email.signature_id,
         signature_name=email.signature_name,
         to_recipients=list(email.to_recipients or []),
@@ -1490,6 +1494,7 @@ def list_operational_email_history(limit: int = 100) -> list[dict]:
                 "email_id": row.operational_email_id,
                 "template_key": row.email.template_key if row.email else "",
                 "status": row.status,
+                "smtp_provider": row.smtp_provider or "smtp",
                 "sender_address": row.sender_address,
                 "signature_name": row.signature_name,
                 "to": list(row.to_recipients or []),
@@ -1515,6 +1520,7 @@ def get_operational_email_delivery(delivery_id: int) -> dict | None:
             "email_id": row.operational_email_id,
             "template_key": row.email.template_key if row.email else "",
             "status": row.status,
+            "smtp_provider": row.smtp_provider or "smtp",
             "sender_address": row.sender_address,
             "signature_name": row.signature_name,
             "to": list(row.to_recipients or []),

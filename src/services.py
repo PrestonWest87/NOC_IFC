@@ -39,6 +39,7 @@ from src.database import (
     SoftwareAsset, HardwareAsset, InternalRiskSnapshot, CrimeIncident,
     ElasticEvent, UserWeatherPreference, NodeAlias, FiberEmailContact,
     OnpageEmailContact, NetworkOrderCircuit,
+    Microsoft365StatusState,
 )
 from src.core.permissions import (
     ACTION_KEYS, ADMIN_ACTIONS, PAGE_KEYS, TAB_KEYS,
@@ -3627,6 +3628,157 @@ def get_cloud_outages(active_only=True, limit=None, days_back=None):
         if limit: q = q.limit(limit)
         return to_dotdict_list(q.all())
 
+
+MICROSOFT_365_STATUS_FEED_URL = "https://status.cloud.microsoft/api/feed/mac"
+MICROSOFT_365_SERVICES = [
+    {
+        "id": "outlook",
+        "name": "Outlook / Exchange Online",
+        "terms": ("exchange online", "outlook"),
+    },
+    {"id": "teams", "name": "Microsoft Teams", "terms": ("microsoft teams", "teams")},
+    {"id": "sharepoint", "name": "SharePoint Online", "terms": ("sharepoint",)},
+    {"id": "onedrive", "name": "OneDrive for Business", "terms": ("onedrive",)},
+    {
+        "id": "office_apps",
+        "name": "Microsoft 365 Apps / Office for the web",
+        "terms": ("microsoft 365 apps", "office for the web", "office online"),
+    },
+    {"id": "admin_center", "name": "Microsoft 365 Admin Center", "terms": ("admin center",)},
+    {
+        "id": "entra",
+        "name": "Microsoft Entra ID",
+        "terms": ("entra id", "identity service", "azure active directory"),
+    },
+    {
+        "id": "defender",
+        "name": "Microsoft Defender XDR",
+        "terms": ("microsoft defender", "defender xdr"),
+    },
+    {"id": "power_platform", "name": "Power Platform", "terms": ("power platform",)},
+    {
+        "id": "microsoft_365",
+        "name": "Microsoft 365 overall",
+        "terms": ("microsoft 365 services", "microsoft 365 suite", "multiple microsoft 365"),
+    },
+]
+_MICROSOFT_365_STATUS_LABELS = {
+    "investigating": "Investigating",
+    "servicedegradation": "Service degradation",
+    "serviceinterruption": "Service interruption",
+    "restoringservice": "Restoring service",
+    "extendedrecovery": "Extended recovery",
+    "verifyingservice": "Verifying service",
+    "investigationsuspended": "Investigation suspended",
+    "confirmed": "Confirmed incident",
+    "reported": "Reported",
+}
+
+
+def get_microsoft_365_status():
+    """Summarize app-level incidents from Microsoft's public service-health feed.
+
+    The public feed reports Microsoft-published incidents, not tenant-specific
+    health. A healthy feed with no matching incident is deliberately described as
+    “No active incident reported,” rather than a synthetic end-to-end health check.
+    """
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        state = db.query(Microsoft365StatusState).filter_by(id=1).first()
+        cloud_schedule = db.query(SchedulerJobConfig).filter_by(job_key="cloud_outages").first()
+        rows = db.query(CloudOutage).filter_by(
+            provider="Microsoft 365", is_resolved=False
+        ).filter(
+            CloudOutage.updated_at >= now - timedelta(days=7)
+        ).order_by(CloudOutage.updated_at.desc()).limit(100).all()
+
+        last_attempt = state.last_attempt_at if state else None
+        last_success = state.last_success_at if state else None
+        last_error = state.last_error if state else None
+        cloud_job_defaults = JOB_REGISTRY["cloud_outages"]
+        cloud_job_enabled = cloud_schedule.enabled if cloud_schedule else cloud_job_defaults["enabled"]
+        cloud_poll_minutes = (
+            cloud_schedule.every_value if cloud_schedule and cloud_schedule.every_value
+            else cloud_job_defaults["every_value"]
+        )
+        stale_after_minutes = max(25, int(cloud_poll_minutes) * 3 + 5)
+        if not cloud_job_enabled:
+            feed_status = "disabled"
+        elif not last_success:
+            feed_status = "error" if last_error else "unknown"
+        elif (now - last_success).total_seconds() > stale_after_minutes * 60:
+            feed_status = "stale"
+        elif last_error and last_attempt and last_attempt > last_success:
+            feed_status = "degraded"
+        else:
+            feed_status = "current"
+
+        def iso_utc(value):
+            return value.isoformat() + "Z" if value else None
+
+        incidents = []
+        for row in rows:
+            incidents.append({
+                "id": row.id,
+                "title": row.title or "Microsoft 365 service incident",
+                "service": row.service or "Microsoft 365",
+                "description": row.description or "",
+                "link": row.link or "https://status.cloud.microsoft/",
+                "status_code": row.status_code or "",
+                "status_label": _MICROSOFT_365_STATUS_LABELS.get(
+                    re.sub(r"[^a-z]", "", str(row.status_code or "").casefold()),
+                    "Active incident",
+                ),
+                "updated_at": iso_utc(row.updated_at),
+            })
+
+        source_is_current = feed_status in {"current", "degraded"}
+        service_statuses = []
+        for definition in MICROSOFT_365_SERVICES:
+            matching = [
+                incident for incident, row in zip(incidents, rows)
+                if any(
+                    term in f"{row.title or ''} {row.description or ''}".casefold()
+                    for term in definition["terms"]
+                )
+            ]
+            if not source_is_current:
+                status = "unknown"
+                if feed_status == "disabled":
+                    status_label = "Monitoring disabled"
+                elif feed_status in {"unknown", "error"}:
+                    status_label = "Feed status unavailable"
+                else:
+                    status_label = "Feed is stale"
+            elif matching:
+                status = "incident"
+                status_label = matching[0]["status_label"]
+            else:
+                status = "no_active_incident"
+                status_label = "No active incident reported"
+            service_statuses.append({
+                "id": definition["id"],
+                "name": definition["name"],
+                "status": status,
+                "status_label": status_label,
+                "active_incidents": matching,
+            })
+
+        return {
+            "source": "Microsoft 365 public service-health feed",
+            "source_url": "https://status.cloud.microsoft/",
+            "feed_url": MICROSOFT_365_STATUS_FEED_URL,
+            "feed_status": feed_status,
+            "last_attempt_at": iso_utc(last_attempt),
+            "last_success_at": iso_utc(last_success),
+            "last_duration_ms": state.last_duration_ms if state else None,
+            "last_http_status": state.last_http_status if state else None,
+            "last_error": last_error,
+            "stale_after_minutes": stale_after_minutes,
+            "services": service_statuses,
+            "active_incidents": incidents,
+        }
+
 def get_user_weather_prefs(username):
     """Return alert-type preferences stored for one username."""
     from src.database import SessionLocal, UserWeatherPreference
@@ -5493,10 +5645,29 @@ def save_global_config(data, allow_system_fields=True):
             value = data[field_name]
             if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
                 raise ValueError(f"{field_name} must be an integer between {minimum} and {maximum}.")
+    if "active_smtp_provider" in data:
+        provider = data["active_smtp_provider"]
+        if not isinstance(provider, str) or provider not in {"smtp", "gmail"}:
+            raise ValueError("active_smtp_provider must be either 'smtp' or 'gmail'.")
+    for field_name in ("smtp_enabled", "gmail_smtp_enabled"):
+        if field_name in data and not isinstance(data[field_name], bool):
+            raise ValueError(f"{field_name} must be a boolean.")
+    if "smtp_port" in data:
+        port = data["smtp_port"]
+        if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+            raise ValueError("smtp_port must be an integer between 1 and 65535.")
+    for field_name, maximum in (
+        ("gmail_smtp_username", 254), ("gmail_smtp_password", 1024),
+        ("gmail_smtp_sender", 254), ("smtp_password", 1024),
+    ):
+        if field_name in data and data[field_name] is not None:
+            if not isinstance(data[field_name], str) or len(data[field_name]) > maximum:
+                raise ValueError(f"{field_name} must be text no longer than {maximum} characters.")
     editable_fields = {
         "llm_endpoint", "llm_api_key", "llm_model_name", "llm_provider", "is_active", "tech_stack",
-        "monitored_asns", "smtp_server", "smtp_port", "smtp_username", "smtp_password",
-        "smtp_sender", "smtp_recipient", "smtp_enabled", "baseline_override_cyber",
+        "monitored_asns", "active_smtp_provider", "smtp_server", "smtp_port", "smtp_username", "smtp_password",
+        "smtp_sender", "smtp_recipient", "smtp_enabled", "gmail_smtp_username", "gmail_smtp_password",
+        "gmail_smtp_sender", "gmail_smtp_enabled", "baseline_override_cyber",
         "baseline_override_phys", "sys_countermeasures", "net_countermeasures",
         "scoring_mode", "cyber_criticality_override", "cyber_lethality_override",
         "physical_criticality_override", "physical_lethality_override",
@@ -5541,11 +5712,10 @@ def save_global_config(data, allow_system_fields=True):
         if effective_alert_enabled:
             if not effective_recipients:
                 raise ValueError("Configure at least one failed login alert recipient before enabling alerts.")
-            smtp_enabled = data.get("smtp_enabled", bool(config.smtp_enabled))
-            smtp_server = data.get("smtp_server", config.smtp_server)
-            smtp_sender = data.get("smtp_sender", config.smtp_sender)
-            if not smtp_enabled or not smtp_server or not smtp_sender:
-                raise ValueError("Failed login alerts require enabled SMTP with a server and sender configured.")
+            from src.core.email_settings import get_active_smtp_profile, smtp_profile_is_ready
+            active_profile = get_active_smtp_profile(config, overrides=data)
+            if not smtp_profile_is_ready(active_profile):
+                raise ValueError("Failed login alerts require the active SMTP profile to be enabled and complete.")
         previous_llm_provider = config.llm_provider or "openai_compatible"
         next_llm_provider = data.get("llm_provider", previous_llm_provider)
         for key, value in data.items(): setattr(config, key, value)

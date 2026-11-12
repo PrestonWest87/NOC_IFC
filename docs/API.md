@@ -3,7 +3,7 @@
 Base URL: `http://localhost:8102/api/v1`
 WebSocket: `ws://localhost:8102/ws`
 
-This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-11 (201 paths and 217 HTTP operations). The running application's OpenAPI schema remains the source of truth.
+This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-12 (203 paths and 219 HTTP operations). The running application's OpenAPI schema remains the source of truth.
 
 ## Authentication
 
@@ -169,6 +169,10 @@ Generates an AI BLUF summary for an article.
 ### GET /threat/cves?limit=50&days_back=30
 
 ### GET /threat/cloud-outages?active_only=true&days_back=7
+
+### GET /threat/microsoft-365-status
+
+Requires `Tab: Threat Telemetry -> Cloud Services`. Returns public-feed freshness plus incident status for Outlook/Exchange Online, Teams, SharePoint, OneDrive, Microsoft 365 Apps, Admin Center, Entra ID, Defender, and Power Platform. A service without a matching active notice is labeled “No active incident reported”; this is not a tenant-specific connectivity check.
 
 ### GET /threat/crime-incidents?hours_back=24&max_distance=1.0
 
@@ -413,7 +417,7 @@ Requires Report Builder tab. Body: `{target, days_back}`. Searches up to 30 arti
 ## Settings Endpoints (/settings)
 
 ### GET /settings/config
-Returns LLM/SMTP configuration fields. Requires the Settings page and AI & SMTP tab; secret values are not returned.
+Returns LLM and email-sender configuration. Requires the Settings page and AI & SMTP tab. It includes the selected sender (`smtp` or `gmail`), both profiles' non-secret fields, and configured flags; passwords and app passwords are never returned.
 
 ### GET /settings/users
 Compatibility endpoint for the user directory; requires `Tab: Settings -> Users & Roles` and `Action: Manage Users`. Unlike the newer `/user-admin/users` route it does not declare an additional router-level Settings page dependency.
@@ -457,7 +461,10 @@ Body: `{weight: N}`. Validates 1-100, force-reloads scorer.
 ### GET /admin/ml-counts
 
 ### POST /admin/config
-Administrator-only compatibility endpoint for allowlisted editable `SystemConfig` fields. It cannot write system-maintained brief/risk-state fields; the current UI uses category-specific `/application-settings/*` routes for risk scoring, application defaults, and scheduler changes.
+Administrator-only compatibility endpoint for allowlisted editable `SystemConfig` fields. It can save both the existing SMTP profile and the Gmail profile, with `active_smtp_provider` selecting which profile sends all mail. Gmail uses `smtp.gmail.com:587` with STARTTLS and a Google App Password. Password fields are write-only; omit them to retain saved values. It cannot write system-maintained brief/risk-state fields; the current UI uses category-specific `/application-settings/*` routes for risk scoring, application defaults, and scheduler changes.
+
+### POST /admin/config/test-email
+Body: `{"recipient":"operator@example.com"}`. Sends a short test through the saved active SMTP profile; requires administrator access and returns HTTP 502 when delivery fails.
 
 ### POST /admin/assets/software
 Body: `{csv_body: "..."}`. Replaces all software assets.

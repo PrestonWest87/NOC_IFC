@@ -4,7 +4,7 @@
 
 ## Overview
 
-Fetches and ingests cloud provider status feed data from 18 major providers (AWS, Google Cloud, Azure, Cisco Umbrella, Cisco Webex, Cisco Meraki, Cloudflare, GitHub, Slack, Zoom, Atlassian, Datadog, PagerDuty, Twilio, Okta, Zscaler, CrowdStrike, Mimecast). Filters maintenance windows and non-US regions, extracts US-region impact, and persists new or resolved outages to the `CloudOutage` table.
+Fetches and ingests status-feed data from 19 providers: AWS, Google Cloud, Azure, Microsoft 365, Cisco Umbrella, Cisco Webex, Cisco Meraki, Cloudflare, GitHub, Slack, Zoom, Atlassian, Datadog, PagerDuty, Twilio, Okta, Zscaler, CrowdStrike, and Mimecast. Filters future maintenance/non-US events for the generic feeds and persists new or resolved outages to `CloudOutage`. Microsoft 365 uses Microsoft's public service-health RSS feed, preserving its structured status code and stable feed ID while tracking poll freshness in `Microsoft365StatusState`.
 
 ---
 
@@ -12,7 +12,7 @@ Fetches and ingests cloud provider status feed data from 18 major providers (AWS
 
 ### `CLOUD_FEEDS` (`dict[str, str]`)
 
-Maps 18 cloud provider names to their RSS/Atom status feed URLs.
+Maps 19 provider names to RSS/Atom status-feed URLs. Microsoft 365 uses `https://status.cloud.microsoft/api/feed/mac`.
 
 ### `US_REGIONS` (`dict[str, str]`)
 
@@ -92,29 +92,20 @@ List of substrings (e.g. `"eu-"`, `"asia"`, `"london"`) used to identify non-US 
 - **Raises:** None (top-level exceptions are caught and logged as critical failures).
 - **Flow:**
   1. Compute cutoff window: `UTC now - 7 days`.
-  2. For each provider in `CLOUD_FEEDS`:
-     a. HTTP GET the feed URL (10 s timeout).
-     b. Parse with `feedparser`.
-     c. For each of the first 15 entries:
-        i.   Parse `published_parsed` or fall back to `UTC now`.
-        ii.  Skip if older than cutoff.
-        iii. Skip if `is_future_maintenance()` returns `True`.
-        iv.  Skip if `is_foreign_region()` returns `True`.
-        v.   Detect resolved status via keywords (`[RESOLVED]`, `OPERATIONAL`, etc.).
-        vi.  Extract service name via `extract_service_name()`.
-        vii. Extract US region via `extract_us_regions()`.
-        viii. Check for existing record by (provider, title, updated_at).
-        ix.  If new: insert `CloudOutage`.
-        x.   If existing and newly resolved: update `is_resolved`.
-     d. On failure: log warning, append to `failed_providers`, continue.
-  3. Purge resolved alerts older than 3 days.
-  4. Commit session.
-  5. Log summary with counts for added, resolved, filtered, and failed providers.
+  2. Fetch provider feeds concurrently with a 10-second HTTP timeout and parse them with `feedparser`.
+  3. For each of the first 15 recent entries:
+     a. Generic providers skip future maintenance and foreign-only entries; Microsoft 365 entries bypass those text filters.
+     b. Microsoft lifecycle state prefers the structured `<status>` field; generic providers use resolved keywords.
+     c. Microsoft HTML summaries are converted to readable text, and its stable entry ID/status code are retained.
+     d. Generic rows are matched by provider/title/update time; Microsoft rows are matched by provider/external ID and only newer source updates replace them.
+     e. Insert new `CloudOutage` rows or update the source's resolved state.
+  4. Persist Microsoft feed last attempt/success/duration/HTTP status/sanitized error; a failed request preserves its last-good incident rows.
+  5. Purge resolved alerts older than 3 days, commit, and log counts for added/resolved/filtered/failed providers.
 - **Dependencies:**
   - `feedparser` - RSS/Atom feed parsing
   - `requests` - HTTP client
   - `src.core.db.SessionLocal` - SQLAlchemy session factory
-  - `src.models.schema.CloudOutage` - ORM model
+  - `src.models.schema.CloudOutage`, `Microsoft365StatusState` - ORM models
   - `datetime`, `re`
 ## Current Source Surface
 

@@ -253,6 +253,7 @@ class OperationalEmailDelivery(Base):
         index=True,
     )
     status = Column(String(16), nullable=False, index=True)
+    smtp_provider = Column(String(16), nullable=True)
     sender_address = Column(String(254), nullable=True)
     signature_id = Column(Integer, ForeignKey("operational_email_signatures.id"), nullable=True, index=True)
     signature_name = Column(String(100), nullable=True)
@@ -319,6 +320,7 @@ class SystemConfig(Base):
     monitored_asns = Column(String, default="AS701, AS7922, AS3356")
     rolling_summary = Column(Text, nullable=True)
     rolling_summary_time = Column(DateTime, nullable=True)
+    active_smtp_provider = Column(String(16), nullable=False, default="smtp", server_default="smtp")
     smtp_server = Column(String, nullable=True)
     smtp_port = Column(Integer, default=587)
     smtp_username = Column(String, nullable=True)
@@ -326,6 +328,10 @@ class SystemConfig(Base):
     smtp_sender = Column(String, nullable=True)
     smtp_recipient = Column(String, nullable=True)
     smtp_enabled = Column(Boolean, default=False)
+    gmail_smtp_username = Column(String(254), nullable=True)
+    gmail_smtp_password = Column(Text, nullable=True)
+    gmail_smtp_sender = Column(String(254), nullable=True)
+    gmail_smtp_enabled = Column(Boolean, nullable=False, default=False, server_default=text("0"))
     baseline_override_cyber = Column(Float, default=0.0)
     baseline_override_phys = Column(Float, default=0.0)
     unified_brief = Column(Text, nullable=True)
@@ -576,6 +582,27 @@ class CloudOutage(Base):
     link = Column(String)
     is_resolved = Column(Boolean, default=False, index=True)
     updated_at = Column(DateTime, index=True)
+    external_id = Column(String(255), nullable=True)
+    status_code = Column(String(64), nullable=True)
+
+
+Index(
+    "uq_cloud_outages_provider_external_id",
+    CloudOutage.provider,
+    CloudOutage.external_id,
+    unique=True,
+)
+
+
+class Microsoft365StatusState(Base):
+    """Freshness and fetch diagnostics for Microsoft's public service-health feed."""
+    __tablename__ = "microsoft_365_status_state"
+    id = Column(Integer, primary_key=True)
+    last_attempt_at = Column(DateTime, nullable=True)
+    last_success_at = Column(DateTime, nullable=True)
+    last_duration_ms = Column(Integer, nullable=True)
+    last_http_status = Column(Integer, nullable=True)
+    last_error = Column(String(500), nullable=True)
 
 
 class BgpAnomaly(Base):

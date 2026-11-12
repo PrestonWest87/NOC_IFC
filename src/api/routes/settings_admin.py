@@ -8,6 +8,7 @@ import logging
 import os
 import tempfile
 import json
+import re
 from fastapi import APIRouter, Query, Body, HTTPException, UploadFile, File, Depends, BackgroundTasks, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
@@ -107,6 +108,28 @@ class SettingsDirectoryCsvImport(BaseModel):
     mode: Literal["merge", "replace"] = "merge"
 
 
+class SMTPTestEmailRequest(BaseModel):
+    """Validate one administrator-selected mailbox for a sender-profile test."""
+    model_config = ConfigDict(extra="forbid")
+
+    recipient: str = Field(min_length=3, max_length=254)
+
+    @field_validator("recipient", mode="before")
+    @classmethod
+    def validate_recipient(cls, value):
+        """Accept exactly one syntactically valid mailbox for the test delivery."""
+        if not isinstance(value, str):
+            raise ValueError("Enter one valid email address.")
+        value = value.strip()
+        if not re.fullmatch(
+            r"[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,63}",
+            value,
+            re.IGNORECASE,
+        ):
+            raise ValueError("Enter one valid email address.")
+        return value
+
+
 def _send_invitation_email(recipient: str, username: str, role: str, link: str, expires_at: str):
     """Deliver a compatibility-route invite without logging its registration token."""
     from src.utils.mailer import send_alert_email
@@ -197,6 +220,22 @@ def save_config(data: dict[str, Any] = Body({})):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "ok"}
+
+
+@router.post("/config/test-email")
+def test_config_email(body: SMTPTestEmailRequest):
+    """Send a short test message through whichever SMTP profile is currently active."""
+    from src.utils.mailer import send_alert_email
+
+    success, message = send_alert_email(
+        "SMTP configuration test",
+        "This message confirms that the active NOC IFC email sender can deliver mail.",
+        recipient_override=body.recipient,
+        is_html=False,
+    )
+    if not success:
+        raise HTTPException(status_code=502, detail=message)
+    return {"status": "sent", "message": message}
 
 
 @router.post("/assets/software")

@@ -752,6 +752,16 @@ Returns compact fetch age, last attempt/success, error, status code, duration, f
 
 ---
 
+### `get_microsoft_365_status() -> dict`
+
+**Purpose:** Return Microsoft public-feed freshness, currently listed active incidents, and incident status per supported Microsoft 365 application.
+
+The service maps public incident summaries to Outlook/Exchange Online, Teams, SharePoint, OneDrive, Microsoft 365 Apps, Admin Center, Entra ID, Defender XDR, and Power Platform. A fresh feed without a matching active issue returns “No active incident reported,” not a tenant-specific operational assertion. Only unresolved feed items updated within seven days appear as active incidents. Feed freshness follows the configured `cloud_outages` scheduler interval (three cycles plus five minutes, with a 25-minute minimum); disabled, missing, failed, or stale source data marks application state unknown.
+
+**Dependencies:** `CloudOutage`, `Microsoft365StatusState`, `SessionLocal`
+
+---
+
 ### `get_user_weather_prefs(username) -> list[str]`
 
 **Purpose:** Retrieves a user's weather alert preferences.

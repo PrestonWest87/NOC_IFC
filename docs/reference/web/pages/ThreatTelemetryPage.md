@@ -177,6 +177,7 @@ None (uses `useAuth` for user context).
 | `cves` | `GET /threat/cves?limit=50&days_back=30` | 5min | CISA KEV list |
 | `outages` | `GET /threat/cloud-outages?active_only=true` | 2min | Active cloud outages |
 | `resolved-outages` | `GET /threat/cloud-outages?active_only=false` | - | All outages for resolved view |
+| `microsoft-365-status` | `GET /threat/microsoft-365-status` | 2min | Public-feed freshness and per-application incident notices |
 | `crimes` | `GET /threat/crime-incidents` | 3min | Crime incidents |
 
 #### Mutations
@@ -206,6 +207,7 @@ None (uses `useAuth` for user context).
 
 **Tab 2 — Cloud Services:**
 - Sync Cloud Status button (60s cooldown)
+- Microsoft 365 status panel with source freshness and incident state for Outlook/Exchange Online, Teams, SharePoint, OneDrive, and related services; this is a public incident feed, not tenant health
 - Active incidents warning banner with affected provider count
 - Provider filter tabs
 - Outage details as collapsible elements with service, title, description, link, and update timestamp
@@ -222,7 +224,7 @@ None (uses `useAuth` for user context).
 
 #### Derived Data
 - `articles`, `totalArticles`, `totalPages`, `currentPage`: Destructured from articles query.
-- `activeOutages`: Filters out maintenance/scheduled events unless they include today's date or active keywords.
+- `activeOutages`: Filters out maintenance/scheduled entries for other cloud providers unless they include today's date or active keywords; Microsoft 365 incident notices retain their structured source status.
 - `filteredOutages`: Provider-filtered subset of active outages.
 - `affectedProviders`: Unique sorted provider names.
 - `resolvedOutages`: Outages where `is_resolved` is true.

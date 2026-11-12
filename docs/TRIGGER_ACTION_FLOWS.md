@@ -32,7 +32,7 @@ The single `worker` process registers 22 jobs from `JOB_REGISTRY`. It runs regis
 | `elastic_sync` | Every 6 minutes; starts on boot | Import bounded high-severity Elastic events into the local cache |
 | `nws_alerts` | Every 1 minute; starts on boot | Fetch one combined seven-state active-alert response; reconcile CAP lifecycle and 50-mile border coverage |
 | `regional_hazards` | Every 7 minutes; starts on boot | Refresh SPC/USGS/WFCA and evaluate earthquake/wildfire proximity |
-| `cloud_outages` | Every 8 minutes; starts on boot | Fetch configured cloud status feeds |
+| `cloud_outages` | Every 8 minutes; starts on boot | Fetch 19 cloud/SaaS status feeds, including the Microsoft 365 public incident feed |
 | `crime_fetch` | Every 10 minutes; starts on boot | Fetch/geocode Little Rock CAD events and dispatch qualifying high-severity alerts |
 | `database_maintenance` | Every 60 minutes | Retention, orphan IOC deletion, SQLite optimize/passive checkpoint |
 | `internal_risk` | Every 2 hours; starts on boot | Calculate/store internal risk snapshot and check risk escalation |

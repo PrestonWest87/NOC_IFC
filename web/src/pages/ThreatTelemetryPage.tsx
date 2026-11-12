@@ -295,6 +295,13 @@ export function ThreatTelemetryPage() {
     enabled: activeTab === 2 && canCloud,
   });
 
+  const microsoft365StatusQuery = useQuery({
+    queryKey: ["microsoft-365-status"],
+    queryFn: () => api.get("/threat/microsoft-365-status").then(r => r.data),
+    refetchInterval: 120000,
+    enabled: activeTab === 2 && canCloud,
+  });
+
   const resolvedQuery = useQuery({
     queryKey: ["resolved-outages"],
     queryFn: () => api.get("/threat/cloud-outages", { params: { active_only: false } }).then(r => r.data),
@@ -351,6 +358,7 @@ export function ThreatTelemetryPage() {
     mutationFn: () => api.post("/threat/sync-cloud-status"),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["outages"] });
+      queryClient.invalidateQueries({ queryKey: ["microsoft-365-status"] });
       setCooldownCloud(true);
       setTimeout(() => setCooldownCloud(false), 60000);
     },
@@ -385,6 +393,7 @@ export function ThreatTelemetryPage() {
 
   const activeOutages = useMemo(() => {
     return outages.filter((o: any) => {
+      if (o.provider === "Microsoft 365") return true;
       const text = ((o.title || "") + " " + (o.description || "")).toLowerCase();
       const isMaint = /maintenance|scheduled|upcoming|update/.test(text);
       const isActive = /in progress|started|currently undergoing/.test(text);
@@ -943,6 +952,51 @@ export function ThreatTelemetryPage() {
             </button>}
           </div>
 
+          <section style={{ ...s.card, borderColor: "rgba(56, 189, 248, 0.35)" }} aria-label="Microsoft 365 application status">
+            <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", alignItems: "flex-start", flexWrap: "wrap" }}>
+              <div>
+                <h3 style={{ margin: "0 0 0.25rem", color: "var(--text-primary, #e2e8f0)", fontSize: "0.95rem" }}>Microsoft 365 application status</h3>
+                <div style={s.caption}>Official public incident feed · Outlook / Exchange, Teams, SharePoint, OneDrive, and related services</div>
+              </div>
+              {microsoft365StatusQuery.data && <span style={{ ...s.badge, background: microsoft365StatusQuery.data.feed_status === "current" ? "#16a34a" : microsoft365StatusQuery.data.feed_status === "degraded" ? "#d97706" : "#64748b" }}>
+                {String(microsoft365StatusQuery.data.feed_status || "unknown").replace(/_/g, " ").toUpperCase()}
+              </span>}
+            </div>
+            {microsoft365StatusQuery.isLoading ? (
+              <div role="status" style={{ ...s.caption, marginTop: "0.65rem" }}>Loading Microsoft 365 status...</div>
+            ) : microsoft365StatusQuery.isError ? (
+              <div role="alert" style={{ color: "var(--accent-red)", fontSize: "0.78rem", marginTop: "0.65rem" }}>Microsoft 365 status could not be loaded.</div>
+            ) : microsoft365StatusQuery.data ? (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "0.5rem", marginTop: "0.75rem" }}>
+                  {(microsoft365StatusQuery.data.services || []).map((service: any) => {
+                    const incident = service.status === "incident";
+                    const unknown = service.status === "unknown";
+                    const color = incident ? "#f97316" : unknown ? "#94a3b8" : "#22c55e";
+                    return <div key={service.id} style={{ border: "1px solid var(--border-primary, #334155)", borderRadius: "var(--radius-sm, 4px)", padding: "0.6rem", background: "var(--bg-tertiary, #0f172a)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", color, fontSize: "0.72rem", fontWeight: 700 }}>
+                        {incident ? <AlertTriangle size={13} /> : unknown ? <Activity size={13} /> : <CheckCircle size={13} />}
+                        {service.status_label}
+                      </div>
+                      <div style={{ marginTop: "0.25rem", color: "var(--text-primary, #e2e8f0)", fontSize: "0.78rem", fontWeight: 650 }}>{service.name}</div>
+                      {service.active_incidents?.map((item: any) => <div key={item.id} style={{ marginTop: "0.3rem", fontSize: "0.68rem", lineHeight: 1.4 }}>
+                        <a href={item.link} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-blue, #38bdf8)" }}>{truncate(item.title, 100)}</a>
+                      </div>)}
+                    </div>;
+                  })}
+                </div>
+                <div style={{ ...s.caption, marginTop: "0.65rem" }}>
+                  Last successful feed poll: {formatDate(microsoft365StatusQuery.data.last_success_at)}
+                  {microsoft365StatusQuery.data.last_duration_ms != null && ` · ${microsoft365StatusQuery.data.last_duration_ms} ms`}
+                  {microsoft365StatusQuery.data.last_error && <span style={{ color: "var(--accent-orange)" }}> · Latest poll: {microsoft365StatusQuery.data.last_error}</span>}
+                </div>
+                <div style={{ ...s.caption, marginTop: "0.3rem" }}>
+                  Public Microsoft incident notices only; “No active incident reported” does not verify tenant-specific or end-user connectivity. <a href={microsoft365StatusQuery.data.source_url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-blue, #38bdf8)" }}>Open Microsoft status</a>
+                </div>
+              </>
+            ) : null}
+          </section>
+
           {outagesQuery.isLoading ? (
             <div style={{ ...s.card, textAlign: "center", padding: "2rem" }}>
               <RefreshCw size={24} className="spin" style={{ margin: "0 auto", opacity: 0.5 }} />
@@ -951,7 +1005,7 @@ export function ThreatTelemetryPage() {
             <div style={{ ...s.card, textAlign: "center", padding: "1.5rem" }}>
               <CheckCircle size={24} style={{ color: "#22c55e", margin: "0 auto 0.5rem" }} />
               <div style={{ color: "var(--text-secondary, #94a3b8)", fontSize: "0.9rem" }}>
-                All tracked global SaaS and IaaS providers are reporting Operational status.
+                No active incidents are currently listed by the tracked global SaaS and IaaS status feeds.
               </div>
             </div>
           ) : (

@@ -156,10 +156,14 @@ export function SettingsPage() {
     mutationFn: (data: any) => {
       const payload = { ...data };
       const clearLlmApiKey = !!payload.clear_llm_api_key;
+      const clearGmailAppPassword = !!payload.clear_gmail_smtp_password;
       delete payload.clear_llm_api_key;
+      delete payload.clear_gmail_smtp_password;
       if (clearLlmApiKey) payload.llm_api_key = "";
       else if (!String(payload.llm_api_key || "").trim()) delete payload.llm_api_key;
       if (!String(payload.smtp_password || "").trim()) delete payload.smtp_password;
+      if (clearGmailAppPassword) payload.gmail_smtp_password = "";
+      else if (!String(payload.gmail_smtp_password || "").trim()) delete payload.gmail_smtp_password;
       return api.post("/admin/config", payload);
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["settings-config"] }); alert("Configuration saved."); },
@@ -953,6 +957,8 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation, readOnly }: { co
   const [form, setForm] = useState<any>(null);
   const [showKey, setShowKey] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [smtpTestRecipient, setSmtpTestRecipient] = useState("");
+  const [smtpTestResult, setSmtpTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const testConnectionMutation = useMutation({
     mutationFn: () => api.post("/llm/test-connection", {
@@ -963,6 +969,12 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation, readOnly }: { co
     }),
     onSuccess: (res) => setTestResult(res.data),
     onError: (e: any) => setTestResult({ success: false, message: e.response?.data?.detail || e.message }),
+  });
+
+  const testSmtpMutation = useMutation({
+    mutationFn: () => api.post("/admin/config/test-email", { recipient: smtpTestRecipient.trim() }),
+    onSuccess: response => setSmtpTestResult({ success: true, message: response.data.message || "Test email sent." }),
+    onError: reason => setSmtpTestResult({ success: false, message: getApiErrorMessage(reason, "Test email could not be sent.") }),
   });
 
   if (!configLoading && config && !form) {
@@ -976,11 +988,16 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation, readOnly }: { co
       smtp_server: config.smtp_server || "",
       smtp_port: config.smtp_port ?? 587,
       smtp_username: config.smtp_username || "",
-      smtp_password: config.smtp_password || "",
-      smtp_sender: config.smtp_sender || "",
-      smtp_recipient: config.smtp_recipient || "",
-      smtp_enabled: config.smtp_enabled ?? false,
-    });
+       smtp_password: "",
+       smtp_sender: config.smtp_sender || "",
+       smtp_recipient: config.smtp_recipient || "",
+       smtp_enabled: config.smtp_enabled ?? false,
+       active_smtp_provider: config.active_smtp_provider || "smtp",
+       gmail_smtp_username: config.gmail_smtp_username || "",
+       gmail_smtp_password: "",
+       gmail_smtp_sender: config.gmail_smtp_sender || "",
+       gmail_smtp_enabled: config.gmail_smtp_enabled ?? false,
+     });
   }
 
   const upd = (k: string, v: any) => setForm((prev: any) => ({ ...prev, [k]: v }));
@@ -1052,39 +1069,96 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation, readOnly }: { co
       </Card>
 
       <Card title="SMTP Broadcast" icon={Mail}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-          <div>
-            <SectionTitle text="Server" />
-            <input style={inputStyle} disabled={readOnly} value={form.smtp_server} onChange={e => upd("smtp_server", e.target.value)} placeholder="smtp.gmail.com" />
-          </div>
-          <div>
-            <SectionTitle text="Port" />
-            <input style={inputStyle} disabled={readOnly} type="number" value={form.smtp_port} onChange={e => upd("smtp_port", Number(e.target.value))} />
-          </div>
-          <div>
-            <SectionTitle text="Username" />
-            <input style={inputStyle} disabled={readOnly} value={form.smtp_username} onChange={e => upd("smtp_username", e.target.value)} />
-          </div>
-          <div>
-            <SectionTitle text="Password" />
-            <input style={inputStyle} disabled={readOnly} type="password" value={form.smtp_password} onChange={e => upd("smtp_password", e.target.value)} />
-          </div>
-          <div>
-            <SectionTitle text="Sender" />
-            <input style={inputStyle} disabled={readOnly} value={form.smtp_sender} onChange={e => upd("smtp_sender", e.target.value)} placeholder="noc@example.com" />
-          </div>
-          <div>
-            <SectionTitle text="Recipient" />
-            <input style={inputStyle} disabled={readOnly} value={form.smtp_recipient} onChange={e => upd("smtp_recipient", e.target.value)} placeholder="admin@example.com" />
+        <p style={{ margin: "-0.35rem 0 0.8rem", color: "var(--text-muted)", fontSize: "0.74rem" }}>
+          Both sender profiles are saved side by side. The active profile below is used for all IFC email, including operational messages, scheduled email, alerts, and recovery messages.
+        </p>
+        <div style={{ marginBottom: "0.85rem", maxWidth: 360 }}>
+          <SectionTitle text="Active email sender" />
+          <select style={inputStyle} disabled={readOnly} value={form.active_smtp_provider} onChange={e => upd("active_smtp_provider", e.target.value)}>
+            <option value="smtp">Existing SMTP configuration</option>
+            <option value="gmail">External Gmail account</option>
+          </select>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "0.9rem" }}>
+          <section style={{ border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.8rem" }}>
+            <SectionTitle text="Existing SMTP profile" />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.65rem" }}>
+              <div>
+                <SectionTitle text="Server" />
+                <input style={inputStyle} disabled={readOnly} value={form.smtp_server} onChange={e => upd("smtp_server", e.target.value)} placeholder="smtp.example.com" />
+              </div>
+              <div>
+                <SectionTitle text="Port" />
+                <input style={inputStyle} disabled={readOnly} type="number" min={1} max={65535} value={form.smtp_port} onChange={e => upd("smtp_port", Number(e.target.value))} />
+              </div>
+              <div>
+                <SectionTitle text="Username" />
+                <input style={inputStyle} disabled={readOnly} value={form.smtp_username} onChange={e => upd("smtp_username", e.target.value)} />
+              </div>
+              <div>
+                <SectionTitle text="Password" />
+                <input style={inputStyle} disabled={readOnly} type="password" value={form.smtp_password} onChange={e => upd("smtp_password", e.target.value)} placeholder={config?.smtp_password_configured ? "Saved password; blank keeps it" : "Optional for relay"} />
+              </div>
+              <div>
+                <SectionTitle text="Sender" />
+                <input style={inputStyle} disabled={readOnly} value={form.smtp_sender} onChange={e => upd("smtp_sender", e.target.value)} placeholder="noc@example.com" />
+              </div>
+              <div>
+                <SectionTitle text="Default recipient" />
+                <input style={inputStyle} disabled={readOnly} value={form.smtp_recipient} onChange={e => upd("smtp_recipient", e.target.value)} placeholder="admin@example.com" />
+              </div>
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.65rem", fontSize: "0.8rem", color: "var(--text-primary)" }}>
+              <input type="checkbox" disabled={readOnly} checked={form.smtp_enabled} onChange={e => upd("smtp_enabled", e.target.checked)} />
+              Enable existing SMTP profile
+            </label>
+          </section>
+
+          <section style={{ border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.8rem" }}>
+            <SectionTitle text="Gmail profile" />
+            <div style={{ color: "var(--text-muted)", fontSize: "0.72rem", margin: "-0.2rem 0 0.7rem" }}>
+              Uses smtp.gmail.com:587 with STARTTLS. Google requires a Google App Password; a regular account password will not work.
+            </div>
+            <div style={{ display: "grid", gap: "0.65rem" }}>
+              <label style={{ fontSize: "0.76rem" }}>
+                Gmail / Google Workspace account
+                <input type="email" autoComplete="username" style={{ ...inputStyle, marginTop: 4 }} disabled={readOnly} value={form.gmail_smtp_username} onChange={e => upd("gmail_smtp_username", e.target.value)} placeholder="noc.account@gmail.com" />
+              </label>
+              <label style={{ fontSize: "0.76rem" }}>
+                Google App Password
+                <input type="password" autoComplete="new-password" style={{ ...inputStyle, marginTop: 4 }} disabled={readOnly} value={form.gmail_smtp_password} onChange={e => upd("gmail_smtp_password", e.target.value)} placeholder={config?.gmail_smtp_password_configured ? "Saved app password; blank keeps it" : "16-character app password"} />
+                <span style={{ display: "block", color: "var(--text-muted)", fontSize: "0.68rem", marginTop: 3 }}>
+                  Configured: {config?.gmail_smtp_password_configured ? "Yes" : "No"}. The saved password is never returned to the browser.
+                </span>
+                {!readOnly && config?.gmail_smtp_password_configured && <button type="button" disabled={saveConfigMutation.isPending} onClick={() => saveConfigMutation.mutate({ clear_gmail_smtp_password: true })} style={{ ...btn("var(--accent-red)"), marginTop: 5, padding: "0.35rem 0.55rem" }}>Clear saved app password</button>}
+              </label>
+              <label style={{ fontSize: "0.76rem" }}>
+                From address (defaults to account)
+                <input type="email" style={{ ...inputStyle, marginTop: 4 }} disabled={readOnly} value={form.gmail_smtp_sender} onChange={e => upd("gmail_smtp_sender", e.target.value)} placeholder={form.gmail_smtp_username || "noc.account@gmail.com"} />
+              </label>
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.65rem", fontSize: "0.8rem", color: "var(--text-primary)" }}>
+              <input type="checkbox" disabled={readOnly} checked={form.gmail_smtp_enabled} onChange={e => upd("gmail_smtp_enabled", e.target.checked)} />
+              Enable Gmail profile
+            </label>
+          </section>
+        </div>
+
+        <div style={{ borderTop: "1px solid var(--border-primary)", marginTop: "0.85rem", paddingTop: "0.85rem" }}>
+          <SectionTitle text="Send a test email through the active profile" />
+          <div style={{ color: "var(--text-muted)", fontSize: "0.7rem", margin: "-0.2rem 0 0.5rem" }}>Save the configuration first; the test uses the saved active profile.</div>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+            <input type="email" style={{ ...inputStyle, maxWidth: 340 }} disabled={readOnly || testSmtpMutation.isPending} value={smtpTestRecipient} onChange={e => setSmtpTestRecipient(e.target.value)} placeholder="your.address@example.com" />
+            {!readOnly && <button type="button" disabled={testSmtpMutation.isPending || !smtpTestRecipient.trim()} onClick={() => { setSmtpTestResult(null); testSmtpMutation.mutate(); }} style={btn("var(--accent-cyan)")}>
+              <Mail size={14} /> {testSmtpMutation.isPending ? "Sending test..." : "Send Test Email"}
+            </button>}
+            {smtpTestResult && <span role={smtpTestResult.success ? "status" : "alert"} style={{ fontSize: "0.76rem", color: smtpTestResult.success ? "var(--accent-green)" : "var(--accent-red)" }}>{smtpTestResult.message}</span>}
           </div>
         </div>
-        <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.6rem", fontSize: "0.8rem", color: "var(--text-primary)", cursor: "pointer" }}>
-          <input type="checkbox" disabled={readOnly} checked={form.smtp_enabled} onChange={e => upd("smtp_enabled", e.target.checked)} />
-          SMTP Enabled
-        </label>
       </Card>
 
-      {!readOnly && <button onClick={() => saveConfigMutation.mutate(form)} disabled={saveConfigMutation.isPending} style={{ ...btn("var(--accent-green)"), alignSelf: "flex-start" }}>
+      {!readOnly && <button onClick={() => saveConfigMutation.mutate(form, { onSuccess: () => setForm((previous: any) => ({ ...previous, smtp_password: "", gmail_smtp_password: "" })) })} disabled={saveConfigMutation.isPending} style={{ ...btn("var(--accent-green)"), alignSelf: "flex-start" }}>
         <Save size={14} /> {saveConfigMutation.isPending ? "Saving..." : "Save Configuration"}
       </button>}
     </div>

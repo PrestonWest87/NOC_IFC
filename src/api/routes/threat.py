@@ -44,6 +44,12 @@ def list_cloud_outages(active_only: bool = True, days_back: int = Query(7, ge=1,
     return svc.get_cloud_outages(active_only=active_only, days_back=days_back)
 
 
+@router.get("/microsoft-365-status", dependencies=[Depends(require_action("Tab: Threat Telemetry -> Cloud Services"))])
+def get_microsoft_365_status():
+    """Return public Microsoft service-health freshness and app-level incidents."""
+    return svc.get_microsoft_365_status()
+
+
 @router.get("/crime-incidents", dependencies=[Depends(require_action("Tab: Threat Telemetry -> Perimeter Crime"))])
 def list_crime_incidents(hours_back: int = Query(24, ge=1, le=168), max_distance: float = Query(1.0, ge=0.1)):
     """Return recent crime records within the requested headquarters distance."""

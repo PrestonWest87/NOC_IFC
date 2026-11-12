@@ -1,9 +1,6 @@
 """Detect global/internal risk increases and format risk or earthquake email alerts."""
 
 import logging
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -123,48 +120,16 @@ def build_alert_email_body(
 
 def send_alert(recipients: list, subject: str, body: str):
     """Send the risk notification using saved SMTP configuration and return delivery status."""
-    logger.info("send_alert: subject=%s recipients=%s body_length=%d", subject, recipients, len(body) if body else 0)
-    config = get_smtp_config()
-    if not config or not config.smtp_enabled:
-        logger.warning("send_alert: SMTP not enabled")
-        return False, "SMTP not enabled"
+    logger.info("send_alert: subject=%s recipient_count=%d body_length=%d", subject, len(recipients), len(body) if body else 0)
+    from src.utils.mailer import send_alert_email
 
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = config.smtp_sender
-        msg['To'] = ", ".join(recipients)
-        msg['Subject'] = subject
-
-        msg.attach(MIMEText(body, 'plain'))
-
-        logger.debug("send_alert: connecting to SMTP server=%s port=%s", config.smtp_server, config.smtp_port)
-        server = smtplib.SMTP(config.smtp_server, config.smtp_port, timeout=10)
-        if config.smtp_username and config.smtp_password:
-            logger.debug("send_alert: starting TLS")
-            server.starttls()
-            logger.debug("send_alert: logging in as %s", config.smtp_username)
-            server.login(config.smtp_username, config.smtp_password)
-            logger.debug("send_alert: login successful")
-
-        logger.debug("send_alert: sending mail to %s", recipients)
-        server.sendmail(config.smtp_sender, recipients, msg.as_string())
-        server.quit()
-        logger.info("send_alert: alert sent successfully")
-
-        return True, "Alert sent successfully"
-
-    except smtplib.SMTPAuthenticationError as auth_err:
-        logger.error("send_alert: SMTP authentication failed: %s", auth_err)
-        return False, f"SMTP authentication failed: {auth_err}"
-    except smtplib.SMTPConnectError as conn_err:
-        logger.error("send_alert: SMTP connection failed: %s", conn_err)
-        return False, f"SMTP connection failed: {conn_err}"
-    except smtplib.SMTPException as smtp_err:
-        logger.error("send_alert: SMTP error: %s", smtp_err)
-        return False, f"SMTP error: {smtp_err}"
-    except Exception as e:
-        logger.error("send_alert: unexpected exception: %s", str(e), exc_info=True)
-        return False, str(e)
+    return send_alert_email(
+        subject,
+        body,
+        recipient_override=", ".join(recipients),
+        is_html=False,
+        subject_prefix="",
+    )
 
 def check_and_alert(global_risk: str = None, internal_risk: str = None):
     """Notify only on increases from known tiers, respecting recipients and the shared cooldown."""
