@@ -98,6 +98,12 @@ def get_templates():
     return email_service.get_operational_email_templates()
 
 
+@router.get("/reference-data")
+def get_reference_data():
+    """Return contact/network directories for Operational Email recipient selection."""
+    return email_service.get_operational_email_reference_data()
+
+
 @router.put("/templates/{template_key}")
 def update_template(
     template_key: str,

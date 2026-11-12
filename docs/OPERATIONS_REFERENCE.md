@@ -31,7 +31,7 @@ The dev Compose project is named `noc-ifc-dev`, uses `./data-dev`, and attaches 
 
 ## Operational Email
 
-Operational Email uses the global SMTP sender configured in Settings > AI & SMTP. The page grant controls access; only administrators can edit shared template defaults or signatures. All nine templates support hidden BCC envelope recipients. Central event-time labels use `CST`/`CDT`; recurring schedules use `America/Chicago` and follow daylight-saving changes.
+Operational Email uses the global SMTP sender configured in Settings > AI & SMTP. The page grant controls access; only administrators can edit shared template defaults or signatures. BCC is supported by all templates except To-only After-Hours ONPAGE. Central event-time labels use `CST`/`CDT`; recurring schedules use `America/Chicago` and follow daylight-saving changes.
 
 The Morning Report takes `SystemConfig.rolling_summary` (the latest Global Dashboard shift analysis) at delivery time and sends the stored text without a generated report header or executive-summary wrapper. Fiber outage follow-ups and resolution emails require a successfully sent Fiber Outage source record. Admin-managed signatures are optional and captured in message/schedule snapshots; deactivating a signature does not change existing scheduled sends or delivery history.
 

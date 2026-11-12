@@ -18,13 +18,13 @@ The implementation inventory checked includes:
 - The React SPA route map, user/session state, permission utilities, pages, shared components, and web runtime configuration.
 - `docker-compose.yml`, Dockerfiles, nginx/Vite configuration, Python/Node dependency manifests, `.env.example`, and operational/restore scripts.
 
-The OpenAPI schema generated from the checked-out source contains **200 paths and 216 HTTP operations**. The source defines 22 registry-managed scheduler jobs and 15 routed React page components (including public account-recovery pages). The current single Alembic head is `20261111_0011`.
+The OpenAPI schema generated from the checked-out source contains **201 paths and 217 HTTP operations**. The source defines 22 registry-managed scheduler jobs and 15 routed React page components (including public account-recovery pages). The current single Alembic head is `20261111_0012`.
 
 ## Corrections made in this documentation pass
 
 The guides and module references were refreshed to describe current behavior for:
 
-- The 200-path/216-operation API inventory, including Operational Email, Settings reference-directory, and CSV-import endpoints.
+- The 201-path/217-operation API inventory, including Operational Email reference data, Settings directories, and CSV-import endpoints.
 - All 22 scheduler jobs, including the non-disableable Operational Email queue, their startup policy, Central-time schedules, dynamic reload, and the consolidated Daily Fusion scheduler.
 - The internal AIOps ontology spelling (`INTERNET`), rather than treating `PRIMARY_INTERNET` as the engine's canonical domain.
 - Current scoring and asset-correlation windows, category names, IOC output/number of rules, and map/reduce execution semantics.
@@ -32,7 +32,7 @@ The guides and module references were refreshed to describe current behavior for
 - The webhook's actual acceptance response (HTTP 200 with an accepted body), HMAC/replay checks, and background persistence boundary.
 - Bearer/session storage, structured 401/403 behavior, per-tab/action grants, site-type scoping, and WebSocket authorization/revalidation.
 - The current dashboard/settings/reporting/AIOps/logbook UI, Operational Email workspace, and permissioned Email Contacts/Network Orders Settings tabs.
-- Backup/restore operations, legacy partial imports, SQLite migration ordering through `20261111_0011`, request limits, and dev Compose port/network/data isolation.
+- Backup/restore operations, legacy partial imports, SQLite migration ordering through `20261111_0012`, request limits, and dev Compose port/network/data isolation.
 - Current model/job/API inventory counts, source-reference mappings, and the optional `DATABASE_URL` template description.
 
 ## Source-level mismatches surfaced during the audit
@@ -54,14 +54,14 @@ These are implementation inconsistencies, not documentation facts to conceal:
 
 | Check | Outcome |
 |---|---|
-| OpenAPI inventory | Passed: 200 paths / 216 HTTP operations from `app.openapi()`; every operation is represented in `docs/API.md`. |
+| OpenAPI inventory | Passed: 201 paths / 217 HTTP operations from `app.openapi()`; every operation is represented in `docs/API.md`. |
 | Permission catalog | Passed: all 10 page, 23 action, and 36 tab keys from `src/core/permissions.py` are represented in `docs/PERMISSIONS.md`. |
 | ORM schema | Passed: all 44 mapped tables are represented in `docs/DATABASE_SCHEMA.md`. |
 | Scheduler registry | Passed: all 22 jobs are counted in the scheduler reference and trigger-flow summary. |
-| Migration head | Passed: Alembic reports `20261111_0011` as the single head; fresh and legacy-upgrade tests pass. |
+| Migration head | Passed: Alembic reports `20261111_0012` as the single head; fresh and legacy-upgrade tests pass. |
 | Local Markdown links | Passed: local target paths resolve across the available repository documentation. |
 | Documentation contracts | Passed: API operations, schema columns/nullability/indexes, environment references, routed source pages, and scheduler defaults match source. |
-| Python regression suite | Passed: 208 local-only tests, including Operational Email regressions, Settings email/network directory validation and CSV import, tab/admin authorization, additive migration coverage, and documentation contracts; test files remain excluded from version control. |
+| Python regression suite | Passed: 214 local-only tests, including Network Order autofill/BCC, ONPAGE To-only authorization, conditional default migration, Settings directory/CSV validation, and documentation contracts; test files remain excluded from version control. |
 | Frontend production build | Passed in the Node 22 web image; the existing large MapLibre/deck.gl chunk warning remains. |
 | Backend image and Python compilation | Passed using the Python 3.11 API image. |
 | Docker Compose configuration | Passed: host ports 8099, 8102, 8503, and 5174; isolated `data-dev`; Docker's built-in bridge without a new subnet. |

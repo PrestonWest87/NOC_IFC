@@ -3,7 +3,7 @@
 Base URL: `http://localhost:8102/api/v1`
 WebSocket: `ws://localhost:8102/ws`
 
-This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-11 (200 paths and 216 HTTP operations). The running application's OpenAPI schema remains the source of truth.
+This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-11 (201 paths and 217 HTTP operations). The running application's OpenAPI schema remains the source of truth.
 
 ## Authentication
 
@@ -603,6 +603,10 @@ Every route requires the `Operational Email` page grant. That page grant covers 
 
 Returns the nine templates, message fields, saved defaults, sender address, SMTP enabled state, current Central abbreviation, latest Global Dashboard shift analysis and timestamp, and attachment limits. Templates include maintenance notification, fiber maintenance notification, technician dispatch, fiber outage and linked follow-up/resolution, after-hours ONPAGE, morning report, and maintenance completion.
 
+### GET /operational-email/reference-data
+
+Returns the Fiber contacts, ONPAGE department contacts, and Network Orders & Circuits records used by contact/network selectors. This route requires the `Operational Email` page grant.
+
 ### PUT /operational-email/templates/{template_key}
 
 Administrator-only update of `default_subject`, `default_body`, `default_to`, `default_cc`, and `default_bcc` for any Operational Email template. Template text accepts only placeholders defined for that template. Morning Report body is fixed to the live shift-analysis source. Page-authorized users can still edit other composed messages without changing shared defaults.
@@ -625,11 +629,13 @@ Administrator-only update of signature name/text/active/default state. DELETE de
 
 ### POST /operational-email/send
 
-Body: `{template_key, to, cc?, bcc?, subject?, body?, fields?, attachments?, maintenance_notice_id?, source_email_id?, signature_id?, use_default_signature?}`. Sends the message immediately and records a delivery snapshot/outcome. Every Operational Email template accepts BCC; the addresses are envelope recipients and do not appear in a visible Bcc header. Attachments are accepted only for Morning Report, up to five files, 5 MiB per file, and 20 MiB combined. Maintenance Complete requires a successfully sent maintenance notification; fiber follow-up and resolution templates require `source_email_id` for a successfully sent Fiber Outage.
+Body: `{template_key, to, cc?, bcc?, subject?, body?, fields?, attachments?, maintenance_notice_id?, source_email_id?, signature_id?, use_default_signature?}`. Sends are snapshotted with delivery outcome. BCC is supported for all templates except After-Hours ONPAGE, which accepts To recipients only. BCC addresses are SMTP envelope recipients and do not appear in visible headers. Attachments are accepted only for Morning Report, up to five files, 5 MiB per file, and 20 MiB combined. Maintenance Complete requires a successfully sent maintenance notification; fiber follow-up and resolution templates require `source_email_id` for a successfully sent Fiber Outage.
 
-The fiber maintenance notice captures A/Z locations, circuit IDs, a planned window, expected impact (`None`, `Low`, `Medium`, or `High`), and optional departmental impact. Fiber progress updates and resolution messages may be sent repeatedly and remain linked to their original outage record. Time-zone labels are populated server-side from the application’s current `America/Chicago` abbreviation (`CST`/`CDT`).
+Maintenance notifications include a ticket title, date/time pickers, Risk (`None`, `Low`, `Medium`, or `High`), and Disruption (`Disruptive`, `Nondisruptive`, or `Possibly Disruptive`). Standard Maintenance Notification remains manual and does not autofill from Network Orders. Fiber Maintenance adds an MOP Type placeholder dropdown and a multi-select Network Orders list. Selecting orders fills A/Z locations, company, and contact information; matching Fiber contact emails are added to BCC. Fiber Outage uses Location, Network Orders, A/Z, and company in place of the Provider field and applies the same BCC lookup. These fields remain editable for manually entered/unlisted records. Time-zone labels are populated server-side from the current application-local `CST`/`CDT` abbreviation.
 
-Morning Report body is the latest `SystemConfig.rolling_summary` shift analysis from Global Dashboards, refreshed again immediately before delivery. The source text is sent as stored, with no date, reporting window, report title, or generated executive summary; the selected/default signature, when any, is appended. The selected signature name and content, recipients, body, and attachments are snapshotted when a send or schedule is created.
+Fiber outage updates and resolution messages may be sent repeatedly and remain linked to their original ticket. Other templates offer multi-select contact lookup plus editable recipient fields. After-Hours ONPAGE offers multi-select ONPAGE contacts for To and has no Cc/Bcc fields. Morning Report body is the latest `SystemConfig.rolling_summary` shift analysis from Global Dashboards, refreshed before delivery; it is sent as stored, without a date, window, title, or executive-summary wrapper.
+
+Selected signature name/content, recipients, message fields, and attachments are snapshotted when a send or schedule is created. A scheduled Morning Report refreshes only its shift-analysis source at delivery time.
 
 ### POST /operational-email/schedule
 

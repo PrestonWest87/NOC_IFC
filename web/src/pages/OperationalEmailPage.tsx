@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, ClipboardList, Mail, Paperclip, Save, Send, Shield, X } from "lucide-react";
 import api, { getApiErrorMessage } from "../utils/api";
@@ -7,7 +7,7 @@ import { isAdministrator } from "../utils/permissions";
 
 type TemplateField = {
   key: string; label: string; required: boolean; max_length: number;
-  options?: string[]; multiline?: boolean; visible?: boolean;
+  options?: string[]; multiline?: boolean; visible?: boolean; input_type?: string;
 };
 type EmailTemplate = {
   key: string;
@@ -15,6 +15,7 @@ type EmailTemplate = {
   description: string;
   fields: TemplateField[];
   allows_bcc: boolean;
+  allows_cc: boolean;
   allows_attachments: boolean;
   default_subject: string;
   default_body: string;
@@ -29,6 +30,12 @@ type EmailSignature = {
 };
 type EmailSignatureDraft = {
   id: number | null; name: string; content: string; is_active: boolean; is_default: boolean;
+};
+type ContactOption = { key: string; label: string; email: string };
+type ReferenceData = {
+  fiber_contacts: { id: number; name: string; company: string; email: string; phone?: string | null }[];
+  onpage_contacts: { id: number; department: string; email: string }[];
+  network_orders: { id: number; a_location: string; z_location: string; circuit_network_order_id: string; company: string }[];
 };
 
 const inputStyle: React.CSSProperties = {
@@ -105,6 +112,23 @@ function formatTime(value?: string | null): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short", timeZone: "America/Chicago" }).format(date);
 }
 
+function uniqueAddresses(values: string[]): string[] {
+  const seen = new Set<string>();
+  return values.map(value => value.trim()).filter(value => {
+    const key = value.toLocaleLowerCase();
+    if (!value || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function mergeSelectedAddresses(current: string, previousAutomatic: string[], nextAutomatic: string[]): string {
+  const oldAutomatic = new Set(previousAutomatic.map(value => value.toLocaleLowerCase()));
+  const manuallyEntered = String(current || "").split(/[,;]/).map(value => value.trim())
+    .filter(value => value && !oldAutomatic.has(value.toLocaleLowerCase()));
+  return uniqueAddresses([...manuallyEntered, ...nextAutomatic]).join(", ");
+}
+
 function TemplateFieldInput({ field, value, onChange, readOnly = false }: {
   field: TemplateField; value: string; onChange: (value: string) => void; readOnly?: boolean;
 }) {
@@ -130,7 +154,8 @@ function TemplateFieldInput({ field, value, onChange, readOnly = false }: {
       onChange={event => onChange(event.target.value)}
     /> : <input
       style={controlStyle}
-      maxLength={field.max_length}
+      type={field.input_type || "text"}
+      maxLength={field.input_type === "datetime-local" ? undefined : field.max_length}
       value={value || ""}
       readOnly={readOnly}
       required={field.required}
@@ -157,6 +182,8 @@ export function OperationalEmailPage() {
   const [maintenanceNoticeId, setMaintenanceNoticeId] = useState("");
   const [fiberOutageId, setFiberOutageId] = useState("");
   const [signatureChoice, setSignatureChoice] = useState("default");
+  const [selectedNetworkOrderIds, setSelectedNetworkOrderIds] = useState<string[]>([]);
+  const [selectedContactKeys, setSelectedContactKeys] = useState<string[]>([]);
   const [deliveryMode, setDeliveryMode] = useState<"send" | "schedule">("send");
   const [scheduleType, setScheduleType] = useState<"once" | "daily" | "weekly">("once");
   const [scheduledAt, setScheduledAt] = useState(() => chicagoInputValue(new Date(Date.now() + 30 * 60 * 1000)));
@@ -165,6 +192,8 @@ export function OperationalEmailPage() {
   const [notice, setNotice] = useState<{ message: string; error?: boolean } | null>(null);
   const [selectedDeliveryId, setSelectedDeliveryId] = useState<number | null>(null);
   const [templateDraft, setTemplateDraft] = useState<Partial<EmailTemplate>>({});
+  const autoToEmailsRef = useRef<string[]>([]);
+  const autoBccEmailsRef = useRef<string[]>([]);
   const [signatureDraft, setSignatureDraft] = useState<EmailSignatureDraft>({
     id: null, name: "", content: "", is_active: true, is_default: false,
   });
@@ -188,6 +217,28 @@ export function OperationalEmailPage() {
     : signatureChoice === "none"
       ? undefined
       : activeSignatures.find(signature => String(signature.id) === signatureChoice);
+  const referenceDataQuery = useQuery({
+    queryKey: ["operational-email-reference-data"],
+    queryFn: () => api.get("/operational-email/reference-data").then(response => response.data as ReferenceData),
+    enabled: activePanel === "compose",
+  });
+  const referenceData: ReferenceData = referenceDataQuery.data || { fiber_contacts: [], onpage_contacts: [], network_orders: [] };
+  const hasNetworkOrderSelector = selectedKey === "fiber_maintenance_notice" || selectedKey === "fiber_outage";
+  const onpageToOnly = selectedKey === "after_hours_onpage";
+  const contactOptions: ContactOption[] = useMemo(() => {
+    const onpage = referenceData.onpage_contacts.map(contact => ({
+      key: `onpage:${contact.id}`,
+      label: `${contact.department} — ${contact.email}`,
+      email: contact.email,
+    }));
+    if (onpageToOnly) return onpage;
+    const fiber = referenceData.fiber_contacts.map(contact => ({
+      key: `fiber:${contact.id}`,
+      label: `${contact.name} — ${contact.company} — ${contact.email}`,
+      email: contact.email,
+    }));
+    return [...fiber, ...onpage];
+  }, [referenceData.fiber_contacts, referenceData.onpage_contacts, onpageToOnly]);
 
   useEffect(() => {
     if (!selectedTemplate) return;
@@ -211,6 +262,10 @@ export function OperationalEmailPage() {
     setMaintenanceNoticeId("");
     setFiberOutageId("");
     setSignatureChoice("default");
+    setSelectedNetworkOrderIds([]);
+    setSelectedContactKeys([]);
+    autoToEmailsRef.current = [];
+    autoBccEmailsRef.current = [];
   }, [selectedTemplate?.key]);
 
   useEffect(() => {
@@ -270,7 +325,14 @@ export function OperationalEmailPage() {
     onError: error => setNotice({ message: getApiErrorMessage(error, "Schedule could not be cancelled."), error: true }),
   });
   const saveTemplateMutation = useMutation({
-    mutationFn: () => api.put(`/operational-email/templates/${selectedKey}`, templateDraft).then(response => response.data),
+    mutationFn: () => {
+      const defaults = { ...templateDraft };
+      if (!selectedTemplate?.allows_cc) {
+        defaults.default_cc = "";
+        defaults.default_bcc = "";
+      }
+      return api.put(`/operational-email/templates/${selectedKey}`, defaults).then(response => response.data);
+    },
     onSuccess: () => {
       setNotice({ message: "Shared template defaults saved." });
       queryClient.invalidateQueries({ queryKey: ["operational-email-templates"] });
@@ -333,7 +395,8 @@ export function OperationalEmailPage() {
 
   const composePayload = () => ({
     template_key: selectedKey,
-    to, cc,
+    to,
+    ...(selectedTemplate?.allows_cc ? { cc } : {}),
     ...(selectedTemplate?.allows_bcc ? { bcc } : {}),
     subject,
     body,
@@ -417,6 +480,50 @@ export function OperationalEmailPage() {
     if (!to.trim()) setTo((outage.to || []).join(", "));
     if (!cc.trim()) setCc((outage.cc || []).join(", "));
     if (!bcc.trim()) setBcc((outage.bcc || []).join(", "));
+    setSubjectTouched(false);
+    setBodyTouched(false);
+  };
+
+  const selectDirectoryContacts = (keys: string[]) => {
+    setSelectedContactKeys(keys);
+    const selectedEmails = keys.flatMap(key => {
+      const contact = contactOptions.find(option => option.key === key);
+      return contact ? [contact.email] : [];
+    });
+    setTo(mergeSelectedAddresses(to, autoToEmailsRef.current, selectedEmails));
+    autoToEmailsRef.current = selectedEmails;
+  };
+
+  const selectNetworkOrders = (ids: string[]) => {
+    setSelectedNetworkOrderIds(ids);
+    const orders = ids.flatMap(id => {
+      const order = referenceData.network_orders.find(record => String(record.id) === id);
+      return order ? [order] : [];
+    });
+    const aLocations = uniqueAddresses(orders.map(order => order.a_location));
+    const zLocations = uniqueAddresses(orders.map(order => order.z_location));
+    const orderIds = uniqueAddresses(orders.map(order => order.circuit_network_order_id));
+    const companies = uniqueAddresses(orders.map(order => order.company));
+    const companySet = new Set(companies.map(company => company.toLocaleLowerCase()));
+    const matchingContacts = referenceData.fiber_contacts.filter(
+      contact => companySet.has(contact.company.toLocaleLowerCase()),
+    );
+    const nextAutomaticBcc = uniqueAddresses(matchingContacts.map(contact => contact.email));
+    setBcc(mergeSelectedAddresses(bcc, autoBccEmailsRef.current, nextAutomaticBcc));
+    autoBccEmailsRef.current = nextAutomaticBcc;
+
+    const inherited: Record<string, string> = {
+      network_order_ids: ids.join(", "),
+      network_orders: orderIds.join("; "),
+      a_location: aLocations.join("; "),
+      z_location: zLocations.join("; "),
+      company: companies.join("; "),
+      contact: matchingContacts.map(contact => contact.phone ? `${contact.name} (${contact.phone})` : contact.name).join("; "),
+    };
+    if (selectedTemplate?.fields.some(field => field.key === "site")) {
+      inherited.site = orders.map(order => `${order.a_location} to ${order.z_location}`).join("; ");
+    }
+    setFields(previous => ({ ...previous, ...inherited }));
     setSubjectTouched(false);
     setBodyTouched(false);
   };
@@ -525,6 +632,27 @@ export function OperationalEmailPage() {
           {!fiberOutagesQuery.isLoading && !(fiberOutagesQuery.data || []).length && <small style={{ color: "var(--text-muted)" }}>No successfully sent fiber outage notices are available.</small>}
         </div>}
 
+        {hasNetworkOrderSelector && <div style={{ ...cardStyle, display: "grid", gap: "0.6rem" }}>
+          <label><span style={labelStyle}>Network Orders · select one or more</span>
+            <select
+              multiple
+              size={Math.min(Math.max(referenceData.network_orders.length, 3), 7)}
+              value={selectedNetworkOrderIds}
+              onChange={event => selectNetworkOrders(Array.from(event.target.selectedOptions, option => option.value))}
+              style={{ ...inputStyle, minHeight: 100 }}
+              aria-label="Select Network Orders"
+            >
+              {referenceData.network_orders.map(order => <option key={order.id} value={String(order.id)}>
+                {order.circuit_network_order_id} · {order.a_location} → {order.z_location} · {order.company}
+              </option>)}
+            </select>
+          </label>
+          {referenceDataQuery.isLoading && <small>Loading Network Orders and Fiber contacts...</small>}
+          {referenceDataQuery.isError && <small role="alert" style={{ color: "var(--accent-orange)" }}>Reference lists could not be loaded. You can enter all details and BCC recipients manually.</small>}
+          {!referenceDataQuery.isLoading && !referenceDataQuery.isError && !referenceData.network_orders.length && <small style={{ color: "var(--text-muted)" }}>No Network Orders are configured. Enter the order, A/Z locations, company, and contacts manually below.</small>}
+          <small style={{ color: "var(--text-muted)" }}>Selecting records fills Network Orders, A/Z locations, company, and Fiber contact details. Matching Fiber contact emails are added to BCC; these values remain editable for manual corrections.</small>
+        </div>}
+
         <div style={{ ...cardStyle, display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.75rem" }}>
           <h2 style={{ gridColumn: "1 / -1", margin: 0, fontSize: "0.95rem" }}>Operational details</h2>
           {selectedTemplate.fields.map(field => <TemplateFieldInput
@@ -543,6 +671,20 @@ export function OperationalEmailPage() {
 
         <div style={{ ...cardStyle, display: "grid", gap: "0.75rem" }}>
           <h2 style={{ margin: 0, fontSize: "0.95rem" }}>Recipients and message</h2>
+          {!hasNetworkOrderSelector && <label style={{ display: "block" }}>
+            <span style={labelStyle}>{onpageToOnly ? "ONPAGE contacts to add to To · select multiple" : "Contacts to add to To · select multiple"}</span>
+            <select
+              multiple
+              size={Math.min(Math.max(contactOptions.length, 3), 6)}
+              value={selectedContactKeys}
+              onChange={event => selectDirectoryContacts(Array.from(event.target.selectedOptions, option => option.value))}
+              style={{ ...inputStyle, minHeight: 90 }}
+              aria-label={onpageToOnly ? "Select ONPAGE contacts" : "Select email contacts"}
+            >
+              {contactOptions.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
+            </select>
+            {!referenceDataQuery.isLoading && !referenceDataQuery.isError && !contactOptions.length && <small style={{ color: "var(--text-muted)" }}>No contact directory entries are configured. You can enter recipients manually.</small>}
+          </label>}
           <label><span style={labelStyle}>Signature</span>
             <select value={signatureChoice} onChange={event => setSignatureChoice(event.target.value)} style={inputStyle}>
               <option value="default">Use administrator default{defaultSignature ? ` · ${defaultSignature.name}` : " · none configured"}</option>
@@ -552,7 +694,7 @@ export function OperationalEmailPage() {
           </label>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.75rem" }}>
             <label><span style={labelStyle}>To *</span><input value={to} onChange={event => setTo(event.target.value)} placeholder="person@example.com, team@example.com" style={inputStyle} /></label>
-            <label><span style={labelStyle}>Cc</span><input value={cc} onChange={event => setCc(event.target.value)} style={inputStyle} /></label>
+            {selectedTemplate.allows_cc && <label><span style={labelStyle}>Cc</span><input value={cc} onChange={event => setCc(event.target.value)} style={inputStyle} /></label>}
             {selectedTemplate.allows_bcc && <label style={{ gridColumn: "1 / -1" }}><span style={labelStyle}>Bcc (hidden from recipients)</span><input value={bcc} onChange={event => setBcc(event.target.value)} style={inputStyle} /></label>}
           </div>
           <label><span style={labelStyle}>Subject *</span><input value={subject} maxLength={500} onChange={event => { setSubjectTouched(true); setSubject(event.target.value); }} style={inputStyle} /></label>
@@ -627,7 +769,7 @@ export function OperationalEmailPage() {
       <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.78rem" }}>Administrators edit future defaults. Users with Operational Email access can still adjust each outgoing message before sending or scheduling.</p>
       <label><span style={labelStyle}>Template</span><select value={selectedKey} onChange={event => selectTemplate(event.target.value)} style={inputStyle}>{templates.map(template => <option key={template.key} value={template.key}>{template.label}</option>)}</select></label>
       <label><span style={labelStyle}>Default To</span><input value={String(templateDraft.default_to || "")} onChange={event => setTemplateDraft(previous => ({ ...previous, default_to: event.target.value }))} style={inputStyle} /></label>
-      <label><span style={labelStyle}>Default Cc</span><input value={String(templateDraft.default_cc || "")} onChange={event => setTemplateDraft(previous => ({ ...previous, default_cc: event.target.value }))} style={inputStyle} /></label>
+      {selectedTemplate.allows_cc && <label><span style={labelStyle}>Default Cc</span><input value={String(templateDraft.default_cc || "")} onChange={event => setTemplateDraft(previous => ({ ...previous, default_cc: event.target.value }))} style={inputStyle} /></label>}
       {selectedTemplate.allows_bcc && <label><span style={labelStyle}>Default Bcc</span><input value={String(templateDraft.default_bcc || "")} onChange={event => setTemplateDraft(previous => ({ ...previous, default_bcc: event.target.value }))} style={inputStyle} /></label>}
       <label><span style={labelStyle}>Default subject · placeholders use {"{{field_name}}"}</span><input value={String(templateDraft.default_subject || "")} maxLength={500} onChange={event => setTemplateDraft(previous => ({ ...previous, default_subject: event.target.value }))} style={inputStyle} /></label>
       <label><span style={labelStyle}>Default message · available fields: {selectedTemplate.fields.map(field => `{{${field.key}}}`).join(", ")}</span><textarea value={String(templateDraft.default_body || "")} maxLength={200000} rows={14} onChange={event => setTemplateDraft(previous => ({ ...previous, default_body: event.target.value }))} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.45, fontFamily: "var(--font-mono)" }} /></label>

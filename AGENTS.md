@@ -21,7 +21,7 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 
 ### Operational Email Enhancements — Active
 
-- [x] Enable BCC for every Operational Email template and preserve existing alert/report email behavior.
+- [x] Enable BCC for Operational Email templates while preserving existing alert/report email behavior; After-Hours ONPAGE is To-only per the current compose contract.
 - [x] Add fiber maintenance notice details (A/Z locations, circuit IDs, impact choice, departmental impact) and linked repeatable outage updates/resolution notices.
 - [x] Default event time labels to application-local `CST`/`CDT`; send Morning Report from the latest Global Dashboard shift analysis as-is.
 - [x] Add administrator-managed signatures with default/optional selection and immutable sent/scheduled snapshots.
@@ -38,6 +38,17 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 - [x] Validate row fields, bounds, single email addresses/phones, preserve display order, and audit replacements without storing contact values in audit details.
 - [x] Update API, permission, schema, Settings UI/source documentation, and local-only service/API/migration tests.
 - [x] Verify fresh and existing SQLite migrations, Python suite, frontend/API/Compose builds, docs contracts, and dev health; review and push intended source/docs only to `dev`.
+
+## Active Implementation Plan — Operational Email Composer Updates
+
+**Implementation branch:** `dev`. Keep this user-directed feature on `dev`; do not merge it into `main` or `architecture/monolith-to-decoupled` without a later request. Preserve unrelated untracked integration-plan documents and keep local-only tests unstaged.
+
+- [x] Add Risk and Disruption fields, maintenance ticket title, date/time pickers, Fiber MOP placeholder choices, and Fiber Outage Location labeling.
+- [x] Add authorized contact/Network Order reference loading, multi-order A/Z/company/contact autofill, editable manual fields, and Fiber contact BCC handling; keep standard Maintenance Notification without Network Order autofill.
+- [x] Make After-Hours ONPAGE multi-select ONPAGE contacts for To only and reject Cc/Bcc on the server.
+- [x] Add conditional default-refresh migration and update API, UI, migration, and user documentation.
+- [x] Add local-only service/API/migration tests; verify fresh/existing upgrades, Python suite, frontend/API/Compose builds, docs contracts, and dev health.
+- [ ] Review and push intended source/docs only to `dev`; preserve unrelated untracked docs and keep tests unstaged.
 
 ## Completed Implementation Plan — User, Permissions, and Application Settings
 
