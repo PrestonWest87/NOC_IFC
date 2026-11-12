@@ -61,7 +61,7 @@ These are implementation inconsistencies, not documentation facts to conceal:
 | Migration head | Passed: Alembic reports `20261112_0014` as the single head; fresh and legacy-upgrade tests pass. |
 | Local Markdown links | Passed: local target paths resolve across the available repository documentation. |
 | Documentation contracts | Passed: API operations, schema columns/nullability/indexes, environment references, routed source pages, and scheduler defaults match source. |
-| Python regression suite | Passed: 220 local-only tests, including Gmail OAuth2/XOAUTH2, legacy App Password cleanup/fallback, Microsoft 365 incident ingestion/status mapping, SQLite migration upgrades, and documentation contracts; test files remain excluded from version control. |
+| Python regression suite | Passed: 222 local-only tests, including Gmail OAuth2/XOAUTH2 error handling, legacy App Password cleanup/fallback, Microsoft 365 incident ingestion/status mapping, SQLite migration upgrades, and documentation contracts; test files remain excluded from version control. |
 | Frontend production build | Passed in the Node 22 web image; the existing large MapLibre/deck.gl chunk warning remains. |
 | Backend image and Python compilation | Passed using the Python 3.11 API image. |
 | Docker Compose configuration | Passed: host ports 8099, 8102, 8503, and 5174; isolated `data-dev`; Docker's built-in bridge without a new subnet. |

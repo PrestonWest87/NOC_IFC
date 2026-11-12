@@ -6,6 +6,27 @@ import requests
 
 
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
+_OAUTH_ERROR_MESSAGES = {
+    "invalid_client": (
+        "Google rejected the OAuth client (invalid_client). Verify the client ID and secret, "
+        "and ensure they are the same OAuth client used to create this refresh token."
+    ),
+    "invalid_grant": (
+        "Google rejected the refresh token (invalid_grant). Reauthorize the account and create "
+        "a new offline refresh token using the configured OAuth client."
+    ),
+    "unauthorized_client": (
+        "Google has not authorized this OAuth client for the requested grant. Check the client "
+        "type and Workspace OAuth policy."
+    ),
+    "invalid_scope": (
+        "The Google OAuth grant does not include the Gmail SMTP scope https://mail.google.com/."
+    ),
+    "admin_policy_enforced": (
+        "Workspace policy blocks this OAuth client or Gmail scope. Ask a Workspace administrator "
+        "to allow the OAuth client and scope."
+    ),
+}
 
 
 class GmailOAuthError(RuntimeError):
@@ -34,6 +55,12 @@ def refresh_gmail_access_token(profile: dict) -> str:
             timeout=10,
         )
         if response.status_code != 200:
+            try:
+                error_code = response.json().get("error")
+            except (ValueError, TypeError, AttributeError):
+                error_code = None
+            if error_code in _OAUTH_ERROR_MESSAGES:
+                raise GmailOAuthError(_OAUTH_ERROR_MESSAGES[error_code])
             raise GmailOAuthError(f"Google OAuth token refresh failed (HTTP {response.status_code}).")
         payload = response.json()
     except GmailOAuthError:
