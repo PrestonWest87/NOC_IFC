@@ -48,7 +48,7 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 - [x] Make After-Hours ONPAGE multi-select ONPAGE contacts for To only and reject Cc/Bcc on the server.
 - [x] Add conditional default-refresh migration and update API, UI, migration, and user documentation.
 - [x] Add local-only service/API/migration tests; verify fresh/existing upgrades, Python suite, frontend/API/Compose builds, docs contracts, and dev health.
-- [ ] Review and push intended source/docs only to `dev`; preserve unrelated untracked docs and keep tests unstaged.
+- [x] Review and push intended source/docs only to `dev`; preserve unrelated untracked docs and keep tests unstaged.
 
 ## Completed Implementation Plan — User, Permissions, and Application Settings
 
