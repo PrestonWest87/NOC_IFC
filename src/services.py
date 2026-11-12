@@ -5657,7 +5657,8 @@ def save_global_config(data, allow_system_fields=True):
         if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
             raise ValueError("smtp_port must be an integer between 1 and 65535.")
     for field_name, maximum in (
-        ("gmail_smtp_username", 254), ("gmail_smtp_password", 1024),
+        ("gmail_smtp_username", 254), ("gmail_smtp_client_id", 255),
+        ("gmail_smtp_client_secret", 1024), ("gmail_smtp_refresh_token", 4096),
         ("gmail_smtp_sender", 254), ("smtp_password", 1024),
     ):
         if field_name in data and data[field_name] is not None:
@@ -5666,7 +5667,8 @@ def save_global_config(data, allow_system_fields=True):
     editable_fields = {
         "llm_endpoint", "llm_api_key", "llm_model_name", "llm_provider", "is_active", "tech_stack",
         "monitored_asns", "active_smtp_provider", "smtp_server", "smtp_port", "smtp_username", "smtp_password",
-        "smtp_sender", "smtp_recipient", "smtp_enabled", "gmail_smtp_username", "gmail_smtp_password",
+        "smtp_sender", "smtp_recipient", "smtp_enabled", "gmail_smtp_username",
+        "gmail_smtp_client_id", "gmail_smtp_client_secret", "gmail_smtp_refresh_token",
         "gmail_smtp_sender", "gmail_smtp_enabled", "baseline_override_cyber",
         "baseline_override_phys", "sys_countermeasures", "net_countermeasures",
         "scoring_mode", "cyber_criticality_override", "cyber_lethality_override",

@@ -156,14 +156,22 @@ export function SettingsPage() {
     mutationFn: (data: any) => {
       const payload = { ...data };
       const clearLlmApiKey = !!payload.clear_llm_api_key;
-      const clearGmailAppPassword = !!payload.clear_gmail_smtp_password;
+      const clearGmailClientId = !!payload.clear_gmail_smtp_client_id;
+      const clearGmailClientSecret = !!payload.clear_gmail_smtp_client_secret;
+      const clearGmailRefreshToken = !!payload.clear_gmail_smtp_refresh_token;
       delete payload.clear_llm_api_key;
-      delete payload.clear_gmail_smtp_password;
+      delete payload.clear_gmail_smtp_client_id;
+      delete payload.clear_gmail_smtp_client_secret;
+      delete payload.clear_gmail_smtp_refresh_token;
       if (clearLlmApiKey) payload.llm_api_key = "";
       else if (!String(payload.llm_api_key || "").trim()) delete payload.llm_api_key;
       if (!String(payload.smtp_password || "").trim()) delete payload.smtp_password;
-      if (clearGmailAppPassword) payload.gmail_smtp_password = "";
-      else if (!String(payload.gmail_smtp_password || "").trim()) delete payload.gmail_smtp_password;
+      if (clearGmailClientId) payload.gmail_smtp_client_id = "";
+      else if (!String(payload.gmail_smtp_client_id || "").trim()) delete payload.gmail_smtp_client_id;
+      if (clearGmailClientSecret) payload.gmail_smtp_client_secret = "";
+      else if (!String(payload.gmail_smtp_client_secret || "").trim()) delete payload.gmail_smtp_client_secret;
+      if (clearGmailRefreshToken) payload.gmail_smtp_refresh_token = "";
+      else if (!String(payload.gmail_smtp_refresh_token || "").trim()) delete payload.gmail_smtp_refresh_token;
       return api.post("/admin/config", payload);
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["settings-config"] }); alert("Configuration saved."); },
@@ -994,7 +1002,9 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation, readOnly }: { co
        smtp_enabled: config.smtp_enabled ?? false,
        active_smtp_provider: config.active_smtp_provider || "smtp",
        gmail_smtp_username: config.gmail_smtp_username || "",
-       gmail_smtp_password: "",
+       gmail_smtp_client_id: "",
+       gmail_smtp_client_secret: "",
+       gmail_smtp_refresh_token: "",
        gmail_smtp_sender: config.gmail_smtp_sender || "",
        gmail_smtp_enabled: config.gmail_smtp_enabled ?? false,
      });
@@ -1118,7 +1128,7 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation, readOnly }: { co
           <section style={{ border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", padding: "0.8rem" }}>
             <SectionTitle text="Gmail profile" />
             <div style={{ color: "var(--text-muted)", fontSize: "0.72rem", margin: "-0.2rem 0 0.7rem" }}>
-              Uses smtp.gmail.com:587 with STARTTLS. Google requires a Google App Password; a regular account password will not work.
+              Uses smtp.gmail.com:587 with STARTTLS and Google OAuth 2.0 XOAUTH2. Grant the <code>https://mail.google.com/</code> scope and an offline refresh token. Obtain one with the <a href="https://developers.google.com/oauthplayground/" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent-blue)" }}>Google OAuth 2.0 Playground</a>; Workspace admin approval may be required. Google test-mode grants can expire after seven days. No account or App Password is used.
             </div>
             <div style={{ display: "grid", gap: "0.65rem" }}>
               <label style={{ fontSize: "0.76rem" }}>
@@ -1126,12 +1136,28 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation, readOnly }: { co
                 <input type="email" autoComplete="username" style={{ ...inputStyle, marginTop: 4 }} disabled={readOnly} value={form.gmail_smtp_username} onChange={e => upd("gmail_smtp_username", e.target.value)} placeholder="noc.account@gmail.com" />
               </label>
               <label style={{ fontSize: "0.76rem" }}>
-                Google App Password
-                <input type="password" autoComplete="new-password" style={{ ...inputStyle, marginTop: 4 }} disabled={readOnly} value={form.gmail_smtp_password} onChange={e => upd("gmail_smtp_password", e.target.value)} placeholder={config?.gmail_smtp_password_configured ? "Saved app password; blank keeps it" : "16-character app password"} />
+                OAuth client ID
+                <input type="text" autoComplete="off" style={{ ...inputStyle, marginTop: 4 }} disabled={readOnly} value={form.gmail_smtp_client_id} onChange={e => upd("gmail_smtp_client_id", e.target.value)} placeholder={config?.gmail_smtp_client_id_configured ? "Saved client ID; blank keeps it" : "Google Cloud OAuth client ID"} />
                 <span style={{ display: "block", color: "var(--text-muted)", fontSize: "0.68rem", marginTop: 3 }}>
-                  Configured: {config?.gmail_smtp_password_configured ? "Yes" : "No"}. The saved password is never returned to the browser.
+                  Configured: {config?.gmail_smtp_client_id_configured ? "Yes" : "No"}.
                 </span>
-                {!readOnly && config?.gmail_smtp_password_configured && <button type="button" disabled={saveConfigMutation.isPending} onClick={() => saveConfigMutation.mutate({ clear_gmail_smtp_password: true })} style={{ ...btn("var(--accent-red)"), marginTop: 5, padding: "0.35rem 0.55rem" }}>Clear saved app password</button>}
+                {!readOnly && config?.gmail_smtp_client_id_configured && <button type="button" disabled={saveConfigMutation.isPending} onClick={() => saveConfigMutation.mutate({ clear_gmail_smtp_client_id: true })} style={{ ...btn("var(--accent-red)"), marginTop: 5, padding: "0.35rem 0.55rem" }}>Clear OAuth client ID</button>}
+              </label>
+              <label style={{ fontSize: "0.76rem" }}>
+                OAuth client secret
+                <input type="password" autoComplete="new-password" style={{ ...inputStyle, marginTop: 4 }} disabled={readOnly} value={form.gmail_smtp_client_secret} onChange={e => upd("gmail_smtp_client_secret", e.target.value)} placeholder={config?.gmail_smtp_client_secret_configured ? "Saved client secret; blank keeps it" : "Google Cloud OAuth client secret"} />
+                <span style={{ display: "block", color: "var(--text-muted)", fontSize: "0.68rem", marginTop: 3 }}>
+                  Configured: {config?.gmail_smtp_client_secret_configured ? "Yes" : "No"}. The saved secret is never returned to the browser.
+                </span>
+                {!readOnly && config?.gmail_smtp_client_secret_configured && <button type="button" disabled={saveConfigMutation.isPending} onClick={() => saveConfigMutation.mutate({ clear_gmail_smtp_client_secret: true })} style={{ ...btn("var(--accent-red)"), marginTop: 5, padding: "0.35rem 0.55rem" }}>Clear OAuth client secret</button>}
+              </label>
+              <label style={{ fontSize: "0.76rem" }}>
+                OAuth refresh token
+                <input type="password" autoComplete="new-password" style={{ ...inputStyle, marginTop: 4 }} disabled={readOnly} value={form.gmail_smtp_refresh_token} onChange={e => upd("gmail_smtp_refresh_token", e.target.value)} placeholder={config?.gmail_smtp_refresh_token_configured ? "Saved refresh token; blank keeps it" : "Offline refresh token for Gmail scope"} />
+                <span style={{ display: "block", color: "var(--text-muted)", fontSize: "0.68rem", marginTop: 3 }}>
+                  Configured: {config?.gmail_smtp_refresh_token_configured ? "Yes" : "No"}. Access tokens are refreshed automatically for sending.
+                </span>
+                {!readOnly && config?.gmail_smtp_refresh_token_configured && <button type="button" disabled={saveConfigMutation.isPending} onClick={() => saveConfigMutation.mutate({ clear_gmail_smtp_refresh_token: true })} style={{ ...btn("var(--accent-red)"), marginTop: 5, padding: "0.35rem 0.55rem" }}>Clear refresh token</button>}
               </label>
               <label style={{ fontSize: "0.76rem" }}>
                 From address (defaults to account)
@@ -1158,7 +1184,7 @@ function AiSmtpTab({ config, configLoading, saveConfigMutation, readOnly }: { co
         </div>
       </Card>
 
-      {!readOnly && <button onClick={() => saveConfigMutation.mutate(form, { onSuccess: () => setForm((previous: any) => ({ ...previous, smtp_password: "", gmail_smtp_password: "" })) })} disabled={saveConfigMutation.isPending} style={{ ...btn("var(--accent-green)"), alignSelf: "flex-start" }}>
+      {!readOnly && <button onClick={() => saveConfigMutation.mutate(form, { onSuccess: () => setForm((previous: any) => ({ ...previous, smtp_password: "", gmail_smtp_client_id: "", gmail_smtp_client_secret: "", gmail_smtp_refresh_token: "" })) })} disabled={saveConfigMutation.isPending} style={{ ...btn("var(--accent-green)"), alignSelf: "flex-start" }}>
         <Save size={14} /> {saveConfigMutation.isPending ? "Saving..." : "Save Configuration"}
       </button>}
     </div>

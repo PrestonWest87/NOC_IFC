@@ -41,7 +41,9 @@ def get_config(db: Session = Depends(get_db), user=Depends(get_current_user)):
         "gmail_smtp_enabled": bool(config.gmail_smtp_enabled),
         "gmail_smtp_username": config.gmail_smtp_username or "",
         "gmail_smtp_sender": config.gmail_smtp_sender or "",
-        "gmail_smtp_password_configured": bool(config.gmail_smtp_password),
+        "gmail_smtp_client_id_configured": bool(config.gmail_smtp_client_id),
+        "gmail_smtp_client_secret_configured": bool(config.gmail_smtp_client_secret),
+        "gmail_smtp_refresh_token_configured": bool(config.gmail_smtp_refresh_token),
         "llm_context_window": config.llm_context_window,
     }
 

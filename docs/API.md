@@ -417,7 +417,7 @@ Requires Report Builder tab. Body: `{target, days_back}`. Searches up to 30 arti
 ## Settings Endpoints (/settings)
 
 ### GET /settings/config
-Returns LLM and email-sender configuration. Requires the Settings page and AI & SMTP tab. It includes the selected sender (`smtp` or `gmail`), both profiles' non-secret fields, and configured flags; passwords and app passwords are never returned.
+Returns LLM and email-sender configuration. Requires the Settings page and AI & SMTP tab. It includes the selected sender (`smtp` or `gmail`), both profiles' non-secret fields, and configured flags; SMTP passwords, OAuth client secrets, and refresh tokens are never returned.
 
 ### GET /settings/users
 Compatibility endpoint for the user directory; requires `Tab: Settings -> Users & Roles` and `Action: Manage Users`. Unlike the newer `/user-admin/users` route it does not declare an additional router-level Settings page dependency.
@@ -461,7 +461,7 @@ Body: `{weight: N}`. Validates 1-100, force-reloads scorer.
 ### GET /admin/ml-counts
 
 ### POST /admin/config
-Administrator-only compatibility endpoint for allowlisted editable `SystemConfig` fields. It can save both the existing SMTP profile and the Gmail profile, with `active_smtp_provider` selecting which profile sends all mail. Gmail uses `smtp.gmail.com:587` with STARTTLS and a Google App Password. Password fields are write-only; omit them to retain saved values. It cannot write system-maintained brief/risk-state fields; the current UI uses category-specific `/application-settings/*` routes for risk scoring, application defaults, and scheduler changes.
+Administrator-only compatibility endpoint for allowlisted editable `SystemConfig` fields. It can save both the existing SMTP profile and the Gmail profile, with `active_smtp_provider` selecting which profile sends all mail. Gmail uses `smtp.gmail.com:587` with STARTTLS and OAuth2 XOAUTH2 authentication using a client ID, client secret, and offline refresh token. OAuth secrets are write-only; omit them to retain saved values. It cannot write system-maintained brief/risk-state fields; the current UI uses category-specific `/application-settings/*` routes for risk scoring, application defaults, and scheduler changes.
 
 ### POST /admin/config/test-email
 Body: `{"recipient":"operator@example.com"}`. Sends a short test through the saved active SMTP profile; requires administrator access and returns HTTP 502 when delivery fails.

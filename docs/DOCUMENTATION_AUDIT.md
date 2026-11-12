@@ -18,7 +18,7 @@ The implementation inventory checked includes:
 - The React SPA route map, user/session state, permission utilities, pages, shared components, and web runtime configuration.
 - `docker-compose.yml`, Dockerfiles, nginx/Vite configuration, Python/Node dependency manifests, `.env.example`, and operational/restore scripts.
 
-The OpenAPI schema generated from the checked-out source contains **203 paths and 219 HTTP operations**. The source defines 22 registry-managed scheduler jobs and 15 routed React page components (including public account-recovery pages). The current single Alembic head is `20261112_0013`.
+The OpenAPI schema generated from the checked-out source contains **203 paths and 219 HTTP operations**. The source defines 22 registry-managed scheduler jobs and 15 routed React page components (including public account-recovery pages). The current single Alembic head is `20261112_0014`.
 
 ## Corrections made in this documentation pass
 
@@ -32,7 +32,7 @@ The guides and module references were refreshed to describe current behavior for
 - The webhook's actual acceptance response (HTTP 200 with an accepted body), HMAC/replay checks, and background persistence boundary.
 - Bearer/session storage, structured 401/403 behavior, per-tab/action grants, site-type scoping, and WebSocket authorization/revalidation.
 - The current dashboard/settings/reporting/AIOps/logbook UI, Operational Email workspace, and permissioned Email Contacts/Network Orders Settings tabs.
-- Backup/restore operations, legacy partial imports, SQLite migration ordering through `20261112_0013`, request limits, and dev Compose port/network/data isolation.
+- Backup/restore operations, legacy partial imports, SQLite migration ordering through `20261112_0014`, request limits, and dev Compose port/network/data isolation.
 - Current model/job/API inventory counts, source-reference mappings, and the optional `DATABASE_URL` template description.
 
 ## Source-level mismatches surfaced during the audit
@@ -58,10 +58,10 @@ These are implementation inconsistencies, not documentation facts to conceal:
 | Permission catalog | Passed: all 10 page, 23 action, and 36 tab keys from `src/core/permissions.py` are represented in `docs/PERMISSIONS.md`. |
 | ORM schema | Passed: all 45 mapped tables are represented in `docs/DATABASE_SCHEMA.md`. |
 | Scheduler registry | Passed: all 22 jobs are counted in the scheduler reference and trigger-flow summary. |
-| Migration head | Passed: Alembic reports `20261112_0013` as the single head; fresh and legacy-upgrade tests pass. |
+| Migration head | Passed: Alembic reports `20261112_0014` as the single head; fresh and legacy-upgrade tests pass. |
 | Local Markdown links | Passed: local target paths resolve across the available repository documentation. |
 | Documentation contracts | Passed: API operations, schema columns/nullability/indexes, environment references, routed source pages, and scheduler defaults match source. |
-| Python regression suite | Passed: 218 local-only tests, including Gmail profile selection, Microsoft 365 incident ingestion/status mapping, SQLite migration upgrades, and documentation contracts; test files remain excluded from version control. |
+| Python regression suite | Passed: 220 local-only tests, including Gmail OAuth2/XOAUTH2, legacy App Password cleanup/fallback, Microsoft 365 incident ingestion/status mapping, SQLite migration upgrades, and documentation contracts; test files remain excluded from version control. |
 | Frontend production build | Passed in the Node 22 web image; the existing large MapLibre/deck.gl chunk warning remains. |
 | Backend image and Python compilation | Passed using the Python 3.11 API image. |
 | Docker Compose configuration | Passed: host ports 8099, 8102, 8503, and 5174; isolated `data-dev`; Docker's built-in bridge without a new subnet. |

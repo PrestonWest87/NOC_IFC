@@ -297,11 +297,11 @@ def send_alert(recipients: list[str], subject: str, body: str) -> tuple[bool, st
 **Flow:**
 1. Imports the shared `src.utils.mailer.send_alert_email()` lazily.
 2. Joins the recipient list and sends the plain-text body with an empty subject prefix, preserving the prior risk-alert subject format.
-3. Returns the shared mailer's success/error tuple; SMTP connection, active sender selection, Gmail app-password handling, TLS, and cleanup use the common implementation.
+3. Returns the shared mailer's success/error tuple; SMTP connection, active sender selection, Gmail OAuth2/XOAUTH2, TLS, and cleanup use the common implementation.
 
 **Dependencies:** `src.utils.mailer.send_alert_email`
 
-Risk notifications now honor the same selected SMTP/Gmail sender as all other outbound mail. `get_smtp_config()` remains a compatibility helper; send_alert no longer performs a separate SMTP connection.
+Risk notifications now honor the same selected SMTP/Gmail OAuth sender as all other outbound mail. `get_smtp_config()` remains a compatibility helper; send_alert no longer performs a separate SMTP connection.
 
 ---
 

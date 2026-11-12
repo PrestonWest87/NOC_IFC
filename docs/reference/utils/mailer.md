@@ -51,7 +51,7 @@ def send_alert_email(
 1. Opens a new database session via `SessionLocal()`
 2. Queries the first `SystemConfig` row from the database
 3. Resolves `SystemConfig.active_smtp_provider` through `src.core.email_settings.get_active_smtp_profile()`; the legacy `smtp` profile remains the default.
-4. Validates the selected profile's enabled state, SMTP endpoint, From address, and recipient. The Gmail profile additionally requires a saved account and app password.
+4. Validates the selected profile's enabled state, SMTP endpoint, From address, and recipient. The Gmail profile additionally requires the account address and complete OAuth client/refresh-token credentials.
 5. Determines target recipient: `recipient_override` if provided, otherwise the shared `smtp_recipient`.
 6. Constructs a `MIMEMultipart` email:
    - Sets `From`, `To`, optional `Cc`, and `Subject` headers using `subject_prefix`
@@ -62,9 +62,9 @@ def send_alert_email(
 8. If `is_html` is `False`:
    - Attaches as `MIMEText` with `'plain'` subtype
 9. Connects to the selected profile endpoint with a 10-second timeout and calls `starttls()`.
-10. Logs in when both username and password are configured. Gmail uses `smtp.gmail.com:587`; copied app-password whitespace is removed before authentication.
+10. Gmail refreshes a short-lived Google OAuth access token and authenticates with SMTP XOAUTH2. The existing SMTP profile continues to use username/password login when configured.
 11. Sends the message and closes the SMTP connection. BCC is included only in the envelope.
-12. Returns `(True, "Email sent successfully.")` on success. Gmail authentication errors return an app-password-specific message without exposing credentials.
+12. Returns `(True, "Email sent successfully.")` on success. Google OAuth and SMTP authentication errors return credential-safe reconnect/configuration messages.
 13. Closes the SMTP connection and database session in `finally`.
 
 **Dependencies:**
@@ -76,9 +76,10 @@ def send_alert_email(
 | `email.mime.multipart.MIMEMultipart` | Multipart email container |
 | `email.utils.getaddresses`, `email.utils.parseaddr` | Resolve envelope and sender addresses |
 | `src.core.db.SessionLocal` | Database session factory |
+| `src.core.gmail_oauth.refresh_gmail_access_token` | Exchanges the saved refresh token for a short-lived access token |
 | `src.models.schema.SystemConfig` | Database model for SMTP configuration |
 
-`SystemConfig.active_smtp_provider` selects either the existing configurable relay (`smtp_*`) or the Gmail profile (`gmail_smtp_*`). Gmail host and port are fixed at `smtp.gmail.com:587`; both profiles use STARTTLS. The helper logs recipient counts rather than logging attachment contents. It does not guarantee SMTP server-side delivery beyond a successful `send_message()` call.
+`SystemConfig.active_smtp_provider` selects either the existing configurable relay (`smtp_*`) or the Gmail OAuth profile (`gmail_smtp_*`). Gmail host and port are fixed at `smtp.gmail.com:587`; both profiles use STARTTLS. Google refresh/access tokens and client secrets are never logged or returned by the API. The helper logs recipient counts rather than attachment contents. It does not guarantee SMTP server-side delivery beyond a successful `send_message()` call.
 
 ---
 
@@ -97,8 +98,12 @@ The following fields must be set in the `SystemConfig` database table for email 
 | `smtp_password` | Optional SMTP authentication password |
 | `gmail_smtp_enabled` | Enables the Gmail profile |
 | `gmail_smtp_username` | Gmail or Google Workspace account address |
-| `gmail_smtp_password` | Google App Password; required for Gmail SMTP authentication |
+| `gmail_smtp_client_id` | OAuth client ID from the Google Cloud project |
+| `gmail_smtp_client_secret` | OAuth client secret; write-only |
+| `gmail_smtp_refresh_token` | Offline refresh token granted with the `https://mail.google.com/` scope; write-only |
 | `gmail_smtp_sender` | Optional Gmail From address; defaults to the account address |
+
+No Google account password or App Password is used. OAuth setup and refresh-token instructions are in [Getting Started](../../GETTING_STARTED.md#gmail-oauth-setup).
 
 ---
 

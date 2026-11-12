@@ -7,8 +7,9 @@ def get_active_smtp_profile(config, overrides: dict | None = None) -> dict:
     """Return the selected SMTP profile, optionally applying pending admin edits.
 
     The existing configurable SMTP profile remains the default for compatibility.
-    Gmail uses Google's fixed submission endpoint and an app password; the default
-    recipient remains shared so switching senders does not change message routing.
+    Gmail uses Google's fixed submission endpoint and OAuth2 refresh credentials;
+    the default recipient remains shared so switching senders does not change
+    message routing.
     """
     overrides = overrides or {}
 
@@ -20,14 +21,15 @@ def get_active_smtp_profile(config, overrides: dict | None = None) -> dict:
     provider = value("active_smtp_provider", "smtp") or "smtp"
     if provider == "gmail":
         username = value("gmail_smtp_username", "") or ""
-        app_password = value("gmail_smtp_password", "") or ""
         return {
             "provider": "gmail",
             "enabled": bool(value("gmail_smtp_enabled", False)),
             "server": "smtp.gmail.com",
             "port": 587,
             "username": username,
-            "password": "".join(app_password.split()),
+            "client_id": value("gmail_smtp_client_id", "") or "",
+            "client_secret": value("gmail_smtp_client_secret", "") or "",
+            "refresh_token": value("gmail_smtp_refresh_token", "") or "",
             "sender": value("gmail_smtp_sender", "") or username,
             "recipient": value("smtp_recipient", "") or "",
         }
@@ -55,5 +57,10 @@ def smtp_profile_is_ready(profile: dict) -> bool:
     if not profile.get("enabled") or not profile.get("server") or not profile.get("sender"):
         return False
     if profile.get("provider") == "gmail":
-        return bool(profile.get("username") and profile.get("password"))
+        return bool(
+            profile.get("username")
+            and profile.get("client_id")
+            and profile.get("client_secret")
+            and profile.get("refresh_token")
+        )
     return profile.get("provider") == "smtp"

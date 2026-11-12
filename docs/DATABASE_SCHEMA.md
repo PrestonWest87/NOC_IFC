@@ -224,9 +224,9 @@ The legacy ER diagram is conceptual: its `(FK→)` labels do not distinguish enf
 
 ## 2. Complete Table Reference
 
-Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state; revision `20261102_0006` adds the site-contact table; revision `20261103_0007` adds NWS alert lifecycle and provider freshness fields; revision `20261105_0008` adds LLM provider selection and nullable alert/Elastic environment overrides; revision `20261110_0009` adds Operational Email tables; revision `20261110_0010` adds signatures and message signature snapshots; revision `20261111_0011` adds Fiber/ONPAGE email contacts and network-order/circuit references; revision `20261112_0013` adds the selectable Gmail sender profile, email-provider delivery snapshots, Microsoft 365 feed freshness, and stable Microsoft incident fields.
+Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state; revision `20261102_0006` adds the site-contact table; revision `20261103_0007` adds NWS alert lifecycle and provider freshness fields; revision `20261105_0008` adds LLM provider selection and nullable alert/Elastic environment overrides; revision `20261110_0009` adds Operational Email tables; revision `20261110_0010` adds signatures and message signature snapshots; revision `20261111_0011` adds Fiber/ONPAGE email contacts and network-order/circuit references; revision `20261112_0013` adds sender selection and Microsoft 365 status fields; revision `20261112_0014` adds Gmail OAuth client/refresh-token fields and clears the retired App Password value.
 
-The current migration head is `20261112_0013`; preceding revision `20261111_0012` conditionally refreshes unchanged Operational Email compose defaults and does not alter the schema.
+The current migration head is `20261112_0014`; revision `20261111_0012` conditionally refreshes unchanged Operational Email compose defaults and does not alter the schema.
 
 ### 2.1 `users` — User Accounts
 
@@ -313,7 +313,10 @@ The current migration head is `20261112_0013`; preceding revision `20261111_0012
 | `smtp_enabled` | Boolean | YES | `False` | — |
 | `active_smtp_provider` | String(16) | NO | `"smtp"` | — | Active global outbound profile: `smtp` or `gmail` |
 | `gmail_smtp_username` | String(254) | YES | NULL | — | Gmail/Google Workspace account address |
-| `gmail_smtp_password` | Text | YES | NULL | — | Google App Password; API responses never return it |
+| `gmail_smtp_password` | Text | YES | NULL | — | Retired legacy field; cleared by revision `20261112_0014` and no longer used |
+| `gmail_smtp_client_id` | String(255) | YES | NULL | — | OAuth client ID |
+| `gmail_smtp_client_secret` | Text | YES | NULL | — | OAuth client secret; API responses never return it |
+| `gmail_smtp_refresh_token` | Text | YES | NULL | — | Offline Gmail OAuth refresh token; API responses never return it |
 | `gmail_smtp_sender` | String(254) | YES | NULL | — | Optional From address; defaults to Gmail account |
 | `gmail_smtp_enabled` | Boolean | NO | `False` | — | Enables the Gmail profile |
 | `baseline_override_cyber` | Float | YES | `0.0` | — |
@@ -1143,7 +1146,7 @@ Revision `20261002_0001` uses the frozen `migrations/schema_v1.py` snapshot to c
 
 The explicit compatibility column map covers account/recovery fields, scheduler revisions, scoring and alert settings, article enrichment metadata, role site types, alert dispatch fields, location tracking, shift-log state, crime dispatch state, and timeline site metadata. The adoption revision validates every frozen-baseline table's final column set before recording success; later revisions add their versioned fields.
 
-Revision `20261111_0012` follows the contact/network directory revision and updates only shipped Operational Email subjects/bodies that still exactly match the previous defaults. It adds no tables or columns and preserves administrator-customized values. Revision `20261112_0013` additively adds the Gmail sender profile and provider snapshot column, stable cloud incident ID/status columns, the unique cloud-provider incident index, and Microsoft 365 public-feed freshness state.
+Revision `20261111_0012` follows the contact/network directory revision and updates only shipped Operational Email subjects/bodies that still exactly match the previous defaults. It adds no tables or columns and preserves administrator-customized values. Revision `20261112_0013` additively adds sender selection/provider snapshots, stable cloud incident ID/status columns, the unique cloud-provider incident index, and Microsoft 365 public-feed freshness state. Revision `20261112_0014` adds Gmail OAuth credentials, clears the retired App Password value, and returns to the existing SMTP sender if Gmail was selected without complete OAuth credentials.
 
 ### Phase 3 — SQLite runtime settings
 

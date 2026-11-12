@@ -162,7 +162,7 @@ The page separates global URL/technology/ASN and failed-login alert settings, no
 
 In **Settings > AI & SMTP**, choose OpenAI-compatible, Ollama OpenAI-compatible, Ollama native, or vLLM. The connection test uses the selected provider’s API format. A saved API key is reused only with its saved provider; changing provider clears the old key unless you enter a replacement. Local model endpoints must be reachable from the API container; in Docker, use a service name or host gateway rather than the API container’s own `localhost`.
 
-The SMTP Broadcast panel keeps the existing SMTP relay and a Gmail/Google Workspace sender configuration side by side. Select the active sender, enable and save that profile, then use **Send Test Email** to verify it. Gmail uses `smtp.gmail.com:587` with STARTTLS and requires a Google App Password (with 2-Step Verification enabled); a normal account password is not accepted. Blank password fields preserve saved credentials, and the API never returns their values.
+The SMTP Broadcast panel keeps the existing SMTP relay and a Gmail/Google Workspace sender configuration side by side. Select the active sender, enable and save that profile, then use **Send Test Email** to verify it. Gmail uses `smtp.gmail.com:587` with STARTTLS and OAuth2 XOAUTH2; configure an OAuth client and offline refresh token for `https://mail.google.com/`. Blank OAuth credential fields preserve saved values, and the API never returns client secrets or refresh tokens. See [Gmail OAuth setup](GETTING_STARTED.md#gmail-oauth-setup).
 
 ### Backup & Restore and Danger Zone
 

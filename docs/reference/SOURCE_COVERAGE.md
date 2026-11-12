@@ -13,6 +13,7 @@ This index records the current source-to-reference mapping after the reference c
 | `src/core/config.py` | `core/config.md` |
 | `src/core/runtime_settings.py` | `core/runtime_settings.md`, `../OPERATIONS_REFERENCE.md`, `../API.md` |
 | `src/core/email_settings.py` | `core/email_settings.md`, `../OPERATIONS_REFERENCE.md`, `utils/mailer.md` |
+| `src/core/gmail_oauth.py` | `core/gmail_oauth.md`, `utils/mailer.md`, `../GETTING_STARTED.md` |
 | `src/core/llm_providers.py` | `core/llm_providers.md`, `utils/llm.md`, `../API.md` |
 | `src/core/arkansas_coverage.py` | `core/arkansas_coverage.md`, `workers/infra_worker.md`, `../DATA_FLOWS.md` |
 | `src/core/__init__.py` | `core/__init__.md` |

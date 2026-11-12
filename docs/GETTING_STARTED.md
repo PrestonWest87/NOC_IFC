@@ -138,7 +138,17 @@ The checked-in `.env.example` is the complete environment template, and [the env
 
 Configure SMTP and LLM settings in the Settings page (AI & SMTP tab). Choose an OpenAI-compatible, Ollama OpenAI-compatible, Ollama native, or vLLM provider. The connection test uses the selected protocol. Local model URLs must be reachable from the API container; use the Docker service name or host gateway instead of container-local `localhost`.
 
-The SMTP Broadcast panel stores the existing relay and a Gmail/Google Workspace profile side by side. Choose the active sender, save, and send a test email. Gmail uses `smtp.gmail.com:587` with STARTTLS and requires a Google App Password; the app keeps the existing SMTP profile available for switching back.
+The SMTP Broadcast panel stores the existing relay and a Gmail/Google Workspace profile side by side. Choose the active sender, save, and send a test email. Gmail uses `smtp.gmail.com:587` with STARTTLS and OAuth 2.0 XOAUTH2; no account password or App Password is used. The existing SMTP profile remains available for switching back.
+
+### Gmail OAuth Setup
+
+1. In Google Cloud Console, configure the OAuth consent screen and create an OAuth client. For Workspace, use an internal app where possible and ask the Workspace administrator to allow the client and Gmail scope if policy requires it.
+2. To obtain a refresh token, open the [Google OAuth 2.0 Playground](https://developers.google.com/oauthplayground/), enable **Use your own OAuth credentials**, and enter the OAuth client ID/secret. Add the scope `https://mail.google.com/`, request offline access, authorize the sending account, exchange the authorization code, and copy the returned refresh token. The OAuth client must allow the Playground redirect URI `https://developers.google.com/oauthplayground`.
+3. In Settings > AI & SMTP, enter the Gmail account address, OAuth client ID, client secret, and refresh token. Set the optional From address, enable Gmail, select it as the active sender, save, and send a test email.
+
+The client secret and refresh token are write-only in IFC settings. The API exchanges the refresh token for a short-lived access token when it sends mail. If Google or Workspace revokes the grant, generate a new refresh token and replace it in Settings.
+
+For long-term use, configure the OAuth consent screen for the intended audience. Google OAuth apps left in External/Testing status can receive refresh tokens that expire after seven days for Gmail scopes; Workspace internal apps or properly published/verified apps avoid relying on a temporary test grant.
 
 Configure alert destinations and Elastic settings in Settings > Application Settings > Notification destinations and Elastic integration. These values are stored in the shared `SystemConfig` row and apply to the API and worker without a restart. The environment variables listed above remain supported as defaults until a database override is saved; “Reset to environment” removes overrides. The Elastic API key is write-only in the UI. SMTP and LLM settings remain application settings in `SystemConfig`:
 
@@ -147,7 +157,7 @@ Configure alert destinations and Elastic settings in Settings > Application Sett
 | SMTP Server | `smtp.office365.com` |
 | SMTP Port | `587` |
 | SMTP Username | `noc@aecc.com` |
-| SMTP Password | (app password) |
+| SMTP Password | (existing relay credential, if required; Gmail uses OAuth instead) |
 | SMTP Sender | `noc@aecc.com` |
 | SMTP Recipient | `team@aecc.com` |
 

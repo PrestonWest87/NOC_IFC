@@ -9,6 +9,7 @@ The detailed module pages live under `docs/reference/`. The current source-to-re
 | Configuration | `src/core/config.py` | `reference/core/config.md` |
 | Dynamic operational settings | `src/core/runtime_settings.py` | `reference/core/runtime_settings.md`, `OPERATIONS_REFERENCE.md` |
 | Active outbound email profile selection | `src/core/email_settings.py` | `reference/core/email_settings.md`, `reference/utils/mailer.md`, `OPERATIONS_REFERENCE.md` |
+| Gmail OAuth2 access-token refresh | `src/core/gmail_oauth.py` | `reference/core/gmail_oauth.md`, `reference/utils/mailer.md`, `GETTING_STARTED.md` |
 | LLM provider protocols | `src/core/llm_providers.py` | `reference/core/llm_providers.md`, `reference/utils/llm.md` |
 | Arkansas regional coverage and CAP filtering | `src/core/arkansas_coverage.py` | `reference/core/arkansas_coverage.md`, `DATA_FLOWS.md` |
 | Monitored-site contact validation | `src/core/site_contact_validation.py` | `reference/core/site_contact_validation.md`, `reference/services/services.md` |

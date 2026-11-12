@@ -213,7 +213,7 @@ AI & SMTP configuration.
 ### Returns
 - LLM Configuration card (provider selector, endpoint, optional API key with show/hide, model name, context window, enable toggle, test connection button)
 - SMTP Broadcast card retains the existing SMTP relay and Gmail credentials/configuration side by side, with an active-profile selector, separate enable switches, and a saved-profile test-email control.
-- Configuration editor covers LLM provider/endpoint/model/key, the existing SMTP server/credentials/sender/recipient, Gmail account/app-password/sender, and active sender selection. SMTP and Gmail passwords are write-only; blank password fields preserve saved credentials.
+- Configuration editor covers LLM provider/endpoint/model/key, the existing SMTP server/credentials/sender/recipient, Gmail account/OAuth client/refresh-token/From address, and active sender selection. SMTP passwords and Gmail OAuth secrets are write-only; blank credential fields preserve saved values.
 - LLM connection test uses the selected provider through `POST /api/v1/llm/test-connection`; supported options are OpenAI-compatible, Ollama OpenAI-compatible, Ollama native, and vLLM.
 - Editing is administrator-only; risk overrides, scheduler schedules, application defaults, and failed-login alert settings are in `ApplicationSettingsTab`.
 

@@ -197,7 +197,10 @@ Stores validated per-job schedule type, interval/time/day, timezone, enabled sta
 | `smtp_enabled` | `Boolean` | `False` | Whether SMTP is configured |
 | `active_smtp_provider` | `String(16)` | `"smtp"` | Active global sender profile: existing SMTP relay or Gmail |
 | `gmail_smtp_username` | `String(254)` | `nullable` | Gmail/Google Workspace account address |
-| `gmail_smtp_password` | `Text` | `nullable` | Google App Password; never returned by settings APIs |
+| `gmail_smtp_password` | `Text` | `nullable` | Retired legacy field; cleared by revision `20261112_0014` |
+| `gmail_smtp_client_id` | `String(255)` | `nullable` | Google OAuth client ID |
+| `gmail_smtp_client_secret` | `Text` | `nullable` | OAuth client secret; never returned by settings APIs |
+| `gmail_smtp_refresh_token` | `Text` | `nullable` | Offline Gmail OAuth token; never returned by settings APIs |
 | `gmail_smtp_sender` | `String(254)` | `nullable` | Gmail From address, defaulting to account address |
 | `gmail_smtp_enabled` | `Boolean` | `False` | Gmail profile enablement |
 | `baseline_override_cyber` | `Float` | `0.0` | Manual override for cyber baseline |

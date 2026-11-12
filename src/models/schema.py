@@ -329,7 +329,11 @@ class SystemConfig(Base):
     smtp_recipient = Column(String, nullable=True)
     smtp_enabled = Column(Boolean, default=False)
     gmail_smtp_username = Column(String(254), nullable=True)
+    # Retained only for additive upgrade compatibility; migration 0014 clears it.
     gmail_smtp_password = Column(Text, nullable=True)
+    gmail_smtp_client_id = Column(String(255), nullable=True)
+    gmail_smtp_client_secret = Column(Text, nullable=True)
+    gmail_smtp_refresh_token = Column(Text, nullable=True)
     gmail_smtp_sender = Column(String(254), nullable=True)
     gmail_smtp_enabled = Column(Boolean, nullable=False, default=False, server_default=text("0"))
     baseline_override_cyber = Column(Float, default=0.0)

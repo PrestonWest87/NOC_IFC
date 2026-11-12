@@ -54,11 +54,11 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 
 **Implementation branch:** `dev`. Keep this emergency integration update on `dev`; preserve unrelated untracked integration-plan documents and keep local-only tests unstaged.
 
-- [x] Keep the existing SMTP relay and Gmail App Password profile side by side; add an active-provider switch, secret-safe settings reads, a send-test route, and sender-provider history snapshots.
+- [x] Keep the existing SMTP relay and Gmail OAuth2 profile side by side; add an active-provider switch, secret-safe settings reads, a send-test route, and sender-provider history snapshots.
 - [x] Route all outbound mail, including risk alerts and scheduled Operational Email, through the selected profile while preserving existing SMTP behavior by default.
 - [x] Poll Microsoft's public service-health RSS feed, track poll freshness/last-good incidents, and show incident status per Outlook/Exchange, Teams, SharePoint, OneDrive, and related Microsoft 365 services under Cloud Services.
 - [x] Add an additive SQLite migration and update API, UI, migration, schema, worker, and user documentation.
-- [x] Run 218 Python tests, Python compilation, frontend/API image builds, OpenAPI/docs contracts, and `git diff --check`; preserve unrelated untracked integration-plan documents and keep tests unstaged.
+- [x] Run 220 Python tests, Python compilation, frontend/API image builds, OpenAPI/docs contracts, and `git diff --check`; preserve unrelated untracked integration-plan documents and keep tests unstaged.
 
 ## Completed Implementation Plan — User, Permissions, and Application Settings
 

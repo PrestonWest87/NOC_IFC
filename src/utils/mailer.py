@@ -10,6 +10,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from src.core.db import SessionLocal
 from src.core.email_settings import get_active_smtp_profile
+from src.core.gmail_oauth import GmailOAuthError, refresh_gmail_access_token
 from src.models.schema import SystemConfig
 
 logger = logging.getLogger(__name__)
@@ -75,8 +76,10 @@ def send_alert_email(
                 profile["provider"], bool(profile["server"]), bool(profile["sender"]), target_count,
             )
             return False, f"{provider_label} configuration is incomplete (missing server, sender, or recipient)."
-        if profile["provider"] == "gmail" and (not profile["username"] or not profile["password"]):
-            return False, "Gmail SMTP requires the Gmail account address and a Google App Password."
+        if profile["provider"] == "gmail" and not all(
+            profile.get(key) for key in ("username", "client_id", "client_secret", "refresh_token")
+        ):
+            return False, "Gmail SMTP requires the account address and complete OAuth 2.0 credentials."
 
         msg = MIMEMultipart()
         msg['From'] = profile["sender"]
@@ -121,7 +124,16 @@ def send_alert_email(
             logger.error("send_alert_email: StartTLS failed: %s", tls_err)
             return False, "SMTP TLS negotiation failed."
 
-        if profile["username"] and profile["password"]:
+        if profile["provider"] == "gmail":
+            access_token = refresh_gmail_access_token(profile)
+            xoauth2 = f"user={profile['username']}\x01auth=Bearer {access_token}\x01\x01"
+
+            def xoauth2_response(challenge=None):
+                """Send the initial SASL token, then acknowledge OAuth error challenges."""
+                return xoauth2 if challenge is None else ""
+
+            server.auth("XOAUTH2", xoauth2_response)
+        elif profile["username"] and profile["password"]:
             logger.debug("send_alert_email: authenticating with configured SMTP credentials")
             server.login(profile["username"], profile["password"])
             logger.debug("send_alert_email: login successful")
@@ -140,11 +152,14 @@ def send_alert_email(
 
         return True, "Email sent successfully."
 
+    except GmailOAuthError as oauth_err:
+        logger.warning("send_alert_email: Gmail OAuth token refresh failed")
+        return False, str(oauth_err)
     except smtplib.SMTPAuthenticationError as auth_err:
         config_provider = profile.get("provider") if "profile" in locals() else "smtp"
         logger.error("send_alert_email: SMTP authentication failed provider=%s", config_provider)
         if config_provider == "gmail":
-            return False, "Gmail SMTP authentication failed. Check the account address and Google App Password."
+            return False, "Gmail OAuth2 SMTP authentication failed. Check the account, refresh token, and granted Gmail scope."
         return False, f"SMTP authentication failed: {auth_err}"
     except smtplib.SMTPConnectError as conn_err:
         logger.error("send_alert_email: SMTP connection failed: %s", conn_err)

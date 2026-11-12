@@ -31,7 +31,7 @@ The dev Compose project is named `noc-ifc-dev`, uses `./data-dev`, and attaches 
 
 ## Operational Email
 
-All outbound email uses the saved active sender selected in Settings > AI & SMTP. The existing SMTP relay and Gmail profile are stored side by side; changing the selector affects new messages across alerts, reports, recovery mail, and Operational Email. Gmail uses `smtp.gmail.com:587` with STARTTLS and a Google App Password. Save the profile before sending a test email. The page grant controls Operational Email access; only administrators can edit shared template defaults or signatures. BCC is supported by all templates except To-only After-Hours ONPAGE. Central event-time labels use `CST`/`CDT`; recurring schedules use `America/Chicago` and follow daylight-saving changes.
+All outbound email uses the saved active sender selected in Settings > AI & SMTP. The existing SMTP relay and Gmail profile are stored side by side; changing the selector affects new messages across alerts, reports, recovery mail, and Operational Email. Gmail uses `smtp.gmail.com:587` with STARTTLS and OAuth2 XOAUTH2; configure an OAuth client and refresh token with `https://mail.google.com/`. Save the profile before sending a test email. The page grant controls Operational Email access; only administrators can edit shared template defaults or signatures. BCC is supported by all templates except To-only After-Hours ONPAGE. Central event-time labels use `CST`/`CDT`; recurring schedules use `America/Chicago` and follow daylight-saving changes.
 
 The Morning Report takes `SystemConfig.rolling_summary` (the latest Global Dashboard shift analysis) at delivery time and sends the stored text without a generated report header or executive-summary wrapper. Fiber outage follow-ups and resolution emails require a successfully sent Fiber Outage source record. Admin-managed signatures are optional and captured in message/schedule snapshots; deactivating a signature does not change existing scheduled sends or delivery history.
 
@@ -111,7 +111,7 @@ Change these through the Settings UI or the corresponding `SystemConfig` fields,
 - LLM provider/model/context: `SystemConfig` LLM fields; `src/utils/llm.py` applies context-window limits.
 - Notification destinations and Elastic URL/key/TLS/query bounds: Settings > Application Settings; null overrides use the matching environment value.
 - SMTP host, port, credentials, sender, and recipients: `SystemConfig`; `src/utils/mailer.py` sends messages.
-- Active SMTP profile and Gmail account/app password: `SystemConfig`; `src/core/email_settings.py` selects a profile and `POST /admin/config/test-email` validates saved delivery.
+- Active SMTP profile and Gmail OAuth credentials: `SystemConfig`; `src/core/email_settings.py` selects a profile, `src/core/gmail_oauth.py` refreshes access tokens, and `POST /admin/config/test-email` validates saved delivery.
 - RSS sources: `FeedSource` rows managed from Settings.
 
 ## Safe Database Actions
