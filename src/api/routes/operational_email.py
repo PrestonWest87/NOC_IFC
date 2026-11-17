@@ -99,9 +99,9 @@ def get_templates():
 
 
 @router.get("/reference-data")
-def get_reference_data():
-    """Return contact/network directories for Operational Email recipient selection."""
-    return email_service.get_operational_email_reference_data()
+def get_reference_data(include_onpage: bool = Query(False)):
+    """Return composer directories, including ONPAGE addresses only when requested by an ONPAGE template."""
+    return email_service.get_operational_email_reference_data(include_onpage=include_onpage)
 
 
 @router.put("/templates/{template_key}")

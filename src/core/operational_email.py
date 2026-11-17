@@ -37,12 +37,23 @@ _EMAIL_RE = re.compile(
 )
 _TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
 _CONTENT_TYPE_RE = re.compile(r"^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+$")
+FIBER_SENDER_TO_TEMPLATES = frozenset({
+    "fiber_maintenance_notice", "fiber_outage", "fiber_outage_update", "fiber_outage_resolution",
+})
+FIBER_FOLLOWUP_TEMPLATES = frozenset({"fiber_outage_update", "fiber_outage_resolution"})
+FIBER_ONPAGE_TEMPLATE = "fiber_outage_onpage"
 
 
 def application_timezone_abbreviation() -> str:
     """Return the application's current Central abbreviation (`CST` or `CDT`)."""
     abbreviation = datetime.now(ZoneInfo(EMAIL_TIMEZONE)).tzname()
     return abbreviation if abbreviation in {"CST", "CDT"} else "CST"
+
+
+def _global_sender_recipient(config) -> str:
+    """Return the mailbox from the active sender profile for recipient defaults."""
+    profile = get_active_smtp_profile(config)
+    return parseaddr(str(profile.get("sender") or ""))[1]
 
 
 TEMPLATE_DEFINITIONS = {
@@ -60,11 +71,11 @@ TEMPLATE_DEFINITIONS = {
              "input_type": "datetime-local"},
             {"key": "end_time", "label": "Expected completion", "required": True, "max_length": 40,
              "input_type": "datetime-local"},
-            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80},
+            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80, "visible": False},
             {"key": "impact", "label": "Risk", "required": True, "max_length": 20,
              "options": ["None", "Low", "Medium", "High"]},
             {"key": "disruption", "label": "Disruption", "required": True, "max_length": 40,
-             "options": ["Disruptive", "Nondisruptive", "Possibly Disruptive"]},
+             "options": ["Non-Disruptive", "Potentially Disruptive", "Disruptive"]},
             {"key": "departmental_impact", "label": "Departmental impact", "required": False, "max_length": 2000,
              "multiline": True},
             {"key": "contact", "label": "Operations contact", "required": False, "max_length": 500},
@@ -98,7 +109,7 @@ TEMPLATE_DEFINITIONS = {
              "max_length": 2000, "visible": False},
             {"key": "circuit_ids", "label": "Legacy circuit IDs", "required": False, "max_length": 1000,
              "visible": False},
-            {"key": "network_orders", "label": "Network Orders", "required": False, "max_length": 20000,
+            {"key": "network_orders", "label": "Network Orders/Circuit IDs", "required": False, "max_length": 20000,
              "multiline": True},
             {"key": "a_location", "label": "A location", "required": False, "max_length": 20000,
              "multiline": True},
@@ -111,15 +122,19 @@ TEMPLATE_DEFINITIONS = {
              "input_type": "datetime-local"},
             {"key": "end_time", "label": "Expected completion", "required": True, "max_length": 40,
              "input_type": "datetime-local"},
-            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 8},
+            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 8, "visible": False},
             {"key": "impact", "label": "Risk", "required": True, "max_length": 20,
              "options": ["None", "Low", "Medium", "High"]},
             {"key": "disruption", "label": "Disruption", "required": True, "max_length": 40,
-             "options": ["Disruptive", "Nondisruptive", "Possibly Disruptive"]},
+             "options": ["Non-Disruptive", "Potentially Disruptive", "Disruptive"]},
             {"key": "mop_type", "label": "MOP Type", "required": False, "max_length": 80,
              "options": ["MOP Type 1", "MOP Type 2", "MOP Type 3"]},
-            {"key": "departmental_impact", "label": "Departmental impact", "required": False,
+            {"key": "expected_impact", "label": "Expected impact", "required": False,
              "max_length": 2000, "multiline": True},
+            {"key": "departmental_impact", "label": "Legacy departmental impact", "required": False,
+             "max_length": 2000, "multiline": True, "visible": False},
+            {"key": "change_department", "label": "Department performing the change", "required": True,
+             "max_length": 80, "options": ["IT Network", "The Network Operations Center"]},
             {"key": "contact", "label": "Fiber contact information", "required": False,
              "max_length": 2000, "multiline": True},
             {"key": "reference", "label": "Ticket / change reference", "required": False, "max_length": 200},
@@ -130,14 +145,15 @@ TEMPLATE_DEFINITIONS = {
             "Ticket title: {{ticket_title}}\n"
             "A location: {{a_location}}\n"
             "Z location: {{z_location}}\n"
-            "Network Orders: {{network_orders}}\n"
+            "Network Orders/Circuit IDs: {{network_orders}}\n"
             "Company: {{company}}\n"
             "Planned work: {{work_scope}}\n"
             "Maintenance window: {{start_time}} to {{end_time}} {{timezone}}\n"
             "Risk: {{impact}}\n"
             "Disruption: {{disruption}}\n"
             "MOP Type: {{mop_type}}\n"
-            "Departmental impact: {{departmental_impact}}\n"
+            "Expected impact: {{expected_impact}}\n"
+            "Department performing the change: {{change_department}}\n"
             "Fiber contact information: {{contact}}\n"
             "Ticket / change reference: {{reference}}"
         ),
@@ -151,7 +167,7 @@ TEMPLATE_DEFINITIONS = {
             {"key": "site", "label": "Site", "required": True, "max_length": 200},
             {"key": "system", "label": "System / circuit", "required": True, "max_length": 250},
             {"key": "outage_start", "label": "Outage start", "required": True, "max_length": 120},
-            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80},
+            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80, "visible": False},
             {"key": "impact", "label": "Service impact", "required": True, "max_length": 2000},
             {"key": "priority", "label": "Priority", "required": True, "max_length": 40},
             {"key": "dispatch_action", "label": "Requested technician action", "required": True, "max_length": 2000},
@@ -187,7 +203,7 @@ TEMPLATE_DEFINITIONS = {
              "visible": False},
             {"key": "network_order_ids", "label": "Selected network-order record IDs", "required": False,
              "max_length": 2000, "visible": False},
-            {"key": "network_orders", "label": "Network Orders", "required": False, "max_length": 20000,
+            {"key": "network_orders", "label": "Network Orders/Circuit IDs", "required": False, "max_length": 20000,
              "multiline": True},
             {"key": "a_location", "label": "A location", "required": False, "max_length": 20000,
              "multiline": True},
@@ -198,10 +214,12 @@ TEMPLATE_DEFINITIONS = {
             {"key": "contact", "label": "Fiber contact information", "required": False,
              "max_length": 2000, "multiline": True},
             {"key": "outage_start", "label": "Outage start", "required": True, "max_length": 120},
-            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80},
+            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80, "visible": False},
             {"key": "impact", "label": "Service impact", "required": True, "max_length": 2000},
-            {"key": "restoration_estimate", "label": "Estimated restoration", "required": False, "max_length": 120},
-            {"key": "requested_action", "label": "Requested action", "required": True, "max_length": 2000},
+            {"key": "restoration_estimate", "label": "Legacy estimated restoration", "required": False,
+             "max_length": 120, "visible": False},
+            {"key": "requested_action", "label": "Legacy requested action", "required": False,
+             "max_length": 2000, "visible": False},
             {"key": "reference", "label": "Ticket / carrier reference", "required": False, "max_length": 200},
         ],
         "default_subject": "FIBER OUTAGE — {{site}} — {{network_orders}}",
@@ -210,20 +228,18 @@ TEMPLATE_DEFINITIONS = {
             "Location: {{site}}\n"
             "A location: {{a_location}}\n"
             "Z location: {{z_location}}\n"
-            "Network Orders: {{network_orders}}\n"
+            "Network Orders/Circuit IDs: {{network_orders}}\n"
             "Company: {{company}}\n"
             "Fiber contact information: {{contact}}\n"
             "Outage start: {{outage_start}} {{timezone}}\n"
             "Service impact: {{impact}}\n"
-            "Estimated restoration: {{restoration_estimate}}\n"
-            "Requested action: {{requested_action}}\n"
             "Ticket / carrier reference: {{reference}}"
         ),
     },
     "fiber_outage_update": {
         "label": "Fiber Outage Follow-up",
         "description": "Send a progress update linked to a successfully sent fiber outage ticket.",
-        "source_template_key": "fiber_outage",
+        "source_template_keys": ("fiber_outage", "fiber_outage_onpage"),
         "allows_bcc": True,
         "allows_cc": True,
         "allows_attachments": False,
@@ -233,7 +249,7 @@ TEMPLATE_DEFINITIONS = {
              "visible": False},
             {"key": "provider", "label": "Legacy provider", "required": False, "max_length": 200,
              "visible": False},
-            {"key": "network_orders", "label": "Network Orders", "required": False, "max_length": 2000,
+            {"key": "network_orders", "label": "Network Orders/Circuit IDs", "required": False, "max_length": 2000,
              "multiline": True},
             {"key": "a_location", "label": "A location", "required": False, "max_length": 2000,
              "multiline": True},
@@ -244,9 +260,10 @@ TEMPLATE_DEFINITIONS = {
             {"key": "contact", "label": "Fiber contact information", "required": False,
              "max_length": 2000, "multiline": True},
             {"key": "outage_start", "label": "Outage start", "required": False, "max_length": 120},
-            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 8},
+            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 8, "visible": False},
             {"key": "impact", "label": "Service impact", "required": False, "max_length": 2000},
-            {"key": "requested_action", "label": "Requested action", "required": False, "max_length": 2000},
+            {"key": "requested_action", "label": "Legacy requested action", "required": False,
+             "max_length": 2000, "visible": False},
             {"key": "reference", "label": "Ticket / carrier reference", "required": False, "max_length": 200},
             {"key": "update_time", "label": "Update time", "required": True, "max_length": 120},
             {"key": "current_status", "label": "Current status", "required": True, "max_length": 120},
@@ -261,7 +278,7 @@ TEMPLATE_DEFINITIONS = {
             "Location: {{site}}\n"
             "A location: {{a_location}}\n"
             "Z location: {{z_location}}\n"
-            "Network Orders: {{network_orders}}\n"
+            "Network Orders/Circuit IDs: {{network_orders}}\n"
             "Company: {{company}}\n"
             "Fiber contact information: {{contact}}\n"
             "Original outage start: {{outage_start}} {{timezone}}\n"
@@ -276,7 +293,7 @@ TEMPLATE_DEFINITIONS = {
     "fiber_outage_resolution": {
         "label": "Fiber Outage Resolution",
         "description": "Send a restoration/resolution notice linked to a successfully sent fiber outage ticket.",
-        "source_template_key": "fiber_outage",
+        "source_template_keys": ("fiber_outage", "fiber_outage_onpage"),
         "allows_bcc": True,
         "allows_cc": True,
         "allows_attachments": False,
@@ -286,7 +303,7 @@ TEMPLATE_DEFINITIONS = {
              "visible": False},
             {"key": "provider", "label": "Legacy provider", "required": False, "max_length": 200,
              "visible": False},
-            {"key": "network_orders", "label": "Network Orders", "required": False, "max_length": 2000,
+            {"key": "network_orders", "label": "Network Orders/Circuit IDs", "required": False, "max_length": 2000,
              "multiline": True},
             {"key": "a_location", "label": "A location", "required": False, "max_length": 2000,
              "multiline": True},
@@ -297,9 +314,10 @@ TEMPLATE_DEFINITIONS = {
             {"key": "contact", "label": "Fiber contact information", "required": False,
              "max_length": 2000, "multiline": True},
             {"key": "outage_start", "label": "Outage start", "required": False, "max_length": 120},
-            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 8},
+            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 8, "visible": False},
             {"key": "impact", "label": "Original service impact", "required": False, "max_length": 2000},
-            {"key": "requested_action", "label": "Requested action", "required": False, "max_length": 2000},
+            {"key": "requested_action", "label": "Legacy requested action", "required": False,
+             "max_length": 2000, "visible": False},
             {"key": "reference", "label": "Ticket / carrier reference", "required": False, "max_length": 200},
             {"key": "resolution_time", "label": "Service restored at", "required": True, "max_length": 120},
             {"key": "resolution_details", "label": "Resolution details", "required": True, "max_length": 3000,
@@ -314,7 +332,7 @@ TEMPLATE_DEFINITIONS = {
             "Location: {{site}}\n"
             "A location: {{a_location}}\n"
             "Z location: {{z_location}}\n"
-            "Network Orders: {{network_orders}}\n"
+            "Network Orders/Circuit IDs: {{network_orders}}\n"
             "Company: {{company}}\n"
             "Fiber contact information: {{contact}}\n"
             "Original outage start: {{outage_start}} {{timezone}}\n"
@@ -339,7 +357,7 @@ TEMPLATE_DEFINITIONS = {
             {"key": "incident", "label": "Incident / alert", "required": False, "max_length": 500},
             {"key": "impact", "label": "Operational impact", "required": True, "max_length": 2000},
             {"key": "observed_at", "label": "Observed at", "required": False, "max_length": 120},
-            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80},
+            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80, "visible": False},
             {"key": "requested_response", "label": "Required response", "required": True, "max_length": 2000},
             {"key": "callback", "label": "Callback / NOC contact", "required": False, "max_length": 250},
         ],
@@ -389,7 +407,7 @@ TEMPLATE_DEFINITIONS = {
             {"key": "work_scope", "label": "Planned work", "required": False, "max_length": 2000},
             {"key": "start_time", "label": "Original maintenance start", "required": False, "max_length": 120},
             {"key": "end_time", "label": "Original expected completion", "required": False, "max_length": 120},
-            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80},
+            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80, "visible": False},
             {"key": "impact", "label": "Original risk", "required": False, "max_length": 2000},
             {"key": "disruption", "label": "Disruption", "required": False, "max_length": 40},
             {"key": "departmental_impact", "label": "Departmental impact", "required": False, "max_length": 2000},
@@ -417,6 +435,27 @@ TEMPLATE_DEFINITIONS = {
             "This message closes the previously issued maintenance notification."
         ),
     },
+}
+
+TEMPLATE_DEFINITIONS["fiber_outage_onpage"] = {
+    **TEMPLATE_DEFINITIONS["fiber_outage"],
+    "label": "Fiber Outage ONPAGE",
+    "description": "Send a fiber outage page to selected ONPAGE contacts, with the Global From address on Cc.",
+    "onpage_to": True,
+    "network_order_bcc": False,
+    "default_subject": "FIBER OUTAGE ONPAGE — {{site}} — {{network_orders}}",
+    "default_body": (
+        "FIBER OUTAGE ONPAGE NOTIFICATION\n\n"
+        "Location: {{site}}\n"
+        "A location: {{a_location}}\n"
+        "Z location: {{z_location}}\n"
+        "Network Orders/Circuit IDs: {{network_orders}}\n"
+        "Company: {{company}}\n"
+        "Fiber contact information: {{contact}}\n"
+        "Outage start: {{outage_start}} {{timezone}}\n"
+        "Service impact: {{impact}}\n"
+        "Ticket / carrier reference: {{reference}}"
+    ),
 }
 
 
@@ -510,6 +549,12 @@ def _normalize_fields(
         fields = {}
     if not isinstance(fields, dict):
         raise ValueError("Template fields must be an object.")
+    if template_key == "fiber_maintenance_notice":
+        fields = dict(fields)
+        if not fields.get("expected_impact") and fields.get("departmental_impact") is not None:
+            fields["expected_impact"] = fields["departmental_impact"]
+        if not fields.get("departmental_impact") and fields.get("expected_impact") is not None:
+            fields["departmental_impact"] = fields["expected_impact"]
     field_schema = _fields_by_key(template_key)
     unknown = set(fields) - set(field_schema)
     if unknown:
@@ -521,12 +566,17 @@ def _normalize_fields(
             raw = ""
         if not isinstance(raw, str):
             raise ValueError(f"{spec['label']} must be text.")
-        value = raw.strip()
+        value = raw.replace("\r\n", "\n").replace("\r", "\n")
+        if spec.get("multiline"):
+            if not value.strip():
+                value = ""
+        else:
+            value = value.strip()
         if key == "timezone":
             value = application_timezone_abbreviation()
         if len(value) > spec["max_length"]:
             raise ValueError(f"{spec['label']} must be no more than {spec['max_length']} characters.")
-        if spec["required"] and not value and not defer_required:
+        if spec["required"] and not value.strip() and not defer_required:
             raise ValueError(f"{spec['label']} is required.")
         if value and spec.get("input_type") == "datetime-local":
             if not re.fullmatch(
@@ -786,6 +836,7 @@ def get_operational_email_templates() -> dict:
         }
         config = db.query(SystemConfig).first()
         smtp_profile = get_active_smtp_profile(config)
+        sender_recipient = _global_sender_recipient(config)
         templates = []
         for key, definition in TEMPLATE_DEFINITIONS.items():
             row = rows[key]
@@ -799,8 +850,14 @@ def get_operational_email_templates() -> dict:
                 "allows_attachments": definition["allows_attachments"],
                 "default_subject": row.default_subject,
                 "default_body": row.default_body,
-                "default_to": row.default_to or "",
-                "default_cc": row.default_cc or "",
+                "default_to": (
+                    sender_recipient if key in FIBER_SENDER_TO_TEMPLATES
+                    else "" if key == FIBER_ONPAGE_TEMPLATE
+                    else row.default_to or ""
+                ),
+                "default_cc": (
+                    sender_recipient if key == FIBER_ONPAGE_TEMPLATE else row.default_cc or ""
+                ),
                 "default_bcc": row.default_bcc or "",
                 "updated_at": row.updated_at.isoformat() if row.updated_at else None,
             })
@@ -824,15 +881,18 @@ def get_operational_email_templates() -> dict:
         }
 
 
-def get_operational_email_reference_data() -> dict:
-    """Return contact and network-order directories for the authorized email composer."""
+def get_operational_email_reference_data(*, include_onpage: bool = False) -> dict:
+    """Return composer directories, loading ONPAGE addresses only for ONPAGE templates."""
     with SessionLocal() as db:
         fiber_contacts = db.query(FiberEmailContact).order_by(
             FiberEmailContact.sort_order, FiberEmailContact.id
         ).all()
-        onpage_contacts = db.query(OnpageEmailContact).order_by(
-            OnpageEmailContact.sort_order, OnpageEmailContact.id
-        ).all()
+        onpage_contacts = (
+            db.query(OnpageEmailContact).order_by(
+                OnpageEmailContact.sort_order, OnpageEmailContact.id
+            ).all()
+            if include_onpage else []
+        )
         network_orders = db.query(NetworkOrderCircuit).order_by(
             NetworkOrderCircuit.sort_order, NetworkOrderCircuit.id
         ).all()
@@ -864,6 +924,10 @@ def update_operational_email_template(template_key: str, values: dict, actor_use
         raise ValueError(f"Unsupported template field(s): {', '.join(sorted(unknown))}.")
     if not values:
         raise ValueError("Provide at least one template default to update.")
+    if template_key in FIBER_SENDER_TO_TEMPLATES and "default_to" in values:
+        raise ValueError("Fiber email To defaults to the active Global From address.")
+    if template_key == FIBER_ONPAGE_TEMPLATE and {"default_to", "default_cc"}.intersection(values):
+        raise ValueError("Fiber Outage ONPAGE To/Cc recipients are selected by the composer and Global From profile.")
     with SessionLocal() as db:
         row = db.query(OperationalEmailTemplate).filter_by(template_key=template_key).first()
         if not row:
@@ -1012,15 +1076,17 @@ def _resolve_network_order_contacts(db, template_key: str, fields: dict[str, str
             for contact in matching_contacts
         )[:2000]
     for key, label in (
-        ("network_orders", "Network Orders"),
+        ("network_orders", "Network Orders/Circuit IDs"),
         ("a_location", "A location"),
         ("z_location", "Z location"),
         ("company", "Company"),
     ):
         if not fields.get(key, "").strip():
             raise ValueError(f"{label} is required.")
-    if template_key == "fiber_outage" and not fields.get("site", "").strip():
+    if template_key in {"fiber_outage", FIBER_ONPAGE_TEMPLATE} and not fields.get("site", "").strip():
         raise ValueError("Location is required.")
+    if not definition.get("network_order_bcc", True):
+        return []
     return unique_values(
         contact.email
         for contact in db.query(FiberEmailContact).order_by(
@@ -1045,21 +1111,25 @@ def _prepare_message(db, template_key: str, values: dict, *, for_schedule: bool 
         if source_email_id is not None and legacy_parent_id is not None and source_email_id != legacy_parent_id:
             raise ValueError("Choose one source maintenance notification.")
         parent_id = source_email_id if source_email_id is not None else legacy_parent_id
-        source_template_key = "maintenance_notice"
+        source_template_keys = ("maintenance_notice",)
     else:
         if legacy_parent_id is not None:
             raise ValueError("A maintenance notice can only be linked to a Maintenance Complete email.")
         parent_id = source_email_id
-        source_template_key = definition.get("source_template_key")
+        source_template_keys = definition.get("source_template_keys")
+        if source_template_keys is None:
+            source_template_key = definition.get("source_template_key")
+            source_template_keys = (source_template_key,) if source_template_key else ()
+        else:
+            source_template_keys = tuple(source_template_keys)
     parent = None
     parent_fields = {}
-    if source_template_key:
+    if source_template_keys:
         if isinstance(parent_id, bool) or not isinstance(parent_id, int):
             raise ValueError("Select a previously sent source email.")
         parent = db.query(OperationalEmail).filter_by(
             id=parent_id,
-            template_key=source_template_key,
-        ).first()
+        ).filter(OperationalEmail.template_key.in_(source_template_keys)).first()
         has_sent_delivery = parent and db.query(OperationalEmailDelivery.id).filter_by(
             operational_email_id=parent.id,
             status="sent",
@@ -1067,7 +1137,7 @@ def _prepare_message(db, template_key: str, values: dict, *, for_schedule: bool 
         if not parent or not has_sent_delivery:
             raise ValueError("The selected source email has not been sent successfully.")
         parent_fields = parent.fields_json or {}
-        if source_template_key == "fiber_outage":
+        if "fiber_outage" in source_template_keys or FIBER_ONPAGE_TEMPLATE in source_template_keys:
             parent_fields = dict(parent_fields)
             parent_fields.setdefault("network_orders", parent_fields.get("circuit", ""))
             parent_fields.setdefault("company", parent_fields.get("provider", ""))
@@ -1108,7 +1178,7 @@ def _prepare_message(db, template_key: str, values: dict, *, for_schedule: bool 
         unknown_body_tokens = set(_TOKEN_RE.findall(body_input)) - fields_allowed
         if unknown_body_tokens:
             raise ValueError(f"Unsupported body placeholder(s): {', '.join(sorted(unknown_body_tokens))}.")
-        body = _render_text(body_input, fields).strip()
+        body = _render_text(body_input, fields)
 
     signature = _get_selected_signature(db, values)
     signature_id = signature.id if signature else None
@@ -1116,30 +1186,64 @@ def _prepare_message(db, template_key: str, values: dict, *, for_schedule: bool 
     signature_content = signature.content if signature else None
     if live_source != "global_shift_analysis" or body:
         body = _append_signature(body, signature_content)
-    if (not body and not for_schedule) or len(body) > 200000:
+    body = body.replace("\r\n", "\n").replace("\r", "\n")
+    if (not body.strip() and not for_schedule) or len(body) > 200000:
         raise ValueError("Email body must contain no more than 200,000 characters and cannot be blank.")
 
     to_input = values.get("to")
     cc_input = values.get("cc")
     bcc_input = values.get("bcc")
     to_only = definition.get("recipients_mode") == "to_only"
+    global_sender = _global_sender_recipient(db.query(SystemConfig).first())
     if to_only:
         if normalize_recipient_list(cc_input) or normalize_recipient_list(bcc_input):
             raise ValueError("After-Hours ONPAGE supports To recipients only.")
+        to_input = to_input or template.default_to
         cc_input = ""
         bcc_input = ""
+    elif template_key == FIBER_ONPAGE_TEMPLATE:
+        # This variant pages the selected ONPAGE contacts and copies Global From on Cc.
+        cc_input = global_sender
+        bcc_input = bcc_input or template.default_bcc
+    elif template_key in FIBER_FOLLOWUP_TEMPLATES:
+        # Follow-ups never inherit the original ONPAGE To field, but retain the
+        # original hidden recipients even when the follow-up template has defaults.
+        to_input = global_sender
+        cc_input = cc_input or template.default_cc
+        inherited_bcc = list(parent.bcc_recipients or []) if parent else []
+        requested_bcc = normalize_recipient_list(bcc_input or template.default_bcc)
+        bcc_input = ", ".join([*inherited_bcc, *requested_bcc])
+    elif template_key in FIBER_SENDER_TO_TEMPLATES:
+        to_input = global_sender
+        if parent:
+            cc_input = cc_input or ", ".join(parent.cc_recipients or [])
+            bcc_input = bcc_input or ", ".join(parent.bcc_recipients or [])
+        cc_input = cc_input or template.default_cc
+        bcc_input = bcc_input or template.default_bcc
     elif parent:
         to_input = to_input or ", ".join(parent.to_recipients or [])
         cc_input = cc_input or ", ".join(parent.cc_recipients or [])
         bcc_input = bcc_input or ", ".join(parent.bcc_recipients or [])
-    to_input = to_input or template.default_to
-    if not to_only:
+        to_input = to_input or template.default_to
         cc_input = cc_input or template.default_cc
         bcc_input = bcc_input or template.default_bcc
+    else:
+        to_input = to_input or template.default_to
+        if not to_only:
+            cc_input = cc_input or template.default_cc
+            bcc_input = bcc_input or template.default_bcc
 
     to_recipients = normalize_recipient_list(to_input)
     cc_recipients = normalize_recipient_list(cc_input)
     bcc_recipients = normalize_recipient_list(bcc_input)
+    if definition.get("onpage_to"):
+        configured_onpage = {
+            contact.email.casefold()
+            for contact in db.query(OnpageEmailContact).all()
+            if contact.email
+        }
+        if not to_recipients or any(recipient.casefold() not in configured_onpage for recipient in to_recipients):
+            raise ValueError("Fiber Outage ONPAGE To recipients must be selected from the ONPAGE directory.")
     bcc_seen = {recipient.casefold() for recipient in bcc_recipients}
     for recipient in automatic_bcc_recipients:
         if recipient.casefold() not in bcc_seen:
@@ -1284,6 +1388,7 @@ def _attempt_delivery(email_id: int) -> dict:
                 source_error = "No shift analysis is available in Global Dashboards yet."
             else:
                 email.body = _append_signature(source_text, email.signature_content)
+                email.body = email.body.replace("\r\n", "\n").replace("\r", "\n")
                 if len(email.body) > 200000:
                     source_error = "The latest shift analysis and signature exceed the 200,000-character email limit."
             email.updated_at = datetime.utcnow()
@@ -1576,7 +1681,7 @@ def list_sent_fiber_outages(limit: int = 100) -> list[dict]:
             OperationalEmail,
             OperationalEmail.id == OperationalEmailDelivery.operational_email_id,
         ).filter(
-            OperationalEmail.template_key == "fiber_outage",
+            OperationalEmail.template_key.in_(("fiber_outage", FIBER_ONPAGE_TEMPLATE)),
             OperationalEmailDelivery.status == "sent",
         ).order_by(
             OperationalEmailDelivery.sent_at.desc(),

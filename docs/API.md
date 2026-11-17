@@ -608,15 +608,15 @@ Every route requires the `Operational Email` page grant. That page grant covers 
 
 ### GET /operational-email/templates
 
-Returns the nine templates, message fields, saved defaults, sender address, SMTP enabled state, current Central abbreviation, latest Global Dashboard shift analysis and timestamp, and attachment limits. Templates include maintenance notification, fiber maintenance notification, technician dispatch, fiber outage and linked follow-up/resolution, after-hours ONPAGE, morning report, and maintenance completion.
+Returns the ten templates, message fields, saved defaults, sender address, SMTP enabled state, current Central abbreviation, latest Global Dashboard shift analysis and timestamp, and attachment limits. Templates include maintenance notification, fiber maintenance notification, technician dispatch, Fiber Outage, Fiber Outage ONPAGE, linked follow-up/resolution, After-Hours ONPAGE, Morning Report, and Maintenance Complete.
 
 ### GET /operational-email/reference-data
 
-Returns the Fiber contacts, ONPAGE department contacts, and Network Orders & Circuits records used by contact/network selectors. This route requires the `Operational Email` page grant.
+Returns Fiber contacts and Network Orders/Circuit IDs by default. Add `include_onpage=true` only for the After-Hours ONPAGE or Fiber Outage ONPAGE composer to include ONPAGE department contacts. This route requires the `Operational Email` page grant.
 
 ### PUT /operational-email/templates/{template_key}
 
-Administrator-only update of `default_subject`, `default_body`, `default_to`, `default_cc`, and `default_bcc` for any Operational Email template. Template text accepts only placeholders defined for that template. Morning Report body is fixed to the live shift-analysis source. Page-authorized users can still edit other composed messages without changing shared defaults.
+Administrator-only update of `default_subject`, `default_body`, `default_to`, `default_cc`, and `default_bcc` for Operational Email templates. Fiber To defaults to the active Global From address; Fiber Outage ONPAGE Cc uses that address and its To list comes from ONPAGE contacts, so those routing defaults cannot be edited here. Template text accepts only placeholders defined for that template. Morning Report body is fixed to the live shift-analysis source. Page-authorized users can still edit other composed messages without changing shared defaults.
 
 ### GET /operational-email/signatures
 
@@ -636,9 +636,9 @@ Administrator-only update of signature name/text/active/default state. DELETE de
 
 ### POST /operational-email/send
 
-Body: `{template_key, to, cc?, bcc?, subject?, body?, fields?, attachments?, maintenance_notice_id?, source_email_id?, signature_id?, use_default_signature?}`. Sends are snapshotted with delivery outcome. BCC is supported for all templates except After-Hours ONPAGE, which accepts To recipients only. BCC addresses are SMTP envelope recipients and do not appear in visible headers. Attachments are accepted only for Morning Report, up to five files, 5 MiB per file, and 20 MiB combined. Maintenance Complete requires a successfully sent maintenance notification; fiber follow-up and resolution templates require `source_email_id` for a successfully sent Fiber Outage.
+Body: `{template_key, to, cc?, bcc?, subject?, body?, fields?, attachments?, maintenance_notice_id?, source_email_id?, signature_id?, use_default_signature?}`. Sends are snapshotted with delivery outcome. BCC is supported for all templates except To-only After-Hours ONPAGE. Fiber contact selections go to BCC. Fiber Outage ONPAGE sends selected ONPAGE contacts to To and the active Global From address on Cc; linked Fiber follow-ups and resolutions omit ONPAGE To recipients and inherit the source message's BCC list. BCC addresses are SMTP envelope recipients and do not appear in visible headers. Attachments are accepted only for Morning Report, up to five files, 5 MiB per file, and 20 MiB combined. Maintenance Complete requires a successfully sent maintenance notification; fiber follow-up and resolution templates accept `source_email_id` for a successfully sent Fiber Outage or Fiber Outage ONPAGE message.
 
-Maintenance notifications include a ticket title, date/time pickers, Risk (`None`, `Low`, `Medium`, or `High`), and Disruption (`Disruptive`, `Nondisruptive`, or `Possibly Disruptive`). Standard Maintenance Notification remains manual and does not autofill from Network Orders. Fiber Maintenance adds an MOP Type placeholder dropdown and a multi-select Network Orders list. Selecting orders fills A/Z locations, company, and contact information; matching Fiber contact emails are added to BCC. Fiber Outage uses Location, Network Orders, A/Z, and company in place of the Provider field and applies the same BCC lookup. These fields remain editable for manually entered/unlisted records. Time-zone labels are populated server-side from the current application-local `CST`/`CDT` abbreviation.
+Maintenance notifications include a ticket title, date/time pickers, Risk (`None`, `Low`, `Medium`, or `High`), and Disruption (`Non-Disruptive`, `Potentially Disruptive`, or `Disruptive`). Fiber Maintenance includes Expected impact and a Department performing the change selector (`IT Network` or `The Network Operations Center`). Application Timezone is set automatically and is not an editable compose field. Fiber fields and message bodies use the label Network Orders/Circuit IDs. Fiber Outage no longer asks for Estimated restoration or Requested action; follow-up messages may still include an updated restoration estimate.
 
 Fiber outage updates and resolution messages may be sent repeatedly and remain linked to their original ticket. Other templates offer multi-select contact lookup plus editable recipient fields. After-Hours ONPAGE offers multi-select ONPAGE contacts for To and has no Cc/Bcc fields. Morning Report body is the latest `SystemConfig.rolling_summary` shift analysis from Global Dashboards, refreshed before delivery; it is sent as stored, without a date, window, title, or executive-summary wrapper.
 
@@ -676,7 +676,7 @@ Lists successfully sent maintenance notifications available to a Maintenance Com
 
 ### GET /operational-email/fiber-outages?limit=100
 
-Lists successfully sent Fiber Outage records available as sources for linked progress updates and resolution notices.
+Lists successfully sent Fiber Outage and Fiber Outage ONPAGE records available as sources for linked progress updates and resolution notices.
 
 ## Email Endpoints (/email)
 

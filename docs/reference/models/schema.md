@@ -527,7 +527,7 @@ Stores the latest public Microsoft 365 feed attempt/success and a sanitized erro
 | `geojson_cache` | `feed_name` (PK), `data` (JSON), `updated_at`, fetch-attempt/success/error/status/duration fields, ETag/Last-Modified, feature count, coverage summary | SPC/NWS/USGS cached with source health |
 | `node_aliases` | `id`, `node_pattern`, `mapped_location_name`, `confidence_score`, `is_verified` | SolarWinds mapping |
 | `user_weather_prefs` | `id`, `username`, `alert_type` | Weather preferences; `username` is a logical user reference |
-| `operational_email_templates` | `id`, `template_key`, default subject/body, To/Cc/Bcc | Administrator-managed defaults for nine templates |
+| `operational_email_templates` | `id`, `template_key`, default subject/body, To/Cc/Bcc | Administrator-managed defaults for ten templates |
 | `operational_email_signatures` | `id`, `name`, `content`, active/default flags, actor/timestamp fields | Administrator-managed plain-text signatures |
 | `operational_emails` | `id`, `template_key`, recipients, schedule fields, status, `parent_email_id` | Message snapshots and one-time/daily/weekly schedules |
 | `operational_email_attachments` | `id`, `operational_email_id`, filename, content type, binary content | Bounded files persisted with scheduled messages |
@@ -552,6 +552,6 @@ The application runs Alembic revisions at startup before seeding data. `Base.met
 - A bootstrap administrator only when `DEFAULT_ADMIN_PASSWORD` is configured and no users exist
 - 70 default keywords with weights
 - 7 default RSS feed sources
-- Nine Operational Email template defaults, inserted only when missing
+- Ten Operational Email template defaults, inserted only when missing
 - Default system configuration
 - Rescales articles only when `RESCORE_ON_STARTUP=true` is explicitly configured

@@ -26,7 +26,7 @@ Revision `20261002_0001` adopts databases created before Alembic using the froze
 
 Revision `20261111_0012` follows the Fiber/ONPAGE/network-directory migration and conditionally refreshes unchanged Operational Email compose defaults without changing database columns.
 
-Revision `20261112_0014` is the current head; it adds OAuth client/refresh-token fields for Gmail, clears the old App Password value, and switches back to the existing SMTP profile if a password-only Gmail profile was active.
+Revision `20261116_0015` is the current head. It refreshes untouched Fiber template bodies for recipient routing and field changes without adding tables or columns. Revision `20261112_0014` adds OAuth client/refresh-token fields for Gmail, clears the old App Password value, and switches back to the existing SMTP profile if a password-only Gmail profile was active.
 
 Compatibility is intentionally bounded to known application schemas. If an existing table lacks an unlisted baseline column, or duplicate normalized emails prevent the unique index, validation fails before Alembic records success. Startup stops and the database may contain additive objects already completed by the attempted revision; those objects are checked before retry. This is not an automatic repair for arbitrary manual schema changes. Back up first and see [Migration Compatibility](../../MIGRATION_COMPATIBILITY.md) for supported cases and recovery guidance.
 
