@@ -553,7 +553,6 @@ export function OperationalEmailPage() {
       network_orders: orderIds.join("; "),
       a_location: aLocations.join("; "),
       z_location: zLocations.join("; "),
-      company: companies.join("; "),
       contact: matchingContacts.map(contact => contact.phone ? `${contact.name} (${contact.phone})` : contact.name).join("; "),
     };
     if (selectedTemplate?.fields.some(field => field.key === "site")) {
@@ -685,10 +684,10 @@ export function OperationalEmailPage() {
           </label>
           {referenceDataQuery.isLoading && <small>Loading Network Orders and Fiber contacts...</small>}
           {referenceDataQuery.isError && <small role="alert" style={{ color: "var(--accent-orange)" }}>Reference lists could not be loaded. You can enter all details and BCC recipients manually.</small>}
-          {!referenceDataQuery.isLoading && !referenceDataQuery.isError && !referenceData.network_orders.length && <small style={{ color: "var(--text-muted)" }}>No Network Orders/Circuit IDs are configured. Enter the order, A/Z locations, company, and contacts manually below.</small>}
+          {!referenceDataQuery.isLoading && !referenceDataQuery.isError && !referenceData.network_orders.length && <small style={{ color: "var(--text-muted)" }}>No Network Orders/Circuit IDs are configured. Enter the order, A/Z locations, and contacts manually below.</small>}
           <small style={{ color: "var(--text-muted)" }}>{fiberOnpage
-            ? "Selecting records fills Network Orders/Circuit IDs, A/Z locations, company, and Fiber contact details. Fiber emails are not added to BCC automatically."
-            : "Selecting records fills Network Orders/Circuit IDs, A/Z locations, company, and Fiber contact details. Matching Fiber contact emails are added to BCC; these values remain editable for manual corrections."}</small>
+            ? "Selecting records fills Network Orders/Circuit IDs, A/Z locations, and Fiber contact details. Fiber emails are not added to BCC automatically."
+            : "Selecting records fills Network Orders/Circuit IDs, A/Z locations, and Fiber contact details. Matching Fiber contact emails are added to BCC; these values remain editable for manual corrections."}</small>
         </div>}
 
         <div style={{ ...cardStyle, display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.75rem" }}>

@@ -2,7 +2,7 @@
 
 ## Current behavior
 
-The packaged migration head is `20261116_0015`. The API, worker, and webhook run pending Alembic revisions under a shared file lock before serving requests or starting jobs. A database already at head receives no schema DDL. A migration error stops startup; the application does not mark the failed revision as complete.
+The packaged migration head is `20261117_0016`. The API, worker, and webhook run pending Alembic revisions under a shared file lock before serving requests or starting jobs. A database already at head receives no schema DDL. A migration error stops startup; the application does not mark the failed revision as complete.
 
 The initial adoption revision (`20261002_0001`) was designed for:
 
@@ -13,6 +13,8 @@ The initial adoption revision (`20261002_0001`) was designed for:
 Revision `20261002_0002` adds nullable `registration_invites.revoked_at` only when that column is absent. Revision `20261005_0003` adds non-null, false-default `solarwinds_alerts.needs_dispatch` only when absent, preserving all existing alert rows. Revision `20261005_0004` backfills `timeline_events.site_name` only for legacy Webhook/Alert rows whose generated alert format ends with an exact monitored-location name; unrecognized or ambiguous messages remain unscoped. Revision `20261013_0005` adds nullable `solarwinds_alerts.onpage_sent_at` to record successful paging without changing existing alert state. Revision `20261102_0006` adds the administrator-managed `monitored_location_contacts` table and site lookup index. Revision `20261103_0007` adds provider attempt/validator fields to `geojson_cache` and NWS CAP lifecycle fields to `regional_hazards`; pre-existing unverified rows receive status `unknown` and are not presented as verified active alerts. Revision `20261105_0008` adds nullable environment-override fields for alert destinations and Elastic integration plus a legacy-compatible LLM provider default. Revision `20261110_0009` creates the initial Operational Email tables. Revision `20261110_0010` adds administrator-managed signatures and nullable signature snapshot columns, and refreshes shipped template bodies only when they still exactly match prior defaults. Revision `20261111_0011` creates the Fiber/ONPAGE email contact and network-order/circuit tables without changing existing records. Revision `20261111_0012` refreshes shipped Operational Email subjects/bodies only when they exactly match prior defaults; administrator-customized text is preserved. Revision `20261112_0013` adds the selectable email sender and delivery-provider snapshots, stable cloud incident IDs/status codes, the Microsoft 365 feed-freshness table, and a unique provider/incident index. Revision `20261112_0014` adds Gmail OAuth client/refresh-token fields, clears legacy Gmail App Password values, and falls back to the existing SMTP profile if Gmail had been selected without complete OAuth credentials. All additions preserve existing data; no table or column is dropped or renamed.
 
 Revision `20261116_0015` conditionally refreshes shipped Fiber email bodies for the new recipient and field rules. It changes only exact shipped defaults and preserves administrator-customized text; it adds no tables or columns.
+
+Revision `20261117_0016` removes Company placeholders from saved Fiber email defaults and moves the change-department placeholder to Maintenance Notification. It preserves the remaining customized text and adds no tables or columns.
 
 ## One-time data changes across revisions
 

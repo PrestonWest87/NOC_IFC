@@ -59,7 +59,7 @@ def _global_sender_recipient(config) -> str:
 TEMPLATE_DEFINITIONS = {
     "maintenance_notice": {
         "label": "Maintenance Notification",
-        "description": "Notify stakeholders of planned work, risk, and disruption level.",
+        "description": "Notify stakeholders of planned work, change department, risk, and disruption level.",
         "allows_bcc": True,
         "allows_cc": True,
         "allows_attachments": False,
@@ -76,6 +76,8 @@ TEMPLATE_DEFINITIONS = {
              "options": ["None", "Low", "Medium", "High"]},
             {"key": "disruption", "label": "Disruption", "required": True, "max_length": 40,
              "options": ["Non-Disruptive", "Potentially Disruptive", "Disruptive"]},
+            {"key": "change_department", "label": "Department performing the change", "required": True,
+             "max_length": 80, "options": ["IT Network", "The Network Operations Center"]},
             {"key": "departmental_impact", "label": "Departmental impact", "required": False, "max_length": 2000,
              "multiline": True},
             {"key": "contact", "label": "Operations contact", "required": False, "max_length": 500},
@@ -90,6 +92,7 @@ TEMPLATE_DEFINITIONS = {
             "Maintenance window: {{start_time}} to {{end_time}} {{timezone}}\n"
             "Risk: {{impact}}\n"
             "Disruption: {{disruption}}\n"
+            "Department performing the change: {{change_department}}\n"
             "Departmental impact: {{departmental_impact}}\n"
             "Operations contact: {{contact}}\n"
             "Reference: {{reference}}\n\n"
@@ -115,8 +118,6 @@ TEMPLATE_DEFINITIONS = {
              "multiline": True},
             {"key": "z_location", "label": "Z location", "required": False, "max_length": 20000,
              "multiline": True},
-            {"key": "company", "label": "Company", "required": False, "max_length": 20000,
-             "multiline": True},
             {"key": "work_scope", "label": "Planned fiber work", "required": True, "max_length": 2000},
             {"key": "start_time", "label": "Maintenance start", "required": True, "max_length": 40,
              "input_type": "datetime-local"},
@@ -128,13 +129,11 @@ TEMPLATE_DEFINITIONS = {
             {"key": "disruption", "label": "Disruption", "required": True, "max_length": 40,
              "options": ["Non-Disruptive", "Potentially Disruptive", "Disruptive"]},
             {"key": "mop_type", "label": "MOP Type", "required": False, "max_length": 80,
-             "options": ["MOP Type 1", "MOP Type 2", "MOP Type 3"]},
+             "options": ["Demand", "Standard", "Emergency"]},
             {"key": "expected_impact", "label": "Expected impact", "required": False,
              "max_length": 2000, "multiline": True},
             {"key": "departmental_impact", "label": "Legacy departmental impact", "required": False,
              "max_length": 2000, "multiline": True, "visible": False},
-            {"key": "change_department", "label": "Department performing the change", "required": True,
-             "max_length": 80, "options": ["IT Network", "The Network Operations Center"]},
             {"key": "contact", "label": "Fiber contact information", "required": False,
              "max_length": 2000, "multiline": True},
             {"key": "reference", "label": "Ticket / change reference", "required": False, "max_length": 200},
@@ -146,14 +145,12 @@ TEMPLATE_DEFINITIONS = {
             "A location: {{a_location}}\n"
             "Z location: {{z_location}}\n"
             "Network Orders/Circuit IDs: {{network_orders}}\n"
-            "Company: {{company}}\n"
             "Planned work: {{work_scope}}\n"
             "Maintenance window: {{start_time}} to {{end_time}} {{timezone}}\n"
             "Risk: {{impact}}\n"
             "Disruption: {{disruption}}\n"
             "MOP Type: {{mop_type}}\n"
             "Expected impact: {{expected_impact}}\n"
-            "Department performing the change: {{change_department}}\n"
             "Fiber contact information: {{contact}}\n"
             "Ticket / change reference: {{reference}}"
         ),
@@ -209,8 +206,6 @@ TEMPLATE_DEFINITIONS = {
              "multiline": True},
             {"key": "z_location", "label": "Z location", "required": False, "max_length": 20000,
              "multiline": True},
-            {"key": "company", "label": "Company", "required": False, "max_length": 20000,
-             "multiline": True},
             {"key": "contact", "label": "Fiber contact information", "required": False,
              "max_length": 2000, "multiline": True},
             {"key": "outage_start", "label": "Outage start", "required": True, "max_length": 120},
@@ -229,7 +224,6 @@ TEMPLATE_DEFINITIONS = {
             "A location: {{a_location}}\n"
             "Z location: {{z_location}}\n"
             "Network Orders/Circuit IDs: {{network_orders}}\n"
-            "Company: {{company}}\n"
             "Fiber contact information: {{contact}}\n"
             "Outage start: {{outage_start}} {{timezone}}\n"
             "Service impact: {{impact}}\n"
@@ -255,8 +249,6 @@ TEMPLATE_DEFINITIONS = {
              "multiline": True},
             {"key": "z_location", "label": "Z location", "required": False, "max_length": 2000,
              "multiline": True},
-            {"key": "company", "label": "Company", "required": False, "max_length": 1000,
-             "multiline": True},
             {"key": "contact", "label": "Fiber contact information", "required": False,
              "max_length": 2000, "multiline": True},
             {"key": "outage_start", "label": "Outage start", "required": False, "max_length": 120},
@@ -279,7 +271,6 @@ TEMPLATE_DEFINITIONS = {
             "A location: {{a_location}}\n"
             "Z location: {{z_location}}\n"
             "Network Orders/Circuit IDs: {{network_orders}}\n"
-            "Company: {{company}}\n"
             "Fiber contact information: {{contact}}\n"
             "Original outage start: {{outage_start}} {{timezone}}\n"
             "Update time: {{update_time}} {{timezone}}\n"
@@ -309,8 +300,6 @@ TEMPLATE_DEFINITIONS = {
              "multiline": True},
             {"key": "z_location", "label": "Z location", "required": False, "max_length": 2000,
              "multiline": True},
-            {"key": "company", "label": "Company", "required": False, "max_length": 1000,
-             "multiline": True},
             {"key": "contact", "label": "Fiber contact information", "required": False,
              "max_length": 2000, "multiline": True},
             {"key": "outage_start", "label": "Outage start", "required": False, "max_length": 120},
@@ -333,7 +322,6 @@ TEMPLATE_DEFINITIONS = {
             "A location: {{a_location}}\n"
             "Z location: {{z_location}}\n"
             "Network Orders/Circuit IDs: {{network_orders}}\n"
-            "Company: {{company}}\n"
             "Fiber contact information: {{contact}}\n"
             "Original outage start: {{outage_start}} {{timezone}}\n"
             "Service restored at: {{resolution_time}} {{timezone}}\n"
@@ -450,7 +438,6 @@ TEMPLATE_DEFINITIONS["fiber_outage_onpage"] = {
         "A location: {{a_location}}\n"
         "Z location: {{z_location}}\n"
         "Network Orders/Circuit IDs: {{network_orders}}\n"
-        "Company: {{company}}\n"
         "Fiber contact information: {{contact}}\n"
         "Outage start: {{outage_start}} {{timezone}}\n"
         "Service impact: {{impact}}\n"
@@ -1043,11 +1030,14 @@ def _resolve_network_order_contacts(db, template_key: str, fields: dict[str, str
                 result.append(value)
         return result
 
+    selected_companies = {
+        value.casefold()
+        for value in unique_values(row.company for row in records)
+    }
     automatic_fields = {
         "network_orders": "; ".join(unique_values(row.circuit_network_order_id for row in records)),
         "a_location": "; ".join(unique_values(row.a_location for row in records)),
         "z_location": "; ".join(unique_values(row.z_location for row in records)),
-        "company": "; ".join(unique_values(row.company for row in records)),
     }
     if "site" in _fields_by_key(template_key):
         automatic_fields["site"] = "; ".join(
@@ -1057,12 +1047,6 @@ def _resolve_network_order_contacts(db, template_key: str, fields: dict[str, str
         if value and not fields.get(key, "").strip():
             fields[key] = value
 
-    manual_company_text = fields.get("company", "")
-    selected_companies = {
-        value.strip().casefold()
-        for value in re.split(r"[;\n]", manual_company_text)
-        if value.strip()
-    }
     if not fields.get("contact", "").strip():
         contacts = db.query(FiberEmailContact).order_by(
             FiberEmailContact.sort_order, FiberEmailContact.id
@@ -1079,7 +1063,6 @@ def _resolve_network_order_contacts(db, template_key: str, fields: dict[str, str
         ("network_orders", "Network Orders/Circuit IDs"),
         ("a_location", "A location"),
         ("z_location", "Z location"),
-        ("company", "Company"),
     ):
         if not fields.get(key, "").strip():
             raise ValueError(f"{label} is required.")
