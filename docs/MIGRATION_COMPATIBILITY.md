@@ -2,7 +2,7 @@
 
 ## Current behavior
 
-The packaged migration head is `20261117_0016`. The API, worker, and webhook run pending Alembic revisions under a shared file lock before serving requests or starting jobs. A database already at head receives no schema DDL. A migration error stops startup; the application does not mark the failed revision as complete.
+The packaged migration head is `20261117_0018`. The API, worker, and webhook run pending Alembic revisions under a shared file lock before serving requests or starting jobs. A database already at head receives no schema DDL. A migration error stops startup; the application does not mark the failed revision as complete.
 
 The initial adoption revision (`20261002_0001`) was designed for:
 
@@ -15,6 +15,10 @@ Revision `20261002_0002` adds nullable `registration_invites.revoked_at` only wh
 Revision `20261116_0015` conditionally refreshes shipped Fiber email bodies for the new recipient and field rules. It changes only exact shipped defaults and preserves administrator-customized text; it adds no tables or columns.
 
 Revision `20261117_0016` removes Company placeholders from saved Fiber email defaults and moves the change-department placeholder to Maintenance Notification. It preserves the remaining customized text and adds no tables or columns.
+
+Revision `20261117_0017` removes A/Z placeholders from saved Fiber Outage, ONPAGE, follow-up, and resolution defaults while retaining other customized text. It adds no tables or columns.
+
+Revision `20261117_0018` adds the Operational impact placeholder to the saved Maintenance Notification body while retaining other customized text. It adds no tables or columns.
 
 ## One-time data changes across revisions
 

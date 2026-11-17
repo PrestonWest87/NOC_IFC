@@ -187,6 +187,7 @@ export function OperationalEmailPage() {
   const [fiberOutageId, setFiberOutageId] = useState("");
   const [signatureChoice, setSignatureChoice] = useState("default");
   const [selectedNetworkOrderIds, setSelectedNetworkOrderIds] = useState<string[]>([]);
+  const [networkOrderSearch, setNetworkOrderSearch] = useState("");
   const [selectedContactKeys, setSelectedContactKeys] = useState<string[]>([]);
   const [selectedOnpageContactKeys, setSelectedOnpageContactKeys] = useState<string[]>([]);
   const [deliveryMode, setDeliveryMode] = useState<"send" | "schedule">("send");
@@ -232,6 +233,13 @@ export function OperationalEmailPage() {
     enabled: activePanel === "compose",
   });
   const referenceData: ReferenceData = referenceDataQuery.data || { fiber_contacts: [], onpage_contacts: [], network_orders: [] };
+  const visibleNetworkOrders = useMemo(() => {
+    const search = networkOrderSearch.trim().toLocaleLowerCase();
+    const selected = new Set(selectedNetworkOrderIds);
+    return referenceData.network_orders.filter(order => selected.has(String(order.id)) || !search || [
+      order.circuit_network_order_id, order.a_location, order.z_location, order.company,
+    ].some(value => value.toLocaleLowerCase().includes(search)));
+  }, [referenceData.network_orders, networkOrderSearch, selectedNetworkOrderIds]);
   const hasNetworkOrderSelector = selectedKey === "fiber_maintenance_notice" || selectedKey === "fiber_outage" || selectedKey === "fiber_outage_onpage";
   const onpageToOnly = selectedKey === "after_hours_onpage";
   const fiberOnpage = selectedKey === "fiber_outage_onpage";
@@ -273,6 +281,7 @@ export function OperationalEmailPage() {
     setFiberOutageId("");
     setSignatureChoice("default");
     setSelectedNetworkOrderIds([]);
+    setNetworkOrderSearch("");
     setSelectedContactKeys([]);
     setSelectedOnpageContactKeys([]);
     autoBccEmailsRef.current = [];
@@ -551,16 +560,30 @@ export function OperationalEmailPage() {
     const inherited: Record<string, string> = {
       network_order_ids: ids.join(", "),
       network_orders: orderIds.join("; "),
-      a_location: aLocations.join("; "),
-      z_location: zLocations.join("; "),
       contact: matchingContacts.map(contact => contact.phone ? `${contact.name} (${contact.phone})` : contact.name).join("; "),
     };
+    if (selectedTemplate?.fields.some(field => field.key === "a_location")) inherited.a_location = aLocations.join("; ");
+    if (selectedTemplate?.fields.some(field => field.key === "z_location")) inherited.z_location = zLocations.join("; ");
     if (selectedTemplate?.fields.some(field => field.key === "site")) {
       inherited.site = orders.map(order => `${order.a_location} to ${order.z_location}`).join("; ");
     }
     setFields(previous => ({ ...previous, ...inherited }));
     setSubjectTouched(false);
     setBodyTouched(false);
+  };
+
+  const updateTemplateField = (field: TemplateField, value: string) => {
+    if (field.key === "network_orders" && hasNetworkOrderSelector) {
+      const pastedIds = uniqueAddresses(value.split(/[,;\r\n]+/));
+      const matches = pastedIds.map(orderId => referenceData.network_orders.filter(
+        order => order.circuit_network_order_id.trim().toLocaleLowerCase() === orderId.toLocaleLowerCase(),
+      ));
+      if (pastedIds.length && matches.every(orders => orders.length === 1)) {
+        selectNetworkOrders(matches.map(orders => String(orders[0].id)));
+        return;
+      }
+    }
+    setFields(previous => ({ ...previous, [field.key]: value }));
   };
 
   if (templatesQuery.isLoading) return <div style={{ padding: "1.5rem", color: "var(--text-secondary)" }}>Loading operational email...</div>;
@@ -668,26 +691,36 @@ export function OperationalEmailPage() {
         </div>}
 
         {hasNetworkOrderSelector && <div style={{ ...cardStyle, display: "grid", gap: "0.6rem" }}>
+          <label><span style={labelStyle}>Search Network Orders/Circuit IDs</span>
+            <input
+              aria-label="Search Network Orders/Circuit IDs"
+              placeholder="Search order ID, A/Z location, or company"
+              value={networkOrderSearch}
+              onChange={event => setNetworkOrderSearch(event.target.value)}
+              style={inputStyle}
+            />
+          </label>
           <label><span style={labelStyle}>Network Orders/Circuit IDs · select one or more</span>
             <select
               multiple
-              size={Math.min(Math.max(referenceData.network_orders.length, 3), 7)}
+              size={Math.min(Math.max(visibleNetworkOrders.length, 3), 7)}
               value={selectedNetworkOrderIds}
               onChange={event => selectNetworkOrders(Array.from(event.target.selectedOptions, option => option.value))}
               style={{ ...inputStyle, minHeight: 100 }}
                aria-label="Select Network Orders/Circuit IDs"
             >
-              {referenceData.network_orders.map(order => <option key={order.id} value={String(order.id)}>
+              {visibleNetworkOrders.map(order => <option key={order.id} value={String(order.id)}>
                 {order.circuit_network_order_id} · {order.a_location} → {order.z_location} · {order.company}
               </option>)}
             </select>
           </label>
+          {networkOrderSearch.trim() && !visibleNetworkOrders.length && <small>No Network Orders/Circuit IDs match that search.</small>}
           {referenceDataQuery.isLoading && <small>Loading Network Orders and Fiber contacts...</small>}
           {referenceDataQuery.isError && <small role="alert" style={{ color: "var(--accent-orange)" }}>Reference lists could not be loaded. You can enter all details and BCC recipients manually.</small>}
-          {!referenceDataQuery.isLoading && !referenceDataQuery.isError && !referenceData.network_orders.length && <small style={{ color: "var(--text-muted)" }}>No Network Orders/Circuit IDs are configured. Enter the order, A/Z locations, and contacts manually below.</small>}
+          {!referenceDataQuery.isLoading && !referenceDataQuery.isError && !referenceData.network_orders.length && <small style={{ color: "var(--text-muted)" }}>No Network Orders/Circuit IDs are configured. Enter the order, location details, and contacts manually below.</small>}
           <small style={{ color: "var(--text-muted)" }}>{fiberOnpage
-            ? "Selecting records fills Network Orders/Circuit IDs, A/Z locations, and Fiber contact details. Fiber emails are not added to BCC automatically."
-            : "Selecting records fills Network Orders/Circuit IDs, A/Z locations, and Fiber contact details. Matching Fiber contact emails are added to BCC; these values remain editable for manual corrections."}</small>
+            ? "Selecting records or pasting configured IDs into Network Orders/Circuit IDs fills location and Fiber contact details. Fiber emails are not added to BCC automatically."
+            : "Selecting records or pasting configured IDs into Network Orders/Circuit IDs fills location and Fiber contact details. Matching Fiber contact emails are added to BCC; these values remain editable for manual corrections."}</small>
         </div>}
 
         <div style={{ ...cardStyle, display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.75rem" }}>
@@ -702,7 +735,7 @@ export function OperationalEmailPage() {
                 && !(selectedKey === "fiber_outage_update"
                   ? ["update_time", "current_status", "update_details", "restoration_estimate", "next_update"].includes(field.key)
                   : ["resolution_time", "resolution_details", "service_status", "follow_up"].includes(field.key)))}
-            onChange={value => setFields(previous => ({ ...previous, [field.key]: value }))}
+            onChange={value => updateTemplateField(field, value)}
           />)}
         </div>
 
