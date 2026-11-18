@@ -367,6 +367,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `src/api/routes/settings.py` | Settings reads, including tab-authorized Email Contacts and Network Orders directories |
 | `web/src/components/EmailContactsSettingsTab.tsx` | Fiber and ONPAGE email-contact directory editor/read view |
 | `web/src/components/NetworkOrdersCircuitsTab.tsx` | A/Z circuit and network-order directory editor/read view |
+| `web/src/components/SearchableMultiSelect.tsx` | Searchable checkbox multi-select with removable selected chips |
 | `src/core/arkansas_coverage.py` | Projected 50-mile Arkansas-border buffer, NWS geocode matching, and CAP active-time filtering |
 | `src/core/scheduler_registry.py` | Scheduler defaults, bounds, timezone, and startup policy |
 | `src/scheduler.py` | Background job orchestrator and frequency controls |

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Plus, Save, Trash2, Upload } from "lucide-react";
+import { SearchableMultiSelect, type SearchableMultiSelectOption } from "./SearchableMultiSelect";
 import api, { getApiErrorMessage } from "../utils/api";
 
 type NetworkOrderRow = {
@@ -171,6 +172,20 @@ export function NetworkOrdersCircuitsTab({ canManage }: { canManage: boolean }) 
     });
   };
 
+  const circuitIdCounts = new Map<string, number>();
+  records.forEach(record => {
+    const key = record.circuit_network_order_id.trim().toLocaleLowerCase();
+    if (key) circuitIdCounts.set(key, (circuitIdCounts.get(key) || 0) + 1);
+  });
+  const associationOptions: SearchableMultiSelectOption[] = records.flatMap(record => {
+    const circuitId = record.circuit_network_order_id.trim();
+    if (!circuitId || circuitIdCounts.get(circuitId.toLocaleLowerCase()) !== 1) return [];
+    return [{
+      value: circuitId,
+      label: `${circuitId} · ${record.company} · ${record.a_location} → ${record.z_location}`,
+    }];
+  });
+
   if (recordsQuery.isLoading) return <div style={{ color: "var(--text-secondary)" }}>Loading network orders and circuits...</div>;
   if (recordsQuery.isError) return <div role="alert" style={{ color: "var(--accent-red)" }}>{getApiErrorMessage(recordsQuery.error, "Network orders and circuits could not be loaded.")}</div>;
 
@@ -211,21 +226,15 @@ export function NetworkOrdersCircuitsTab({ canManage }: { canManage: boolean }) 
               />
             </td>)}
             <td style={{ padding: "0.4rem", borderBottom: "1px solid var(--border-primary)", minWidth: 280 }}>
-              <select
-                multiple
-                size={Math.min(Math.max(records.length, 3), 5)}
-                aria-label={`Associated Circuit/Network Order IDs for row ${index + 1}`}
+              <SearchableMultiSelect
+                label={`Associated Circuit/Network Order IDs for row ${index + 1}`}
+                options={associationOptions.filter(option => option.value.toLocaleLowerCase() !== row.circuit_network_order_id.trim().toLocaleLowerCase())}
                 value={row.associated_circuit_network_order_ids || []}
+                onChange={values => updateAssociatedCircuits(index, values)}
                 disabled={!canManage || saveMutation.isPending || importMutation.isPending || !row.circuit_network_order_id.trim()}
-                onChange={event => updateAssociatedCircuits(index, Array.from(event.target.selectedOptions, option => option.value))}
-                style={{ ...inputStyle, minHeight: 82, opacity: canManage ? 1 : 0.8 }}
-              >
-                {records.filter(candidate => candidate.circuit_network_order_id.trim()
-                  && candidate.circuit_network_order_id.trim().toLocaleLowerCase() !== row.circuit_network_order_id.trim().toLocaleLowerCase())
-                  .map(candidate => <option key={candidate.id ?? candidate.circuit_network_order_id} value={candidate.circuit_network_order_id}>
-                    {candidate.circuit_network_order_id} · {candidate.company} · {candidate.a_location} → {candidate.z_location}
-                  </option>)}
-              </select>
+                placeholder="Choose associated circuits"
+                noOptionsMessage="No other unique circuit IDs are available."
+              />
             </td>
             {canManage && <td style={{ padding: "0.4rem", borderBottom: "1px solid var(--border-primary)" }}>
               <button type="button" aria-label={`Remove network order row ${index + 1}`} onClick={() => removeRow(index)} disabled={saveMutation.isPending || importMutation.isPending}

@@ -80,6 +80,19 @@ input:focus, textarea:focus, select:focus {
   border-color: var(--accent-blue) !important;
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
 }
+.searchable-multi-select-checkbox {
+  appearance: auto !important;
+  width: 1rem !important;
+  height: 1rem !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  accent-color: var(--accent-blue);
+  flex: 0 0 1rem;
+}
+.searchable-multi-select-checkbox:focus-visible {
+  outline: 2px solid var(--accent-cyan) !important;
+  outline-offset: 2px;
+}
 
 input[type="date"], input[type="datetime-local"], input[type="time"] {
   color-scheme: dark;

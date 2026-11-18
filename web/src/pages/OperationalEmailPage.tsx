@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, ClipboardList, Mail, Paperclip, Save, Send, Shield, X } from "lucide-react";
 import api, { getApiErrorMessage } from "../utils/api";
+import { SearchableMultiSelect } from "../components/SearchableMultiSelect";
 import { useAuth } from "../utils/AuthContext";
 import { isAdministrator } from "../utils/permissions";
 
@@ -231,7 +232,6 @@ export function OperationalEmailPage() {
   const [fiberOutageId, setFiberOutageId] = useState("");
   const [signatureChoice, setSignatureChoice] = useState("default");
   const [selectedNetworkOrderIds, setSelectedNetworkOrderIds] = useState<string[]>([]);
-  const [networkOrderSearch, setNetworkOrderSearch] = useState("");
   const [fiberContactSearch, setFiberContactSearch] = useState("");
   const [selectedContactKeys, setSelectedContactKeys] = useState<string[]>([]);
   const [selectedOnpageContactKeys, setSelectedOnpageContactKeys] = useState<string[]>([]);
@@ -279,13 +279,10 @@ export function OperationalEmailPage() {
     enabled: activePanel === "compose",
   });
   const referenceData: ReferenceData = referenceDataQuery.data || { fiber_contacts: [], onpage_contacts: [], network_orders: [] };
-  const visibleNetworkOrders = useMemo(() => {
-    const search = networkOrderSearch.trim().toLocaleLowerCase();
-    const selected = new Set(selectedNetworkOrderIds);
-    return referenceData.network_orders.filter(order => selected.has(String(order.id)) || !search || [
-      order.circuit_network_order_id, order.a_location, order.z_location, order.company,
-    ].some(value => value.toLocaleLowerCase().includes(search)));
-  }, [referenceData.network_orders, networkOrderSearch, selectedNetworkOrderIds]);
+  const networkOrderOptions = useMemo(() => referenceData.network_orders.map(order => ({
+    value: String(order.id),
+    label: `${order.circuit_network_order_id} · ${order.a_location} → ${order.z_location} · ${order.company}`,
+  })), [referenceData.network_orders]);
   const fiberMaintenance = selectedKey === "fiber_maintenance_notice";
   const hasNetworkOrderSelector = selectedKey === "fiber_maintenance_notice" || selectedKey === "fiber_outage" || selectedKey === "fiber_outage_onpage";
   const onpageToOnly = selectedKey === "after_hours_onpage";
@@ -334,7 +331,6 @@ export function OperationalEmailPage() {
     setFiberOutageId("");
     setSignatureChoice("default");
     setSelectedNetworkOrderIds([]);
-    setNetworkOrderSearch("");
     setFiberContactSearch("");
     setSelectedContactKeys([]);
     setSelectedOnpageContactKeys([]);
@@ -787,34 +783,22 @@ export function OperationalEmailPage() {
         </div>}
 
         {hasNetworkOrderSelector && <div style={{ ...cardStyle, display: "grid", gap: "0.6rem" }}>
-          <label><span style={labelStyle}>Search Network Orders/Circuit IDs</span>
-            <input
-              aria-label="Search Network Orders/Circuit IDs"
-              placeholder="Search order ID, A/Z location, or company"
-              value={networkOrderSearch}
-              onChange={event => setNetworkOrderSearch(event.target.value)}
-              style={inputStyle}
-            />
-          </label>
-          <label><span style={labelStyle}>Network Orders/Circuit IDs · select one or more</span>
-            <select
-              multiple
-              size={Math.min(Math.max(visibleNetworkOrders.length, 3), 7)}
+          <div>
+            <span style={labelStyle}>Network Orders/Circuit IDs · select one or more</span>
+            <SearchableMultiSelect
+              label="Network Orders/Circuit IDs"
+              options={networkOrderOptions}
               value={selectedNetworkOrderIds}
-              onChange={event => selectNetworkOrders(Array.from(event.target.selectedOptions, option => option.value))}
-              style={{ ...inputStyle, minHeight: 100 }}
-               aria-label="Select Network Orders/Circuit IDs"
-            >
-              {visibleNetworkOrders.map(order => <option key={order.id} value={String(order.id)}>
-                {order.circuit_network_order_id} · {order.a_location} → {order.z_location} · {order.company}
-              </option>)}
-            </select>
-          </label>
-          {networkOrderSearch.trim() && !visibleNetworkOrders.length && <small>No Network Orders/Circuit IDs match that search.</small>}
+              onChange={selectNetworkOrders}
+              disabled={referenceDataQuery.isLoading || referenceDataQuery.isError}
+              placeholder="Choose circuits"
+              noOptionsMessage="No Network Orders/Circuit IDs match that search."
+            />
+          </div>
           {referenceDataQuery.isLoading && <small>Loading Network Orders and Fiber contacts...</small>}
           {referenceDataQuery.isError && <small role="alert" style={{ color: "var(--accent-orange)" }}>{fiberMaintenance ? "Reference data could not be loaded. Fiber Maintenance requires configured Network Orders and company contacts." : "Reference lists could not be loaded. You can enter all details and BCC recipients manually."}</small>}
           {!referenceDataQuery.isLoading && !referenceDataQuery.isError && !referenceData.network_orders.length && <small style={{ color: "var(--text-muted)" }}>{fiberMaintenance ? "No Network Orders/Circuit IDs are configured. Add the reference records and company contacts in Settings before sending." : "No Network Orders/Circuit IDs are configured. Enter the order, location details, and contacts manually below."}</small>}
-          <small style={{ color: "var(--text-muted)" }}>Selecting a circuit automatically selects its full associated circuit group. A send can include up to 50 circuits, including associated circuits.</small>
+          <small style={{ color: "var(--text-muted)" }}>Selecting a circuit automatically selects its full associated circuit group. The Network Orders/Circuit IDs details field remains editable, and pasting configured IDs selects them; Fiber Maintenance requires configured records for company routing. A send can include up to 50 circuits, including associated circuits.</small>
           <small style={{ color: "var(--text-muted)" }}>{fiberMaintenance
             ? "Each selected company receives a separate email with only its selected circuits and A/Z locations. Mapped Fiber contacts are in To; Global From is copied on Cc. Every selected company must have at least one Fiber email contact."
             : fiberOnpage
