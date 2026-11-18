@@ -4,10 +4,10 @@ import smtplib
 import logging
 import base64
 import os
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from email.utils import getaddresses, parseaddr
 from email.mime.base import MIMEBase
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from src.core.db import SessionLocal
 from src.core.email_settings import get_active_smtp_profile
 from src.core.gmail_oauth import GmailOAuthError, refresh_gmail_access_token
@@ -38,6 +38,7 @@ def send_alert_email(
     cc_override: str = None,
     bcc_override: str = None,
     subject_prefix: str = "[NOC FUSION]",
+    html_alternative: str = None,
 ):
     """Send configured SMTP mail and return `(success, message)` instead of raising.
 
@@ -45,7 +46,8 @@ def send_alert_email(
     envelope behavior. The optional Cc/Bcc arguments are used by Operational
     Email; Bcc recipients are envelope-only and never appear as a message header.
     Attachments are basename-sanitized, strict-base64 decoded, and limited to
-    5 MiB each.
+    5 MiB each. `html_alternative` adds a separate HTML representation while
+    retaining the plain-text body for clients that prefer it.
     """
     logger.info(
         "send_alert_email: subject=%s recipient_override_set=%s is_html=%s body_length=%d",
@@ -88,7 +90,12 @@ def send_alert_email(
             msg['Cc'] = cc_override
         msg['Subject'] = f"{subject_prefix} {subject}".strip() if subject_prefix else subject
 
-        if is_html:
+        if html_alternative is not None:
+            alternative = MIMEMultipart("alternative")
+            alternative.attach(MIMEText(body, "plain", "utf-8"))
+            alternative.attach(MIMEText(html_alternative, "html", "utf-8"))
+            msg.attach(alternative)
+        elif is_html:
             html_body = body.replace("\n", "<br>").replace("**", "<b>").replace("##", "<h2>").replace("###", "<h3>")
             msg.attach(MIMEText(html_body, 'html', 'utf-8'))
         else:

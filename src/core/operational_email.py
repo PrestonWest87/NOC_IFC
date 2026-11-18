@@ -8,6 +8,7 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 from email.utils import parseaddr
+from html import escape
 from sqlalchemy import func
 from zoneinfo import ZoneInfo
 
@@ -1443,6 +1444,10 @@ def _attempt_delivery(email_id: int) -> dict:
                 is_html=False,
                 attachments=encoded_attachments,
                 subject_prefix="",
+                html_alternative=(
+                    '<pre style="white-space:pre-wrap;overflow-wrap:anywhere;margin:0">'
+                    f"{escape(body)}</pre>"
+                ),
             )
         except Exception:
             success, message = False, "SMTP delivery failed."

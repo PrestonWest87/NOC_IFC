@@ -23,6 +23,7 @@ def send_alert_email(
     cc_override: str = None,
     bcc_override: str = None,
     subject_prefix: str = "[NOC FUSION]",
+    html_alternative: str = None,
 ) -> tuple[bool, str]
 ```
 
@@ -38,6 +39,7 @@ def send_alert_email(
 | `is_html` | `bool` | Whether to render the body as HTML; defaults to `True`. When enabled, performs lightweight Markdown-to-HTML conversion (line breaks, bold, headers) |
 | `attachments` | `list[dict] \| None` | Optional list of `{filename, content_type, content_base64}` objects. Filenames are reduced to a basename, base64 must validate, and each decoded attachment is limited to 5 MiB. The HTTP model allows at most five attachments. |
 | `subject_prefix` | `str` | Prefix applied to the subject; use an empty string to preserve an exact subject for risk notifications. |
+| `html_alternative` | `str \| None` | Optional HTML body sent beside the plain-text body as a `multipart/alternative` message. |
 
 **Returns:**
 
@@ -56,16 +58,17 @@ def send_alert_email(
 6. Constructs a `MIMEMultipart` email:
    - Sets `From`, `To`, optional `Cc`, and `Subject` headers using `subject_prefix`
    - Resolves To/Cc/Bcc addresses into the SMTP envelope without adding a `Bcc` message header
-7. If `is_html` is `True`:
+7. If `html_alternative` is provided, attaches the plain-text body and supplied HTML body as `multipart/alternative`.
+8. Otherwise, if `is_html` is `True`:
    - Converts newlines to `<br>`, `**` to `<b>`, `##`/`###` to `<h2>`/`<h3>`
    - Attaches as `MIMEText` with `'html'` subtype
-8. If `is_html` is `False`:
+9. If `is_html` is `False`:
    - Attaches as `MIMEText` with `'plain'` subtype
-9. Connects to the selected profile endpoint with a 10-second timeout and calls `starttls()`.
-10. Gmail refreshes a short-lived Google OAuth access token and authenticates with SMTP XOAUTH2. The existing SMTP profile continues to use username/password login when configured.
-11. Sends the message and closes the SMTP connection. BCC is included only in the envelope.
-12. Returns `(True, "Email sent successfully.")` on success. Google OAuth and SMTP authentication errors return credential-safe reconnect/configuration messages.
-13. Closes the SMTP connection and database session in `finally`.
+10. Connects to the selected profile endpoint with a 10-second timeout and calls `starttls()`.
+11. Gmail refreshes a short-lived Google OAuth access token and authenticates with SMTP XOAUTH2. The existing SMTP profile continues to use username/password login when configured.
+12. Sends the message and closes the SMTP connection. BCC is included only in the envelope.
+13. Returns `(True, "Email sent successfully.")` on success. Google OAuth and SMTP authentication errors return credential-safe reconnect/configuration messages.
+14. Closes the SMTP connection and database session in `finally`.
 
 **Dependencies:**
 
