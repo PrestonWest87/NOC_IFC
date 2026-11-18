@@ -503,7 +503,7 @@ def _format_datetime_local(value: str, label: str) -> str:
     """Validate a Central wall-clock value and render it in the outgoing-message format."""
     if re.fullmatch(r"\d{2}/\d{2}/\d{2} \d{2}:\d{2} (?:AM|PM)", value, flags=re.IGNORECASE):
         try:
-            parsed_value = datetime.strptime(value, "%d/%m/%y %I:%M %p")
+            parsed_value = datetime.strptime(value, "%m/%d/%y %I:%M %p")
         except ValueError as exc:
             raise ValueError(f"{label} must be a valid date and time.") from exc
     else:
@@ -518,7 +518,7 @@ def _format_datetime_local(value: str, label: str) -> str:
             raise ValueError(f"{label} must be a valid date and time.") from exc
     if parsed_value.tzinfo is not None:
         raise ValueError(f"{label} must be entered in the application time zone.")
-    return parsed_value.strftime("%d/%m/%y %I:%M %p")
+    return parsed_value.strftime("%m/%d/%y %I:%M %p")
 
 
 def _validate_template_text(template_key: str, value: str, label: str) -> str:

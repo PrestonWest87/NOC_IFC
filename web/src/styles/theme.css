@@ -81,6 +81,21 @@ input:focus, textarea:focus, select:focus {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
 }
 
+input[type="date"], input[type="datetime-local"], input[type="time"] {
+  color-scheme: dark;
+}
+[data-theme="paper-light"] input[type="date"],
+[data-theme="paper-light"] input[type="datetime-local"],
+[data-theme="paper-light"] input[type="time"] {
+  color-scheme: light;
+}
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  opacity: 1;
+  cursor: pointer;
+}
+
 button {
   font-family: inherit;
   cursor: pointer;

@@ -67,7 +67,7 @@ function formatMessageDateTime(value: string): string {
   const [, year, month, day, rawHour, minute] = match;
   const hour = Number(rawHour);
   if (hour > 23 || Number(minute) > 59) return value;
-  return `${day}/${month}/${year.slice(-2)} ${String(hour % 12 || 12).padStart(2, "0")}:${minute} ${hour < 12 ? "AM" : "PM"}`;
+  return `${month}/${day}/${year.slice(-2)} ${String(hour % 12 || 12).padStart(2, "0")}:${minute} ${hour < 12 ? "AM" : "PM"}`;
 }
 
 function renderTemplate(text: string, fields: Record<string, string>): string {

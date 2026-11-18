@@ -46,7 +46,7 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 - [x] Add Risk and Disruption fields, maintenance ticket title, date/time pickers, Fiber MOP placeholder choices, and Fiber Outage Location labeling.
 - [x] Add authorized contact/Network Order reference loading, multi-order A/Z/company/contact autofill, editable manual fields, and Fiber Outage/Resolution contact BCC handling; keep standard Maintenance Notification without Network Order autofill.
 - [x] Make After-Hours ONPAGE multi-select ONPAGE contacts for To only and reject Cc/Bcc on the server.
-- [x] Format Maintenance/Fiber Maintenance date-time values in outgoing message bodies as `DD/MM/YY HH:MM AM/PM` with the current CST/CDT label.
+- [x] Format Maintenance/Fiber Maintenance date-time values in outgoing message bodies as `MM/DD/YY HH:MM AM/PM` with the current CST/CDT label.
 - [x] Split Fiber Maintenance immediate and scheduled delivery by selected circuit company; send matched contacts in To, Global From in Cc, omit BCC, isolate each group's circuits/A/Z/contact details, and reject any unmapped company before delivery.
 - [x] Add conditional default-refresh migration and update API, UI, migration, and user documentation.
 - [x] Add local-only service/API tests and update source docs; verify 32 Operational Email tests, eight documentation contracts, API/web container builds, and `git diff --check`.
