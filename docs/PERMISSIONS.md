@@ -109,7 +109,7 @@ Bootstrap behavior is defined in `src/core/bootstrap.py`:
 
 Custom roles are not broadened on normal startup. Role creation validates grants against the current catalog. Delegated role editors cannot grant permissions or site types they do not hold, cannot assign administrator/elevated user-administration roles, and cannot edit the built-in administrator role. Existing legacy site-type grants can be retained or removed during an edit; new site-type grants must be in the live catalog.
 
-`Operational Email` is excluded from the default analyst baseline because it sends external messages. Administrators receive it through the normal full-access override; other roles receive access only when an administrator grants the page. That single page grant authorizes all operational-email page functions. Editing shared template defaults additionally requires the built-in administrator role; page-authorized users may still customize each message before sending or scheduling it.
+`Operational Email` is excluded from the default analyst baseline because it sends external messages. Administrators receive it through the normal full-access override; other roles receive access only when an administrator grants the page. That single page grant authorizes all operational-email page functions. Editing shared template defaults additionally requires the built-in administrator role; page-authorized users may still customize each message before sending or scheduling it. Fiber Maintenance subject/message text is rendered from shared defaults per company to keep circuit details isolated.
 
 ## Enforcement by boundary
 

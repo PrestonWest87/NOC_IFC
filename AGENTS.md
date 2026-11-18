@@ -21,7 +21,7 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 
 ### Operational Email Enhancements — Active
 
-- [x] Enable BCC for Operational Email templates while preserving existing alert/report email behavior; After-Hours ONPAGE is To-only per the current compose contract.
+- [x] Enable BCC for supported Operational Email templates while preserving existing alert/report email behavior; After-Hours ONPAGE is To-only and Fiber Maintenance uses company-specific To/Cc routing.
 - [x] Add fiber maintenance notice details (A/Z locations, circuit IDs, impact choice, departmental impact) and linked repeatable outage updates/resolution notices.
 - [x] Default event time labels to application-local `CST`/`CDT`; send Morning Report from the latest Global Dashboard shift analysis as-is.
 - [x] Add administrator-managed signatures with default/optional selection and immutable sent/scheduled snapshots.
@@ -44,10 +44,12 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 **Implementation branch:** `dev`. Keep this user-directed feature on `dev`; do not merge it into `main` or `architecture/monolith-to-decoupled` without a later request. Preserve unrelated untracked integration-plan documents and keep local-only tests unstaged.
 
 - [x] Add Risk and Disruption fields, maintenance ticket title, date/time pickers, Fiber MOP placeholder choices, and Fiber Outage Location labeling.
-- [x] Add authorized contact/Network Order reference loading, multi-order A/Z/company/contact autofill, editable manual fields, and Fiber contact BCC handling; keep standard Maintenance Notification without Network Order autofill.
+- [x] Add authorized contact/Network Order reference loading, multi-order A/Z/company/contact autofill, editable manual fields, and Fiber Outage/Resolution contact BCC handling; keep standard Maintenance Notification without Network Order autofill.
 - [x] Make After-Hours ONPAGE multi-select ONPAGE contacts for To only and reject Cc/Bcc on the server.
+- [x] Format Maintenance/Fiber Maintenance date-time values in outgoing message bodies as `DD/MM/YY HH:MM AM/PM` with the current CST/CDT label.
+- [x] Split Fiber Maintenance immediate and scheduled delivery by selected circuit company; send matched contacts in To, Global From in Cc, omit BCC, isolate each group's circuits/A/Z/contact details, and reject any unmapped company before delivery.
 - [x] Add conditional default-refresh migration and update API, UI, migration, and user documentation.
-- [x] Add local-only service/API/migration tests; verify fresh/existing upgrades, Python suite, frontend/API/Compose builds, docs contracts, and dev health.
+- [x] Add local-only service/API tests and update source docs; verify 32 Operational Email tests, eight documentation contracts, API/web container builds, and `git diff --check`.
 - [x] Review and push intended source/docs only to `dev`; preserve unrelated untracked docs and keep tests unstaged.
 
 ## Active Implementation Plan — Gmail Sender and Microsoft 365 Status
