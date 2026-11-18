@@ -232,6 +232,7 @@ export function OperationalEmailPage() {
   const [fiberOutageId, setFiberOutageId] = useState("");
   const [signatureChoice, setSignatureChoice] = useState("default");
   const [selectedNetworkOrderIds, setSelectedNetworkOrderIds] = useState<string[]>([]);
+  const [excludedNetworkOrderIds, setExcludedNetworkOrderIds] = useState<string[]>([]);
   const [fiberContactSearch, setFiberContactSearch] = useState("");
   const [selectedContactKeys, setSelectedContactKeys] = useState<string[]>([]);
   const [selectedOnpageContactKeys, setSelectedOnpageContactKeys] = useState<string[]>([]);
@@ -331,6 +332,7 @@ export function OperationalEmailPage() {
     setFiberOutageId("");
     setSignatureChoice("default");
     setSelectedNetworkOrderIds([]);
+    setExcludedNetworkOrderIds([]);
     setFiberContactSearch("");
     setSelectedContactKeys([]);
     setSelectedOnpageContactKeys([]);
@@ -630,8 +632,23 @@ export function OperationalEmailPage() {
     autoOnpageToEmailsRef.current = selectedEmails;
   };
 
-  const selectNetworkOrders = (ids: string[]) => {
-    const expandedIds = expandAssociatedNetworkOrderIds(ids, referenceData.network_orders);
+  const selectNetworkOrders = (ids: string[], restoreAssociatedGroup = false) => {
+    const nextSelection = uniqueAddresses(ids);
+    const previousSelection = new Set(selectedNetworkOrderIds);
+    const nextSelectionSet = new Set(nextSelection);
+    const excluded = new Set(excludedNetworkOrderIds);
+    selectedNetworkOrderIds.forEach(id => {
+      if (!nextSelectionSet.has(id)) excluded.add(id);
+    });
+    const newlySelected = restoreAssociatedGroup
+      ? nextSelection
+      : nextSelection.filter(id => !previousSelection.has(id));
+    expandAssociatedNetworkOrderIds(newlySelected, referenceData.network_orders)
+      .forEach(id => excluded.delete(id));
+    const fullGroup = expandAssociatedNetworkOrderIds(nextSelection, referenceData.network_orders);
+    const relevantExclusions = new Set(fullGroup.filter(id => excluded.has(id)));
+    const expandedIds = fullGroup.filter(id => !relevantExclusions.has(id));
+    setExcludedNetworkOrderIds(Array.from(relevantExclusions));
     setSelectedNetworkOrderIds(expandedIds);
     const orders = expandedIds.flatMap(id => {
       const order = referenceData.network_orders.find(record => String(record.id) === id);
@@ -654,6 +671,7 @@ export function OperationalEmailPage() {
 
     const inherited: Record<string, string> = {
       network_order_ids: expandedIds.join(", "),
+      excluded_network_order_ids: Array.from(relevantExclusions).join(", "),
       network_orders: orderIds.join("; "),
       contact: matchingContacts.map(contact => contact.phone ? `${contact.name} (${contact.phone})` : contact.name).join("; "),
     };
@@ -671,7 +689,7 @@ export function OperationalEmailPage() {
         order => order.circuit_network_order_id.trim().toLocaleLowerCase() === orderId.toLocaleLowerCase(),
       ));
       if (pastedIds.length && matches.every(orders => orders.length === 1)) {
-        selectNetworkOrders(matches.map(orders => String(orders[0].id)));
+        selectNetworkOrders(matches.map(orders => String(orders[0].id)), true);
         return;
       }
     }
@@ -798,7 +816,7 @@ export function OperationalEmailPage() {
           {referenceDataQuery.isLoading && <small>Loading Network Orders and Fiber contacts...</small>}
           {referenceDataQuery.isError && <small role="alert" style={{ color: "var(--accent-orange)" }}>{fiberMaintenance ? "Reference data could not be loaded. Fiber Maintenance requires configured Network Orders and company contacts." : "Reference lists could not be loaded. You can enter all details and BCC recipients manually."}</small>}
           {!referenceDataQuery.isLoading && !referenceDataQuery.isError && !referenceData.network_orders.length && <small style={{ color: "var(--text-muted)" }}>{fiberMaintenance ? "No Network Orders/Circuit IDs are configured. Add the reference records and company contacts in Settings before sending." : "No Network Orders/Circuit IDs are configured. Enter the order, location details, and contacts manually below."}</small>}
-          <small style={{ color: "var(--text-muted)" }}>Selecting a circuit automatically selects its full associated circuit group. The Network Orders/Circuit IDs details field remains editable, and pasting configured IDs selects them; Fiber Maintenance requires configured records for company routing. A send can include up to 50 circuits, including associated circuits.</small>
+          <small style={{ color: "var(--text-muted)" }}>Selecting a circuit automatically selects its full associated circuit group; you can uncheck linked circuits that are not affected. The Network Orders/Circuit IDs details field remains editable, and pasting configured IDs selects them. Fiber Maintenance requires configured records for company routing, and a send can include up to 50 circuits.</small>
           <small style={{ color: "var(--text-muted)" }}>{fiberMaintenance
             ? "Each selected company receives a separate email with only its selected circuits and A/Z locations. Mapped Fiber contacts are in To; Global From is copied on Cc. Every selected company must have at least one Fiber email contact."
             : fiberOnpage

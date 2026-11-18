@@ -644,7 +644,7 @@ Maintenance notifications include a ticket title, date/time pickers, Risk (`None
 
 Fiber outage updates and resolution messages may be sent repeatedly and remain linked to their original ticket. Other templates offer multi-select contact lookup plus editable recipient fields. After-Hours ONPAGE offers multi-select ONPAGE contacts for To and has no Cc/Bcc fields. Morning Report body is the latest `SystemConfig.rolling_summary` shift analysis from Global Dashboards, refreshed before delivery; it is sent as stored, without a date, window, title, or executive-summary wrapper.
 
-Selecting a Network Order/Circuit automatically includes its reciprocal associated-circuit group, including chains and cycles, in the composer and server-side message preparation.
+Selecting a Network Order/Circuit automatically includes its reciprocal associated-circuit group, including chains and cycles, in the composer and server-side message preparation. Operators can unselect individual linked circuits for a particular message; manual Network Orders/Circuit IDs entry remains available, and matching configured IDs expand their linked group.
 
 Selected signature name/content, recipients, message fields, and attachments are snapshotted when a send or schedule is created. A scheduled Morning Report refreshes only its shift-analysis source at delivery time.
 

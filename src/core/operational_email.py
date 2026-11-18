@@ -118,6 +118,8 @@ TEMPLATE_DEFINITIONS = {
             {"key": "ticket_title", "label": "Ticket title", "required": True, "max_length": 250},
             {"key": "network_order_ids", "label": "Selected network-order record IDs", "required": False,
              "max_length": 2000, "visible": False},
+            {"key": "excluded_network_order_ids", "label": "Manually unselected associated record IDs", "required": False,
+             "max_length": 2000, "visible": False},
             {"key": "circuit_ids", "label": "Legacy circuit IDs", "required": False, "max_length": 1000,
              "visible": False},
             {"key": "network_orders", "label": "Network Orders/Circuit IDs", "required": False, "max_length": 20000,
@@ -207,6 +209,8 @@ TEMPLATE_DEFINITIONS = {
             {"key": "provider", "label": "Legacy provider", "required": False, "max_length": 200,
              "visible": False},
             {"key": "network_order_ids", "label": "Selected network-order record IDs", "required": False,
+             "max_length": 2000, "visible": False},
+            {"key": "excluded_network_order_ids", "label": "Manually unselected associated record IDs", "required": False,
              "max_length": 2000, "visible": False},
             {"key": "network_orders", "label": "Network Orders/Circuit IDs", "required": False, "max_length": 20000,
              "multiline": True},
@@ -1046,20 +1050,37 @@ def _selected_network_order_records(db, fields: dict) -> list[NetworkOrderCircui
     if len(selected_ids) > 50:
         raise ValueError("No more than 50 network-order records can be selected at once.")
 
+    raw_excluded_ids = fields.get("excluded_network_order_ids", "") or ""
+    if not isinstance(raw_excluded_ids, str):
+        raise ValueError("Excluded Network Orders must be text.")
+    excluded_ids = []
+    for value in re.split(r"[,;]", raw_excluded_ids):
+        value = value.strip()
+        if not value:
+            continue
+        if not value.isdigit() or int(value) <= 0:
+            raise ValueError("Excluded Network Orders contain an invalid reference ID.")
+        reference_id = int(value)
+        if reference_id not in excluded_ids and reference_id not in selected_ids:
+            excluded_ids.append(reference_id)
+    if len(excluded_ids) > 250:
+        raise ValueError("No more than 250 associated circuit exclusions can be used.")
+
     records = db.query(NetworkOrderCircuit).order_by(
         NetworkOrderCircuit.sort_order, NetworkOrderCircuit.id
     ).all()
     records_by_id = {row.id: row for row in records}
-    if selected_ids:
-        missing = [reference_id for reference_id in selected_ids if reference_id not in records_by_id]
-        if missing:
-            raise ValueError("One or more selected Network Order records no longer exist.")
+    missing = [reference_id for reference_id in selected_ids + excluded_ids if reference_id not in records_by_id]
+    if missing:
+        raise ValueError("One or more selected or excluded Network Order records no longer exist.")
     records_by_circuit_id = {}
     for row in records:
         records_by_circuit_id.setdefault(row.circuit_network_order_id.strip().casefold(), []).append(row)
 
     queue = list(selected_ids)
     queued = set(queue)
+    excluded = set(excluded_ids)
+    relevant_exclusions = set()
     selected_records = []
     position = 0
     while position < len(queue):
@@ -1076,12 +1097,18 @@ def _selected_network_order_records(db, fields: dict) -> list[NetworkOrderCircui
             if len(matches) > 1:
                 raise ValueError(f"Associated circuit ID '{associated_id}' is ambiguous in the reference table.")
             target_id = matches[0].id
+            if target_id in excluded:
+                relevant_exclusions.add(target_id)
+                continue
             if target_id not in queued:
                 queued.add(target_id)
                 queue.append(target_id)
                 if len(queue) > 50:
                     raise ValueError("No more than 50 network-order records can be selected, including associated circuits.")
     fields["network_order_ids"] = ", ".join(str(row.id) for row in selected_records)
+    fields["excluded_network_order_ids"] = ", ".join(
+        str(reference_id) for reference_id in excluded_ids if reference_id in relevant_exclusions
+    )
     return selected_records
 
 
@@ -1392,6 +1419,7 @@ def _prepare_fiber_maintenance_messages(db, values: dict, *, for_schedule: bool)
         group_fields = dict(fields)
         group_fields.update({
             "network_order_ids": "",
+            "excluded_network_order_ids": "",
             "network_orders": "; ".join(_unique_field_values(
                 record.circuit_network_order_id for record in company_records
             )),
