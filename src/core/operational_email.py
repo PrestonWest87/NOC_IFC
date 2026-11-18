@@ -42,6 +42,7 @@ FIBER_SENDER_TO_TEMPLATES = frozenset({
 })
 FIBER_FOLLOWUP_TEMPLATES = frozenset({"fiber_outage_update", "fiber_outage_resolution"})
 FIBER_ONPAGE_TEMPLATE = "fiber_outage_onpage"
+MAINTENANCE_COMPLETE_SOURCE_TEMPLATES = ("maintenance_notice", "fiber_maintenance_notice")
 
 
 def application_timezone_abbreviation() -> str:
@@ -216,7 +217,7 @@ TEMPLATE_DEFINITIONS = {
              "max_length": 2000, "visible": False},
             {"key": "reference", "label": "Ticket / carrier reference", "required": False, "max_length": 200},
         ],
-        "default_subject": "FIBER OUTAGE — {{site}} — {{network_orders}}",
+        "default_subject": "FIBER OUTAGE — {{site}}",
         "default_body": (
             "FIBER OUTAGE NOTIFICATION\n\n"
             "Location: {{site}}\n"
@@ -257,7 +258,7 @@ TEMPLATE_DEFINITIONS = {
             {"key": "restoration_estimate", "label": "Updated restoration estimate", "required": False, "max_length": 120},
             {"key": "next_update", "label": "Next update", "required": False, "max_length": 500},
         ],
-        "default_subject": "FIBER OUTAGE UPDATE — {{site}} — {{network_orders}}",
+        "default_subject": "FIBER OUTAGE UPDATE — {{site}}",
         "default_body": (
             "FIBER OUTAGE PROGRESS UPDATE\n\n"
             "Location: {{site}}\n"
@@ -302,7 +303,7 @@ TEMPLATE_DEFINITIONS = {
             {"key": "follow_up", "label": "Follow-up / monitoring plan", "required": False, "max_length": 2000,
              "multiline": True},
         ],
-        "default_subject": "FIBER OUTAGE RESOLVED — {{site}} — {{network_orders}}",
+        "default_subject": "FIBER OUTAGE RESOLVED — {{site}}",
         "default_body": (
             "FIBER SERVICE RESTORED\n\n"
             "Location: {{site}}\n"
@@ -370,7 +371,7 @@ TEMPLATE_DEFINITIONS = {
     "maintenance_complete": {
         "label": "Maintenance Complete",
         "description": "Close out a previously sent maintenance notification.",
-        "source_template_key": "maintenance_notice",
+        "source_template_keys": MAINTENANCE_COMPLETE_SOURCE_TEMPLATES,
         "allows_bcc": True,
         "allows_cc": True,
         "allows_attachments": False,
@@ -390,6 +391,8 @@ TEMPLATE_DEFINITIONS = {
             {"key": "work_performed", "label": "Work performed", "required": True, "max_length": 2000},
             {"key": "service_status", "label": "Service status", "required": True, "max_length": 500},
             {"key": "follow_up", "label": "Follow-up notes", "required": False, "max_length": 2000},
+            {"key": "fiber_details", "label": "Fiber maintenance details", "required": False,
+             "max_length": 70000, "multiline": True, "visible": False},
         ],
         "default_subject": "MAINTENANCE COMPLETE — {{site}} — {{completion_time}}",
         "default_body": (
@@ -404,7 +407,8 @@ TEMPLATE_DEFINITIONS = {
             "Actual completion: {{completion_time}}\n"
             "Service status: {{service_status}}\n"
             "Follow-up notes: {{follow_up}}\n"
-            "Ticket / change reference: {{reference}}\n\n"
+            "Ticket / change reference: {{reference}}\n"
+            "{{fiber_details}}\n"
             "This message closes the previously issued maintenance notification."
         ),
     },
@@ -416,7 +420,7 @@ TEMPLATE_DEFINITIONS["fiber_outage_onpage"] = {
     "description": "Send a fiber outage page to selected ONPAGE contacts, with the Global From address on Cc.",
     "onpage_to": True,
     "network_order_bcc": False,
-    "default_subject": "FIBER OUTAGE ONPAGE — {{site}} — {{network_orders}}",
+    "default_subject": "FIBER OUTAGE ONPAGE — {{site}}",
     "default_body": (
         "FIBER OUTAGE ONPAGE NOTIFICATION\n\n"
         "Location: {{site}}\n"
@@ -972,6 +976,24 @@ def _get_selected_signature(db, values: dict) -> OperationalEmailSignature | Non
     ).order_by(OperationalEmailSignature.id).first()
 
 
+def _fiber_maintenance_completion_details(fields: dict) -> str:
+    """Format source-only Fiber details for a Maintenance Complete email."""
+    details = []
+    for key, label in (
+        ("network_orders", "Network Orders/Circuit IDs"),
+        ("a_location", "A location"),
+        ("z_location", "Z location"),
+        ("mop_type", "MOP Type"),
+        ("expected_impact", "Expected impact"),
+    ):
+        value = str(fields.get(key) or "").strip()
+        if value:
+            details.append(f"{label}: {value}")
+    if not details:
+        return ""
+    return "\nFIBER MAINTENANCE DETAILS\n" + "\n".join(details) + "\n"
+
+
 def _resolve_network_order_contacts(db, template_key: str, fields: dict[str, str]) -> list[str]:
     """Validate selected network records, prefill empty details, and return Fiber BCCs."""
     definition = TEMPLATE_DEFINITIONS[template_key]
@@ -1025,10 +1047,6 @@ def _resolve_network_order_contacts(db, template_key: str, fields: dict[str, str
     for key in ("a_location", "z_location"):
         if key in field_schema:
             automatic_fields[key] = "; ".join(unique_values(getattr(row, key) for row in records))
-    if "site" in field_schema:
-        automatic_fields["site"] = "; ".join(
-            unique_values(f"{row.a_location} to {row.z_location}" for row in records)
-        )
     for key, value in automatic_fields.items():
         if value and not fields.get(key, "").strip():
             fields[key] = value
@@ -1045,10 +1063,10 @@ def _resolve_network_order_contacts(db, template_key: str, fields: dict[str, str
             f"{contact.name} ({contact.phone})" if contact.phone else contact.name
             for contact in matching_contacts
         )[:2000]
-    required_fields = [("network_orders", "Network Orders/Circuit IDs")]
-    required_fields.extend(
-        (key, label) for key, label in (("a_location", "A location"), ("z_location", "Z location"))
-        if key in field_schema
+    required_fields = (
+        [("network_orders", "Network Orders/Circuit IDs"),
+         ("a_location", "A location"), ("z_location", "Z location")]
+        if template_key == "fiber_maintenance_notice" else []
     )
     for key, label in required_fields:
         if not fields.get(key, "").strip():
@@ -1081,7 +1099,7 @@ def _prepare_message(db, template_key: str, values: dict, *, for_schedule: bool 
         if source_email_id is not None and legacy_parent_id is not None and source_email_id != legacy_parent_id:
             raise ValueError("Choose one source maintenance notification.")
         parent_id = source_email_id if source_email_id is not None else legacy_parent_id
-        source_template_keys = ("maintenance_notice",)
+        source_template_keys = MAINTENANCE_COMPLETE_SOURCE_TEMPLATES
     else:
         if legacy_parent_id is not None:
             raise ValueError("A maintenance notice can only be linked to a Maintenance Complete email.")
@@ -1111,12 +1129,28 @@ def _prepare_message(db, template_key: str, values: dict, *, for_schedule: bool 
             parent_fields = dict(parent_fields)
             parent_fields.setdefault("network_orders", parent_fields.get("circuit", ""))
             parent_fields.setdefault("company", parent_fields.get("provider", ""))
+        if template_key == "maintenance_complete" and parent.template_key == "fiber_maintenance_notice":
+            parent_fields = dict(parent_fields)
+            route = " to ".join(
+                value for value in (parent_fields.get("a_location"), parent_fields.get("z_location"))
+                if value
+            )
+            if route and len(route) <= _fields_by_key(template_key)["site"]["max_length"]:
+                parent_fields.setdefault("site", route)
+            parent_fields["fiber_details"] = _fiber_maintenance_completion_details(parent_fields)
     elif parent_id is not None:
         raise ValueError("This email template does not support a linked source email.")
 
+    fields_input = values.get("fields")
+    if template_key == "maintenance_complete" and parent and parent.template_key == "fiber_maintenance_notice":
+        if isinstance(fields_input, dict):
+            fields_input = dict(fields_input)
+            fields_input.pop("fiber_details", None)
+            if not fields_input.get("site"):
+                fields_input.pop("site", None)
     fields = _normalize_fields(
         template_key,
-        values.get("fields"),
+        fields_input,
         parent_fields,
         defer_required=bool(definition.get("network_order_autofill")),
     )
@@ -1193,10 +1227,11 @@ def _prepare_message(db, template_key: str, values: dict, *, for_schedule: bool 
     elif parent:
         to_input = to_input or ", ".join(parent.to_recipients or [])
         cc_input = cc_input or ", ".join(parent.cc_recipients or [])
-        bcc_input = bcc_input or ", ".join(parent.bcc_recipients or [])
+        inherited_bcc = list(parent.bcc_recipients or [])
+        requested_bcc = normalize_recipient_list(bcc_input or template.default_bcc)
+        bcc_input = ", ".join([*inherited_bcc, *requested_bcc])
         to_input = to_input or template.default_to
         cc_input = cc_input or template.default_cc
-        bcc_input = bcc_input or template.default_bcc
     else:
         to_input = to_input or template.default_to
         if not to_only:
@@ -1613,14 +1648,14 @@ def get_operational_email_delivery(delivery_id: int) -> dict | None:
 
 
 def list_sent_maintenance_notifications(limit: int = 100) -> list[dict]:
-    """Return maintenance message records with at least one successful delivery."""
+    """Return Maintenance and Fiber Maintenance records with a successful delivery."""
     limit = min(max(int(limit), 1), 250)
     with SessionLocal() as db:
         deliveries = db.query(OperationalEmailDelivery).join(
             OperationalEmail,
             OperationalEmail.id == OperationalEmailDelivery.operational_email_id,
         ).filter(
-            OperationalEmail.template_key == "maintenance_notice",
+            OperationalEmail.template_key.in_(MAINTENANCE_COMPLETE_SOURCE_TEMPLATES),
             OperationalEmailDelivery.status == "sent",
         ).order_by(OperationalEmailDelivery.sent_at.desc()).limit(limit * 3).all()
         result = []
@@ -1632,6 +1667,7 @@ def list_sent_maintenance_notifications(limit: int = 100) -> list[dict]:
             seen.add(email.id)
             result.append({
                 "id": email.id,
+                "template_key": email.template_key,
                 "subject": delivery.subject,
                 "to": list(delivery.to_recipients or []),
                 "cc": list(delivery.cc_recipients or []),

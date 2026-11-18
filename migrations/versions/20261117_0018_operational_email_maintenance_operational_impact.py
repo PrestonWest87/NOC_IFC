@@ -1,4 +1,4 @@
-"""Add Operational impact to the saved Maintenance Notification default.
+"""Update saved Maintenance Notification and Maintenance Complete defaults.
 
 Revision ID: 20261117_0018
 Revises: 20261117_0017
@@ -36,28 +36,47 @@ def _add_operational_impact(body):
     return body + separator + line
 
 
+def _add_fiber_details(body):
+    """Add the optional Fiber Maintenance closeout section without changing custom copy."""
+    body = (body or "").replace("\r\n", "\n").replace("\r", "\n")
+    if "{{fiber_details}}" in body:
+        return body
+    closing = "This message closes the previously issued maintenance notification."
+    if closing in body:
+        return body.replace(
+            f"\n\n{closing}",
+            f"\n{{{{fiber_details}}}}\n{closing}",
+            1,
+        )
+    separator = "" if not body or body.endswith("\n") else "\n"
+    return f"{body}{separator}{{{{fiber_details}}}}"
+
+
 def upgrade():
     """Add Operational impact to an existing Maintenance Notification default."""
     bind = op.get_bind()
     if not inspect(bind).has_table("operational_email_templates"):
         return
-    row = bind.execute(sa.text(
-        "SELECT default_body FROM operational_email_templates "
-        "WHERE template_key = 'maintenance_notice'"
-    )).first()
-    if not row:
-        return
-    body = _add_operational_impact(row.default_body)
-    if body == row.default_body:
-        return
-    bind.execute(
-        sa.text(
-            "UPDATE operational_email_templates "
-            "SET default_body = :body, updated_at = CURRENT_TIMESTAMP "
-            "WHERE template_key = 'maintenance_notice'"
-        ),
-        {"body": body},
-    )
+    rows = bind.execute(sa.text(
+        "SELECT template_key, default_body FROM operational_email_templates "
+        "WHERE template_key IN ('maintenance_notice', 'maintenance_complete')"
+    )).mappings().all()
+    for row in rows:
+        body = (
+            _add_operational_impact(row["default_body"])
+            if row["template_key"] == "maintenance_notice"
+            else _add_fiber_details(row["default_body"])
+        )
+        if body == row["default_body"]:
+            continue
+        bind.execute(
+            sa.text(
+                "UPDATE operational_email_templates "
+                "SET default_body = :body, updated_at = CURRENT_TIMESTAMP "
+                "WHERE template_key = :template_key"
+            ),
+            {"template_key": row["template_key"], "body": body},
+        )
 
 
 def downgrade():

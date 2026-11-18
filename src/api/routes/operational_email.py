@@ -237,7 +237,7 @@ def get_email_delivery(delivery_id: int):
 
 @router.get("/maintenance-notices")
 def list_maintenance_notices(limit: int = Query(100, ge=1, le=250)):
-    """List successfully sent maintenance notifications eligible for a completion email."""
+    """List sent Maintenance and Fiber Maintenance notices eligible for completion."""
     return email_service.list_sent_maintenance_notifications(limit)
 
 

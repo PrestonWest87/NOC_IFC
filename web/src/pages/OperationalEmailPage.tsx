@@ -41,6 +41,9 @@ type ReferenceData = {
 const FIBER_SENDER_TO_KEYS = new Set([
   "fiber_maintenance_notice", "fiber_outage", "fiber_outage_update", "fiber_outage_resolution",
 ]);
+const FIBER_BCC_TEMPLATE_KEYS = new Set([
+  "fiber_maintenance_notice", "fiber_outage", "fiber_outage_resolution",
+]);
 
 const inputStyle: React.CSSProperties = {
   width: "100%", boxSizing: "border-box", padding: "0.55rem 0.65rem", borderRadius: 6,
@@ -60,6 +63,17 @@ const buttonStyle: React.CSSProperties = {
 
 function renderTemplate(text: string, fields: Record<string, string>): string {
   return String(text || "").replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_match, key: string) => fields[key] || "");
+}
+
+function fiberMaintenanceDetails(fields: Record<string, string>): string {
+  const details = [
+    ["Network Orders/Circuit IDs", fields.network_orders],
+    ["A location", fields.a_location],
+    ["Z location", fields.z_location],
+    ["MOP Type", fields.mop_type],
+    ["Expected impact", fields.expected_impact],
+  ].flatMap(([label, value]) => value?.trim() ? [`${label}: ${value.trim()}`] : []);
+  return details.length ? `\nFIBER MAINTENANCE DETAILS\n${details.join("\n")}\n` : "";
 }
 
 function chicagoInputValue(date: Date): string {
@@ -188,6 +202,7 @@ export function OperationalEmailPage() {
   const [signatureChoice, setSignatureChoice] = useState("default");
   const [selectedNetworkOrderIds, setSelectedNetworkOrderIds] = useState<string[]>([]);
   const [networkOrderSearch, setNetworkOrderSearch] = useState("");
+  const [fiberContactSearch, setFiberContactSearch] = useState("");
   const [selectedContactKeys, setSelectedContactKeys] = useState<string[]>([]);
   const [selectedOnpageContactKeys, setSelectedOnpageContactKeys] = useState<string[]>([]);
   const [deliveryMode, setDeliveryMode] = useState<"send" | "schedule">("send");
@@ -200,6 +215,7 @@ export function OperationalEmailPage() {
   const [templateDraft, setTemplateDraft] = useState<Partial<EmailTemplate>>({});
   const autoBccEmailsRef = useRef<string[]>([]);
   const autoContactBccEmailsRef = useRef<string[]>([]);
+  const autoParentBccEmailsRef = useRef<string[]>([]);
   const autoOnpageToEmailsRef = useRef<string[]>([]);
   const [signatureDraft, setSignatureDraft] = useState<EmailSignatureDraft>({
     id: null, name: "", content: "", is_active: true, is_default: false,
@@ -245,6 +261,7 @@ export function OperationalEmailPage() {
   const fiberOnpage = selectedKey === "fiber_outage_onpage";
   const fiberToSender = FIBER_SENDER_TO_KEYS.has(selectedKey);
   const showOnpageSelector = onpageToOnly || fiberOnpage;
+  const showFiberContactSelector = FIBER_BCC_TEMPLATE_KEYS.has(selectedKey);
   const contactOptions: ContactOption[] = useMemo(() => {
     return referenceData.fiber_contacts.map(contact => ({
       key: `fiber:${contact.id}`,
@@ -257,6 +274,11 @@ export function OperationalEmailPage() {
     label: `${contact.department} — ${contact.email}`,
     email: contact.email,
   })), [referenceData.onpage_contacts]);
+  const visibleFiberContacts = useMemo(() => {
+    const search = fiberContactSearch.trim().toLocaleLowerCase();
+    const selected = new Set(selectedContactKeys);
+    return contactOptions.filter(option => selected.has(option.key) || !search || option.label.toLocaleLowerCase().includes(search));
+  }, [contactOptions, fiberContactSearch, selectedContactKeys]);
 
   useEffect(() => {
     if (!selectedTemplate) return;
@@ -282,10 +304,12 @@ export function OperationalEmailPage() {
     setSignatureChoice("default");
     setSelectedNetworkOrderIds([]);
     setNetworkOrderSearch("");
+    setFiberContactSearch("");
     setSelectedContactKeys([]);
     setSelectedOnpageContactKeys([]);
     autoBccEmailsRef.current = [];
     autoContactBccEmailsRef.current = [];
+    autoParentBccEmailsRef.current = [];
     autoOnpageToEmailsRef.current = [];
   }, [selectedTemplate?.key]);
 
@@ -477,10 +501,29 @@ export function OperationalEmailPage() {
     setMaintenanceNoticeId(id);
     const noticeItem = (maintenanceQuery.data || []).find((item: any) => item.id === Number(id));
     if (!noticeItem) return;
-    setFields(previous => ({ ...previous, ...noticeItem.fields }));
+    const sourceFields: Record<string, string> = { ...(noticeItem.fields || {}) };
+    if (noticeItem.template_key === "fiber_maintenance_notice") {
+      const route = [sourceFields.a_location, sourceFields.z_location].filter(Boolean).join(" to ");
+      if (!sourceFields.site && route.length <= 200) sourceFields.site = route;
+      sourceFields.fiber_details = fiberMaintenanceDetails(sourceFields);
+    } else {
+      sourceFields.fiber_details = "";
+    }
+    setFields(previous => ({ ...previous, ...sourceFields }));
     if (!to.trim()) setTo((noticeItem.to || []).join(", "));
     if (!cc.trim()) setCc((noticeItem.cc || []).join(", "));
-    if (!bcc.trim()) setBcc((noticeItem.bcc || []).join(", "));
+    const previousAutomaticBcc = uniqueAddresses([
+      ...autoBccEmailsRef.current,
+      ...autoContactBccEmailsRef.current,
+      ...autoParentBccEmailsRef.current,
+    ]);
+    const parentBcc = uniqueAddresses(noticeItem.bcc || []);
+    setBcc(current => mergeSelectedAddresses(current, previousAutomaticBcc, parentBcc));
+    autoBccEmailsRef.current = [];
+    autoContactBccEmailsRef.current = [];
+    autoParentBccEmailsRef.current = parentBcc;
+    setSelectedContactKeys([]);
+    setFiberContactSearch("");
     setSubjectTouched(false);
     setBodyTouched(false);
   };
@@ -502,10 +545,18 @@ export function OperationalEmailPage() {
     });
     setTo(selectedTemplate.default_to || templatesQuery.data?.sender_address || "");
     setCc(selectedTemplate.default_cc || "");
-    setBcc((outage.bcc || []).join(", "));
+    const previousAutomaticBcc = uniqueAddresses([
+      ...autoBccEmailsRef.current,
+      ...autoContactBccEmailsRef.current,
+      ...autoParentBccEmailsRef.current,
+    ]);
+    const parentBcc = uniqueAddresses(outage.bcc || []);
+    setBcc(current => mergeSelectedAddresses(current, previousAutomaticBcc, parentBcc));
+    autoBccEmailsRef.current = [];
+    autoParentBccEmailsRef.current = parentBcc;
     setSelectedContactKeys([]);
     setSelectedOnpageContactKeys([]);
-    autoBccEmailsRef.current = [];
+    setFiberContactSearch("");
     autoContactBccEmailsRef.current = [];
     autoOnpageToEmailsRef.current = [];
     setSubjectTouched(false);
@@ -513,10 +564,19 @@ export function OperationalEmailPage() {
   };
 
   const updateAutomaticBcc = (networkEmails: string[], selectedEmails: string[]) => {
-    const previous = uniqueAddresses([...autoBccEmailsRef.current, ...autoContactBccEmailsRef.current]);
+    const previous = uniqueAddresses([
+      ...autoBccEmailsRef.current,
+      ...autoContactBccEmailsRef.current,
+      ...autoParentBccEmailsRef.current,
+    ]);
     const nextNetwork = uniqueAddresses(networkEmails);
     const nextSelected = uniqueAddresses(selectedEmails);
-    setBcc(current => mergeSelectedAddresses(current, previous, [...nextNetwork, ...nextSelected]));
+    const parentBcc = autoParentBccEmailsRef.current;
+    setBcc(current => mergeSelectedAddresses(
+      current,
+      previous,
+      [...nextNetwork, ...nextSelected, ...parentBcc],
+    ));
     autoBccEmailsRef.current = nextNetwork;
     autoContactBccEmailsRef.current = nextSelected;
   };
@@ -564,9 +624,6 @@ export function OperationalEmailPage() {
     };
     if (selectedTemplate?.fields.some(field => field.key === "a_location")) inherited.a_location = aLocations.join("; ");
     if (selectedTemplate?.fields.some(field => field.key === "z_location")) inherited.z_location = zLocations.join("; ");
-    if (selectedTemplate?.fields.some(field => field.key === "site")) {
-      inherited.site = orders.map(order => `${order.a_location} to ${order.z_location}`).join("; ");
-    }
     setFields(previous => ({ ...previous, ...inherited }));
     setSubjectTouched(false);
     setBodyTouched(false);
@@ -670,14 +727,14 @@ export function OperationalEmailPage() {
 
       <div style={{ display: "grid", gap: "1rem" }}>
         {selectedKey === "maintenance_complete" && <div style={cardStyle}>
-          <label><span style={labelStyle}>Previously sent maintenance notification *</span>
+          <label><span style={labelStyle}>Previously sent Maintenance or Fiber Maintenance notification *</span>
             <select value={maintenanceNoticeId} onChange={event => selectMaintenanceNotice(event.target.value)} style={inputStyle}>
               <option value="">Select a sent maintenance notice</option>
-              {(maintenanceQuery.data || []).map((item: any) => <option key={item.id} value={item.id}>{formatTime(item.sent_at)} · {item.subject}</option>)}
+              {(maintenanceQuery.data || []).map((item: any) => <option key={item.id} value={item.id}>{item.template_key === "fiber_maintenance_notice" ? "Fiber Maintenance" : "Maintenance"} · {formatTime(item.sent_at)} · {item.subject}</option>)}
             </select>
           </label>
           {maintenanceQuery.isLoading && <small>Loading sent maintenance notifications...</small>}
-          {!maintenanceQuery.isLoading && !(maintenanceQuery.data || []).length && <small style={{ color: "var(--text-muted)" }}>No successfully sent maintenance notifications are available.</small>}
+          {!maintenanceQuery.isLoading && !(maintenanceQuery.data || []).length && <small style={{ color: "var(--text-muted)" }}>No successfully sent maintenance or Fiber Maintenance notifications are available.</small>}
         </div>}
         {(selectedKey === "fiber_outage_update" || selectedKey === "fiber_outage_resolution") && <div style={cardStyle}>
           <label><span style={labelStyle}>Previously sent fiber outage ticket *</span>
@@ -719,8 +776,10 @@ export function OperationalEmailPage() {
           {referenceDataQuery.isError && <small role="alert" style={{ color: "var(--accent-orange)" }}>Reference lists could not be loaded. You can enter all details and BCC recipients manually.</small>}
           {!referenceDataQuery.isLoading && !referenceDataQuery.isError && !referenceData.network_orders.length && <small style={{ color: "var(--text-muted)" }}>No Network Orders/Circuit IDs are configured. Enter the order, location details, and contacts manually below.</small>}
           <small style={{ color: "var(--text-muted)" }}>{fiberOnpage
-            ? "Selecting records or pasting configured IDs into Network Orders/Circuit IDs fills location and Fiber contact details. Fiber emails are not added to BCC automatically."
-            : "Selecting records or pasting configured IDs into Network Orders/Circuit IDs fills location and Fiber contact details. Matching Fiber contact emails are added to BCC; these values remain editable for manual corrections."}</small>
+            ? "Selecting records or pasting configured IDs fills Network Orders/Circuit IDs and Fiber contact details. Enter the nearest crossroads in Location; Fiber emails are not added to BCC automatically."
+            : selectedKey === "fiber_maintenance_notice"
+              ? "Selecting records or pasting configured IDs fills A/Z locations and Fiber contact details. Matching Fiber contact emails are added to BCC."
+              : "Selecting records or pasting configured IDs fills Network Orders/Circuit IDs and Fiber contact details. Enter the nearest crossroads in Location; matching Fiber contact emails are added to BCC."}</small>
         </div>}
 
         <div style={{ ...cardStyle, display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.75rem" }}>
@@ -755,20 +814,32 @@ export function OperationalEmailPage() {
             </select>
             {!referenceDataQuery.isLoading && !referenceDataQuery.isError && !onpageOptions.length && <small style={{ color: "var(--text-muted)" }}>No ONPAGE contacts are configured.</small>}
           </label>}
-          {!onpageToOnly && <label style={{ display: "block" }}>
-            <span style={labelStyle}>Fiber contacts to add to Bcc · select multiple</span>
-            <select
-              multiple
-              size={Math.min(Math.max(contactOptions.length, 3), 6)}
-              value={selectedContactKeys}
-              onChange={event => selectDirectoryContacts(Array.from(event.target.selectedOptions, option => option.value))}
-              style={{ ...inputStyle, minHeight: 90 }}
-              aria-label="Select Fiber contacts for Bcc"
-            >
-              {contactOptions.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
-            </select>
-            {!referenceDataQuery.isLoading && !referenceDataQuery.isError && !contactOptions.length && <small style={{ color: "var(--text-muted)" }}>No Fiber contacts are configured. You can enter Bcc recipients manually.</small>}
-          </label>}
+          {showFiberContactSelector && <div style={{ display: "grid", gap: "0.5rem" }}>
+            <label><span style={labelStyle}>Search Fiber contacts for Bcc</span>
+              <input
+                aria-label="Search Fiber contacts for Bcc"
+                placeholder="Search name, company, or email"
+                value={fiberContactSearch}
+                onChange={event => setFiberContactSearch(event.target.value)}
+                style={inputStyle}
+              />
+            </label>
+            <label style={{ display: "block" }}>
+              <span style={labelStyle}>Fiber contacts to add to Bcc · select multiple</span>
+              <select
+                multiple
+                size={Math.min(Math.max(visibleFiberContacts.length, 3), 6)}
+                value={selectedContactKeys}
+                onChange={event => selectDirectoryContacts(Array.from(event.target.selectedOptions, option => option.value))}
+                style={{ ...inputStyle, minHeight: 90 }}
+                aria-label="Select Fiber contacts for Bcc"
+              >
+                {visibleFiberContacts.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
+              </select>
+              {!referenceDataQuery.isLoading && !referenceDataQuery.isError && !contactOptions.length && <small style={{ color: "var(--text-muted)" }}>No Fiber contacts are configured. You can enter Bcc recipients manually.</small>}
+              {fiberContactSearch.trim() && !visibleFiberContacts.length && <small>No Fiber contacts match that search.</small>}
+            </label>
+          </div>}
           <label><span style={labelStyle}>Signature</span>
             <select value={signatureChoice} onChange={event => setSignatureChoice(event.target.value)} style={inputStyle}>
               <option value="default">Use administrator default{defaultSignature ? ` · ${defaultSignature.name}` : " · none configured"}</option>
