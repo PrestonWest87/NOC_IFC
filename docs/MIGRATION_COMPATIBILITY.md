@@ -2,7 +2,7 @@
 
 ## Current behavior
 
-The packaged migration head is `20261117_0019`. The API, worker, and webhook run pending Alembic revisions under a shared file lock before serving requests or starting jobs. A database already at head receives no schema DDL. A migration error stops startup; the application does not mark the failed revision as complete.
+The packaged migration head is `20261118_0020`. The API, worker, and webhook run pending Alembic revisions under a shared file lock before serving requests or starting jobs. A database already at head receives no schema DDL. A migration error stops startup; the application does not mark the failed revision as complete.
 
 The initial adoption revision (`20261002_0001`) was designed for:
 
@@ -21,6 +21,8 @@ Revision `20261117_0017` removes A/Z placeholders from saved Fiber Outage, ONPAG
 Revision `20261117_0018` adds Operational impact to Maintenance Notification and Fiber details to Maintenance Complete, retaining other customized text. It adds no tables or columns.
 
 Revision `20261117_0019` removes Network Orders placeholders from shipped Fiber Outage subjects so circuit IDs remain optional.
+
+Revision `20261118_0020` adds `network_order_circuits.associated_circuit_network_order_ids` with an empty-list default, preserving existing reference rows.
 
 ## One-time data changes across revisions
 

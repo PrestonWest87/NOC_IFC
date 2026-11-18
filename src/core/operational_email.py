@@ -898,7 +898,8 @@ def get_operational_email_reference_data(*, include_onpage: bool = False) -> dic
             ],
             "network_orders": [
                 {"id": item.id, "a_location": item.a_location, "z_location": item.z_location,
-                 "circuit_network_order_id": item.circuit_network_order_id, "company": item.company}
+                 "circuit_network_order_id": item.circuit_network_order_id, "company": item.company,
+                 "associated_circuit_network_order_ids": list(item.associated_circuit_network_order_ids or [])}
                 for item in network_orders
             ],
         }
@@ -1026,7 +1027,7 @@ def _unique_field_values(values) -> list[str]:
 
 
 def _selected_network_order_records(db, fields: dict) -> list[NetworkOrderCircuit]:
-    """Validate selected reference IDs and return records in the submitted order."""
+    """Return selected records plus their complete, cycle-safe associated circuit group."""
     if not isinstance(fields, dict):
         raise ValueError("Template fields must be an object.")
     raw_ids = fields.get("network_order_ids", "") or ""
@@ -1045,16 +1046,43 @@ def _selected_network_order_records(db, fields: dict) -> list[NetworkOrderCircui
     if len(selected_ids) > 50:
         raise ValueError("No more than 50 network-order records can be selected at once.")
 
-    records_by_id = {}
+    records = db.query(NetworkOrderCircuit).order_by(
+        NetworkOrderCircuit.sort_order, NetworkOrderCircuit.id
+    ).all()
+    records_by_id = {row.id: row for row in records}
     if selected_ids:
-        records_by_id = {
-            row.id: row
-            for row in db.query(NetworkOrderCircuit).filter(NetworkOrderCircuit.id.in_(selected_ids)).all()
-        }
         missing = [reference_id for reference_id in selected_ids if reference_id not in records_by_id]
         if missing:
             raise ValueError("One or more selected Network Order records no longer exist.")
-    return [records_by_id[reference_id] for reference_id in selected_ids]
+    records_by_circuit_id = {}
+    for row in records:
+        records_by_circuit_id.setdefault(row.circuit_network_order_id.strip().casefold(), []).append(row)
+
+    queue = list(selected_ids)
+    queued = set(queue)
+    selected_records = []
+    position = 0
+    while position < len(queue):
+        row = records_by_id[queue[position]]
+        position += 1
+        selected_records.append(row)
+        associated_ids = row.associated_circuit_network_order_ids or []
+        if not isinstance(associated_ids, list):
+            raise ValueError("Stored associated circuit IDs are invalid; repair the Network Orders & Circuits table.")
+        for associated_id in associated_ids:
+            matches = records_by_circuit_id.get(str(associated_id).strip().casefold(), [])
+            if not matches:
+                raise ValueError(f"Associated circuit '{associated_id}' no longer exists in the reference table.")
+            if len(matches) > 1:
+                raise ValueError(f"Associated circuit ID '{associated_id}' is ambiguous in the reference table.")
+            target_id = matches[0].id
+            if target_id not in queued:
+                queued.add(target_id)
+                queue.append(target_id)
+                if len(queue) > 50:
+                    raise ValueError("No more than 50 network-order records can be selected, including associated circuits.")
+    fields["network_order_ids"] = ", ".join(str(row.id) for row in selected_records)
+    return selected_records
 
 
 def _resolve_network_order_contacts(db, template_key: str, fields: dict[str, str]) -> list[str]:
@@ -1363,7 +1391,7 @@ def _prepare_fiber_maintenance_messages(db, values: dict, *, for_schedule: bool)
         company_records = group["records"]
         group_fields = dict(fields)
         group_fields.update({
-            "network_order_ids": ", ".join(str(record.id) for record in company_records),
+            "network_order_ids": "",
             "network_orders": "; ".join(_unique_field_values(
                 record.circuit_network_order_id for record in company_records
             )),

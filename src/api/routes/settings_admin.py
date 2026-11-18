@@ -84,13 +84,14 @@ class OnpageEmailContactsUpdate(BaseModel):
 
 
 class NetworkOrderCircuitInput(BaseModel):
-    """One A/Z location and circuit/network-order mapping."""
+    """One A/Z mapping and optional associations to other circuit IDs."""
     model_config = ConfigDict(extra="forbid")
 
     a_location: str = Field(min_length=1, max_length=250)
     z_location: str = Field(min_length=1, max_length=250)
     circuit_network_order_id: str = Field(min_length=1, max_length=200)
     company: str = Field(min_length=1, max_length=200)
+    associated_circuit_network_order_ids: list[str] = Field(default_factory=list, max_length=250)
 
 
 class NetworkOrderCircuitsUpdate(BaseModel):

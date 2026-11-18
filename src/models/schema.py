@@ -734,6 +734,7 @@ class NetworkOrderCircuit(Base):
     z_location = Column(String(250), nullable=False)
     circuit_network_order_id = Column(String(200), nullable=False)
     company = Column(String(200), nullable=False)
+    associated_circuit_network_order_ids = Column(JSON, nullable=False, default=list, server_default=text("'[]'"))
     sort_order = Column(Integer, nullable=False, default=0, server_default=text("0"))
 
 

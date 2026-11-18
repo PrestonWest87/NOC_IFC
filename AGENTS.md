@@ -36,8 +36,10 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 - [x] Add the Email Contacts and Network Orders & Circuits Settings tabs, explicit tab grants, read endpoints, and administrator-only table replacement endpoints.
 - [x] Add separate CSV import workflows for Fiber contacts, ONPAGE contacts, and network-order/circuit records.
 - [x] Validate row fields, bounds, single email addresses/phones, preserve display order, and audit replacements without storing contact values in audit details.
+- [x] Add reciprocal multi-select associated circuit/network-order IDs, preserve optional links in CSV merge imports, and expand selections through chains/cycles in the Operational Email composer and backend.
 - [x] Update API, permission, schema, Settings UI/source documentation, and local-only service/API/migration tests.
-- [x] Verify fresh and existing SQLite migrations, Python suite, frontend/API/Compose builds, docs contracts, and dev health; review and push intended source/docs only to `dev`.
+- [x] Add the association migration and tests; verify fresh/existing SQLite migrations, settings/email service and API tests, documentation contracts, frontend/API container builds, and `git diff --check`.
+- [x] Keep the feature on `dev` and preserve unrelated untracked integration-plan documents and local-only tests.
 
 ## Active Implementation Plan — Operational Email Composer Updates
 

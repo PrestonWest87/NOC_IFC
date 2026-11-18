@@ -534,7 +534,7 @@ Stores the latest public Microsoft 365 feed attempt/success and a sanitized erro
 | `operational_email_deliveries` | `id`, `operational_email_id`, sender, recipients, status, attempted/sent timestamps | Immutable SMTP attempt history, including hidden BCC envelope addresses |
 | `fiber_email_contacts` | `id`, `name`, `company`, `email`, optional `phone`, `sort_order` | Ordered Fiber contact directory managed through Settings & Admin |
 | `onpage_email_contacts` | `id`, `department`, `email`, `sort_order` | Ordered ONPAGE department contact directory |
-| `network_order_circuits` | `id`, A/Z locations, circuit/network-order ID, company, `sort_order` | Ordered network circuit reference table |
+| `network_order_circuits` | `id`, A/Z locations, circuit/network-order ID, company, associated circuit IDs, `sort_order` | Ordered network circuit reference table with reciprocal associations |
 
 ---
 

@@ -34,14 +34,14 @@ Prefix: `/api/v1/admin`. The entire router has `Depends(require_admin)`: a built
 | `PUT /email-contacts/onpage` | Replace up to 250 ONPAGE department destinations with `{contacts:[{department,email}]}`; both fields are required and validated. |
 | `POST /email-contacts/fiber/import` | Import `{csv_text,mode?}` with `name,company,email` and optional `phone` columns; merge-by-email is the default, or replace all rows. |
 | `POST /email-contacts/onpage/import` | Import `{csv_text,mode?}` with `department,email` columns; merge-by-department is the default, or replace all rows. |
-| `PUT /network-orders` | Replace up to 250 `{a_location,z_location,circuit_network_order_id,company}` reference rows. |
-| `POST /network-orders/import` | Import `{csv_text,mode?}` with A location, Z location, Circuit/Network Order ID, and Company columns; merge-by-ID is the default, or replace all rows. |
+| `PUT /network-orders` | Replace up to 250 `{a_location,z_location,circuit_network_order_id,company,associated_circuit_network_order_ids?}` reference rows; associated IDs are validated and saved reciprocally. |
+| `POST /network-orders/import` | Import `{csv_text,mode?}` with A location, Z location, Circuit/Network Order ID, and Company columns; the optional Associated Circuit/Network Order IDs column is semicolon-separated. Merge-by-ID is the default, or replace all rows. |
 | `POST /location/import?mode=add|upsert|replace` | JSON array of location objects. The route validates mode, returns `{status, mode, count}`, and clears the location cache. `replace` recreates the site list while preserving contacts for sites whose names remain in the imported list. |
 | `PUT /location` | JSON array of edited location records; service updates rows by ID and clears the location cache. |
 
 Monitored-site contact API responses and writes are administrator-only. These site contacts are not included in `GET /location`, `/settings/facilities`, regional, or AIOps site payloads; their email addresses appear as reference text only in automatic ONPAGE message bodies and are not used as recipients.
 
-The Fiber, ONPAGE, and network-order directories are independent Settings reference data. Reads require their respective Settings tab grants; writes are administrator-only. Replacement preserves row order and records only counts in the audit trail.
+The Fiber, ONPAGE, and network-order directories are independent Settings reference data. Reads require their respective Settings tab grants; writes are administrator-only. Network-order associations are reciprocal, and no contact or circuit values are copied into audit details. Replacement preserves row order and records only counts in the audit trail.
 
 The full role-aware individual/display-account workflow, invitation queue, recovery review, session revocation, and audit behavior is documented in [`routes/user_admin.md`](user_admin.md).
 

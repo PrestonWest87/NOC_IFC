@@ -35,7 +35,10 @@ type ContactOption = { key: string; label: string; email: string };
 type ReferenceData = {
   fiber_contacts: { id: number; name: string; company: string; email: string; phone?: string | null }[];
   onpage_contacts: { id: number; department: string; email: string }[];
-  network_orders: { id: number; a_location: string; z_location: string; circuit_network_order_id: string; company: string }[];
+  network_orders: {
+    id: number; a_location: string; z_location: string; circuit_network_order_id: string; company: string;
+    associated_circuit_network_order_ids: string[];
+  }[];
 };
 
 const FIBER_SENDER_TO_KEYS = new Set([
@@ -147,6 +150,24 @@ function uniqueAddresses(values: string[]): string[] {
     seen.add(key);
     return true;
   });
+}
+
+function expandAssociatedNetworkOrderIds(ids: string[], records: ReferenceData["network_orders"]): string[] {
+  const byRowId = new Map(records.map(record => [String(record.id), record] as const));
+  const byCircuitId = new Map(records.map(record => [record.circuit_network_order_id.trim().toLocaleLowerCase(), String(record.id)] as const));
+  const expanded = uniqueAddresses(ids);
+  const selected = new Set(expanded);
+  for (let index = 0; index < expanded.length; index += 1) {
+    const record = byRowId.get(expanded[index]);
+    for (const associatedId of record?.associated_circuit_network_order_ids || []) {
+      const relatedId = byCircuitId.get(associatedId.trim().toLocaleLowerCase());
+      if (relatedId && !selected.has(relatedId)) {
+        selected.add(relatedId);
+        expanded.push(relatedId);
+      }
+    }
+  }
+  return expanded;
 }
 
 function mergeSelectedAddresses(current: string, previousAutomatic: string[], nextAutomatic: string[]): string {
@@ -614,8 +635,9 @@ export function OperationalEmailPage() {
   };
 
   const selectNetworkOrders = (ids: string[]) => {
-    setSelectedNetworkOrderIds(ids);
-    const orders = ids.flatMap(id => {
+    const expandedIds = expandAssociatedNetworkOrderIds(ids, referenceData.network_orders);
+    setSelectedNetworkOrderIds(expandedIds);
+    const orders = expandedIds.flatMap(id => {
       const order = referenceData.network_orders.find(record => String(record.id) === id);
       return order ? [order] : [];
     });
@@ -635,7 +657,7 @@ export function OperationalEmailPage() {
     }
 
     const inherited: Record<string, string> = {
-      network_order_ids: ids.join(", "),
+      network_order_ids: expandedIds.join(", "),
       network_orders: orderIds.join("; "),
       contact: matchingContacts.map(contact => contact.phone ? `${contact.name} (${contact.phone})` : contact.name).join("; "),
     };
@@ -792,6 +814,7 @@ export function OperationalEmailPage() {
           {referenceDataQuery.isLoading && <small>Loading Network Orders and Fiber contacts...</small>}
           {referenceDataQuery.isError && <small role="alert" style={{ color: "var(--accent-orange)" }}>{fiberMaintenance ? "Reference data could not be loaded. Fiber Maintenance requires configured Network Orders and company contacts." : "Reference lists could not be loaded. You can enter all details and BCC recipients manually."}</small>}
           {!referenceDataQuery.isLoading && !referenceDataQuery.isError && !referenceData.network_orders.length && <small style={{ color: "var(--text-muted)" }}>{fiberMaintenance ? "No Network Orders/Circuit IDs are configured. Add the reference records and company contacts in Settings before sending." : "No Network Orders/Circuit IDs are configured. Enter the order, location details, and contacts manually below."}</small>}
+          <small style={{ color: "var(--text-muted)" }}>Selecting a circuit automatically selects its full associated circuit group. A send can include up to 50 circuits, including associated circuits.</small>
           <small style={{ color: "var(--text-muted)" }}>{fiberMaintenance
             ? "Each selected company receives a separate email with only its selected circuits and A/Z locations. Mapped Fiber contacts are in To; Global From is copied on Cc. Every selected company must have at least one Fiber email contact."
             : fiberOnpage

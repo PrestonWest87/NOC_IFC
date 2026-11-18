@@ -368,6 +368,21 @@ def get_network_order_circuits():
 
 
 def _normalize_network_order_circuit(record):
+    associated_ids = record.get("associated_circuit_network_order_ids") or []
+    if isinstance(associated_ids, str):
+        associated_ids = [value for value in re.split(r"[;|]", associated_ids) if value.strip()]
+    if not isinstance(associated_ids, list):
+        raise ValueError("Associated Circuit/Network Order IDs must be a list or semicolon-separated text.")
+    if len(associated_ids) > SETTINGS_REFERENCE_MAX_ROWS:
+        raise ValueError("A circuit can have at most 250 associated Circuit/Network Order IDs.")
+    normalized_associations = []
+    seen_associations = set()
+    for value in associated_ids:
+        circuit_id = _required_reference_text(value, "Associated Circuit/Network Order ID", 200)
+        key = circuit_id.casefold()
+        if key not in seen_associations:
+            seen_associations.add(key)
+            normalized_associations.append(circuit_id)
     return {
         "a_location": _required_reference_text(record.get("a_location"), "A location", 250),
         "z_location": _required_reference_text(record.get("z_location"), "Z location", 250),
@@ -375,17 +390,48 @@ def _normalize_network_order_circuit(record):
             record.get("circuit_network_order_id"), "Circuit/Network Order ID", 200
         ),
         "company": _required_reference_text(record.get("company"), "Company", 200),
+        "associated_circuit_network_order_ids": normalized_associations,
     }
 
 
 def replace_network_order_circuits(records, actor_user_id):
-    """Replace network-order/circuit records after validating every displayed field."""
+    """Replace network-order/circuit records and normalize reciprocal associations."""
     _validate_reference_rows(
         records,
         "Network orders and circuits",
-        {"a_location", "z_location", "circuit_network_order_id", "company"},
+        {
+            "a_location", "z_location", "circuit_network_order_id", "company",
+            "associated_circuit_network_order_ids",
+        },
     )
     normalized = [_normalize_network_order_circuit(record) for record in records]
+    by_circuit_id = {}
+    for row in normalized:
+        key = row["circuit_network_order_id"].casefold()
+        by_circuit_id.setdefault(key, []).append(row)
+    for row in normalized:
+        circuit_id = row["circuit_network_order_id"]
+        normalized_associations = []
+        seen_associations = set()
+        for associated_id in list(row["associated_circuit_network_order_ids"]):
+            matches = by_circuit_id.get(associated_id.casefold(), [])
+            if not matches:
+                raise ValueError(f"Associated circuit '{associated_id}' is not in the Network Orders & Circuits table.")
+            if len(matches) > 1:
+                raise ValueError(f"Associated circuit ID '{associated_id}' must identify exactly one table row.")
+            target = matches[0]
+            if target is row:
+                raise ValueError("A circuit cannot be associated with itself.")
+            target_id = target["circuit_network_order_id"]
+            target_key = target_id.casefold()
+            if target_key not in seen_associations:
+                seen_associations.add(target_key)
+                normalized_associations.append(target_id)
+            if circuit_id.casefold() not in {
+                value.casefold() for value in target["associated_circuit_network_order_ids"]
+            }:
+                target["associated_circuit_network_order_ids"].append(circuit_id)
+        row["associated_circuit_network_order_ids"] = normalized_associations
     return _replace_settings_reference_rows(
         NetworkOrderCircuit,
         normalized,
@@ -505,6 +551,29 @@ def _import_settings_reference_csv(csv_text, mode, *, directory, aliases, requir
             provided_fields=provided_fields,
             preserve_if_unprovided=preserve_if_unprovided,
         )
+        association_field = "associated_circuit_network_order_ids"
+        if association_field in provided_fields:
+            identity_field = identity_fields[0]
+            incoming_links = {
+                str(row[identity_field]).casefold(): {
+                    str(value).casefold() for value in row[association_field]
+                }
+                for row in incoming
+            }
+            for source_id, linked_ids in incoming_links.items():
+                for row in rows:
+                    target_id = str(row[identity_field]).casefold()
+                    target_links = incoming_links.get(target_id)
+                    if (
+                        target_id == source_id
+                        or target_id in linked_ids
+                        or (target_links is not None and source_id in target_links)
+                    ):
+                        continue
+                    row[association_field] = [
+                        value for value in row[association_field]
+                        if str(value).casefold() != source_id
+                    ]
     saved = replace_rows(rows, actor_user_id)
     return {
         "status": "imported",
@@ -565,14 +634,24 @@ def import_network_order_circuits_csv(csv_text, mode, actor_user_id):
             "circuit_id": "circuit_network_order_id",
             "network_order_id": "circuit_network_order_id",
             "company": "company",
+            "associated_circuit_network_order_ids": "associated_circuit_network_order_ids",
+            "associated_circuit_network_order_id": "associated_circuit_network_order_ids",
+            "associated_network_order_circuit_ids": "associated_circuit_network_order_ids",
+            "associated_network_order_circuit_id": "associated_circuit_network_order_ids",
+            "associated_network_order_ids": "associated_circuit_network_order_ids",
+            "associated_circuit_ids": "associated_circuit_network_order_ids",
         },
         required_fields={"a_location", "z_location", "circuit_network_order_id", "company"},
         normalize_row=_normalize_network_order_circuit,
         current_rows=get_network_order_circuits,
-        fields=("a_location", "z_location", "circuit_network_order_id", "company"),
+        fields=(
+            "a_location", "z_location", "circuit_network_order_id", "company",
+            "associated_circuit_network_order_ids",
+        ),
         identity_fields=("circuit_network_order_id",),
         replace_rows=replace_network_order_circuits,
         actor_user_id=actor_user_id,
+        preserve_if_unprovided=("associated_circuit_network_order_ids",),
     )
 
 

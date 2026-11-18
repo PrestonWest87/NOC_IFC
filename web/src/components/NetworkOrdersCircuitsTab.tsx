@@ -9,7 +9,9 @@ type NetworkOrderRow = {
   z_location: string;
   circuit_network_order_id: string;
   company: string;
+  associated_circuit_network_order_ids: string[];
 };
+type EditableNetworkOrderField = "a_location" | "z_location" | "circuit_network_order_id" | "company";
 type CsvImportMode = "merge" | "replace";
 
 const cardStyle: React.CSSProperties = {
@@ -28,8 +30,9 @@ const buttonStyle: React.CSSProperties = {
 };
 const emptyRow: NetworkOrderRow = {
   a_location: "", z_location: "", circuit_network_order_id: "", company: "",
+  associated_circuit_network_order_ids: [],
 };
-const columns: { key: keyof NetworkOrderRow; label: string }[] = [
+const columns: { key: EditableNetworkOrderField; label: string }[] = [
   { key: "a_location", label: "A location" },
   { key: "z_location", label: "Z location" },
   { key: "circuit_network_order_id", label: "Circuit/Network Order ID" },
@@ -86,8 +89,8 @@ export function NetworkOrdersCircuitsTab({ canManage }: { canManage: boolean }) 
 
   const saveMutation = useMutation({
     mutationFn: (rows: NetworkOrderRow[]) => api.put("/admin/network-orders", {
-      records: rows.map(({ a_location, z_location, circuit_network_order_id, company }) => ({
-        a_location, z_location, circuit_network_order_id, company,
+      records: rows.map(({ a_location, z_location, circuit_network_order_id, company, associated_circuit_network_order_ids }) => ({
+        a_location, z_location, circuit_network_order_id, company, associated_circuit_network_order_ids,
       })),
     }).then(response => response.data),
     onSuccess: result => {
@@ -109,13 +112,72 @@ export function NetworkOrdersCircuitsTab({ canManage }: { canManage: boolean }) 
     onError: error => setNotice({ message: getApiErrorMessage(error, "Network orders and circuits CSV could not be imported."), error: true }),
   });
 
+  const updateAssociatedCircuits = (rowIndex: number, associatedIds: string[]) => {
+    setRecords(current => {
+      const sourceId = current[rowIndex]?.circuit_network_order_id.trim();
+      if (!sourceId) return current;
+      const sourceKey = sourceId.toLocaleLowerCase();
+      const previousIds = new Set((current[rowIndex].associated_circuit_network_order_ids || []).map(id => id.toLocaleLowerCase()));
+      const uniqueIds = Array.from(new Map(associatedIds.map(id => [id.toLocaleLowerCase(), id])).values());
+      const nextIds = new Set(uniqueIds.map(id => id.toLocaleLowerCase()));
+      return current.map((record, index) => {
+        if (index === rowIndex) return { ...record, associated_circuit_network_order_ids: uniqueIds };
+        const recordKey = record.circuit_network_order_id.trim().toLocaleLowerCase();
+        const wasAssociated = previousIds.has(recordKey);
+        const isAssociated = nextIds.has(recordKey);
+        if (!recordKey || wasAssociated === isAssociated) return record;
+        const otherAssociations = record.associated_circuit_network_order_ids || [];
+        return {
+          ...record,
+          associated_circuit_network_order_ids: isAssociated
+            ? [...otherAssociations, sourceId]
+            : otherAssociations.filter(id => id.toLocaleLowerCase() !== sourceKey),
+        };
+      });
+    });
+  };
+
+  const changeField = (rowIndex: number, field: EditableNetworkOrderField, value: string) => {
+    setRecords(current => {
+      const oldId = field === "circuit_network_order_id" ? current[rowIndex].circuit_network_order_id.trim() : "";
+      const newId = value.trim();
+      const oldKey = oldId.toLocaleLowerCase();
+      const newKey = newId.toLocaleLowerCase();
+      return current.map((record, index) => {
+        if (index === rowIndex) {
+          const associations = field === "circuit_network_order_id" && newKey
+            ? (record.associated_circuit_network_order_ids || []).filter(id => id.toLocaleLowerCase() !== newKey)
+            : record.associated_circuit_network_order_ids || [];
+          return { ...record, [field]: value, associated_circuit_network_order_ids: associations };
+        }
+        if (field !== "circuit_network_order_id" || !oldKey || oldId === newId) return record;
+        return {
+          ...record,
+          associated_circuit_network_order_ids: (record.associated_circuit_network_order_ids || [])
+            .flatMap(id => id.toLocaleLowerCase() !== oldKey ? [id] : newId ? [newId] : []),
+        };
+      });
+    });
+  };
+
+  const removeRow = (rowIndex: number) => {
+    setRecords(current => {
+      const removedId = current[rowIndex]?.circuit_network_order_id.trim().toLocaleLowerCase();
+      return current.filter((_record, index) => index !== rowIndex).map(record => ({
+        ...record,
+        associated_circuit_network_order_ids: (record.associated_circuit_network_order_ids || [])
+          .filter(id => id.toLocaleLowerCase() !== removedId),
+      }));
+    });
+  };
+
   if (recordsQuery.isLoading) return <div style={{ color: "var(--text-secondary)" }}>Loading network orders and circuits...</div>;
   if (recordsQuery.isError) return <div role="alert" style={{ color: "var(--accent-red)" }}>{getApiErrorMessage(recordsQuery.error, "Network orders and circuits could not be loaded.")}</div>;
 
   return <div style={{ display: "grid", gap: "1rem" }}>
     <div>
       <h3 style={{ margin: "0 0 0.35rem", color: "var(--text-primary)" }}>Network Orders &amp; Circuits</h3>
-      <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.78rem" }}>Maintain circuit and network-order references between A and Z locations.</p>
+      <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.78rem" }}>Maintain A/Z circuit references. Associated circuit links are reciprocal and the email composer includes the full linked group. CSV supports an optional semicolon-separated Associated Circuit/Network Order IDs column.</p>
     </div>
     {notice && <div role={notice.error ? "alert" : "status"} style={{ ...cardStyle, padding: "0.65rem", color: notice.error ? "var(--accent-red)" : "var(--accent-green)" }}>{notice.message}</div>}
     <section style={{ ...cardStyle, minWidth: 0 }}>
@@ -131,9 +193,10 @@ export function NetworkOrdersCircuitsTab({ canManage }: { canManage: boolean }) 
         </div>}
       </div>
       <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", minWidth: 760, borderCollapse: "collapse", fontSize: "0.78rem" }}>
+        <table style={{ width: "100%", minWidth: 1200, borderCollapse: "collapse", fontSize: "0.78rem" }}>
           <thead><tr>
             {columns.map(column => <th key={column.key} scope="col" style={{ textAlign: "left", padding: "0.5rem", borderBottom: "1px solid var(--border-primary)" }}>{column.label}</th>)}
+            <th scope="col" style={{ textAlign: "left", padding: "0.5rem", borderBottom: "1px solid var(--border-primary)" }}>Associated Circuit/Network Order IDs</th>
             {canManage && <th scope="col" aria-label="Row actions" style={{ borderBottom: "1px solid var(--border-primary)" }} />}
           </tr></thead>
           <tbody>{records.map((row, index) => <tr key={row.id ?? `new-${index}`}>
@@ -143,18 +206,33 @@ export function NetworkOrdersCircuitsTab({ canManage }: { canManage: boolean }) 
                 value={row[column.key]}
                 maxLength={column.key === "a_location" || column.key === "z_location" ? 250 : column.key === "circuit_network_order_id" ? 200 : 200}
                 disabled={!canManage || saveMutation.isPending || importMutation.isPending}
-                onChange={event => setRecords(current => current.map((record, rowIndex) => rowIndex === index
-                  ? { ...record, [column.key]: event.target.value }
-                  : record))}
+                onChange={event => changeField(index, column.key, event.target.value)}
                 style={{ ...inputStyle, opacity: canManage ? 1 : 0.8 }}
               />
             </td>)}
+            <td style={{ padding: "0.4rem", borderBottom: "1px solid var(--border-primary)", minWidth: 280 }}>
+              <select
+                multiple
+                size={Math.min(Math.max(records.length, 3), 5)}
+                aria-label={`Associated Circuit/Network Order IDs for row ${index + 1}`}
+                value={row.associated_circuit_network_order_ids || []}
+                disabled={!canManage || saveMutation.isPending || importMutation.isPending || !row.circuit_network_order_id.trim()}
+                onChange={event => updateAssociatedCircuits(index, Array.from(event.target.selectedOptions, option => option.value))}
+                style={{ ...inputStyle, minHeight: 82, opacity: canManage ? 1 : 0.8 }}
+              >
+                {records.filter(candidate => candidate.circuit_network_order_id.trim()
+                  && candidate.circuit_network_order_id.trim().toLocaleLowerCase() !== row.circuit_network_order_id.trim().toLocaleLowerCase())
+                  .map(candidate => <option key={candidate.id ?? candidate.circuit_network_order_id} value={candidate.circuit_network_order_id}>
+                    {candidate.circuit_network_order_id} · {candidate.company} · {candidate.a_location} → {candidate.z_location}
+                  </option>)}
+              </select>
+            </td>
             {canManage && <td style={{ padding: "0.4rem", borderBottom: "1px solid var(--border-primary)" }}>
-              <button type="button" aria-label={`Remove network order row ${index + 1}`} onClick={() => setRecords(current => current.filter((_record, rowIndex) => rowIndex !== index))} disabled={saveMutation.isPending || importMutation.isPending}
+              <button type="button" aria-label={`Remove network order row ${index + 1}`} onClick={() => removeRow(index)} disabled={saveMutation.isPending || importMutation.isPending}
                 style={{ background: "transparent", border: 0, color: "var(--accent-red)", cursor: "pointer" }}><Trash2 size={16} /></button>
             </td>}
           </tr>)}
-          {!records.length && <tr><td colSpan={columns.length + (canManage ? 1 : 0)} style={{ padding: "1rem", color: "var(--text-muted)", textAlign: "center" }}>No network orders or circuits are configured.</td></tr>}
+          {!records.length && <tr><td colSpan={columns.length + 1 + (canManage ? 1 : 0)} style={{ padding: "1rem", color: "var(--text-muted)", textAlign: "center" }}>No network orders or circuits are configured.</td></tr>}
           </tbody>
         </table>
       </div>

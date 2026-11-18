@@ -167,7 +167,7 @@ A utility class extending `dict` to allow dot-notation attribute access.
 
 ### Settings email-contact and network-order directories
 
-`get_fiber_email_contacts()`, `replace_fiber_email_contacts(contacts, actor_user_id)`, `get_onpage_email_contacts()`, `replace_onpage_email_contacts(contacts, actor_user_id)`, `get_network_order_circuits()`, and `replace_network_order_circuits(records, actor_user_id)` read or replace their ordered Settings reference tables.
+`get_fiber_email_contacts()`, `replace_fiber_email_contacts(contacts, actor_user_id)`, `get_onpage_email_contacts()`, `replace_onpage_email_contacts(contacts, actor_user_id)`, `get_network_order_circuits()`, and `replace_network_order_circuits(records, actor_user_id)` read or replace their ordered Settings reference tables. Network-order replacement validates associated circuit IDs and normalizes links as reciprocal pairs.
 
 Replacement validates required text, length/control-character bounds, a single email address per contact, and optional international-style Fiber phone values. Each directory is capped at 250 rows; replacement preserves submitted order and supports an empty-list clear. Account-audit events record the directory operation and row count only, not contact or circuit values.
 

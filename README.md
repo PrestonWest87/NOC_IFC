@@ -68,7 +68,7 @@ Provides maintenance and fiber-maintenance notices, technician-dispatch request,
 Administrators can manage:
 
 - Users, roles, page permissions, action permissions, and site-type access.
-- Fiber/ONPAGE email contacts and A/Z circuit/network-order references.
+- Fiber/ONPAGE email contacts and A/Z circuit/network-order references with associated-circuit groups.
 - Monitored locations, districts, priorities, and maintenance information.
 - Hardware and software asset inventories.
 - RSS and intelligence sources.

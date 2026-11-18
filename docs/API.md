@@ -428,7 +428,9 @@ Compatibility endpoint for the user directory; requires `Tab: Settings -> Users 
 
 ### GET /settings/email-contacts and GET /settings/network-orders
 
-Both reads require the Settings & Admin page plus their corresponding tab grant. Email Contacts returns `{fiber:[{id,name,company,email,phone,sort_order}],onpage:[{id,department,email,sort_order}]}`. Network Orders returns `{records:[{id,a_location,z_location,circuit_network_order_id,company,sort_order}]}`.
+Both reads require the Settings & Admin page plus their corresponding tab grant. Email Contacts returns `{fiber:[{id,name,company,email,phone,sort_order}],onpage:[{id,department,email,sort_order}]}`. Network Orders returns `{records:[{id,a_location,z_location,circuit_network_order_id,company,associated_circuit_network_order_ids,sort_order}]}`.
+
+Associated circuit IDs must reference one existing Network Orders & Circuits row. Settings replacements normalize links reciprocally; Operational Email selectors include the complete linked group.
 
 ## Application Settings (`/application-settings`)
 
@@ -514,11 +516,11 @@ Administrator-only CSV imports with JSON body `{csv_text,mode?}` (`mode` default
 
 ### PUT /admin/network-orders
 
-Administrator-only replacement endpoint for Network Orders & Circuits. Body: `{records:[{a_location,z_location,circuit_network_order_id,company}]}`; up to 250 complete rows are accepted. Text is trimmed and bounded, and an empty list clears the directory.
+Administrator-only replacement endpoint for Network Orders & Circuits. Body: `{records:[{a_location,z_location,circuit_network_order_id,company,associated_circuit_network_order_ids?}]}`; up to 250 complete rows are accepted. Associations reference other table rows by circuit/network-order ID, are reciprocal, and must point to an existing, unambiguous ID. Text is trimmed and bounded, and an empty list clears the directory.
 
 ### POST /admin/network-orders/import
 
-Administrator-only CSV import with JSON body `{csv_text,mode?}` (`merge` by Circuit/Network Order ID by default, or `replace` all rows). Required headers are `a_location,z_location,circuit_network_order_id,company`; display headers such as `A location`, `Z location`, and `Circuit/Network Order ID` are accepted. Imports are limited to 1 MB and 250 data rows.
+Administrator-only CSV import with JSON body `{csv_text,mode?}` (`merge` by Circuit/Network Order ID by default, or `replace` all rows). Required headers are `a_location,z_location,circuit_network_order_id,company`; optional `Associated Circuit/Network Order IDs` contains semicolon-separated IDs. Merge preserves existing associations when the optional column is omitted. Display headers such as `A location`, `Z location`, and `Circuit/Network Order ID` are accepted. Imports are limited to 1 MB and 250 data rows.
 
 ### POST /admin/location/import?mode=add|upsert|replace
 Body: array of location dicts. `replace` retains contacts for sites with the same name in the imported site list and removes contacts for sites that are removed.
@@ -641,6 +643,8 @@ Body: `{template_key, to, cc?, bcc?, subject?, body?, fields?, attachments?, mai
 Maintenance notifications include a ticket title, date/time pickers, Risk (`None`, `Low`, `Medium`, or `High`), Disruption (`Non-Disruptive`, `Potentially Disruptive`, or `Disruptive`), a required Department performing the change selector (`IT Network` or `The Network Operations Center`), and optional Operational impact. Date/time fields in sent message bodies use `MM/DD/YY HH:MM AM/PM` in the application timezone, followed by the current CST/CDT label. Fiber Maintenance includes MOP Type (`Demand`, `Standard`, or `Emergency`) and Expected impact. Fiber Outage requires an operator-entered Location; Network Orders/Circuit IDs are optional. Application Timezone is set automatically and is not an editable compose field. Fiber fields and message bodies use the label Network Orders/Circuit IDs. Fiber Outage no longer asks for Estimated restoration or Requested action; follow-up messages may still include an updated restoration estimate.
 
 Fiber outage updates and resolution messages may be sent repeatedly and remain linked to their original ticket. Other templates offer multi-select contact lookup plus editable recipient fields. After-Hours ONPAGE offers multi-select ONPAGE contacts for To and has no Cc/Bcc fields. Morning Report body is the latest `SystemConfig.rolling_summary` shift analysis from Global Dashboards, refreshed before delivery; it is sent as stored, without a date, window, title, or executive-summary wrapper.
+
+Selecting a Network Order/Circuit automatically includes its reciprocal associated-circuit group, including chains and cycles, in the composer and server-side message preparation.
 
 Selected signature name/content, recipients, message fields, and attachments are snapshotted when a send or schedule is created. A scheduled Morning Report refreshes only its shift-analysis source at delivery time.
 
