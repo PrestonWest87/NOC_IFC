@@ -77,7 +77,7 @@ The API uses `src.core.db`; the scheduler imports the compatibility surface from
 5. `enrich_pending_articles` separately fetches full text for articles scoring at least 40, with at most three attempts and a 200,000-character storage bound.
 6. `deduplicate_articles` runs after each feed cycle. It removes recent exact-link duplicates and title pairs over the 85% RapidFuzz ratio threshold within source-domain/hour/title-length buckets.
 
-The current categorizer emits nine exact labels. Some existing consumers still compare against three older category names (`Cloud & IT Infra`, `Physical Security`, and `Severe Weather`); see [the audit record](DOCUMENTATION_AUDIT.md) for this source-level mismatch.
+The categorizer and Threat Telemetry category selector use the same nine exact labels. Global Risk scoring uses the canonical labels for the article categories it selects, including `Cloud & IT Infrastructure`, `Physical Security & Crime`, and `Severe Weather & Natural Hazards`.
 
 ### SolarWinds
 

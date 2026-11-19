@@ -42,7 +42,7 @@ Risk-scoring controls are in **Settings > Application Settings**, not on the das
 
 Pinned, Live, Low, and Search sub-tabs provide article pagination and category/search filters. Opening an article can show full-content enrichment, matched keyword weights, and extracted IOCs. Pin, score boost, and feedback controls each require their own action grant. Manual feed fetch requires `Action: Manually Sync Data`.
 
-The page's current category dropdown still contains some pre-renaming labels. The backend categorizer now emits `Cloud & IT Infrastructure`, `Physical Security & Crime`, and `Severe Weather & Natural Hazards`; exact legacy dropdown values may not match those rows. This source-level mismatch is recorded in the [audit](DOCUMENTATION_AUDIT.md#source-level-mismatches-surfaced-during-the-audit).
+The category dropdown uses the same labels as the backend categorizer, including `Cloud & IT Infrastructure`, `Physical Security & Crime`, `Severe Weather & Natural Hazards`, and `Data Breach & Privacy`.
 
 ### CISA KEV
 

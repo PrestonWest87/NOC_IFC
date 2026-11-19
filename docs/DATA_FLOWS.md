@@ -58,7 +58,7 @@ Keyword score is the sum of each configured keyword weight found as a lowercase 
 
 An article is `is_bubbled` at score ≥45. IOC extraction uses a separate score ≥50 gate and a category prefix of `Cyber`. Keyword weights edited through the API are constrained to 1–100 and reload the in-process scorer. The optional model trains on `human_feedback=1` (noise) and `2` (keep), requires at least 10 labels, and is atomically written under the SQLite data directory.
 
-### Category names and observed consumer mismatch
+### Category names
 
 The current regex categorizer returns:
 
@@ -73,7 +73,7 @@ The current regex categorizer returns:
 - `Data Breach & Privacy`
 - `General` when no pattern matches
 
-There are nine non-General categories. **Compatibility mismatch:** the frontend category selector and parts of `get_executive_grid_intel()` still use the earlier labels `Cloud & IT Infra`, `Physical Security`, and `Severe Weather`; exact-match filters therefore do not treat the newer labels as aliases. The current code behavior and affected consumers are recorded in [`DOCUMENTATION_AUDIT.md`](DOCUMENTATION_AUDIT.md#source-level-mismatches-surfaced-during-the-audit).
+There are nine non-General categories. Global Risk scoring uses the canonical labels for the categories it selects, and the Threat Telemetry selector includes all nine; exact-match queries therefore match values stored by the categorizer.
 
 ## 2. IOC extraction and search
 

@@ -8,7 +8,7 @@ Unified Threat Telemetry page. Provides four tabs: RSS Triage, CISA KEV, Cloud S
 
 ### `CATEGORIES`
 - Purpose: Article category filter options.
-- Values: `"All"`, `"Cyber: Exploits & Vulns"`, `"Cyber: Malware & Threats"`, `"ICS/OT & SCADA"`, `"Cloud & IT Infra"`, `"Physical Security"`, `"Severe Weather"`, `"Geopolitics & Policy"`, `"AI & Emerging Tech"`, `"General"`
+- Values: `"All"`, `"Cyber: Exploits & Vulns"`, `"Cyber: Malware & Threats"`, `"ICS/OT & SCADA"`, `"Cloud & IT Infrastructure"`, `"Physical Security & Crime"`, `"Severe Weather & Natural Hazards"`, `"Geopolitics & Policy"`, `"AI & Emerging Tech"`, `"Data Breach & Privacy"`, `"General"`
 
 ### `CATEGORY_ICONS`
 - Purpose: Maps category strings to icon components.

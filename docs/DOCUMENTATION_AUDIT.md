@@ -48,6 +48,10 @@ These are implementation inconsistencies, not documentation facts to conceal:
 - The stale Streamlit/PyDeck comments previously noted in `src/services.py` were removed during the in-code documentation pass; no such references remain in the checked-in Python source.
 - `.env.example` labels `DATABASE_URL` as an optional override, matching the default supplied by `src/core/config.py`. The environment reference now matches that template.
 
+### Resolved after this audit
+
+- Category labels are aligned across the categorizer, Global Risk scoring filters, and the Threat Telemetry selector. The selector includes all nine non-General categories.
+
 ## Verification record
 
 **Completed:** 2026-11-12. The dev branch was checked against the generated OpenAPI schema, all mapped ORM tables, the scheduler registry, frontend/API source references, and dev Compose settings.

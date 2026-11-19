@@ -2375,9 +2375,9 @@ def get_executive_grid_intel(active_warn_count, recent_crimes):
         t24 = datetime.utcnow() - timedelta(hours=24)
         
         # PULLING CYBER TELEMETRY (Articles, ICS, and CVEs)
-        raw_cyber_articles = db.query(Article).filter(Article.published_date >= t24, Article.category.in_(['Cyber: Exploits & Vulns', 'Cyber: Malware & Threats', 'ICS/OT & SCADA', 'Cloud & IT Infra']), Article.score >= 50).order_by(Article.score.desc()).limit(200).all()
+        raw_cyber_articles = db.query(Article).filter(Article.published_date >= t24, Article.category.in_(['Cyber: Exploits & Vulns', 'Cyber: Malware & Threats', 'ICS/OT & SCADA', 'Cloud & IT Infrastructure']), Article.score >= 50).order_by(Article.score.desc()).limit(200).all()
         raw_ics_articles = db.query(Article).filter(Article.published_date >= t24).order_by(Article.published_date.desc()).limit(150).all()
-        raw_phys_articles = db.query(Article).filter(Article.published_date >= t24, Article.category.in_(['Physical Security', 'Severe Weather', 'Geopolitics & Policy']), Article.score >= 50).order_by(Article.score.desc()).limit(100).all()
+        raw_phys_articles = db.query(Article).filter(Article.published_date >= t24, Article.category.in_(['Physical Security & Crime', 'Severe Weather & Natural Hazards', 'Geopolitics & Policy']), Article.score >= 50).order_by(Article.score.desc()).limit(100).all()
         
         recent_cves = db.query(CveItem).filter(CveItem.date_added >= t24).all()
 

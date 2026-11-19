@@ -17,19 +17,21 @@ import { formatInChicago, chicagoDateString, chicagoNow } from "../utils/timezon
 
 const CATEGORIES = [
   "All", "Cyber: Exploits & Vulns", "Cyber: Malware & Threats",
-  "ICS/OT & SCADA", "Cloud & IT Infra", "Physical Security",
-  "Severe Weather", "Geopolitics & Policy", "AI & Emerging Tech", "General",
+  "ICS/OT & SCADA", "Cloud & IT Infrastructure", "Physical Security & Crime",
+  "Severe Weather & Natural Hazards", "Geopolitics & Policy", "AI & Emerging Tech",
+  "Data Breach & Privacy", "General",
 ];
 
 const CATEGORY_ICONS: Record<string, React.ReactNode> = {
   "Cyber: Exploits & Vulns": <Bug size={14} />,
   "Cyber: Malware & Threats": <ShieldAlert size={14} />,
   "ICS/OT & SCADA": <Cpu size={14} />,
-  "Cloud & IT Infra": <Cloud size={14} />,
-  "Physical Security": <Shield size={14} />,
-  "Severe Weather": <CloudSun size={14} />,
+  "Cloud & IT Infrastructure": <Cloud size={14} />,
+  "Physical Security & Crime": <Shield size={14} />,
+  "Severe Weather & Natural Hazards": <CloudSun size={14} />,
   "Geopolitics & Policy": <Globe size={14} />,
   "AI & Emerging Tech": <Bot size={14} />,
+  "Data Breach & Privacy": <ShieldAlert size={14} />,
   "General": <FileText size={14} />,
 };
 

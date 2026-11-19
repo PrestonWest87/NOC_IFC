@@ -53,6 +53,6 @@ Pre-compiled regex patterns compiled from `CATEGORIES` using `re.IGNORECASE`.
 
 Matches are counted by regex match occurrences. The category whose pattern produces the largest count wins; when counts tie, `Counter.most_common(1)` preserves the first category encountered in the source mapping. The fallback is exactly `General`.
 
-### Consumer-label compatibility note
+### Category consumers
 
-`src/services.py:get_executive_grid_intel()` and `web/src/pages/ThreatTelemetryPage.tsx` still compare or offer some earlier category names (`Cloud & IT Infra`, `Physical Security`, and `Severe Weather`). These strings do not equal the current labels above. The source-level mismatch is recorded in `docs/DOCUMENTATION_AUDIT.md`; this reference describes the categorizer output, not a claim that every downstream filter uses the same labels.
+The Global Risk scoring filters use the canonical labels for the categories they select, and `web/src/pages/ThreatTelemetryPage.tsx` offers all nine labels, keeping scoring and article filtering aligned with categorizer output.
