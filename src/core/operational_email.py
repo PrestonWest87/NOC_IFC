@@ -44,7 +44,7 @@ FIBER_SENDER_TO_TEMPLATES = frozenset({
 FIBER_FOLLOWUP_TEMPLATES = frozenset({"fiber_outage_update", "fiber_outage_resolution"})
 FIBER_MAINTENANCE_TEMPLATE = "fiber_maintenance_notice"
 FIBER_ONPAGE_TEMPLATE = "fiber_outage_onpage"
-FIBER_GLOBAL_CC_TEMPLATES = frozenset({FIBER_MAINTENANCE_TEMPLATE, FIBER_ONPAGE_TEMPLATE})
+MAINTENANCE_START_TEMPLATE = "maintenance_start"
 MAINTENANCE_COMPLETE_SOURCE_TEMPLATES = ("maintenance_notice", "fiber_maintenance_notice")
 
 
@@ -418,6 +418,60 @@ TEMPLATE_DEFINITIONS = {
             "Ticket / change reference: {{reference}}\n"
             "{{fiber_details}}\n"
             "This message closes the previously issued maintenance notification."
+        ),
+    },
+    MAINTENANCE_START_TEMPLATE: {
+        "label": "Maintenance Start",
+        "description": "Notify recipients when a previously announced Maintenance or Fiber Maintenance window begins.",
+        "source_template_keys": MAINTENANCE_COMPLETE_SOURCE_TEMPLATES,
+        "allows_bcc": True,
+        "allows_cc": True,
+        "allows_attachments": False,
+        "fields": [
+            {"key": "ticket_title", "label": "Ticket title", "required": False, "max_length": 250},
+            {"key": "site", "label": "Site / service", "required": False, "max_length": 200},
+            {"key": "work_scope", "label": "Planned work", "required": False, "max_length": 2000},
+            {"key": "start_time", "label": "Scheduled maintenance start", "required": False, "max_length": 120},
+            {"key": "end_time", "label": "Expected completion", "required": False, "max_length": 120},
+            {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80, "visible": False},
+            {"key": "impact", "label": "Risk", "required": False, "max_length": 2000},
+            {"key": "disruption", "label": "Disruption", "required": False, "max_length": 40},
+            {"key": "operational_impact", "label": "Operational impact", "required": False, "max_length": 2000},
+            {"key": "change_department", "label": "Department performing the change", "required": False, "max_length": 80},
+            {"key": "departmental_impact", "label": "Departmental impact", "required": False, "max_length": 2000},
+            {"key": "network_orders", "label": "Network Orders/Circuit IDs", "required": False, "max_length": 20000,
+             "multiline": True},
+            {"key": "a_location", "label": "A location", "required": False, "max_length": 20000,
+             "multiline": True},
+            {"key": "z_location", "label": "Z location", "required": False, "max_length": 20000,
+             "multiline": True},
+            {"key": "mop_type", "label": "MOP Type", "required": False, "max_length": 80},
+            {"key": "expected_impact", "label": "Expected impact", "required": False, "max_length": 2000,
+             "multiline": True},
+            {"key": "contact", "label": "Operations/Fiber contact", "required": False, "max_length": 2000,
+             "multiline": True},
+            {"key": "reference", "label": "Ticket / change reference", "required": False, "max_length": 200},
+        ],
+        "default_subject": "MAINTENANCE STARTED — {{ticket_title}}",
+        "default_body": (
+            "MAINTENANCE START NOTIFICATION\n\n"
+            "Ticket title: {{ticket_title}}\n"
+            "Site / service: {{site}}\n"
+            "Planned work: {{work_scope}}\n"
+            "Scheduled maintenance window: {{start_time}} to {{end_time}} {{timezone}}\n"
+            "Network Orders/Circuit IDs: {{network_orders}}\n"
+            "A location: {{a_location}}\n"
+            "Z location: {{z_location}}\n"
+            "Risk: {{impact}}\n"
+            "Disruption: {{disruption}}\n"
+            "Department performing the change: {{change_department}}\n"
+            "Operational impact: {{operational_impact}}\n"
+            "Departmental impact: {{departmental_impact}}\n"
+            "MOP Type: {{mop_type}}\n"
+            "Expected impact: {{expected_impact}}\n"
+            "Contact: {{contact}}\n"
+            "Ticket / change reference: {{reference}}\n\n"
+            "This notification confirms the scheduled maintenance has started."
         ),
     },
 }
@@ -834,6 +888,13 @@ def get_operational_email_templates() -> dict:
         templates = []
         for key, definition in TEMPLATE_DEFINITIONS.items():
             row = rows[key]
+            default_cc = row.default_cc or ""
+            if key == FIBER_MAINTENANCE_TEMPLATE:
+                default_cc = ", ".join(_unique_field_values([
+                    sender_recipient, *normalize_recipient_list(row.default_cc),
+                ]))
+            elif key == FIBER_ONPAGE_TEMPLATE:
+                default_cc = sender_recipient
             templates.append({
                 "key": key,
                 "label": definition["label"],
@@ -849,9 +910,7 @@ def get_operational_email_templates() -> dict:
                     else "" if key in {FIBER_MAINTENANCE_TEMPLATE, FIBER_ONPAGE_TEMPLATE}
                     else row.default_to or ""
                 ),
-                "default_cc": (
-                    sender_recipient if key in FIBER_GLOBAL_CC_TEMPLATES else row.default_cc or ""
-                ),
+                "default_cc": default_cc,
                 "default_bcc": (row.default_bcc or "") if definition["allows_bcc"] else "",
                 "updated_at": row.updated_at.isoformat() if row.updated_at else None,
             })
@@ -925,8 +984,6 @@ def update_operational_email_template(template_key: str, values: dict, actor_use
         raise ValueError("Fiber Maintenance To recipients are selected from the company contact directory.")
     if template_key == FIBER_ONPAGE_TEMPLATE and {"default_to", "default_cc"}.intersection(values):
         raise ValueError("Fiber Outage ONPAGE To/Cc recipients are selected by the composer and Global From profile.")
-    if template_key == FIBER_MAINTENANCE_TEMPLATE and "default_cc" in values:
-        raise ValueError("Fiber Maintenance Cc uses the active Global From address.")
     with SessionLocal() as db:
         row = db.query(OperationalEmailTemplate).filter_by(template_key=template_key).first()
         if not row:
@@ -956,6 +1013,9 @@ def update_operational_email_template(template_key: str, values: dict, actor_use
             if field_name == "default_bcc" and not TEMPLATE_DEFINITIONS[template_key]["allows_bcc"]:
                 raise ValueError("This email template does not support BCC recipients.")
             normalized = normalize_recipient_list(values[field_name])
+            if template_key == FIBER_MAINTENANCE_TEMPLATE and field_name == "default_cc":
+                global_sender = _global_sender_recipient(db.query(SystemConfig).first()).casefold()
+                normalized = [recipient for recipient in normalized if recipient.casefold() != global_sender]
             setattr(row, field_name, ", ".join(normalized))
         row.updated_by_user_id = actor_user_id
         row.updated_at = datetime.utcnow()
@@ -1213,7 +1273,7 @@ def _prepare_message(db, template_key: str, values: dict, *, for_schedule: bool 
             parent_fields = dict(parent_fields)
             parent_fields.setdefault("network_orders", parent_fields.get("circuit", ""))
             parent_fields.setdefault("company", parent_fields.get("provider", ""))
-        if template_key == "maintenance_complete" and parent.template_key == "fiber_maintenance_notice":
+        if template_key in {"maintenance_complete", MAINTENANCE_START_TEMPLATE} and parent.template_key == FIBER_MAINTENANCE_TEMPLATE:
             parent_fields = dict(parent_fields)
             route = " to ".join(
                 value for value in (parent_fields.get("a_location"), parent_fields.get("z_location"))
@@ -1221,7 +1281,8 @@ def _prepare_message(db, template_key: str, values: dict, *, for_schedule: bool 
             )
             if route and len(route) <= _fields_by_key(template_key)["site"]["max_length"]:
                 parent_fields.setdefault("site", route)
-            parent_fields["fiber_details"] = _fiber_maintenance_completion_details(parent_fields)
+            if template_key == "maintenance_complete":
+                parent_fields["fiber_details"] = _fiber_maintenance_completion_details(parent_fields)
     elif parent_id is not None:
         raise ValueError("This email template does not support a linked source email.")
 
@@ -1290,8 +1351,9 @@ def _prepare_message(db, template_key: str, values: dict, *, for_schedule: bool 
         cc_input = ""
         bcc_input = ""
     elif template_key == FIBER_MAINTENANCE_TEMPLATE:
-        # Company fan-out supplies directory contacts in To and fixes Cc to Global From.
-        cc_input = global_sender
+        # Company fan-out always copies Global From while allowing configured and per-send Cc.
+        extra_cc = cc_input if "cc" in values else template.default_cc
+        cc_input = ", ".join([global_sender, extra_cc or ""])
     elif template_key == FIBER_ONPAGE_TEMPLATE:
         # This variant pages the selected ONPAGE contacts and copies Global From on Cc.
         cc_input = global_sender
@@ -1311,6 +1373,18 @@ def _prepare_message(db, template_key: str, values: dict, *, for_schedule: bool 
             bcc_input = bcc_input or ", ".join(parent.bcc_recipients or [])
         cc_input = cc_input or template.default_cc
         bcc_input = bcc_input or template.default_bcc
+    elif template_key in {"maintenance_complete", MAINTENANCE_START_TEMPLATE} and parent:
+        to_input = to_input or ", ".join(parent.to_recipients or [])
+        if "cc" not in values:
+            cc_input = ", ".join([
+                *list(parent.cc_recipients or []), template.default_cc or "",
+            ])
+        inherited_bcc = list(parent.bcc_recipients or [])
+        requested_bcc = normalize_recipient_list(bcc_input or template.default_bcc)
+        bcc_input = ", ".join([*inherited_bcc, *requested_bcc])
+        to_input = to_input or template.default_to
+        if "cc" not in values:
+            cc_input = cc_input or template.default_cc
     elif parent:
         to_input = to_input or ", ".join(parent.to_recipients or [])
         cc_input = cc_input or ", ".join(parent.cc_recipients or [])
@@ -1440,7 +1514,6 @@ def _prepare_fiber_maintenance_messages(db, values: dict, *, for_schedule: bool)
             "subject": template.default_subject,
             "body": template.default_body,
             "to": ", ".join(_unique_field_values(contact.email for contact in company_contacts)),
-            "cc": global_sender,
         }
         prepared.append((group["company"], _prepare_message(
             db, FIBER_MAINTENANCE_TEMPLATE, company_values, for_schedule=for_schedule,

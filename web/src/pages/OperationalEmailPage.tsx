@@ -353,7 +353,7 @@ export function OperationalEmailPage() {
   const maintenanceQuery = useQuery({
     queryKey: ["operational-email-maintenance-notices"],
     queryFn: () => api.get("/operational-email/maintenance-notices").then(response => response.data),
-    enabled: selectedKey === "maintenance_complete",
+    enabled: selectedKey === "maintenance_complete" || selectedKey === "maintenance_start",
   });
   const fiberOutagesQuery = useQuery({
     queryKey: ["operational-email-fiber-outages"],
@@ -405,7 +405,7 @@ export function OperationalEmailPage() {
     mutationFn: () => {
       const defaults = { ...templateDraft };
       if (FIBER_SENDER_TO_KEYS.has(selectedKey) || fiberOnpage || fiberMaintenance) delete defaults.default_to;
-      if (fiberOnpage || fiberMaintenance) delete defaults.default_cc;
+      if (fiberOnpage) delete defaults.default_cc;
       if (!selectedTemplate?.allows_bcc) delete defaults.default_bcc;
       if (!selectedTemplate?.allows_cc) {
         defaults.default_cc = "";
@@ -414,6 +414,12 @@ export function OperationalEmailPage() {
     },
     onSuccess: () => {
       setNotice({ message: "Shared template defaults saved." });
+      const sourceCc = ["maintenance_start", "maintenance_complete"].includes(selectedKey)
+        ? (maintenanceQuery.data || []).find((item: any) => item.id === Number(maintenanceNoticeId))?.cc || []
+        : [];
+      setCc(selectedTemplate?.allows_cc
+        ? uniqueAddresses([...String(templateDraft.default_cc || "").split(/[,;]/), ...sourceCc]).join(", ")
+        : "");
       queryClient.invalidateQueries({ queryKey: ["operational-email-templates"] });
     },
     onError: error => setNotice({ message: getApiErrorMessage(error, "Template defaults could not be saved."), error: true }),
@@ -487,6 +493,7 @@ export function OperationalEmailPage() {
         : { signature_id: Number(signatureChoice), use_default_signature: false }),
     attachments: attachments.map(({ filename, content_type, content_base64 }) => ({ filename, content_type, content_base64 })),
     ...(selectedKey === "maintenance_complete" ? { maintenance_notice_id: Number(maintenanceNoticeId) } : {}),
+    ...(selectedKey === "maintenance_start" ? { source_email_id: Number(maintenanceNoticeId) } : {}),
     ...((selectedKey === "fiber_outage_update" || selectedKey === "fiber_outage_resolution")
       ? { source_email_id: Number(fiberOutageId) }
       : {}),
@@ -532,18 +539,32 @@ export function OperationalEmailPage() {
   const selectMaintenanceNotice = (id: string) => {
     setMaintenanceNoticeId(id);
     const noticeItem = (maintenanceQuery.data || []).find((item: any) => item.id === Number(id));
-    if (!noticeItem) return;
+    if (!noticeItem || !selectedTemplate) return;
     const sourceFields: Record<string, string> = { ...(noticeItem.fields || {}) };
     if (noticeItem.template_key === "fiber_maintenance_notice") {
       const route = [sourceFields.a_location, sourceFields.z_location].filter(Boolean).join(" to ");
       if (!sourceFields.site && route.length <= 200) sourceFields.site = route;
-      sourceFields.fiber_details = fiberMaintenanceDetails(sourceFields);
-    } else {
+      if (selectedKey === "maintenance_complete") sourceFields.fiber_details = fiberMaintenanceDetails(sourceFields);
+    } else if (selectedKey === "maintenance_complete") {
       sourceFields.fiber_details = "";
     }
-    setFields(previous => ({ ...previous, ...sourceFields }));
-    if (!to.trim()) setTo((noticeItem.to || []).join(", "));
-    if (!cc.trim()) setCc((noticeItem.cc || []).join(", "));
+    setFields(Object.fromEntries(selectedTemplate.fields.map(field => [
+      field.key,
+      field.key === "timezone"
+        ? (templatesQuery.data?.timezone_abbreviation || "CST")
+        : String(sourceFields[field.key] || ""),
+    ])));
+    if (selectedKey === "maintenance_start") {
+      setTo((noticeItem.to || []).join(", "));
+    } else if (!to.trim()) {
+      setTo((noticeItem.to || []).join(", "));
+    }
+    if (selectedKey === "maintenance_start" || selectedKey === "maintenance_complete") {
+      setCc(uniqueAddresses([
+        ...String(selectedTemplate.default_cc || "").split(/[,;]/),
+        ...(noticeItem.cc || []),
+      ]).join(", "));
+    } else if (!cc.trim()) setCc((noticeItem.cc || []).join(", "));
     const previousAutomaticBcc = uniqueAddresses([
       ...autoBccEmailsRef.current,
       ...autoContactBccEmailsRef.current,
@@ -779,7 +800,7 @@ export function OperationalEmailPage() {
       </div>
 
       <div style={{ display: "grid", gap: "1rem" }}>
-        {selectedKey === "maintenance_complete" && <div style={cardStyle}>
+        {(selectedKey === "maintenance_complete" || selectedKey === "maintenance_start") && <div style={cardStyle}>
           <label><span style={labelStyle}>Previously sent Maintenance or Fiber Maintenance notification *</span>
             <select value={maintenanceNoticeId} onChange={event => selectMaintenanceNotice(event.target.value)} style={inputStyle}>
               <option value="">Select a sent maintenance notice</option>
@@ -818,7 +839,7 @@ export function OperationalEmailPage() {
           {!referenceDataQuery.isLoading && !referenceDataQuery.isError && !referenceData.network_orders.length && <small style={{ color: "var(--text-muted)" }}>{fiberMaintenance ? "No Network Orders/Circuit IDs are configured. Add the reference records and company contacts in Settings before sending." : "No Network Orders/Circuit IDs are configured. Enter the order, location details, and contacts manually below."}</small>}
           <small style={{ color: "var(--text-muted)" }}>Selecting a circuit automatically selects its full associated circuit group; you can uncheck linked circuits that are not affected. The Network Orders/Circuit IDs details field remains editable, and pasting configured IDs selects them. Fiber Maintenance requires configured records for company routing, and a send can include up to 50 circuits.</small>
           <small style={{ color: "var(--text-muted)" }}>{fiberMaintenance
-            ? "Each selected company receives a separate email with only its selected circuits and A/Z locations. Mapped Fiber contacts are in To; Global From is copied on Cc. Every selected company must have at least one Fiber email contact."
+            ? "Each selected company receives a separate email with only its selected circuits and A/Z locations. Mapped Fiber contacts are in To; Global From is always included on Cc alongside editable default and per-message recipients. Every selected company must have at least one Fiber email contact."
             : fiberOnpage
               ? "Selecting records or pasting configured IDs fills Network Orders/Circuit IDs and Fiber contact details. Enter the nearest crossroads in Location; Fiber emails are not added to BCC automatically."
               : "Selecting records or pasting configured IDs fills Network Orders/Circuit IDs and Fiber contact details. Enter the nearest crossroads in Location; matching Fiber contact emails are added to BCC."}</small>
@@ -891,7 +912,7 @@ export function OperationalEmailPage() {
           </label>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.75rem" }}>
             <label><span style={labelStyle}>{fiberMaintenance ? "To · selected companies' Fiber contacts *" : fiberOnpage ? "To · ONPAGE contacts *" : fiberToSender ? "To · Global From *" : "To *"}</span><input value={to} onChange={event => setTo(event.target.value)} readOnly={fiberToSender || fiberOnpage || fiberMaintenance} placeholder="person@example.com, team@example.com" style={{ ...inputStyle, opacity: fiberToSender || fiberOnpage || fiberMaintenance ? 0.8 : 1 }} /></label>
-            {selectedTemplate.allows_cc && <label><span style={labelStyle}>{fiberOnpage || fiberMaintenance ? "Cc · Global From" : "Cc"}</span><input value={cc} onChange={event => setCc(event.target.value)} readOnly={fiberOnpage || fiberMaintenance} style={{ ...inputStyle, opacity: fiberOnpage || fiberMaintenance ? 0.8 : 1 }} /></label>}
+            {selectedTemplate.allows_cc && <label><span style={labelStyle}>{fiberMaintenance ? "Cc · Global From always included" : fiberOnpage ? "Cc · Global From" : "Cc"}</span><input value={cc} onChange={event => setCc(event.target.value)} readOnly={fiberOnpage} style={{ ...inputStyle, opacity: fiberOnpage ? 0.8 : 1 }} /></label>}
             {selectedTemplate.allows_bcc && <label style={{ gridColumn: "1 / -1" }}><span style={labelStyle}>Bcc (hidden from recipients)</span><input value={bcc} onChange={event => setBcc(event.target.value)} style={inputStyle} /></label>}
           </div>
           <label><span style={labelStyle}>Subject *</span><input value={subject} maxLength={500} readOnly={fiberMaintenance} onChange={event => { setSubjectTouched(true); setSubject(event.target.value); }} style={{ ...inputStyle, opacity: fiberMaintenance ? 0.85 : 1 }} /></label>
@@ -968,8 +989,8 @@ export function OperationalEmailPage() {
       <label><span style={labelStyle}>Template</span><select value={selectedKey} onChange={event => selectTemplate(event.target.value)} style={inputStyle}>{templates.map(template => <option key={template.key} value={template.key}>{template.label}</option>)}</select></label>
       {!FIBER_SENDER_TO_KEYS.has(selectedKey) && !fiberOnpage && !fiberMaintenance
         ? <label><span style={labelStyle}>Default To</span><input value={String(templateDraft.default_to || "")} onChange={event => setTemplateDraft(previous => ({ ...previous, default_to: event.target.value }))} style={inputStyle} /></label>
-        : <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.76rem" }}>{fiberMaintenance ? "Fiber Maintenance To is selected from each circuit company's Fiber contacts; Cc is the active Global From address." : fiberOnpage ? "Fiber Outage ONPAGE Cc uses the Global From address; To is selected from ONPAGE contacts." : "Fiber To uses the active Global From address."}</p>}
-      {selectedTemplate.allows_cc && !fiberOnpage && !fiberMaintenance && <label><span style={labelStyle}>Default Cc</span><input value={String(templateDraft.default_cc || "")} onChange={event => setTemplateDraft(previous => ({ ...previous, default_cc: event.target.value }))} style={inputStyle} /></label>}
+        : <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.76rem" }}>{fiberMaintenance ? "Fiber Maintenance To is selected from each circuit company's Fiber contacts; Global From is always included in Cc." : fiberOnpage ? "Fiber Outage ONPAGE Cc uses the Global From address; To is selected from ONPAGE contacts." : "Fiber To uses the active Global From address."}</p>}
+      {selectedTemplate.allows_cc && !fiberOnpage && <label><span style={labelStyle}>{fiberMaintenance ? "Default Cc · Global From is always included" : "Default Cc"}</span><input value={String(templateDraft.default_cc || "")} onChange={event => setTemplateDraft(previous => ({ ...previous, default_cc: event.target.value }))} style={inputStyle} /></label>}
       {selectedTemplate.allows_bcc && <label><span style={labelStyle}>Default Bcc</span><input value={String(templateDraft.default_bcc || "")} onChange={event => setTemplateDraft(previous => ({ ...previous, default_bcc: event.target.value }))} style={inputStyle} /></label>}
       <label><span style={labelStyle}>Default subject · placeholders use {"{{field_name}}"}</span><input value={String(templateDraft.default_subject || "")} maxLength={500} onChange={event => setTemplateDraft(previous => ({ ...previous, default_subject: event.target.value }))} style={inputStyle} /></label>
       <label><span style={labelStyle}>Default message · available fields: {selectedTemplate.fields.filter(field => field.visible !== false).map(field => `{{${field.key}}}`).join(", ")}{selectedTemplate.fields.some(field => field.key === "timezone") ? ", {{timezone}} (automatic)" : ""}</span><textarea value={String(templateDraft.default_body || "")} maxLength={200000} rows={14} onChange={event => setTemplateDraft(previous => ({ ...previous, default_body: event.target.value }))} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.45, fontFamily: "var(--font-mono)" }} /></label>

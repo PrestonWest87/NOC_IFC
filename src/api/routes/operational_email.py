@@ -170,7 +170,7 @@ def deactivate_signature(signature_id: int, user=Depends(require_admin)):
 @router.post("/send")
 def send_email(body: ComposeOperationalEmailRequest, user=Depends(get_current_user)):
     """Persist and send one template-based operational email immediately."""
-    values = body.model_dump()
+    values = body.model_dump(exclude_unset=True)
     values["attachments"] = [item.model_dump() for item in body.attachments]
     try:
         result = email_service.send_operational_email(values, user.id)
@@ -186,7 +186,7 @@ def send_email(body: ComposeOperationalEmailRequest, user=Depends(get_current_us
 @router.post("/schedule")
 def schedule_email(body: ScheduleOperationalEmailRequest, user=Depends(get_current_user)):
     """Persist a one-time, daily, or weekly email without relying on API process memory."""
-    values = body.model_dump(exclude={"schedule"})
+    values = body.model_dump(exclude={"schedule"}, exclude_unset=True)
     values["attachments"] = [item.model_dump() for item in body.attachments]
     try:
         result = email_service.schedule_operational_email(

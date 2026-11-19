@@ -28,6 +28,12 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 - [x] Update migration, API/UI/source docs, local-only tests, and verify fresh/existing SQLite upgrades, Python suite, frontend/container builds, and dev Compose health.
 - [x] Review and push intended source/docs only to `dev`; preserve unrelated untracked integration-plan documents and keep test files unstaged.
 
+### Operational Email Cc Defaults and Maintenance Start — Completed
+
+- [x] Add administrator-configurable Fiber Maintenance default Cc, always include active Global From, and keep per-message Cc editable; verify Maintenance Complete defaults remain editable and combine with source Cc.
+- [x] Add Maintenance Start linked to a successfully sent Maintenance or Fiber Maintenance notice, carrying over source fields and recipients.
+- [x] Update API/UI/source documentation and local-only tests; verify 241 Python tests, API/web image builds, docs contracts, and `git diff --check`.
+
 ## Active Implementation Plan — Settings Email Contacts and Network Orders
 
 **Implementation branch:** `dev`. Keep this user-directed feature on `dev`; do not merge it into `main` or `architecture/monolith-to-decoupled` without a later request. Preserve unrelated untracked integration-plan documents and keep local-only tests unstaged.
