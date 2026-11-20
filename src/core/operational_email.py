@@ -122,12 +122,12 @@ TEMPLATE_DEFINITIONS = {
              "max_length": 2000, "visible": False},
             {"key": "circuit_ids", "label": "Legacy circuit IDs", "required": False, "max_length": 1000,
              "visible": False},
-            {"key": "network_orders", "label": "Network Orders/Circuit IDs", "required": False, "max_length": 20000,
-             "multiline": True},
+            {"key": "network_orders", "label": "Network Orders/Circuit IDs and A/Z locations",
+             "required": False, "max_length": 40000, "multiline": True},
             {"key": "a_location", "label": "A location", "required": False, "max_length": 20000,
-             "multiline": True},
+             "multiline": True, "visible": False},
             {"key": "z_location", "label": "Z location", "required": False, "max_length": 20000,
-             "multiline": True},
+             "multiline": True, "visible": False},
             {"key": "work_scope", "label": "Planned fiber work", "required": True, "max_length": 2000},
             {"key": "start_time", "label": "Maintenance start", "required": True, "max_length": 40,
              "input_type": "datetime-local"},
@@ -152,9 +152,8 @@ TEMPLATE_DEFINITIONS = {
         "default_body": (
             "FIBER MAINTENANCE NOTIFICATION\n\n"
             "Ticket title: {{ticket_title}}\n"
-            "A location: {{a_location}}\n"
-            "Z location: {{z_location}}\n"
-            "Network Orders/Circuit IDs: {{network_orders}}\n"
+            "Network Orders/Circuit IDs and A/Z locations:\n"
+            "{{network_orders}}\n"
             "Planned work: {{work_scope}}\n"
             "Maintenance window: {{start_time}} to {{end_time}} {{timezone}}\n"
             "Risk: {{impact}}\n"
@@ -439,12 +438,12 @@ TEMPLATE_DEFINITIONS = {
             {"key": "operational_impact", "label": "Operational impact", "required": False, "max_length": 2000},
             {"key": "change_department", "label": "Department performing the change", "required": False, "max_length": 80},
             {"key": "departmental_impact", "label": "Departmental impact", "required": False, "max_length": 2000},
-            {"key": "network_orders", "label": "Network Orders/Circuit IDs", "required": False, "max_length": 20000,
-             "multiline": True},
+            {"key": "network_orders", "label": "Network Orders/Circuit IDs and A/Z locations",
+             "required": False, "max_length": 70000, "multiline": True},
             {"key": "a_location", "label": "A location", "required": False, "max_length": 20000,
-             "multiline": True},
+             "multiline": True, "visible": False},
             {"key": "z_location", "label": "Z location", "required": False, "max_length": 20000,
-             "multiline": True},
+             "multiline": True, "visible": False},
             {"key": "mop_type", "label": "MOP Type", "required": False, "max_length": 80},
             {"key": "expected_impact", "label": "Expected impact", "required": False, "max_length": 2000,
              "multiline": True},
@@ -459,9 +458,8 @@ TEMPLATE_DEFINITIONS = {
             "Site / service: {{site}}\n"
             "Planned work: {{work_scope}}\n"
             "Scheduled maintenance window: {{start_time}} to {{end_time}} {{timezone}}\n"
-            "Network Orders/Circuit IDs: {{network_orders}}\n"
-            "A location: {{a_location}}\n"
-            "Z location: {{z_location}}\n"
+            "Network Orders/Circuit IDs and A/Z locations:\n"
+            "{{network_orders}}\n"
             "Risk: {{impact}}\n"
             "Disruption: {{disruption}}\n"
             "Department performing the change: {{change_department}}\n"
@@ -1060,17 +1058,48 @@ def _get_selected_signature(db, values: dict) -> OperationalEmailSignature | Non
     ).order_by(OperationalEmailSignature.id).first()
 
 
+def _format_network_order_details(records) -> str:
+    """Keep each selected circuit ID paired with its A/Z endpoints."""
+    return "\n".join(
+        f"{row.circuit_network_order_id} — A: {row.a_location} → Z: {row.z_location}"
+        for row in records
+    )
+
+
+def _legacy_fiber_network_order_details(fields: dict) -> str:
+    """Pair older saved ID/location lists when their original ordering is recoverable."""
+    network_orders = str(fields.get("network_orders") or "").strip()
+    if " — A: " in network_orders:
+        return network_orders
+
+    def split_values(value):
+        return [item.strip() for item in re.split(r"[;\r\n]+", str(value or "")) if item.strip()]
+
+    circuit_ids = split_values(network_orders)
+    a_locations = split_values(fields.get("a_location"))
+    z_locations = split_values(fields.get("z_location"))
+    if circuit_ids and len(circuit_ids) == len(a_locations) == len(z_locations):
+        return "\n".join(
+            f"{circuit_id} — A: {a_location} → Z: {z_location}"
+            for circuit_id, a_location, z_location in zip(circuit_ids, a_locations, z_locations)
+        )
+    return "\n".join(value for value in (
+        f"Network Orders/Circuit IDs: {network_orders}" if network_orders else "",
+        f"A locations: {fields.get('a_location', '')}" if fields.get("a_location") else "",
+        f"Z locations: {fields.get('z_location', '')}" if fields.get("z_location") else "",
+    ) if value)
+
+
 def _fiber_maintenance_completion_details(fields: dict) -> str:
     """Format source-only Fiber details for a Maintenance Complete email."""
     details = []
-    for key, label in (
-        ("network_orders", "Network Orders/Circuit IDs"),
-        ("a_location", "A location"),
-        ("z_location", "Z location"),
-        ("mop_type", "MOP Type"),
-        ("expected_impact", "Expected impact"),
+    network_orders = _legacy_fiber_network_order_details(fields)
+    for label, value in (
+        ("Network Orders/Circuit IDs and A/Z locations", network_orders),
+        ("MOP Type", fields.get("mop_type")),
+        ("Expected impact", fields.get("expected_impact")),
     ):
-        value = str(fields.get(key) or "").strip()
+        value = str(value or "").strip()
         if value:
             details.append(f"{label}: {value}")
     if not details:
@@ -1186,7 +1215,11 @@ def _resolve_network_order_contacts(db, template_key: str, fields: dict[str, str
     }
     field_schema = _fields_by_key(template_key)
     automatic_fields = {
-        "network_orders": "; ".join(_unique_field_values(row.circuit_network_order_id for row in records)),
+        "network_orders": (
+            _format_network_order_details(records)
+            if template_key == FIBER_MAINTENANCE_TEMPLATE
+            else "\n".join(_unique_field_values(row.circuit_network_order_id for row in records))
+        ),
     }
     for key in ("a_location", "z_location"):
         if key in field_schema:
@@ -1275,6 +1308,8 @@ def _prepare_message(db, template_key: str, values: dict, *, for_schedule: bool 
             parent_fields.setdefault("company", parent_fields.get("provider", ""))
         if template_key in {"maintenance_complete", MAINTENANCE_START_TEMPLATE} and parent.template_key == FIBER_MAINTENANCE_TEMPLATE:
             parent_fields = dict(parent_fields)
+            if template_key == MAINTENANCE_START_TEMPLATE:
+                parent_fields["network_orders"] = _legacy_fiber_network_order_details(parent_fields)
             route = " to ".join(
                 value for value in (parent_fields.get("a_location"), parent_fields.get("z_location"))
                 if value
@@ -1494,9 +1529,7 @@ def _prepare_fiber_maintenance_messages(db, values: dict, *, for_schedule: bool)
         group_fields.update({
             "network_order_ids": "",
             "excluded_network_order_ids": "",
-            "network_orders": "; ".join(_unique_field_values(
-                record.circuit_network_order_id for record in company_records
-            )),
+            "network_orders": _format_network_order_details(company_records),
             "a_location": "; ".join(_unique_field_values(
                 record.a_location for record in company_records
             )),

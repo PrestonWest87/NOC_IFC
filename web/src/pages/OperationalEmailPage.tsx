@@ -79,14 +79,30 @@ function renderTemplate(text: string, fields: Record<string, string>): string {
 }
 
 function fiberMaintenanceDetails(fields: Record<string, string>): string {
+  const circuitDetails = fiberCircuitDetails(fields);
   const details = [
-    ["Network Orders/Circuit IDs", fields.network_orders],
-    ["A location", fields.a_location],
-    ["Z location", fields.z_location],
+    ["Network Orders/Circuit IDs and A/Z locations", circuitDetails],
     ["MOP Type", fields.mop_type],
     ["Expected impact", fields.expected_impact],
   ].flatMap(([label, value]) => value?.trim() ? [`${label}: ${value.trim()}`] : []);
   return details.length ? `\nFIBER MAINTENANCE DETAILS\n${details.join("\n")}\n` : "";
+}
+
+function fiberCircuitDetails(fields: Record<string, string>): string {
+  const networkOrders = String(fields.network_orders || "").trim();
+  if (networkOrders.includes(" — A: ")) return networkOrders;
+  const split = (value: string) => value.split(/[;\r\n]+/).map(item => item.trim()).filter(Boolean);
+  const circuitIds = split(networkOrders);
+  const aLocations = split(fields.a_location || "");
+  const zLocations = split(fields.z_location || "");
+  if (circuitIds.length && circuitIds.length === aLocations.length && circuitIds.length === zLocations.length) {
+    return circuitIds.map((id, index) => `${id} — A: ${aLocations[index]} → Z: ${zLocations[index]}`).join("\n");
+  }
+  return [
+    networkOrders && `Network Orders/Circuit IDs: ${networkOrders}`,
+    fields.a_location && `A locations: ${fields.a_location}`,
+    fields.z_location && `Z locations: ${fields.z_location}`,
+  ].filter(Boolean).join("\n");
 }
 
 function chicagoInputValue(date: Date): string {
@@ -542,6 +558,7 @@ export function OperationalEmailPage() {
     if (!noticeItem || !selectedTemplate) return;
     const sourceFields: Record<string, string> = { ...(noticeItem.fields || {}) };
     if (noticeItem.template_key === "fiber_maintenance_notice") {
+      if (selectedKey === "maintenance_start") sourceFields.network_orders = fiberCircuitDetails(sourceFields);
       const route = [sourceFields.a_location, sourceFields.z_location].filter(Boolean).join(" to ");
       if (!sourceFields.site && route.length <= 200) sourceFields.site = route;
       if (selectedKey === "maintenance_complete") sourceFields.fiber_details = fiberMaintenanceDetails(sourceFields);
@@ -693,7 +710,11 @@ export function OperationalEmailPage() {
     const inherited: Record<string, string> = {
       network_order_ids: expandedIds.join(", "),
       excluded_network_order_ids: Array.from(relevantExclusions).join(", "),
-      network_orders: orderIds.join("; "),
+      network_orders: fiberMaintenance
+        ? orders.map(order =>
+          `${order.circuit_network_order_id} — A: ${order.a_location} → Z: ${order.z_location}`,
+        ).join("\n")
+        : orderIds.join("\n"),
       contact: matchingContacts.map(contact => contact.phone ? `${contact.name} (${contact.phone})` : contact.name).join("; "),
     };
     if (selectedTemplate?.fields.some(field => field.key === "a_location")) inherited.a_location = aLocations.join("; ");
