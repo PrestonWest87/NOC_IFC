@@ -430,7 +430,7 @@ Compatibility endpoint for the user directory; requires `Tab: Settings -> Users 
 
 Both reads require the Settings & Admin page plus their corresponding tab grant. Email Contacts returns `{fiber:[{id,name,company,email,phone,sort_order}],onpage:[{id,department,email,sort_order}]}`. Network Orders returns `{records:[{id,a_location,z_location,circuit_network_order_id,company,associated_circuit_network_order_ids,sort_order}]}`.
 
-Associated circuit IDs must reference one existing Network Orders & Circuits row. Settings replacements normalize links reciprocally; Operational Email selectors include the complete linked group.
+Associated circuit IDs must reference one existing Network Orders & Circuits row. Settings replacements normalize links reciprocally; for Operational Email selection, each explicitly selected record includes only its immediate associations.
 
 ## Application Settings (`/application-settings`)
 
@@ -644,7 +644,7 @@ Maintenance notifications include a ticket title, date/time pickers, Risk (`None
 
 Fiber outage updates and resolution messages may be sent repeatedly and remain linked to their original ticket. Fiber Maintenance and its linked Maintenance Start/Complete messages keep each circuit ID paired with its A/Z locations on a separate line. Other templates offer multi-select contact lookup plus editable recipient fields. After-Hours ONPAGE offers multi-select ONPAGE contacts for To and has no Cc/Bcc fields. Morning Report body is the latest `SystemConfig.rolling_summary` shift analysis from Global Dashboards, refreshed before delivery; it is sent as stored, without a date, window, title, or executive-summary wrapper.
 
-Selecting a Network Order/Circuit automatically includes its reciprocal associated-circuit group, including chains and cycles, in the composer and server-side message preparation. Operators can unselect individual linked circuits for a particular message; manual Network Orders/Circuit IDs entry remains available, and matching configured IDs expand their linked group.
+Selecting a Network Order/Circuit includes only that record's immediate associated circuits; associations of auto-included circuits are not followed. Operators can unselect an immediate association or select another circuit explicitly to include its own direct associations. Matching configured IDs pasted into the details field follow the same one-level rule.
 
 Selected signature name/content, recipients, message fields, and attachments are snapshotted when a send or schedule is created. A scheduled Morning Report refreshes only its shift-analysis source at delivery time.
 

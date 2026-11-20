@@ -1120,7 +1120,7 @@ def _unique_field_values(values) -> list[str]:
 
 
 def _selected_network_order_records(db, fields: dict) -> list[NetworkOrderCircuit]:
-    """Return selected records plus their complete, cycle-safe associated circuit group."""
+    """Return explicitly selected records plus their immediate associated circuits."""
     if not isinstance(fields, dict):
         raise ValueError("Template fields must be an object.")
     raw_ids = fields.get("network_order_ids", "") or ""
@@ -1166,16 +1166,11 @@ def _selected_network_order_records(db, fields: dict) -> list[NetworkOrderCircui
     for row in records:
         records_by_circuit_id.setdefault(row.circuit_network_order_id.strip().casefold(), []).append(row)
 
-    queue = list(selected_ids)
-    queued = set(queue)
     excluded = set(excluded_ids)
     relevant_exclusions = set()
-    selected_records = []
-    position = 0
-    while position < len(queue):
-        row = records_by_id[queue[position]]
-        position += 1
-        selected_records.append(row)
+    selected_records = [records_by_id[reference_id] for reference_id in selected_ids]
+    selected_record_ids = set(selected_ids)
+    for row in selected_records.copy():
         associated_ids = row.associated_circuit_network_order_ids or []
         if not isinstance(associated_ids, list):
             raise ValueError("Stored associated circuit IDs are invalid; repair the Network Orders & Circuits table.")
@@ -1189,11 +1184,11 @@ def _selected_network_order_records(db, fields: dict) -> list[NetworkOrderCircui
             if target_id in excluded:
                 relevant_exclusions.add(target_id)
                 continue
-            if target_id not in queued:
-                queued.add(target_id)
-                queue.append(target_id)
-                if len(queue) > 50:
-                    raise ValueError("No more than 50 network-order records can be selected, including associated circuits.")
+            if target_id not in selected_record_ids:
+                selected_record_ids.add(target_id)
+                selected_records.append(matches[0])
+                if len(selected_records) > 50:
+                    raise ValueError("No more than 50 network-order records can be selected, including immediate associations.")
     fields["network_order_ids"] = ", ".join(str(row.id) for row in selected_records)
     fields["excluded_network_order_ids"] = ", ".join(
         str(reference_id) for reference_id in excluded_ids if reference_id in relevant_exclusions

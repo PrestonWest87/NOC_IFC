@@ -192,7 +192,7 @@ export function NetworkOrdersCircuitsTab({ canManage }: { canManage: boolean }) 
   return <div style={{ display: "grid", gap: "1rem" }}>
     <div>
       <h3 style={{ margin: "0 0 0.35rem", color: "var(--text-primary)" }}>Network Orders &amp; Circuits</h3>
-      <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.78rem" }}>Maintain A/Z circuit references. Associated circuit links are reciprocal and the email composer includes the full linked group. CSV supports an optional semicolon-separated Associated Circuit/Network Order IDs column.</p>
+      <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.78rem" }}>Maintain A/Z circuit references. Associated circuit links are reciprocal; Operational Email includes only immediate associations of explicitly selected circuits. CSV supports an optional semicolon-separated Associated Circuit/Network Order IDs column.</p>
     </div>
     {notice && <div role={notice.error ? "alert" : "status"} style={{ ...cardStyle, padding: "0.65rem", color: notice.error ? "var(--accent-red)" : "var(--accent-green)" }}>{notice.message}</div>}
     <section style={{ ...cardStyle, minWidth: 0 }}>
