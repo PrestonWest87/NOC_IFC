@@ -7,6 +7,7 @@ import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
 import { getAllowedTabs, hasActionPermission } from "../utils/permissions";
 import { getApiErrorMessage } from "../utils/api";
+import { markdownToHtml } from "../utils/markdown";
 import { formatInChicago } from "../utils/timezone";
 import { ScatterplotLayer, GeoJsonLayer, BitmapLayer } from "@deck.gl/layers";
 import type { MapViewState } from "@deck.gl/core";
@@ -2156,6 +2157,8 @@ function buildSitrepHtml(analytics: any, masterAffectedSites: any[], briefing: s
   const alertHtml = nws.length
     ? `<ol>${nws.map(row => `<li><b>${escapeHtml(row.name)}</b>: ${row.value} site${row.value === 1 ? "" : "s"}</li>`).join("")}</ol>`
     : "<p>No active watches or warnings reported.</p>";
+  const briefingHtml = markdownToHtml(briefing || "");
+  const notesHtml = markdownToHtml(notes || "None provided.");
 
   return `
     <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
@@ -2164,18 +2167,18 @@ function buildSitrepHtml(analytics: any, masterAffectedSites: any[], briefing: s
         <b>Total Assets Monitored:</b> ${totalSites}<br/>
         <b>Assets at Risk:</b> ${atRisk} (${riskPct}%)<br/>
         <b>Critical (P1) Exposures:</b> ${p1AtRisk}<br/>
-        <b>Highest Threat Level:</b> ${highestRisk}
+        <b>Highest Threat Level:</b> ${escapeHtml(String(highestRisk))}
       </div>
       <div style="background-color: #ffffff; padding: 15px; border: 1px solid #dee2e6; border-radius: 5px; margin-top: 20px;">
         <h3 style='color:#2980b9; margin-top: 0;'>AI Meteorological Brief</h3>
-        <p style='color: #495057; line-height: 1.5;'>${(briefing || "").replace(/\n/g, "<br>")}</p>
+        <div style='color: #495057; line-height: 1.5;'>${briefingHtml}</div>
       </div>
        <h3 style='color:#2980b9;'>Exposure by District</h3>
        ${districtHtml}
        <h3 style='color:#2980b9;'>Warning and Watch Counts</h3>
        ${alertHtml}
        <h3 style='color:#2980b9;'>Analyst Notes</h3>
-      <p style='color: #495057; line-height: 1.5;'>${(notes || "None provided.").replace(/\n/g, "<br>")}</p>
+       <div style='color: #495057; line-height: 1.5;'>${notesHtml}</div>
     </div>
   `;
 }
@@ -2216,7 +2219,7 @@ function buildWeatherChartSvg(analytics: any): string {
 
 function buildHazardHtml(masterAffectedSites: any[]) {
   const rows = (masterAffectedSites || []).slice(0, 50).map((s: any) =>
-    `<tr><td>${s["Monitored Site"] || ""}</td><td>${s.Priority || ""}</td><td>${s.Hazard || ""}</td><td>${s.Severity || ""}</td></tr>`
+    `<tr><td>${escapeHtml(String(s["Monitored Site"] || ""))}</td><td>${escapeHtml(String(s.Priority || ""))}</td><td>${escapeHtml(String(s.Hazard || ""))}</td><td>${escapeHtml(String(s.Severity || ""))}</td></tr>`
   ).join("");
   return `
     <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">

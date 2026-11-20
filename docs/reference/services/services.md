@@ -630,15 +630,15 @@ Returns compact fetch age, last attempt/success, error, status code, duration, f
 
 **Returns:** `str` -- Full HTML email string.
 
-**Dependencies:** `SystemConfig`, `SessionLocal`, `re`
+**Dependencies:** `SystemConfig`, `SessionLocal`, `re`, `src.utils.markdown.markdown_to_html`
 
-**Flow:** Fetches risk levels from DB if not provided. Determines overall risk as max of global and internal. Builds colored banners and converts markdown to HTML using regex substitutions. Wraps in styled email template.
+**Flow:** Fetches risk levels from DB if not provided. Determines overall risk as max of global and internal. Builds colored banners, converts the report with `src.utils.markdown.markdown_to_html()`, and wraps the safe HTML fragments in the styled email template.
 
 ---
 
 ### `generate_outlook_html_report(intel: dict) -> str`
 
-**Purpose:** Generates a static fallback Outlook-safe HTML report.
+**Purpose:** Generates a static fallback Outlook-safe HTML report, rendering its Markdown brief fields with the shared safe renderer.
 
 **Parameters:**
 - `intel` (dict) -- Intelligence data with unified_risk, physical_score, physical_brief, cyber_score, cyber_brief, timestamp

@@ -7,6 +7,7 @@ compatibility operations; focused algorithms live in `src.services.*`.
 """
 
 import logging
+from html import escape
 
 logger = logging.getLogger(__name__)
 import requests
@@ -50,6 +51,7 @@ from src.core.site_contact_validation import (
     normalize_site_contact_value,
     normalize_site_contacts,
 )
+from src.utils.markdown import markdown_to_html
 
 LOCAL_TZ = ZoneInfo("America/Chicago")
 VALID_THEMES = {
@@ -2993,8 +2995,6 @@ def generate_and_save_internal_risk_snapshot():
 
     return cis_data
 
-import re
-
 def generate_unified_brief_email_html(report_time, markdown_content, global_risk=None, internal_risk=None):
     """Render a Unified Brief email with risk-tier banners and its supplied report body."""
     if not global_risk or not internal_risk:
@@ -3054,42 +3054,16 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
                 Disclaimers
             </p>
             <p style="font-size:12.5px; color:#4b5563; line-height:1.5; margin:0 0 8px 0;">
-                <strong>OSINT Correlation:</strong> {osint_text}
+                <strong>OSINT Correlation:</strong> {escape(osint_text)}
             </p>
             <p style="font-size:12.5px; color:#4b5563; line-height:1.5; margin:0;">
-                <strong>AI-Generated Content:</strong> {ai_text}
+                <strong>AI-Generated Content:</strong> {escape(ai_text)}
             </p>
         </div>
         '''
         markdown_content = markdown_content.replace(disclaimer_match.group(0), "").strip()
 
-    def native_md_to_html(text):
-        """Convert the supported report Markdown subset to email-safe HTML fragments."""
-        text = text.replace('\r', '').strip()
-
-        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#111827; font-size:22px; font-weight:600; margin-bottom:10px; margin-top:0;">\1</h1>', text, flags=re.MULTILINE)
-        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#111827; font-size:18px; font-weight:600; border-bottom:2px solid #e5e7eb; padding-bottom:8px; margin-top:25px; margin-bottom:12px;">\1</h2>', text, flags=re.MULTILINE)
-        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#374151; font-size:16px; margin-bottom:5px; margin-top:15px;">\1</h3>', text, flags=re.MULTILINE)
-
-        text = re.sub(r'\*\*(.*?)\*\*', r'<strong style="color:#111827;">\1</strong>', text)
-        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#3498db; text-decoration:none;">\1</a>', text)
-
-        text = re.sub(r'^\* (.*?)$', r'<div style="margin-bottom:6px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
-        text = re.sub(r'^- (.*?)$', r'<div style="margin-bottom:6px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
-
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        text = text.replace('\n', '<br>')
-
-        text = re.sub(r'(<br>)*<h', '<h', text)
-        text = re.sub(r'</h1>(<br>)*', '</h1>', text)
-        text = re.sub(r'</h2>(<br>)*', '</h2>', text)
-        text = re.sub(r'</h3>(<br>)*', '</h3>', text)
-        text = re.sub(r'(<br>)*<div style="margin-bottom: 6px', '<div style="margin-bottom: 6px', text)
-        text = re.sub(r'</div>(<br>)*', '</div>', text)
-
-        return text
-
-    raw_html = disclaimer_html + native_md_to_html(markdown_content)
+    raw_html = disclaimer_html + markdown_to_html(markdown_content)
 
     cyber_line = (
         f'The current Internal Threat Posture of {internal_display} '
@@ -3103,7 +3077,7 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
                 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fa; border:1px solid #e5e7eb; border-radius:8px;">
                     <tr><td align="center" style="padding:15px 10px;">
                         <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Unified Posture</div>
-                        <div style="background-color:{overall_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{overall_display}</div>
+                        <div style="background-color:{overall_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{escape(overall_display)}</div>
                     </td></tr>
                 </table>
             </td>
@@ -3111,7 +3085,7 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
                 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fa; border:1px solid #e5e7eb; border-radius:8px;">
                     <tr><td align="center" style="padding:15px 10px;">
                         <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Global Risk</div>
-                        <div style="background-color:{global_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{global_display}</div>
+                        <div style="background-color:{global_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{escape(global_display)}</div>
                     </td></tr>
                 </table>
             </td>
@@ -3119,7 +3093,7 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
                 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fa; border:1px solid #e5e7eb; border-radius:8px;">
                     <tr><td align="center" style="padding:15px 10px;">
                         <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Internal Cyber Risk</div>
-                        <div style="background-color:{internal_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{internal_display}</div>
+                        <div style="background-color:{internal_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{escape(internal_display)}</div>
                     </td></tr>
                 </table>
             </td>
@@ -3133,7 +3107,7 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
 
             <div style="background-color:#1f2937; padding:25px 30px; text-align:left;">
                 <h1 style="color:#ffffff; margin:0 0 5px 0; font-size:22px; font-weight:600; letter-spacing:-0.5px;">Executive Unified Risk Brief</h1>
-                <p style="color:#9ca3af; margin:0; font-size:13px;">Generated: {report_time}</p>
+                <p style="color:#9ca3af; margin:0; font-size:13px;">Generated: {escape(str(report_time))}</p>
             </div>
 
             <div style="padding:30px 30px 10px 30px; font-size:14px; line-height:1.6; color:#374151;">
@@ -3141,7 +3115,7 @@ def generate_unified_brief_email_html(report_time, markdown_content, global_risk
                 {banners_html}
 
                 <p style="font-size:14px; line-height:1.6; color:#374151; margin:0 0 15px 0;">
-                    <strong>{cyber_line}</strong>
+                    <strong>{escape(cyber_line)}</strong>
                 </p>
 
                 <div>
@@ -3226,36 +3200,16 @@ def generate_global_brief_email_html(report_time, markdown_content, global_risk=
                 Disclaimers
             </p>
             <p style="font-size:12.5px; color:#4b5563; line-height:1.5; margin:0 0 8px 0;">
-                <strong>OSINT Correlation:</strong> {osint_text}
+                <strong>OSINT Correlation:</strong> {escape(osint_text)}
             </p>
             <p style="font-size:12.5px; color:#4b5563; line-height:1.5; margin:0;">
-                <strong>AI-Generated Content:</strong> {ai_text}
+                <strong>AI-Generated Content:</strong> {escape(ai_text)}
             </p>
         </div>
         '''
         markdown_content = markdown_content.replace(disclaimer_match.group(0), "").strip()
 
-    def native_md_to_html(text):
-        """Convert the supported report Markdown subset to email-safe HTML fragments."""
-        text = text.replace('\r', '').strip()
-        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#111827; font-size:22px; font-weight:600; margin-bottom:10px; margin-top:0;">\1</h1>', text, flags=re.MULTILINE)
-        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#111827; font-size:18px; font-weight:600; border-bottom:2px solid #e5e7eb; padding-bottom:8px; margin-top:25px; margin-bottom:12px;">\1</h2>', text, flags=re.MULTILINE)
-        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#374151; font-size:16px; margin-bottom:5px; margin-top:15px;">\1</h3>', text, flags=re.MULTILINE)
-        text = re.sub(r'\*\*(.*?)\*\*', r'<strong style="color:#111827;">\1</strong>', text)
-        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#3498db; text-decoration:none;">\1</a>', text)
-        text = re.sub(r'^\* (.*?)$', r'<div style="margin-bottom:6px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
-        text = re.sub(r'^- (.*?)$', r'<div style="margin-bottom:6px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        text = text.replace('\n', '<br>')
-        text = re.sub(r'(<br>)*<h', '<h', text)
-        text = re.sub(r'</h1>(<br>)*', '</h1>', text)
-        text = re.sub(r'</h2>(<br>)*', '</h2>', text)
-        text = re.sub(r'</h3>(<br>)*', '</h3>', text)
-        text = re.sub(r'(<br>)*<div style="margin-bottom: 6px', '<div style="margin-bottom: 6px', text)
-        text = re.sub(r'</div>(<br>)*', '</div>', text)
-        return text
-
-    raw_html = disclaimer_html + native_md_to_html(markdown_content)
+    raw_html = disclaimer_html + markdown_to_html(markdown_content)
 
     cyber_line = (
         f'The current Global Threat Posture of {global_display} '
@@ -3269,7 +3223,7 @@ def generate_global_brief_email_html(report_time, markdown_content, global_risk=
                 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fa; border:1px solid #e5e7eb; border-radius:8px;">
                     <tr><td align="center" style="padding:15px 10px;">
                         <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Global Threat Posture</div>
-                        <div style="background-color:{global_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{global_display}</div>
+                        <div style="background-color:{global_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{escape(global_display)}</div>
                     </td></tr>
                 </table>
             </td>
@@ -3277,7 +3231,7 @@ def generate_global_brief_email_html(report_time, markdown_content, global_risk=
                 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fa; border:1px solid #e5e7eb; border-radius:8px;">
                     <tr><td align="center" style="padding:15px 10px;">
                         <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Internal Cyber Risk</div>
-                        <div style="background-color:{internal_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{internal_display}</div>
+                        <div style="background-color:{internal_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{escape(internal_display)}</div>
                     </td></tr>
                 </table>
             </td>
@@ -3290,12 +3244,12 @@ def generate_global_brief_email_html(report_time, markdown_content, global_risk=
         <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width:850px; margin:0 auto; background-color:#ffffff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);">
             <div style="background-color:#dc2626; padding:25px 30px; text-align:left;">
                 <h1 style="color:#ffffff; margin:0 0 5px 0; font-size:22px; font-weight:600; letter-spacing:-0.5px;">Global Threat Brief — US CI & International</h1>
-                <p style="color:#fecaca; margin:0; font-size:13px;">Generated: {report_time}</p>
+                <p style="color:#fecaca; margin:0; font-size:13px;">Generated: {escape(str(report_time))}</p>
             </div>
             <div style="padding:30px 30px 10px 30px; font-size:14px; line-height:1.6; color:#374151;">
                 {banners_html}
                 <p style="font-size:14px; line-height:1.6; color:#374151; margin:0 0 15px 0;">
-                    <strong>{cyber_line}</strong>
+                    <strong>{escape(cyber_line)}</strong>
                 </p>
                 <div>{raw_html}</div>
                 <div style="background:#f8f9fa; border-left:4px solid #6b7280; border-radius:4px; padding:14px 18px; margin-top:24px;">
@@ -3384,36 +3338,16 @@ def generate_internal_brief_email_html(report_time, markdown_content, global_ris
                 Disclaimers
             </p>
             <p style="font-size:12.5px; color:#4b5563; line-height:1.5; margin:0 0 8px 0;">
-                <strong>OSINT Correlation:</strong> {osint_text}
+                <strong>OSINT Correlation:</strong> {escape(osint_text)}
             </p>
             <p style="font-size:12.5px; color:#4b5563; line-height:1.5; margin:0;">
-                <strong>AI-Generated Content:</strong> {ai_text}
+                <strong>AI-Generated Content:</strong> {escape(ai_text)}
             </p>
         </div>
         '''
         markdown_content = markdown_content.replace(disclaimer_match.group(0), "").strip()
 
-    def native_md_to_html(text):
-        """Convert the supported report Markdown subset to email-safe HTML fragments."""
-        text = text.replace('\r', '').strip()
-        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#111827; font-size:22px; font-weight:600; margin-bottom:10px; margin-top:0;">\1</h1>', text, flags=re.MULTILINE)
-        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#111827; font-size:18px; font-weight:600; border-bottom:2px solid #e5e7eb; padding-bottom:8px; margin-top:25px; margin-bottom:12px;">\1</h2>', text, flags=re.MULTILINE)
-        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#374151; font-size:16px; margin-bottom:5px; margin-top:15px;">\1</h3>', text, flags=re.MULTILINE)
-        text = re.sub(r'\*\*(.*?)\*\*', r'<strong style="color:#111827;">\1</strong>', text)
-        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#3498db; text-decoration:none;">\1</a>', text)
-        text = re.sub(r'^\* (.*?)$', r'<div style="margin-bottom:6px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
-        text = re.sub(r'^- (.*?)$', r'<div style="margin-bottom:6px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        text = text.replace('\n', '<br>')
-        text = re.sub(r'(<br>)*<h', '<h', text)
-        text = re.sub(r'</h1>(<br>)*', '</h1>', text)
-        text = re.sub(r'</h2>(<br>)*', '</h2>', text)
-        text = re.sub(r'</h3>(<br>)*', '</h3>', text)
-        text = re.sub(r'(<br>)*<div style="margin-bottom: 6px', '<div style="margin-bottom: 6px', text)
-        text = re.sub(r'</div>(<br>)*', '</div>', text)
-        return text
-
-    raw_html = disclaimer_html + native_md_to_html(markdown_content)
+    raw_html = disclaimer_html + markdown_to_html(markdown_content)
 
     cyber_line = (
         f'The current Internal Threat Posture of {internal_display} '
@@ -3427,7 +3361,7 @@ def generate_internal_brief_email_html(report_time, markdown_content, global_ris
                 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fa; border:1px solid #e5e7eb; border-radius:8px;">
                     <tr><td align="center" style="padding:15px 10px;">
                         <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Internal Cyber Risk</div>
-                        <div style="background-color:{internal_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{internal_display}</div>
+                        <div style="background-color:{internal_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{escape(internal_display)}</div>
                     </td></tr>
                 </table>
             </td>
@@ -3435,7 +3369,7 @@ def generate_internal_brief_email_html(report_time, markdown_content, global_ris
                 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fa; border:1px solid #e5e7eb; border-radius:8px;">
                     <tr><td align="center" style="padding:15px 10px;">
                         <div style="font-size:11px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">Global Threat Posture</div>
-                        <div style="background-color:{global_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{global_display}</div>
+                        <div style="background-color:{global_color}; color:#ffffff; font-size:14px; font-weight:bold; padding:6px 16px; border-radius:20px; display:inline-block;">{escape(global_display)}</div>
                     </td></tr>
                 </table>
             </td>
@@ -3448,12 +3382,12 @@ def generate_internal_brief_email_html(report_time, markdown_content, global_ris
         <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width:850px; margin:0 auto; background-color:#ffffff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);">
             <div style="background-color:#7c3aed; padding:25px 30px; text-align:left;">
                 <h1 style="color:#ffffff; margin:0 0 5px 0; font-size:22px; font-weight:600; letter-spacing:-0.5px;">Internal Asset Risk Brief</h1>
-                <p style="color:#ddd6fe; margin:0; font-size:13px;">Generated: {report_time}</p>
+                <p style="color:#ddd6fe; margin:0; font-size:13px;">Generated: {escape(str(report_time))}</p>
             </div>
             <div style="padding:30px 30px 10px 30px; font-size:14px; line-height:1.6; color:#374151;">
                 {banners_html}
                 <p style="font-size:14px; line-height:1.6; color:#374151; margin:0 0 15px 0;">
-                    <strong>{cyber_line}</strong>
+                    <strong>{escape(cyber_line)}</strong>
                 </p>
                 <div>{raw_html}</div>
             </div>
@@ -3489,6 +3423,8 @@ def generate_outlook_html_report(intel):
         "YELLOW": "ELEVATED", "ORANGE": "HIGH", "RED": "SEVERE"
     }
     display_risk = name_map.get(intel["unified_risk"].upper(), "UNKNOWN")
+    physical_brief = markdown_to_html(intel.get("physical_brief", ""))
+    cyber_brief = markdown_to_html(intel.get("cyber_brief", ""))
     
     html = f"""
     <html>
@@ -3497,7 +3433,7 @@ def generate_outlook_html_report(intel):
             <tr>
                 <td style="padding: 20px; background-color: #0f172a; border-radius: 8px 8px 0 0; text-align: center;">
                     <h2 style="color: #ffffff; margin: 0;">BES Threat Intelligence Summary</h2>
-                    <p style="color: #94a3b8; margin: 5px 0 0 0; font-size: 12px;">Generated: {intel['timestamp']}</p>
+                    <p style="color: #94a3b8; margin: 5px 0 0 0; font-size: 12px;">Generated: {escape(str(intel['timestamp']))}</p>
                 </td>
             </tr>
             <tr>
@@ -3511,13 +3447,13 @@ def generate_outlook_html_report(intel):
             <tr>
                 <td style="padding: 20px;">
                     <h4 style="color: #0056b3; border-bottom: 2px solid #eeeeee; padding-bottom: 5px;">Physical & Crime Intelligence</h4>
-                    <p style="color: #444444; line-height: 1.6; font-size: 14px;"><strong>Status: {name_map.get(intel['physical_score'], 'UNKNOWN')}</strong><br/>{intel['physical_brief']}</p>
+                    <div style="color: #444444; line-height: 1.6; font-size: 14px;"><strong>Status: {escape(name_map.get(intel['physical_score'], 'UNKNOWN'))}</strong><br/>{physical_brief}</div>
                 </td>
             </tr>
             <tr>
                 <td style="padding: 20px; padding-top: 0;">
                     <h4 style="color: #0056b3; border-bottom: 2px solid #eeeeee; padding-bottom: 5px;">Cyber & SCADA Intelligence</h4>
-                    <p style="color: #444444; line-height: 1.6; font-size: 14px;"><strong>Status: {name_map.get(intel['cyber_score'], 'UNKNOWN')}</strong><br/>{intel['cyber_brief']}</p>
+                    <div style="color: #444444; line-height: 1.6; font-size: 14px;"><strong>Status: {escape(name_map.get(intel['cyber_score'], 'UNKNOWN'))}</strong><br/>{cyber_brief}</div>
                 </td>
             </tr>
         </table>
@@ -3567,25 +3503,13 @@ def save_daily_briefing(target_date, content):
 
 def generate_daily_report_email_html(report_date, markdown_content):
     """Render the supplied Daily Fusion date and Markdown body as an email."""
-    def native_md_to_html(text):
-        """Convert the limited Daily Fusion Markdown subset to HTML."""
-        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#2c3e50; margin-bottom:5px;">\1</h3>', text, flags=re.MULTILINE)
-        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#2980b9; margin-bottom:5px; border-bottom:1px solid #eee;">\1</h2>', text, flags=re.MULTILINE)
-        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#2c3e50;">\1</h1>', text, flags=re.MULTILINE)
-        text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
-        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" style="color:#3498db; text-decoration:none;">\1</a>', text)
-        text = re.sub(r'^\* (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
-        text = re.sub(r'^- (.*?)$', r'&#8226; \1<br>', text, flags=re.MULTILINE)
-        text = text.replace('\n', '<br>').replace('<br><br><h', '<br><h')
-        return text
-
-    raw_html = native_md_to_html(markdown_content)
+    raw_html = markdown_to_html(markdown_content)
     
     formatted_html = f"""
     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 0 auto; color: #333; line-height: 1.5;">
         <div style="background-color: #fcfcfc; padding: 20px; border-radius: 6px; border-left: 4px solid #d9534f; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
             <h2 style="color: #2c3e50; margin-top: 0;">NOC Daily Fusion Report</h2>
-            <p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 20px;"><strong>Date:</strong> {report_date}</p>
+            <p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 20px;"><strong>Date:</strong> {escape(str(report_date))}</p>
             <div style="font-size: 14px; background-color: #ffffff; padding: 15px; border-radius: 4px; border: 1px solid #eee;">
                 {raw_html}
             </div>
@@ -3597,25 +3521,7 @@ def generate_daily_report_email_html(report_date, markdown_content):
 
 def generate_custom_report_email_html(title, report_time, markdown_content):
     """Render a custom intelligence report in a readable HTML email layout."""
-    from html import escape
-
-    def native_md_to_html(text):
-        """Escape report content before converting supported headings, emphasis, and bullets."""
-        text = escape(text)
-        text = re.sub(r'^### (.*?)$', r'<h3 style="color:#374151; font-size:16px; margin:20px 0 8px;">\1</h3>', text, flags=re.MULTILINE)
-        text = re.sub(r'^## (.*?)$', r'<h2 style="color:#111827; font-size:19px; border-bottom:2px solid #e5e7eb; padding-bottom:8px; margin:28px 0 12px;">\1</h2>', text, flags=re.MULTILINE)
-        text = re.sub(r'^# (.*?)$', r'<h1 style="color:#111827; font-size:23px; margin:0 0 12px;">\1</h1>', text, flags=re.MULTILINE)
-        text = re.sub(r'\*\*(.*?)\*\*', r'<strong style="color:#111827;">\1</strong>', text)
-        text = re.sub(r'^\s*[-*] (.*?)$', r'<div style="margin:0 0 7px 10px; padding-left:10px;">&#8226; \1</div>', text, flags=re.MULTILINE)
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        text = text.replace('\n', '<br>')
-        text = re.sub(r'(<br>)*<h', '<h', text)
-        text = re.sub(r'</h([123])>(<br>)*', r'</h\1>', text)
-        text = re.sub(r'(<br>)*<div style="margin:0 0 7px', '<div style="margin:0 0 7px', text)
-        text = re.sub(r'</div>(<br>)*', '</div>', text)
-        return text
-
-    raw_html = native_md_to_html(markdown_content.strip())
+    raw_html = markdown_to_html(markdown_content.strip())
     return f"""
     <div style="margin:0; padding:20px; background:#f3f4f6;">
       <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif; max-width:850px; margin:0 auto; background:#fff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">

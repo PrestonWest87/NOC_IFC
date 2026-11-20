@@ -36,7 +36,7 @@ def send_alert_email(
 | `recipient_override` | `str \| None` | Optional override recipient email address; if `None`, uses `config.smtp_recipient` |
 | `cc_override` | `str \| None` | Optional visible Cc recipients |
 | `bcc_override` | `str \| None` | Optional hidden Bcc recipients, included only in the SMTP envelope |
-| `is_html` | `bool` | Whether to render the body as HTML; defaults to `True`. When enabled, performs lightweight Markdown-to-HTML conversion (line breaks, bold, headers) |
+| `is_html` | `bool` | Whether `body` is already HTML; defaults to `True`. The body is attached unchanged; Markdown conversion belongs to the caller. |
 | `attachments` | `list[dict] \| None` | Optional list of `{filename, content_type, content_base64}` objects. Filenames are reduced to a basename, base64 must validate, and each decoded attachment is limited to 5 MiB. The HTTP model allows at most five attachments. |
 | `subject_prefix` | `str` | Prefix applied to the subject; use an empty string to preserve an exact subject for risk notifications. |
 | `html_alternative` | `str \| None` | Optional HTML body sent beside the plain-text body as a `multipart/alternative` message. |
@@ -59,9 +59,7 @@ def send_alert_email(
    - Sets `From`, `To`, optional `Cc`, and `Subject` headers using `subject_prefix`
    - Resolves To/Cc/Bcc addresses into the SMTP envelope without adding a `Bcc` message header
 7. If `html_alternative` is provided, attaches the plain-text body and supplied HTML body as `multipart/alternative`.
-8. Otherwise, if `is_html` is `True`:
-   - Converts newlines to `<br>`, `**` to `<b>`, `##`/`###` to `<h2>`/`<h3>`
-   - Attaches as `MIMEText` with `'html'` subtype
+8. Otherwise, if `is_html` is `True`, attaches `body` unchanged as `MIMEText` with `'html'` subtype.
 9. If `is_html` is `False`:
    - Attaches as `MIMEText` with `'plain'` subtype
 10. Connects to the selected profile endpoint with a 10-second timeout and calls `starttls()`.
@@ -110,13 +108,6 @@ No Google account password or App Password is used. OAuth setup and refresh-toke
 
 ---
 
-## HTML Conversion Rules
+## HTML Body Handling
 
-When `is_html=True`, the function performs the following lightweight conversions:
-
-| Input Pattern | Output |
-|---------------|--------|
-| `\n` | `<br>` |
-| `**text**` | `<b>text</b>` |
-| `## text` | `<h2>text</h2>` |
-| `### text` | `<h3>text</h3>` |
+The mailer is a transport layer, not a Markdown renderer. Callers that accept Markdown use `src.utils.markdown.markdown_to_html()` before sending; `/email/send` accepts pre-rendered HTML. `html_alternative` is likewise attached unchanged beside the plain-text body.

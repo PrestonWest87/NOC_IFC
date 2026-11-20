@@ -11,7 +11,7 @@ Email sending routes. Prefix: `/api/v1/email`.
 |---|---|---|---|
 | `to` | `str` | `""` | Recipient list, max 2,000 characters. |
 | `subject` | `str` | `""` | Subject, max 200 characters. |
-| `html_body` | `str` | `""` | HTML body, max 200,000 characters. |
+| `html_body` | `str` | `""` | Pre-rendered HTML body, max 200,000 characters; sent unchanged. |
 | `attachments` | `list[EmailAttachment]` | empty list | Up to five base64-encoded attachments. |
 
 `EmailAttachment` contains `filename` (max 120 chars), `content_type` (max 100 chars), and `content_base64` (max 7,000,000 chars).
@@ -27,7 +27,7 @@ Email sending routes. Prefix: `/api/v1/email`.
 ## Endpoint: `POST /send`
 
 ### Purpose
-Sends an HTML email via the configured SMTP mailer. Requires `Action: Send Email`.
+Sends a pre-rendered HTML email via the configured SMTP mailer. The generic send endpoint does not convert Markdown; report broadcast routes render Markdown before sending. Requires `Action: Send Email`.
 
 ### Parameters
 | Parameter | Type               | Description                 |

@@ -49,7 +49,7 @@ The detailed module pages live under `docs/reference/`. The current source-to-re
 | Application/router/providers | `web/src/App.tsx` | `reference/web/App.md` |
 | Auth and API client | `web/src/utils/AuthContext.tsx`, `web/src/utils/api.ts` | `reference/web/utils/AuthContext.md`, `reference/web/utils/api.md` |
 | Routing and permissions | `web/src/utils/routeConfig.ts`, `permissions.ts` | `FRONTEND.md`, `reference/web/utils/routeConfig.md`, `reference/web/utils/permissions.md` |
-| Timezone and Markdown rendering | `web/src/utils/timezone.ts`, `web/src/components/MarkdownContent.tsx` | `reference/web/utils/timezone.md`, `reference/web/components/MarkdownContent.md` |
+| Timezone and Markdown rendering | `src/utils/markdown.py`, `web/src/utils/markdown.ts`, `web/src/utils/timezone.ts`, `web/src/components/MarkdownContent.tsx` | `reference/utils/markdown.md`, `reference/web/utils/timezone.md`, `reference/web/components/MarkdownContent.md` |
 | Realtime hook | `web/src/hooks/useAIOpsWebSocket.ts` | `reference/web/hooks/useAIOpsWebSocket.md` |
 | Pages | `web/src/pages/*.tsx` | `reference/web/pages/` |
 | Components and theme | `web/src/components/*.tsx` | `reference/web/components/` |

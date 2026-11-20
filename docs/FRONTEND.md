@@ -117,7 +117,7 @@ Thirteen UI sections: Profile, Theme, Facilities, Email Contacts, Network Orders
 - `Layout` filters sidebar links by page permission and displays the individual-account recovery prompt. Display accounts are exempt.
 - `MapContainer` waits for a non-zero size using `ResizeObserver` and implements **window-fill CSS positioning**, not the browser Fullscreen API.
 - `ThemeSelector` offers 21 themes, stores the choice in localStorage, and posts it to the signed-in account. `ThemeSync` applies the saved account theme after user refresh.
-- `MarkdownContent` renders report/brief Markdown in the application UI.
+- `MarkdownContent` renders report, brief, and detection-package Markdown (headings, paragraphs, lists, quotes, tables, fenced code, emphasis, inline code, and safe links) without rendering raw HTML. Its parser also renders the Regional Grid SitRep brief for email.
 - Zustand's `useAppStore` holds the latest dashboard push payload, socket state, investigating-site list, and outbound message callback. TanStack Query holds endpoint data and is invalidated/merged by the WebSocket hook.
 
 `useAIOpsWebSocket` uses `ws`/`wss` on the current browser host and places the opaque token in the query string because the browser WebSocket API cannot attach a custom Authorization header. It reconnects with capped exponential backoff unless the server closes with policy code 1008. It handles `dashboard_update`, `INVESTIGATING_UPDATE`, and `RCA_UPDATE`; newly observed CRITICAL/HIGH IDs can trigger browser notifications.

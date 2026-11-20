@@ -609,11 +609,9 @@ function buildDetectionPackage(target: string, articles: any[]): string {
 
   const sections: string[] = [];
 
-  sections.push("=".repeat(72));
-  sections.push(`  DETECTION PACKAGE: ${target.toUpperCase()}`);
-  sections.push("=".repeat(72));
-  sections.push(`  Generated from ${articles.length} intelligence reports`);
-  sections.push("=".repeat(72));
+  sections.push(`# DETECTION PACKAGE: ${target.toUpperCase()}`);
+  sections.push(`Generated from ${articles.length} intelligence reports`);
+  sections.push("---");
   sections.push("");
 
   sections.push("### 1. THREAT OVERVIEW & MITRE TTPs");
@@ -654,17 +652,21 @@ function buildDetectionPackage(target: string, articles: any[]): string {
   sections.push("");
   sections.push("  Splunk / Elastic Search:");
   sections.push("");
+  sections.push("```spl");
   const escapedTarget = queryLiteral(target);
   sections.push(`  # Hunt for indicators related to: ${target}`);
   sections.push(`  index=* "${escapedTarget}"`);
   sections.push("  | stats count by src_ip, dest_ip, user");
   sections.push("  | where count > 0");
   sections.push("  | sort -count");
+  sections.push("```");
   sections.push("");
   sections.push("  Alternative query patterns:");
+  sections.push("```kql");
   sections.push(`  event.dataset:("winlog" OR "syslog") AND message:*${escapedTarget.replace(/\s+/g, "* AND message:*")}*`);
   sections.push("  | within 7d");
   sections.push("  | top 20 source.ip, destination.ip");
+  sections.push("```");
   sections.push("");
 
   sections.push("---");
@@ -691,9 +693,8 @@ function buildDetectionPackage(target: string, articles: any[]): string {
   sections.push("}");
   sections.push("```");
   sections.push("");
-  sections.push("=".repeat(72));
-  sections.push("  END OF DETECTION PACKAGE");
-  sections.push("=".repeat(72));
+  sections.push("---");
+  sections.push("**END OF DETECTION PACKAGE**");
 
   return sections.join("\n");
 }

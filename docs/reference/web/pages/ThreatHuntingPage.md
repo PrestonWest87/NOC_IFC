@@ -182,7 +182,7 @@ Targeted LLM Deep Hunt & Detection Engine — searches articles for a target ent
 - Historical Depth slider (7-30 days)
 - Compile Detection Package button
 - Search results list (up to 15 articles)
-- Auto-generated detection package in monospace textarea
+- Auto-generated Markdown detection package; fenced SIEM/YARA examples render as monospace code blocks
 
 ### Flow
 1. User enters a target entity (e.g. "Volt Typhoon", "LockBit 3.0").

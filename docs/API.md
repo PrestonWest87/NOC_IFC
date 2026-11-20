@@ -685,7 +685,7 @@ Lists successfully sent Fiber Outage and Fiber Outage ONPAGE records available a
 ## Email Endpoints (/email)
 
 ### POST /email/send
-Body: `{to, subject, html_body, attachments?}`. Optional attachments contain filename, content type, and base64 content (up to five). Sends email via SMTP; requires `Action: Send Email`.
+Body: `{to, subject, html_body, attachments?}`. `html_body` is pre-rendered HTML and is sent unchanged; Markdown report endpoints perform their own safe Markdown conversion. Optional attachments contain filename, content type, and base64 content (up to five). Sends email via SMTP; requires `Action: Send Email`.
 
 ### POST /email/broadcast-brief
 Body: `{email}`. Sends the current unified brief via email; requires the Global Dashboards or Reporting page and `Action: Dispatch Exec Report`.

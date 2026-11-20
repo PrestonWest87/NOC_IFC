@@ -46,8 +46,8 @@ def send_alert_email(
     envelope behavior. The optional Cc/Bcc arguments are used by Operational
     Email; Bcc recipients are envelope-only and never appear as a message header.
     Attachments are basename-sanitized, strict-base64 decoded, and limited to
-    5 MiB each. `html_alternative` adds a separate HTML representation while
-    retaining the plain-text body for clients that prefer it.
+    5 MiB each. When `is_html` is true, `body` is already HTML and is sent as-is;
+    `html_alternative` sends supplied HTML beside the plain-text body.
     """
     logger.info(
         "send_alert_email: subject=%s recipient_override_set=%s is_html=%s body_length=%d",
@@ -96,8 +96,7 @@ def send_alert_email(
             alternative.attach(MIMEText(html_alternative, "html", "utf-8"))
             msg.attach(alternative)
         elif is_html:
-            html_body = body.replace("\n", "<br>").replace("**", "<b>").replace("##", "<h2>").replace("###", "<h3>")
-            msg.attach(MIMEText(html_body, 'html', 'utf-8'))
+            msg.attach(MIMEText(body, "html", "utf-8"))
         else:
             msg.attach(MIMEText(body, 'plain', 'utf-8'))
 
