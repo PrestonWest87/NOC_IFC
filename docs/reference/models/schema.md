@@ -529,7 +529,7 @@ Stores the latest public Microsoft 365 feed attempt/success and a sanitized erro
 | `user_weather_prefs` | `id`, `username`, `alert_type` | Weather preferences; `username` is a logical user reference |
 | `operational_email_templates` | `id`, `template_key`, default subject/body, To/Cc/Bcc | Administrator-managed defaults for eleven templates |
 | `operational_email_signatures` | `id`, `name`, `content`, active/default flags, actor/timestamp fields | Administrator-managed plain-text signatures |
-| `operational_emails` | `id`, `template_key`, recipients, schedule fields, status, `parent_email_id` | Message snapshots and one-time/daily/weekly schedules |
+| `operational_emails` | `id`, `template_key`, recipients, schedule fields, status, `parent_email_id`, `group_id`, `group_company` | Message snapshots, one-time/daily/weekly schedules, and company fan-out groups |
 | `operational_email_attachments` | `id`, `operational_email_id`, filename, content type, binary content | Bounded files persisted with scheduled messages |
 | `operational_email_deliveries` | `id`, `operational_email_id`, sender, recipients, status, attempted/sent timestamps | Immutable SMTP attempt history, including hidden BCC envelope addresses |
 | `fiber_email_contacts` | `id`, `name`, `company`, `email`, optional `phone`, `sort_order` | Ordered Fiber contact directory managed through Settings & Admin |

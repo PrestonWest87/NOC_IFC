@@ -240,6 +240,8 @@ export function OperationalEmailPage() {
   const [attachments, setAttachments] = useState<EmailAttachment[]>([]);
   const [maintenanceNoticeId, setMaintenanceNoticeId] = useState("");
   const [fiberOutageId, setFiberOutageId] = useState("");
+  const [maintenanceSourceGrouped, setMaintenanceSourceGrouped] = useState(false);
+  const [fiberOutageSourceGrouped, setFiberOutageSourceGrouped] = useState(false);
   const [signatureChoice, setSignatureChoice] = useState("default");
   const [selectedNetworkOrderRootIds, setSelectedNetworkOrderRootIds] = useState<string[]>([]);
   const [selectedNetworkOrderIds, setSelectedNetworkOrderIds] = useState<string[]>([]);
@@ -258,6 +260,7 @@ export function OperationalEmailPage() {
   const autoBccEmailsRef = useRef<string[]>([]);
   const autoContactBccEmailsRef = useRef<string[]>([]);
   const autoParentBccEmailsRef = useRef<string[]>([]);
+  const autoParentCcEmailsRef = useRef<string[]>([]);
   const autoOnpageToEmailsRef = useRef<string[]>([]);
   const [signatureDraft, setSignatureDraft] = useState<EmailSignatureDraft>({
     id: null, name: "", content: "", is_active: true, is_default: false,
@@ -299,7 +302,14 @@ export function OperationalEmailPage() {
   const hasNetworkOrderSelector = selectedKey === "fiber_maintenance_notice" || selectedKey === "fiber_outage" || selectedKey === "fiber_outage_onpage";
   const onpageToOnly = selectedKey === "after_hours_onpage";
   const fiberOnpage = selectedKey === "fiber_outage_onpage";
-  const fiberToSender = FIBER_SENDER_TO_KEYS.has(selectedKey);
+  const fiberOutageCompanyRouted = selectedKey === "fiber_outage" && selectedNetworkOrderIds.length > 0;
+  const groupedMaintenanceSource = maintenanceSourceGrouped
+    && (selectedKey === "maintenance_start" || selectedKey === "maintenance_complete");
+  const groupedFiberOutageSource = fiberOutageSourceGrouped
+    && (selectedKey === "fiber_outage_update" || selectedKey === "fiber_outage_resolution");
+  const groupedCompanyMessage = fiberMaintenance || fiberOutageCompanyRouted || groupedMaintenanceSource || groupedFiberOutageSource;
+  const fiberToSender = FIBER_SENDER_TO_KEYS.has(selectedKey)
+    && !fiberOutageCompanyRouted && !groupedFiberOutageSource;
   const showOnpageSelector = onpageToOnly || fiberOnpage;
   const showFiberContactSelector = FIBER_BCC_TEMPLATE_KEYS.has(selectedKey);
   const contactOptions: ContactOption[] = useMemo(() => {
@@ -317,8 +327,11 @@ export function OperationalEmailPage() {
   const visibleFiberContacts = useMemo(() => {
     const search = fiberContactSearch.trim().toLocaleLowerCase();
     const selected = new Set(selectedContactKeys);
-    return contactOptions.filter(option => selected.has(option.key) || !search || option.label.toLocaleLowerCase().includes(search));
-  }, [contactOptions, fiberContactSearch, selectedContactKeys]);
+    const toRecipients = new Set(String(to || "").split(/[,;]/).map(email => email.trim().toLocaleLowerCase()).filter(Boolean));
+    return contactOptions.filter(option => selected.has(option.key)
+      || (!toRecipients.has(option.email.toLocaleLowerCase())
+        && (!search || option.label.toLocaleLowerCase().includes(search))));
+  }, [contactOptions, fiberContactSearch, selectedContactKeys, to]);
 
   useEffect(() => {
     if (!selectedTemplate) return;
@@ -341,6 +354,8 @@ export function OperationalEmailPage() {
     setAttachments([]);
     setMaintenanceNoticeId("");
     setFiberOutageId("");
+    setMaintenanceSourceGrouped(false);
+    setFiberOutageSourceGrouped(false);
     setSignatureChoice("default");
     setSelectedNetworkOrderRootIds([]);
     setSelectedNetworkOrderIds([]);
@@ -351,6 +366,7 @@ export function OperationalEmailPage() {
     autoBccEmailsRef.current = [];
     autoContactBccEmailsRef.current = [];
     autoParentBccEmailsRef.current = [];
+    autoParentCcEmailsRef.current = [];
     autoOnpageToEmailsRef.current = [];
   }, [selectedTemplate?.key]);
 
@@ -490,26 +506,33 @@ export function OperationalEmailPage() {
     setNotice(null);
   };
 
-  const composePayload = () => ({
-    template_key: selectedKey,
-    to: fiberMaintenance ? "" : to,
-    ...(selectedTemplate?.allows_cc ? { cc } : {}),
-    ...(selectedTemplate?.allows_bcc ? { bcc } : {}),
-    subject,
-    body,
-    fields,
-    ...(signatureChoice === "default"
-      ? { use_default_signature: true }
-      : signatureChoice === "none"
-        ? { use_default_signature: false }
-        : { signature_id: Number(signatureChoice), use_default_signature: false }),
-    attachments: attachments.map(({ filename, content_type, content_base64 }) => ({ filename, content_type, content_base64 })),
-    ...(selectedKey === "maintenance_complete" ? { maintenance_notice_id: Number(maintenanceNoticeId) } : {}),
-    ...(selectedKey === "maintenance_start" ? { source_email_id: Number(maintenanceNoticeId) } : {}),
-    ...((selectedKey === "fiber_outage_update" || selectedKey === "fiber_outage_resolution")
-      ? { source_email_id: Number(fiberOutageId) }
-      : {}),
-  });
+  const composePayload = () => {
+    const groupedSource = groupedMaintenanceSource || groupedFiberOutageSource;
+    return {
+      template_key: selectedKey,
+      to: fiberMaintenance || fiberOutageCompanyRouted || groupedSource ? "" : to,
+      ...(selectedTemplate?.allows_cc ? {
+        cc: groupedSource ? mergeSelectedAddresses(cc, autoParentCcEmailsRef.current, []) : cc,
+      } : {}),
+      ...(selectedTemplate?.allows_bcc ? {
+        bcc: groupedSource ? mergeSelectedAddresses(bcc, autoParentBccEmailsRef.current, []) : bcc,
+      } : {}),
+      subject,
+      body,
+      fields,
+      ...(signatureChoice === "default"
+        ? { use_default_signature: true }
+        : signatureChoice === "none"
+          ? { use_default_signature: false }
+          : { signature_id: Number(signatureChoice), use_default_signature: false }),
+      attachments: attachments.map(({ filename, content_type, content_base64 }) => ({ filename, content_type, content_base64 })),
+      ...(selectedKey === "maintenance_complete" ? { maintenance_notice_id: Number(maintenanceNoticeId) } : {}),
+      ...(selectedKey === "maintenance_start" ? { source_email_id: Number(maintenanceNoticeId) } : {}),
+      ...((selectedKey === "fiber_outage_update" || selectedKey === "fiber_outage_resolution")
+        ? { source_email_id: Number(fiberOutageId) }
+        : {}),
+    };
+  };
 
   const submit = () => {
     setNotice(null);
@@ -552,6 +575,9 @@ export function OperationalEmailPage() {
     setMaintenanceNoticeId(id);
     const noticeItem = (maintenanceQuery.data || []).find((item: any) => item.id === Number(id));
     if (!noticeItem || !selectedTemplate) return;
+    const grouped = Boolean(noticeItem.grouped);
+    setMaintenanceSourceGrouped(grouped);
+    setFiberOutageSourceGrouped(false);
     const sourceFields: Record<string, string> = { ...(noticeItem.fields || {}) };
     if (noticeItem.template_key === "fiber_maintenance_notice") {
       if (selectedKey === "maintenance_start") sourceFields.network_orders = fiberCircuitDetails(sourceFields);
@@ -567,16 +593,17 @@ export function OperationalEmailPage() {
         ? (templatesQuery.data?.timezone_abbreviation || "CST")
         : String(sourceFields[field.key] || ""),
     ])));
-    if (selectedKey === "maintenance_start") {
+    if (selectedKey === "maintenance_start" || grouped) {
       setTo((noticeItem.to || []).join(", "));
     } else if (!to.trim()) {
       setTo((noticeItem.to || []).join(", "));
     }
+    const parentCc = uniqueAddresses(noticeItem.cc || []);
+    autoParentCcEmailsRef.current = parentCc;
     if (selectedKey === "maintenance_start" || selectedKey === "maintenance_complete") {
-      setCc(uniqueAddresses([
-        ...String(selectedTemplate.default_cc || "").split(/[,;]/),
-        ...(noticeItem.cc || []),
-      ]).join(", "));
+      setCc(grouped
+        ? selectedTemplate.default_cc || ""
+        : uniqueAddresses([...String(selectedTemplate.default_cc || "").split(/[,;]/), ...parentCc]).join(", "));
     } else if (!cc.trim()) setCc((noticeItem.cc || []).join(", "));
     const previousAutomaticBcc = uniqueAddresses([
       ...autoBccEmailsRef.current,
@@ -584,7 +611,7 @@ export function OperationalEmailPage() {
       ...autoParentBccEmailsRef.current,
     ]);
     const parentBcc = uniqueAddresses(noticeItem.bcc || []);
-    setBcc(current => mergeSelectedAddresses(current, previousAutomaticBcc, parentBcc));
+    setBcc(current => mergeSelectedAddresses(current, previousAutomaticBcc, grouped ? [] : parentBcc));
     autoBccEmailsRef.current = [];
     autoContactBccEmailsRef.current = [];
     autoParentBccEmailsRef.current = parentBcc;
@@ -598,6 +625,9 @@ export function OperationalEmailPage() {
     setFiberOutageId(id);
     const outage = (fiberOutagesQuery.data || []).find((item: any) => item.id === Number(id));
     if (!outage || !selectedTemplate) return;
+    const grouped = Boolean(outage.grouped);
+    setFiberOutageSourceGrouped(grouped);
+    setMaintenanceSourceGrouped(false);
     setFields(previous => {
       const inherited: Record<string, string> = {};
       selectedTemplate.fields.forEach(field => {
@@ -609,7 +639,10 @@ export function OperationalEmailPage() {
       });
       return { ...previous, ...inherited };
     });
-    setTo(selectedTemplate.default_to || templatesQuery.data?.sender_address || "");
+    setTo(grouped
+      ? uniqueAddresses(outage.to || []).join(", ")
+      : selectedTemplate.default_to || templatesQuery.data?.sender_address || "");
+    autoParentCcEmailsRef.current = uniqueAddresses(outage.cc || []);
     setCc(selectedTemplate.default_cc || "");
     const previousAutomaticBcc = uniqueAddresses([
       ...autoBccEmailsRef.current,
@@ -617,7 +650,7 @@ export function OperationalEmailPage() {
       ...autoParentBccEmailsRef.current,
     ]);
     const parentBcc = uniqueAddresses(outage.bcc || []);
-    setBcc(current => mergeSelectedAddresses(current, previousAutomaticBcc, parentBcc));
+    setBcc(current => mergeSelectedAddresses(current, previousAutomaticBcc, grouped ? [] : parentBcc));
     autoBccEmailsRef.current = [];
     autoParentBccEmailsRef.current = parentBcc;
     setSelectedContactKeys([]);
@@ -706,11 +739,29 @@ export function OperationalEmailPage() {
     const matchingContacts = referenceData.fiber_contacts.filter(
       contact => companySet.has(contact.company.toLocaleLowerCase()),
     );
+    const fiberOutageCompanyRouted = selectedKey === "fiber_outage" && expandedIds.length > 0;
     if (fiberMaintenance) {
       setTo(uniqueAddresses(matchingContacts.map(contact => contact.email)).join(", "));
+    } else if (selectedKey === "fiber_outage") {
+      if (fiberOutageCompanyRouted) {
+        const companyEmails = uniqueAddresses(matchingContacts.map(contact => contact.email));
+        const companyEmailSet = new Set(companyEmails.map(email => email.toLocaleLowerCase()));
+        const remainingBccKeys = selectedContactKeys.filter(key => {
+          const contact = contactOptions.find(option => option.key === key);
+          return contact && !companyEmailSet.has(contact.email.toLocaleLowerCase());
+        });
+        setSelectedContactKeys(remainingBccKeys);
+        setTo(companyEmails.join(", "));
+        updateAutomaticBcc([], remainingBccKeys.flatMap(key => {
+          const contact = contactOptions.find(option => option.key === key);
+          return contact ? [contact.email] : [];
+        }));
+      } else {
+        setTo(selectedTemplate?.default_to || templatesQuery.data?.sender_address || "");
+        updateAutomaticBcc([], autoContactBccEmailsRef.current);
+      }
     } else {
-      const nextAutomaticBcc = fiberOnpage ? [] : matchingContacts.map(contact => contact.email);
-      updateAutomaticBcc(nextAutomaticBcc, autoContactBccEmailsRef.current);
+      updateAutomaticBcc([], autoContactBccEmailsRef.current);
     }
 
     const inherited: Record<string, string> = {
@@ -721,7 +772,6 @@ export function OperationalEmailPage() {
           `${order.circuit_network_order_id} — A: ${order.a_location} → Z: ${order.z_location}`,
         ).join("\n")
         : orderIds.join("\n"),
-      contact: matchingContacts.map(contact => contact.phone ? `${contact.name} (${contact.phone})` : contact.name).join("; "),
     };
     if (selectedTemplate?.fields.some(field => field.key === "a_location")) inherited.a_location = aLocations.join("; ");
     if (selectedTemplate?.fields.some(field => field.key === "z_location")) inherited.z_location = zLocations.join("; ");
@@ -831,7 +881,7 @@ export function OperationalEmailPage() {
           <label><span style={labelStyle}>Previously sent Maintenance or Fiber Maintenance notification *</span>
             <select value={maintenanceNoticeId} onChange={event => selectMaintenanceNotice(event.target.value)} style={inputStyle}>
               <option value="">Select a sent maintenance notice</option>
-              {(maintenanceQuery.data || []).map((item: any) => <option key={item.id} value={item.id}>{item.template_key === "fiber_maintenance_notice" ? "Fiber Maintenance" : "Maintenance"} · {formatTime(item.sent_at)} · {item.template_key === "fiber_maintenance_notice" ? item.fields?.network_orders || item.subject : item.subject}</option>)}
+              {(maintenanceQuery.data || []).map((item: any) => <option key={item.id} value={item.id}>{item.template_key === "fiber_maintenance_notice" ? "Fiber Maintenance" : "Maintenance"}{item.grouped ? ` · ${item.company_count} companies` : ""} · {formatTime(item.sent_at)} · {item.template_key === "fiber_maintenance_notice" ? item.fields?.network_orders || item.subject : item.subject}</option>)}
             </select>
           </label>
           {maintenanceQuery.isLoading && <small>Loading sent maintenance notifications...</small>}
@@ -841,7 +891,7 @@ export function OperationalEmailPage() {
           <label><span style={labelStyle}>Previously sent fiber outage ticket *</span>
             <select value={fiberOutageId} onChange={event => selectFiberOutage(event.target.value)} style={inputStyle}>
               <option value="">Select a sent fiber outage</option>
-              {(fiberOutagesQuery.data || []).map((item: any) => <option key={item.id} value={item.id}>{formatTime(item.sent_at)} · {item.subject}</option>)}
+              {(fiberOutagesQuery.data || []).map((item: any) => <option key={item.id} value={item.id}>{item.grouped ? `${item.company_count} companies · ` : ""}{formatTime(item.sent_at)} · {item.subject}</option>)}
             </select>
           </label>
           {fiberOutagesQuery.isLoading && <small>Loading sent fiber outage notices...</small>}
@@ -868,8 +918,8 @@ export function OperationalEmailPage() {
           <small style={{ color: "var(--text-muted)" }}>{fiberMaintenance
             ? "Each selected company receives a separate email with only its selected circuits and A/Z locations. Mapped Fiber contacts are in To; Global From is always included on Cc alongside editable default and per-message recipients. Every selected company must have at least one Fiber email contact."
             : fiberOnpage
-              ? "Selecting records or pasting configured IDs fills Network Orders/Circuit IDs and Fiber contact details. Enter the nearest crossroads in Location; Fiber emails are not added to BCC automatically."
-              : "Selecting records or pasting configured IDs fills Network Orders/Circuit IDs and Fiber contact details. Enter the nearest crossroads in Location; matching Fiber contact emails are added to BCC."}</small>
+              ? "Selecting records or pasting configured IDs fills Network Orders/Circuit IDs. Enter the nearest crossroads in Location; Fiber contacts remain separate from ONPAGE To recipients."
+              : "Selecting configured records sends a separate outage email to each selected company's mapped Fiber contacts, with only that company's Network Orders/Circuit IDs and Global From on Cc. Location remains manually entered, and BCC can be used for additional recipients."}</small>
         </div>}
 
         <div style={{ ...cardStyle, display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.75rem" }}>
@@ -879,6 +929,8 @@ export function OperationalEmailPage() {
             field={field}
             value={fields[field.key] || ""}
             readOnly={field.key === "timezone"
+              || (fiberOutageCompanyRouted && field.key === "network_orders")
+              || (groupedMaintenanceSource && selectedKey === "maintenance_start")
               || (selectedKey === "maintenance_complete" && Boolean(maintenanceNoticeId) && !["completion_time", "work_performed", "service_status", "follow_up"].includes(field.key))
               || ((selectedKey === "fiber_outage_update" || selectedKey === "fiber_outage_resolution") && Boolean(fiberOutageId)
                 && !(selectedKey === "fiber_outage_update"
@@ -938,13 +990,15 @@ export function OperationalEmailPage() {
             </select>
           </label>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.75rem" }}>
-            <label><span style={labelStyle}>{fiberMaintenance ? "To · selected companies' Fiber contacts *" : fiberOnpage ? "To · ONPAGE contacts *" : fiberToSender ? "To · Global From *" : "To *"}</span><input value={to} onChange={event => setTo(event.target.value)} readOnly={fiberToSender || fiberOnpage || fiberMaintenance} placeholder="person@example.com, team@example.com" style={{ ...inputStyle, opacity: fiberToSender || fiberOnpage || fiberMaintenance ? 0.8 : 1 }} /></label>
-            {selectedTemplate.allows_cc && <label><span style={labelStyle}>{fiberMaintenance ? "Cc · Global From always included" : fiberOnpage ? "Cc · Global From" : "Cc"}</span><input value={cc} onChange={event => setCc(event.target.value)} readOnly={fiberOnpage} style={{ ...inputStyle, opacity: fiberOnpage ? 0.8 : 1 }} /></label>}
+            <label><span style={labelStyle}>{fiberMaintenance || fiberOutageCompanyRouted ? "To · selected companies' Fiber contacts *" : groupedFiberOutageSource || groupedMaintenanceSource ? "To · source companies' recipients *" : fiberOnpage ? "To · ONPAGE contacts *" : fiberToSender ? "To · Global From *" : "To *"}</span><input value={to} onChange={event => setTo(event.target.value)} readOnly={fiberToSender || fiberOnpage || groupedCompanyMessage} placeholder="person@example.com, team@example.com" style={{ ...inputStyle, opacity: fiberToSender || fiberOnpage || groupedCompanyMessage ? 0.8 : 1 }} /></label>
+            {selectedTemplate.allows_cc && <label><span style={labelStyle}>{fiberMaintenance || fiberOutageCompanyRouted ? "Cc · Global From always included" : groupedMaintenanceSource || groupedFiberOutageSource ? "Cc · per-company source Cc retained" : fiberOnpage ? "Cc · Global From" : "Cc"}</span><input value={cc} onChange={event => setCc(event.target.value)} readOnly={fiberOnpage} style={{ ...inputStyle, opacity: fiberOnpage ? 0.8 : 1 }} /></label>}
             {selectedTemplate.allows_bcc && <label style={{ gridColumn: "1 / -1" }}><span style={labelStyle}>Bcc (hidden from recipients)</span><input value={bcc} onChange={event => setBcc(event.target.value)} style={inputStyle} /></label>}
           </div>
-          <label><span style={labelStyle}>Subject *</span><input value={subject} maxLength={500} readOnly={fiberMaintenance} onChange={event => { setSubjectTouched(true); setSubject(event.target.value); }} style={{ ...inputStyle, opacity: fiberMaintenance ? 0.85 : 1 }} /></label>
-          <label><span style={labelStyle}>{selectedKey === "morning_report" ? "Latest Global Dashboard shift analysis" : "Message *"}</span><textarea value={body} maxLength={200000} readOnly={selectedKey === "morning_report" || fiberMaintenance} onChange={event => { setBodyTouched(true); setBody(event.target.value); }} rows={12} style={{ ...inputStyle, resize: selectedKey === "morning_report" || fiberMaintenance ? "none" : "vertical", lineHeight: 1.45, fontFamily: "var(--font-mono)", opacity: selectedKey === "morning_report" || fiberMaintenance ? 0.85 : 1 }} /></label>
-          {fiberMaintenance && <small style={{ color: "var(--text-muted)" }}>Subject and message previews are read-only and include the full selection. Each company-specific email is rendered with only that company's circuits and contact details; administrators can edit the shared wording in Template Defaults.</small>}
+          <label><span style={labelStyle}>Subject *</span><input value={subject} maxLength={500} readOnly={groupedCompanyMessage} onChange={event => { setSubjectTouched(true); setSubject(event.target.value); }} style={{ ...inputStyle, opacity: groupedCompanyMessage ? 0.85 : 1 }} /></label>
+          <label><span style={labelStyle}>{selectedKey === "morning_report" ? "Latest Global Dashboard shift analysis" : "Message *"}</span><textarea value={body} maxLength={200000} readOnly={selectedKey === "morning_report" || groupedCompanyMessage} onChange={event => { setBodyTouched(true); setBody(event.target.value); }} rows={12} style={{ ...inputStyle, resize: selectedKey === "morning_report" || groupedCompanyMessage ? "none" : "vertical", lineHeight: 1.45, fontFamily: "var(--font-mono)", opacity: selectedKey === "morning_report" || groupedCompanyMessage ? 0.85 : 1 }} /></label>
+          {fiberMaintenance && <small style={{ color: "var(--text-muted)" }}>Subject and message previews are read-only and include the full selection. Each company-specific email is rendered with only that company's circuits and A/Z details; mapped Fiber contacts are recipients only, and contact names/phone numbers are not autofilled into the message. Administrators can edit the shared wording in Template Defaults.</small>}
+          {fiberOutageCompanyRouted && <small style={{ color: "var(--text-muted)" }}>This outage will be sent separately to each selected company's Fiber contacts, with only that company's circuits. Global From is always on Cc; the Bcc field remains available for additional recipients.</small>}
+          {(groupedMaintenanceSource || groupedFiberOutageSource) && <small style={{ color: "var(--text-muted)" }}>This source represents {maintenanceSourceGrouped ? "maintenance" : "outage"} notices sent to {maintenanceSourceGrouped ? (maintenanceQuery.data || []).find((item: any) => item.id === Number(maintenanceNoticeId))?.company_count || 1 : (fiberOutagesQuery.data || []).find((item: any) => item.id === Number(fiberOutageId))?.company_count || 1} companies. The linked update/closeout will be sent once per successful company delivery with that company's source details and recipients. Source Cc/Bcc are retained per company; add any extra recipients in those fields.</small>}
           {selectedKey === "morning_report" && <p style={{ margin: "-0.4rem 0 0", color: "var(--text-muted)", fontSize: "0.74rem" }}>
             Sent exactly as currently stored in Global Dashboards{templatesQuery.data?.latest_shift_analysis_time ? ` · updated ${formatTime(templatesQuery.data.latest_shift_analysis_time)}` : ""}. The latest analysis is refreshed again at delivery time.
             {!String(templatesQuery.data?.latest_shift_analysis || "").trim() && <span style={{ color: "var(--accent-orange)" }}> No shift analysis is currently available.</span>}

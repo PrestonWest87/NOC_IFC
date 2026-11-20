@@ -184,6 +184,8 @@ class OperationalEmail(Base):
     signature_name = Column(String(100), nullable=True)
     signature_content = Column(Text, nullable=True)
     parent_email_id = Column(Integer, ForeignKey("operational_emails.id"), nullable=True, index=True)
+    group_id = Column(String(36), nullable=True, index=True)
+    group_company = Column(String(200), nullable=True)
     subject = Column(String(500), nullable=False)
     body = Column(Text, nullable=False)
     fields_json = Column(JSON, nullable=False, default=dict)

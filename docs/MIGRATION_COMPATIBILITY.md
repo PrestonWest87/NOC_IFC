@@ -2,7 +2,7 @@
 
 ## Current behavior
 
-The packaged migration head is `20261120_0021`. The API, worker, and webhook run pending Alembic revisions under a shared file lock before serving requests or starting jobs. A database already at head receives no schema DDL. A migration error stops startup; the application does not mark the failed revision as complete.
+The packaged migration head is `20261120_0022`. The API, worker, and webhook run pending Alembic revisions under a shared file lock before serving requests or starting jobs. A database already at head receives no schema DDL. A migration error stops startup; the application does not mark the failed revision as complete.
 
 The initial adoption revision (`20261002_0001`) was designed for:
 
@@ -25,6 +25,8 @@ Revision `20261117_0019` removes Network Orders placeholders from shipped Fiber 
 Revision `20261118_0020` adds `network_order_circuits.associated_circuit_network_order_ids` with an empty-list default, preserving existing reference rows.
 
 Revision `20261120_0021` refreshes untouched Fiber Maintenance and Maintenance Start template bodies to pair each circuit ID with its A/Z locations. Administrator-customized bodies are preserved; no tables or columns are added.
+
+Revision `20261120_0022` adds nullable batch group/company metadata to Operational Email rows so one selectable Fiber Maintenance or Fiber Outage source can represent its company-specific deliveries. Existing rows are retained and remain individually selectable.
 
 ## One-time data changes across revisions
 
