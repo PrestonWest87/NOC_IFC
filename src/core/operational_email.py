@@ -64,7 +64,7 @@ def _global_sender_recipient(config) -> str:
 TEMPLATE_DEFINITIONS = {
     "maintenance_notice": {
         "label": "Maintenance Notification",
-        "description": "Notify stakeholders of planned work, change department, risk, disruption, and operational impact.",
+        "description": "Notify stakeholders of planned work, change department, risk, disruption, and expected impact.",
         "allows_bcc": True,
         "allows_cc": True,
         "allows_attachments": False,
@@ -81,12 +81,14 @@ TEMPLATE_DEFINITIONS = {
              "options": ["None", "Low", "Medium", "High"]},
             {"key": "disruption", "label": "Disruption", "required": True, "max_length": 40,
              "options": ["Non-Disruptive", "Potentially Disruptive", "Disruptive"]},
-            {"key": "operational_impact", "label": "Operational impact", "required": False, "max_length": 2000,
-             "multiline": True},
             {"key": "change_department", "label": "Department performing the change", "required": True,
              "max_length": 80, "options": ["IT Network", "The Network Operations Center"]},
-            {"key": "departmental_impact", "label": "Departmental impact", "required": False, "max_length": 2000,
+            {"key": "expected_impact", "label": "Expected impact", "required": False, "max_length": 4096,
              "multiline": True},
+            {"key": "operational_impact", "label": "Legacy operational impact", "required": False,
+             "max_length": 4096, "multiline": True, "visible": False},
+            {"key": "departmental_impact", "label": "Legacy departmental impact", "required": False,
+             "max_length": 4096, "multiline": True, "visible": False},
             {"key": "contact", "label": "Operations contact", "required": False, "max_length": 500},
             {"key": "reference", "label": "Ticket / change reference", "required": False, "max_length": 200},
         ],
@@ -99,9 +101,8 @@ TEMPLATE_DEFINITIONS = {
             "Maintenance window: {{start_time}} to {{end_time}} {{timezone}}\n"
             "Risk: {{impact}}\n"
             "Disruption: {{disruption}}\n"
-            "Operational impact: {{operational_impact}}\n"
             "Department performing the change: {{change_department}}\n"
-            "Departmental impact: {{departmental_impact}}\n"
+            "Expected impact: {{expected_impact}}\n"
             "Operations contact: {{contact}}\n"
             "Reference: {{reference}}\n\n"
             "Please contact the Network Operations Center with questions or concerns."
@@ -173,7 +174,8 @@ TEMPLATE_DEFINITIONS = {
         "fields": [
             {"key": "site", "label": "Site", "required": True, "max_length": 200},
             {"key": "system", "label": "System / circuit", "required": True, "max_length": 250},
-            {"key": "outage_start", "label": "Outage start", "required": True, "max_length": 120},
+            {"key": "outage_start", "label": "Outage start", "required": True, "max_length": 120,
+             "picker_type": "datetime-local"},
             {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80, "visible": False},
             {"key": "impact", "label": "Service impact", "required": True, "max_length": 2000},
             {"key": "priority", "label": "Priority", "required": True, "max_length": 40},
@@ -217,7 +219,8 @@ TEMPLATE_DEFINITIONS = {
              "multiline": True},
             {"key": "contact", "label": "Fiber contact information", "required": False,
              "max_length": 2000, "multiline": True},
-            {"key": "outage_start", "label": "Outage start", "required": True, "max_length": 120},
+            {"key": "outage_start", "label": "Outage start", "required": True, "max_length": 120,
+             "picker_type": "datetime-local"},
             {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80, "visible": False},
             {"key": "impact", "label": "Service impact", "required": True, "max_length": 2000},
             {"key": "restoration_estimate", "label": "Legacy estimated restoration", "required": False,
@@ -254,18 +257,22 @@ TEMPLATE_DEFINITIONS = {
              "multiline": True},
             {"key": "contact", "label": "Fiber contact information", "required": False,
              "max_length": 2000, "multiline": True},
-            {"key": "outage_start", "label": "Outage start", "required": False, "max_length": 120},
+            {"key": "outage_start", "label": "Outage start", "required": False, "max_length": 120,
+             "picker_type": "datetime-local"},
             {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 8, "visible": False},
             {"key": "impact", "label": "Service impact", "required": False, "max_length": 2000},
             {"key": "requested_action", "label": "Legacy requested action", "required": False,
              "max_length": 2000, "visible": False},
             {"key": "reference", "label": "Ticket / carrier reference", "required": False, "max_length": 200},
-            {"key": "update_time", "label": "Update time", "required": True, "max_length": 120},
+            {"key": "update_time", "label": "Update time", "required": True, "max_length": 120,
+             "picker_type": "datetime-local"},
             {"key": "current_status", "label": "Current status", "required": True, "max_length": 120},
             {"key": "update_details", "label": "Progress update", "required": True, "max_length": 3000,
              "multiline": True},
-            {"key": "restoration_estimate", "label": "Updated restoration estimate", "required": False, "max_length": 120},
-            {"key": "next_update", "label": "Next update", "required": False, "max_length": 500},
+            {"key": "restoration_estimate", "label": "Updated restoration estimate", "required": False,
+             "max_length": 120, "picker_type": "datetime-local"},
+            {"key": "next_update", "label": "Next update", "required": False, "max_length": 500,
+             "picker_type": "datetime-local"},
         ],
         "default_subject": "FIBER OUTAGE UPDATE — {{site}}",
         "default_body": (
@@ -299,13 +306,15 @@ TEMPLATE_DEFINITIONS = {
              "multiline": True},
             {"key": "contact", "label": "Fiber contact information", "required": False,
              "max_length": 2000, "multiline": True},
-            {"key": "outage_start", "label": "Outage start", "required": False, "max_length": 120},
+            {"key": "outage_start", "label": "Outage start", "required": False, "max_length": 120,
+             "picker_type": "datetime-local"},
             {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 8, "visible": False},
             {"key": "impact", "label": "Original service impact", "required": False, "max_length": 2000},
             {"key": "requested_action", "label": "Legacy requested action", "required": False,
              "max_length": 2000, "visible": False},
             {"key": "reference", "label": "Ticket / carrier reference", "required": False, "max_length": 200},
-            {"key": "resolution_time", "label": "Service restored at", "required": True, "max_length": 120},
+            {"key": "resolution_time", "label": "Service restored at", "required": True, "max_length": 120,
+             "picker_type": "datetime-local"},
             {"key": "resolution_details", "label": "Resolution details", "required": True, "max_length": 3000,
              "multiline": True},
             {"key": "service_status", "label": "Current service status", "required": True, "max_length": 500},
@@ -339,7 +348,8 @@ TEMPLATE_DEFINITIONS = {
             {"key": "system", "label": "Node / system", "required": True, "max_length": 250},
             {"key": "incident", "label": "Incident / alert", "required": False, "max_length": 500},
             {"key": "impact", "label": "Operational impact", "required": True, "max_length": 2000},
-            {"key": "observed_at", "label": "Observed at", "required": False, "max_length": 120},
+            {"key": "observed_at", "label": "Observed at", "required": False, "max_length": 120,
+             "picker_type": "datetime-local"},
             {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80, "visible": False},
             {"key": "requested_response", "label": "Required response", "required": True, "max_length": 2000},
             {"key": "callback", "label": "Callback / NOC contact", "required": False, "max_length": 250},
@@ -388,15 +398,23 @@ TEMPLATE_DEFINITIONS = {
             {"key": "ticket_title", "label": "Ticket title", "required": False, "max_length": 250},
             {"key": "site", "label": "Site / service", "required": False, "max_length": 200},
             {"key": "work_scope", "label": "Planned work", "required": False, "max_length": 2000},
-            {"key": "start_time", "label": "Original maintenance start", "required": False, "max_length": 120},
-            {"key": "end_time", "label": "Original expected completion", "required": False, "max_length": 120},
+            {"key": "start_time", "label": "Original maintenance start", "required": False,
+             "max_length": 120, "picker_type": "datetime-local"},
+            {"key": "end_time", "label": "Original expected completion", "required": False,
+             "max_length": 120, "picker_type": "datetime-local"},
             {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80, "visible": False},
             {"key": "impact", "label": "Original risk", "required": False, "max_length": 2000},
             {"key": "disruption", "label": "Disruption", "required": False, "max_length": 40},
-            {"key": "departmental_impact", "label": "Departmental impact", "required": False, "max_length": 2000},
+            {"key": "expected_impact", "label": "Expected impact", "required": False,
+             "max_length": 4096, "multiline": True},
+            {"key": "operational_impact", "label": "Legacy operational impact", "required": False,
+             "max_length": 4096, "multiline": True, "visible": False},
+            {"key": "departmental_impact", "label": "Legacy departmental impact", "required": False,
+             "max_length": 4096, "multiline": True, "visible": False},
             {"key": "contact", "label": "Operations contact", "required": False, "max_length": 500},
             {"key": "reference", "label": "Ticket / change reference", "required": False, "max_length": 200},
-            {"key": "completion_time", "label": "Actual completion", "required": True, "max_length": 120},
+            {"key": "completion_time", "label": "Actual completion", "required": True, "max_length": 120,
+             "picker_type": "datetime-local"},
             {"key": "work_performed", "label": "Work performed", "required": True, "max_length": 2000},
             {"key": "service_status", "label": "Service status", "required": True, "max_length": 500},
             {"key": "follow_up", "label": "Follow-up notes", "required": False, "max_length": 2000},
@@ -412,7 +430,7 @@ TEMPLATE_DEFINITIONS = {
             "Original maintenance window: {{start_time}} to {{end_time}} {{timezone}}\n"
             "Risk: {{impact}}\n"
             "Disruption: {{disruption}}\n"
-            "Departmental impact: {{departmental_impact}}\n"
+            "Expected impact: {{expected_impact}}\n"
             "Actual completion: {{completion_time}}\n"
             "Service status: {{service_status}}\n"
             "Follow-up notes: {{follow_up}}\n"
@@ -432,14 +450,18 @@ TEMPLATE_DEFINITIONS = {
             {"key": "ticket_title", "label": "Ticket title", "required": False, "max_length": 250},
             {"key": "site", "label": "Site / service", "required": False, "max_length": 200},
             {"key": "work_scope", "label": "Planned work", "required": False, "max_length": 2000},
-            {"key": "start_time", "label": "Scheduled maintenance start", "required": False, "max_length": 120},
-            {"key": "end_time", "label": "Expected completion", "required": False, "max_length": 120},
+            {"key": "start_time", "label": "Scheduled maintenance start", "required": False,
+             "max_length": 120, "picker_type": "datetime-local"},
+            {"key": "end_time", "label": "Expected completion", "required": False,
+             "max_length": 120, "picker_type": "datetime-local"},
             {"key": "timezone", "label": "Application time zone", "required": False, "max_length": 80, "visible": False},
             {"key": "impact", "label": "Risk", "required": False, "max_length": 2000},
             {"key": "disruption", "label": "Disruption", "required": False, "max_length": 40},
-            {"key": "operational_impact", "label": "Operational impact", "required": False, "max_length": 2000},
+            {"key": "operational_impact", "label": "Legacy operational impact", "required": False,
+             "max_length": 4096, "multiline": True, "visible": False},
             {"key": "change_department", "label": "Department performing the change", "required": False, "max_length": 80},
-            {"key": "departmental_impact", "label": "Departmental impact", "required": False, "max_length": 2000},
+            {"key": "departmental_impact", "label": "Legacy departmental impact", "required": False,
+             "max_length": 4096, "multiline": True, "visible": False},
             {"key": "network_orders", "label": "Network Orders/Circuit IDs and A/Z locations",
              "required": False, "max_length": 70000, "multiline": True},
             {"key": "a_location", "label": "A location", "required": False, "max_length": 20000,
@@ -447,7 +469,7 @@ TEMPLATE_DEFINITIONS = {
             {"key": "z_location", "label": "Z location", "required": False, "max_length": 20000,
              "multiline": True, "visible": False},
             {"key": "mop_type", "label": "MOP Type", "required": False, "max_length": 80},
-            {"key": "expected_impact", "label": "Expected impact", "required": False, "max_length": 2000,
+            {"key": "expected_impact", "label": "Expected impact", "required": False, "max_length": 4096,
              "multiline": True},
             {"key": "contact", "label": "Operations/Fiber contact", "required": False, "max_length": 2000,
              "multiline": True},
@@ -465,8 +487,6 @@ TEMPLATE_DEFINITIONS = {
             "Risk: {{impact}}\n"
             "Disruption: {{disruption}}\n"
             "Department performing the change: {{change_department}}\n"
-            "Operational impact: {{operational_impact}}\n"
-            "Departmental impact: {{departmental_impact}}\n"
             "MOP Type: {{mop_type}}\n"
             "Expected impact: {{expected_impact}}\n"
             "Contact: {{contact}}\n"
@@ -642,6 +662,15 @@ def _normalize_fields(
         if spec.get("options") and value not in spec["options"]:
             raise ValueError(f"Select a valid {spec['label'].lower()}.")
         result[key] = value
+    if template_key in {"maintenance_notice", MAINTENANCE_START_TEMPLATE, "maintenance_complete"}:
+        if not result["expected_impact"] and "expected_impact" not in fields:
+            result["expected_impact"] = "\n".join(
+                result[key] for key in ("operational_impact", "departmental_impact") if result[key]
+            )
+        if result["expected_impact"]:
+            for key in ("operational_impact", "departmental_impact"):
+                if not result[key]:
+                    result[key] = result["expected_impact"]
     return result
 
 
@@ -1099,7 +1128,6 @@ def _fiber_maintenance_completion_details(fields: dict) -> str:
     for label, value in (
         ("Network Orders/Circuit IDs and A/Z locations", network_orders),
         ("MOP Type", fields.get("mop_type")),
-        ("Expected impact", fields.get("expected_impact")),
     ):
         value = str(value or "").strip()
         if value:

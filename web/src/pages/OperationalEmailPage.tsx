@@ -8,7 +8,7 @@ import { isAdministrator } from "../utils/permissions";
 
 type TemplateField = {
   key: string; label: string; required: boolean; max_length: number;
-  options?: string[]; multiline?: boolean; visible?: boolean; input_type?: string;
+  options?: string[]; multiline?: boolean; visible?: boolean; input_type?: string; picker_type?: string;
 };
 type EmailTemplate = {
   key: string;
@@ -74,6 +74,22 @@ function formatMessageDateTime(value: string): string {
   return `${month}/${day}/${year.slice(-2)} ${String(hour % 12 || 12).padStart(2, "0")}:${minute} ${hour < 12 ? "AM" : "PM"}`;
 }
 
+function isDateTimePicker(field: TemplateField): boolean {
+  return field.input_type === "datetime-local" || field.picker_type === "datetime-local";
+}
+
+function dateTimePickerValue(value: string): string {
+  const local = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(?:\s+(?:CT|CST|CDT))?$/i.exec(value.trim());
+  if (local) return `${local[1]}T${local[2]}`;
+  const formatted = /^(\d{2})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2}) (AM|PM)$/i.exec(value.trim());
+  if (!formatted) return value;
+  const [, month, day, shortYear, rawHour, minute, period] = formatted;
+  const shortYearNumber = Number(shortYear);
+  const year = shortYearNumber + (shortYearNumber < 69 ? 2000 : 1900);
+  const hour = Number(rawHour) % 12 + (period.toUpperCase() === "PM" ? 12 : 0);
+  return `${year}-${month}-${day}T${String(hour).padStart(2, "0")}:${minute}`;
+}
+
 function renderTemplate(text: string, fields: Record<string, string>): string {
   return String(text || "").replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_match, key: string) => formatMessageDateTime(fields[key] || ""));
 }
@@ -83,7 +99,6 @@ function fiberMaintenanceDetails(fields: Record<string, string>): string {
   const details = [
     ["Network Orders/Circuit IDs and A/Z locations", circuitDetails],
     ["MOP Type", fields.mop_type],
-    ["Expected impact", fields.expected_impact],
   ].flatMap(([label, value]) => value?.trim() ? [`${label}: ${value.trim()}`] : []);
   return details.length ? `\nFIBER MAINTENANCE DETAILS\n${details.join("\n")}\n` : "";
 }
@@ -193,6 +208,7 @@ function TemplateFieldInput({ field, value, onChange, readOnly = false }: {
 }) {
   if (field.visible === false) return null;
   const controlStyle = { ...inputStyle, opacity: readOnly ? 0.75 : 1 };
+  const inputType = field.picker_type || field.input_type || "text";
   return <label style={{ display: "block" }}>
     <span style={labelStyle}>{field.label}{field.required ? " *" : ""}</span>
     {field.options ? <select
@@ -213,8 +229,8 @@ function TemplateFieldInput({ field, value, onChange, readOnly = false }: {
       onChange={event => onChange(event.target.value)}
     /> : <input
       style={controlStyle}
-      type={field.input_type || "text"}
-      maxLength={field.input_type === "datetime-local" ? undefined : field.max_length}
+      type={inputType}
+      maxLength={inputType === "datetime-local" ? undefined : field.max_length}
       value={value || ""}
       readOnly={readOnly}
       required={field.required}
@@ -579,6 +595,10 @@ export function OperationalEmailPage() {
     setMaintenanceSourceGrouped(grouped);
     setFiberOutageSourceGrouped(false);
     const sourceFields: Record<string, string> = { ...(noticeItem.fields || {}) };
+    if (!String(sourceFields.expected_impact || "").trim()) {
+      sourceFields.expected_impact = [sourceFields.operational_impact, sourceFields.departmental_impact]
+        .map(value => String(value || "").trim()).filter(Boolean).join("\n");
+    }
     if (noticeItem.template_key === "fiber_maintenance_notice") {
       if (selectedKey === "maintenance_start") sourceFields.network_orders = fiberCircuitDetails(sourceFields);
       const route = [sourceFields.a_location, sourceFields.z_location].filter(Boolean).join(" to ");
@@ -591,7 +611,9 @@ export function OperationalEmailPage() {
       field.key,
       field.key === "timezone"
         ? (templatesQuery.data?.timezone_abbreviation || "CST")
-        : String(sourceFields[field.key] || ""),
+        : isDateTimePicker(field)
+          ? dateTimePickerValue(String(sourceFields[field.key] || ""))
+          : String(sourceFields[field.key] || ""),
     ])));
     if (selectedKey === "maintenance_start" || grouped) {
       setTo((noticeItem.to || []).join(", "));
@@ -634,7 +656,8 @@ export function OperationalEmailPage() {
         if (field.key === "timezone") {
           inherited[field.key] = templatesQuery.data?.timezone_abbreviation || "CST";
         } else if (Object.prototype.hasOwnProperty.call(outage.fields || {}, field.key)) {
-          inherited[field.key] = String(outage.fields[field.key] || "");
+          const value = String(outage.fields[field.key] || "");
+          inherited[field.key] = isDateTimePicker(field) ? dateTimePickerValue(value) : value;
         }
       });
       return { ...previous, ...inherited };
