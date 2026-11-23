@@ -265,6 +265,7 @@ def _required_reference_text(value, label, max_length):
 
 
 def _validate_reference_rows(rows, label, allowed_fields):
+    """Reject oversized directories, non-object rows, and fields outside the schema."""
     if not isinstance(rows, list):
         raise ValueError(f"{label} must be a list.")
     if len(rows) > SETTINGS_REFERENCE_MAX_ROWS:
@@ -278,6 +279,7 @@ def _validate_reference_rows(rows, label, allowed_fields):
 
 
 def _serialize_settings_reference_rows(model):
+    """Return a reference directory in its persisted display order."""
     with SessionLocal() as db:
         rows = db.query(model).order_by(model.sort_order, model.id).all()
         return [
@@ -287,6 +289,7 @@ def _serialize_settings_reference_rows(model):
 
 
 def _replace_settings_reference_rows(model, rows, *, actor_user_id, event_type):
+    """Replace one directory, audit only its row count, commit, and return saved rows."""
     with SessionLocal() as db:
         db.query(model).delete(synchronize_session=False)
         db.add_all(
@@ -314,6 +317,7 @@ def get_fiber_email_contacts():
 
 
 def _normalize_fiber_email_contact(contact):
+    """Validate and normalize a Fiber contact's name, company, email, and optional phone."""
     email = normalize_site_contact_value("email", contact.get("email"))
     if not email:
         raise ValueError("Fiber contact email is required.")
@@ -343,6 +347,7 @@ def get_onpage_email_contacts():
 
 
 def _normalize_onpage_email_contact(contact):
+    """Validate and normalize an ONPAGE department and its single email address."""
     email = normalize_site_contact_value("email", contact.get("email"))
     if not email:
         raise ValueError("ONPAGE contact email is required.")
@@ -370,6 +375,7 @@ def get_network_order_circuits():
 
 
 def _normalize_network_order_circuit(record):
+    """Normalize a circuit row and deduplicate its optional association IDs."""
     associated_ids = record.get("associated_circuit_network_order_ids") or []
     if isinstance(associated_ids, str):
         associated_ids = [value for value in re.split(r"[;|]", associated_ids) if value.strip()]
@@ -534,6 +540,7 @@ def _merge_settings_reference_rows(
 def _import_settings_reference_csv(csv_text, mode, *, directory, aliases, required_fields,
                                    normalize_row, current_rows, fields, identity_fields,
                                    replace_rows, actor_user_id, preserve_if_unprovided=()):
+    """Validate a CSV, merge by its natural key or replace the directory, then persist it."""
     if mode not in {"merge", "replace"}:
         raise ValueError("CSV import mode must be 'merge' or 'replace'.")
     incoming, provided_fields = _parse_settings_reference_csv(
@@ -739,6 +746,7 @@ def filter_wildfires_to_bbox(payload, bbox):
             incidents.append(fire)
 
     def intersects_viewport(feature):
+        """Keep malformed or geometry-free features rather than hiding possible hazards."""
         try:
             return bool(feature.get("geometry") and shape(feature["geometry"]).intersects(viewport))
         except Exception:
@@ -3699,6 +3707,7 @@ def get_microsoft_365_status():
             feed_status = "current"
 
         def iso_utc(value):
+            """Serialize stored UTC timestamps with an explicit UTC suffix."""
             return value.isoformat() + "Z" if value else None
 
         incidents = []

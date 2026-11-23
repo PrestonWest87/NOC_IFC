@@ -7,6 +7,7 @@ This index records the current source-to-reference mapping after the reference c
 | Source area | Reference |
 |---|---|
 | `src/api/main.py` | `api/main.md` |
+| `src/api/__init__.py` | `api/main.md` (package scope) |
 | `src/api/auth_guard.py` | `api/auth_guard.md` |
 | `src/api/ws_manager.py` | `api/ws_manager.md` |
 | `src/api/routes/*.py` | `api/routes/*.md` plus the complete method/path inventory in `../API.md` |
@@ -37,6 +38,7 @@ This index records the current source-to-reference mapping after the reference c
 | `src/services/ioc_extractor.py` | `services/ioc_extractor.md` |
 | `src/services/logic.py` | `services/logic.md` |
 | `src/utils/llm.py` | `utils/llm.md` |
+| `src/utils/markdown.py` | `utils/markdown.md`, `web/utils/markdown.md` |
 | `src/utils/mailer.py` | `utils/mailer.md` |
 | `src/utils/risk_alert.py` | `utils/risk_alert.md` |
 | `src/utils/__init__.py` | `utils/__init__.md` |

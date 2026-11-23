@@ -26,6 +26,6 @@
 
 ## Authority and Maintenance
 
-Source code is authoritative for behavior. `ARCHITECTURE.md`, `API.md`, `DATABASE_SCHEMA.md`, `SCHEDULER.md`, `PERMISSIONS.md`, `OPERATIONS_REFERENCE.md`, and `TROUBLESHOOTING.md` describe the current operational contracts. Module pages under `reference/` provide source-oriented detail and must be updated when signatures, inputs, outputs, side effects, algorithms, or error handling change. `IN_CODE_DOCUMENTATION_PLAN.md` is a plan; it does not mean source comments have already been added.
+Source code is authoritative for behavior. `ARCHITECTURE.md`, `API.md`, `DATABASE_SCHEMA.md`, `SCHEDULER.md`, `PERMISSIONS.md`, `OPERATIONS_REFERENCE.md`, and `TROUBLESHOOTING.md` describe the current operational contracts. Module pages under `reference/` provide source-oriented detail and must be updated when signatures, inputs, outputs, side effects, algorithms, or error handling change. `IN_CODE_DOCUMENTATION_PLAN.md` records source-documentation goals, dated coverage progress, and verification.
 
 Use repository-relative source paths. Do not document secrets, machine-specific absolute paths, generated build output, or undocumented environment variables as if they were deployment requirements.

@@ -60,4 +60,4 @@ The module defines `EmailAttachment`, `SendEmailRequest`, and `BroadcastBriefReq
 - `POST /broadcast-global-brief` for the saved Global Threat Brief.
 - `POST /broadcast-internal-brief` for the last complete saved Internal Asset Risk Brief; known batch-failure or skeleton output is rejected.
 
-Broadcast handlers require either the Global Dashboards or Reporting page plus `Action: Dispatch Exec Report`; they load the relevant saved brief and current internal-risk context before calling the shared mailer. SMTP configuration is read from `SystemConfig`.
+Broadcast handlers require either the Global Dashboards or Reporting page plus `Action: Dispatch Exec Report`; they load the relevant saved brief and current internal-risk context before calling the shared mailer. The active sender profile is selected from `SystemConfig`.

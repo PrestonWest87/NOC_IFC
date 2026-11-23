@@ -1,9 +1,9 @@
 # Documentation Audit and Verification Record
 
-**Audit date:** 2026-11-12
+**Audit date:** 2026-11-23
 **Implementation branch:** `dev`
-**Change scope:** Operational Email/Gmail sender profiles, Microsoft 365 public status monitoring, Settings contact/network reference directories, isolated dev Compose defaults, and source-aligned documentation.
-**Previous full source/docs audit:** 2026-10-26. Its build and test results are historical checkpoints, not current verification results.
+**Change scope:** Reconcile tracked documentation and in-code contracts against the current backend, frontend, migrations, deployment files, and dependency manifests; update only documentation/comments.
+**Previous full source/docs audit:** 2026-10-26. The 2026-11-12 checkpoint below is historical where current source has since changed.
 
 ## Audit method and source inventory
 
@@ -18,7 +18,7 @@ The implementation inventory checked includes:
 - The React SPA route map, user/session state, permission utilities, pages, shared components, and web runtime configuration.
 - `docker-compose.yml`, Dockerfiles, nginx/Vite configuration, Python/Node dependency manifests, `.env.example`, and operational/restore scripts.
 
-The OpenAPI schema generated from the checked-out source contains **203 paths and 219 HTTP operations**. The source defines 22 registry-managed scheduler jobs and 15 routed React page components (including public account-recovery pages). The current single Alembic head is `20261112_0014`.
+The OpenAPI schema generated from the checked-out source contains **203 paths and 219 HTTP operations**. The source defines 18 API router modules, 22 registry-managed scheduler jobs, 15 routed React page components (including public account-recovery pages), and 45 mapped ORM tables. The current single Alembic head is `20261123_0023`.
 
 ## Corrections made in this documentation pass
 
@@ -32,29 +32,26 @@ The guides and module references were refreshed to describe current behavior for
 - The webhook's actual acceptance response (HTTP 200 with an accepted body), HMAC/replay checks, and background persistence boundary.
 - Bearer/session storage, structured 401/403 behavior, per-tab/action grants, site-type scoping, and WebSocket authorization/revalidation.
 - The current dashboard/settings/reporting/AIOps/logbook UI, Operational Email workspace, and permissioned Email Contacts/Network Orders Settings tabs.
-- Backup/restore operations, legacy partial imports, SQLite migration ordering through `20261112_0014`, request limits, and dev Compose port/network/data isolation.
-- Current model/job/API inventory counts, source-reference mappings, and the optional `DATABASE_URL` template description.
+- Backup/restore operations, legacy partial imports, SQLite migration ordering through `20261123_0023`, request limits, and dev Compose port/network/data isolation.
+- Current sender-provider behavior (SMTP or Gmail), Operational Email calendar controls/unified Expected impact behavior, template-specific timezone suffixes, model/job/API counts, source-reference mappings, and the optional `DATABASE_URL` template description.
+- Public service/core/scheduler helper inventories in their source reference pages, plus source comment/docstring and TypeScript TSDoc coverage added after the 2026-10-26 pass.
 
-## Source-level mismatches surfaced during the audit
+## Constraints documented from source
 
-These are implementation inconsistencies, not documentation facts to conceal:
+These are current implementation constraints, not documentation errors:
 
-1. **Category names are not yet aligned across producers and consumers.** `src/services/categorizer.py` emits `Cloud & IT Infrastructure`, `Physical Security & Crime`, and `Severe Weather & Natural Hazards`. The frontend filter list and parts of `get_executive_grid_intel()` still use older `Cloud & IT Infra`, `Physical Security`, and `Severe Weather` values; the global scoring queries compare exact category strings. `Data Breach & Privacy` is also absent from the telemetry page's category list. The guides identify the canonical labels and this mismatch.
-2. **The test suite is intentionally untracked.** `tests/` is excluded by repository policy. Local-only regression tests were run for this change and remain unstaged.
-3. **The production nginx `allow` rule is not an IP allowlist.** `web/nginx.conf` includes `allow 10.0.0.0/8` in `location /` but has no `deny all`; unmatched client addresses are not denied by that rule. Deployment network restriction must therefore be provided by the host firewall or an upstream proxy.
+1. **The test suite is intentionally untracked.** `tests/` is excluded by repository policy. Tests run for this audit remain local-only.
+2. **The production nginx `allow` rule is not an IP allowlist.** `web/nginx.conf` includes `allow 10.0.0.0/8` in `location /` but has no `deny all`; unmatched client addresses are not denied by that rule. Deployment network restriction must therefore be provided by the host firewall or an upstream proxy.
 
 ### Resolved since the previous audit
 
 - The stale Streamlit/PyDeck comments previously noted in `src/services.py` were removed during the in-code documentation pass; no such references remain in the checked-in Python source.
 - `.env.example` labels `DATABASE_URL` as an optional override, matching the default supplied by `src/core/config.py`. The environment reference now matches that template.
-
-### Resolved after this audit
-
-- Category labels are aligned across the categorizer, Global Risk scoring filters, and the Threat Telemetry selector. The selector includes all nine non-General categories.
+- Category labels are aligned across the categorizer, Global Risk scoring filters, and the Threat Telemetry selector. The selector includes all nine non-General categories; `KeywordAnalysisPage` retains color aliases for older stored labels.
 
 ## Verification record
 
-**Completed:** 2026-11-12. The dev branch was checked against the generated OpenAPI schema, all mapped ORM tables, the scheduler registry, frontend/API source references, and dev Compose settings.
+**Completed:** 2026-11-23. The current dev branch was checked against generated API/schema/scheduler inventories, source-reference coverage, in-code documentation, and Markdown links.
 
 | Check | Outcome |
 |---|---|
@@ -62,20 +59,20 @@ These are implementation inconsistencies, not documentation facts to conceal:
 | Permission catalog | Passed: all 10 page, 23 action, and 36 tab keys from `src/core/permissions.py` are represented in `docs/PERMISSIONS.md`. |
 | ORM schema | Passed: all 45 mapped tables are represented in `docs/DATABASE_SCHEMA.md`. |
 | Scheduler registry | Passed: all 22 jobs are counted in the scheduler reference and trigger-flow summary. |
-| Migration head | Passed: Alembic reports `20261112_0014` as the single head; fresh and legacy-upgrade tests pass. |
-| Local Markdown links | Passed: local target paths resolve across the available repository documentation. |
-| Documentation contracts | Passed: API operations, schema columns/nullability/indexes, environment references, routed source pages, and scheduler defaults match source. |
-| Python regression suite | Passed: 223 local-only tests, including Gmail OAuth2/XOAUTH2 error handling, legacy App Password cleanup/fallback, Microsoft 365 incident ingestion/status mapping, SQLite migration upgrades, and documentation contracts; test files remain excluded from version control. |
-| Frontend production build | Passed in the Node 22 web image; the existing large MapLibre/deck.gl chunk warning remains. |
-| Backend image and Python compilation | Passed using the Python 3.11 API image. |
-| Docker Compose configuration | Passed: host ports 8099, 8102, 8503, and 5174; isolated `data-dev`; Docker's built-in bridge without a new subnet. |
-| Nginx configuration | Passed: `nginx -t` with the dev API host-gateway alias. |
+| Migration head | Passed: Alembic reports `20261123_0023` as the single head; the fresh/legacy migration suite passes. |
+| Local Markdown links | Passed: local target paths resolve across tracked and available repository documentation. |
+| Documentation contracts | Passed: 8 tests covering OpenAPI operations, schema columns/nullability/indexes, environment variables, routed reference pages, scheduler defaults, and Markdown links. |
+| Source coverage | Passed: 66 Python modules mapped; the API package initializer and Python Markdown renderer are indexed. |
+| Public symbol references | Passed: exported classes/functions in mapped backend, worker, scheduler, and script modules appear in their reference pages; API route operations are covered from OpenAPI. |
+| In-code documentation | Passed: all 66 `src/` modules have module docs, all Python classes/functions outside frozen `migrations/schema_v1.py` have docstrings, and 64/64 exported TypeScript/TSX declarations have TSDoc. |
+| Focused regression tests | Passed: 41 Operational Email tests and 18 migration tests; test files remain local-only. |
+| Container/config checks | Passed: API/web Docker builds and `docker compose -p noc-ifc-dev config --quiet`; the web build retains the existing >500 kB map-chunk warning. |
 | Whitespace | Passed: `git diff --check`. |
 
-The dev stack and the existing main instance ran concurrently with their respective port mappings. Operational Email changes remain on `dev`; the unrelated untracked integration-plan documents remain preserved and outside the feature commits.
+The 2026-11-12 checkpoint recorded 223 local-only Python tests and an nginx syntax check; those results remain historical. This pass changed documentation/comments only and did not alter runtime behavior.
 
 External feed content, provider uptime, SMTP delivery, and LLM answers are runtime-dependent; documentation specifies the code's configured request/processing behavior and failure handling rather than asserting that an external service is currently reachable.
 
 ## In-code documentation
 
-The source commenting pass was completed on 2026-10-26. See [In-Code Documentation Plan](IN_CODE_DOCUMENTATION_PLAN.md) for its scope and dated verification record; this audit changes no docstrings or source comments.
+The original source commenting pass was completed on 2026-10-26; this audit added missing helper docstrings and exported TSDoc without changing runtime behavior. See [In-Code Documentation Plan](IN_CODE_DOCUMENTATION_PLAN.md) for the dated coverage records.

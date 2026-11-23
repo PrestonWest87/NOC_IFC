@@ -138,6 +138,7 @@ function ContactTable({
   </section>;
 }
 
+/** Show the Fiber and ONPAGE contact directories, with edits enabled only for authorized administrators. */
 export function EmailContactsSettingsTab({ canManage }: { canManage: boolean }) {
   const [fiber, setFiber] = useState<FiberContact[]>([]);
   const [onpage, setOnpage] = useState<OnpageContact[]>([]);

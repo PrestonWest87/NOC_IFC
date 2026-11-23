@@ -78,7 +78,7 @@ def send_alert_email(
 | `email.utils.getaddresses`, `email.utils.parseaddr` | Resolve envelope and sender addresses |
 | `src.core.db.SessionLocal` | Database session factory |
 | `src.core.gmail_oauth.refresh_gmail_access_token` | Exchanges the saved refresh token for a short-lived access token |
-| `src.models.schema.SystemConfig` | Database model for SMTP configuration |
+| `src.models.schema.SystemConfig` | Database model for SMTP/Gmail sender profiles and recipient configuration |
 
 `SystemConfig.active_smtp_provider` selects either the existing configurable relay (`smtp_*`) or the Gmail OAuth profile (`gmail_smtp_*`). Gmail host and port are fixed at `smtp.gmail.com:587`; both profiles use STARTTLS. Google refresh/access tokens and client secrets are never logged or returned by the API. The helper logs recipient counts rather than attachment contents. It does not guarantee SMTP server-side delivery beyond a successful `send_message()` call.
 

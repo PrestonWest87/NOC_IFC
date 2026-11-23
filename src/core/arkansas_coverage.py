@@ -169,6 +169,7 @@ def get_arkansas_coverage() -> ArkansasCoverage:
 
 
 def _code_values(value) -> list[str]:
+    """Normalize an NWS geocode value or list into uppercase code tokens."""
     if value is None:
         return []
     if isinstance(value, (list, tuple, set)):

@@ -54,11 +54,17 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 - [x] Add Risk and Disruption fields, maintenance ticket title, date/time pickers, Fiber MOP placeholder choices, and Fiber Outage Location labeling.
 - [x] Add authorized contact/Network Order reference loading, multi-order A/Z/company/contact autofill, editable manual fields, and Fiber Outage/Resolution contact BCC handling; keep standard Maintenance Notification without Network Order autofill.
 - [x] Make After-Hours ONPAGE multi-select ONPAGE contacts for To only and reject Cc/Bcc on the server.
-- [x] Format Maintenance/Fiber Maintenance date-time values in outgoing message bodies as `MM/DD/YY HH:MM AM/PM` with the current CST/CDT label.
+- [x] Format calendar-selected timestamps as `MM/DD/YY HH:MM AM/PM`; planned maintenance windows append the current CST/CDT label, while other fields add it only where their template includes the timezone placeholder.
 - [x] Split Fiber Maintenance immediate and scheduled delivery by selected circuit company; send matched contacts in To, Global From in Cc, omit BCC, isolate each group's circuits/A/Z/contact details, and reject any unmapped company before delivery.
 - [x] Add conditional default-refresh migration and update API, UI, migration, and user documentation.
 - [x] Add local-only service/API tests and update source docs; verify 32 Operational Email tests, eight documentation contracts, API/web container builds, and `git diff --check`.
 - [x] Review and push intended source/docs only to `dev`; preserve unrelated untracked docs and keep tests unstaged.
+
+### Operational Email date controls and Expected impact — Completed
+
+- [x] Use calendar/time controls for Operational Email timestamps and combine Maintenance Notification's operational and departmental impacts into one Expected impact field, carrying legacy values into linked Start/Complete messages.
+- [x] Refresh untouched shipped template bodies with migration `20261123_0023`, preserve customized defaults, update docs, and verify 41 Operational Email tests, 18 migration tests, API/web container builds, and Compose configuration.
+- [x] Push the intended change to `origin/dev`; leave unrelated README/integration-plan work and local-only tests unstaged.
 
 ## Active Implementation Plan — Gmail Sender and Microsoft 365 Status
 
@@ -380,6 +386,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `src/webhook_listener.py` | SolarWinds webhook gateway (port 8100) |
 | `src/utils/llm.py` | LLM interaction (OpenAI/Ollama), map-reduce brief pipeline |
 | `src/utils/mailer.py` | SMTP email sending |
+| `src/utils/markdown.py` | Safe Markdown subset rendering for report/email content |
 | `src/api/routes/operational_email.py` | Operational Email page API with blanket page authorization |
 | `src/utils/risk_alert.py` | Risk level change detection + alerting |
 | `web/src/components/UsersRolesTab.tsx` | User directory, invitation, display-account, and role management |

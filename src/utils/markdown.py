@@ -25,6 +25,7 @@ def _safe_href(value: str) -> str | None:
 
 
 def _closing_delimiter(text: str, delimiter: str, start: int) -> int:
+    """Find the next unescaped delimiter at or after start, or return -1."""
     index = text.find(delimiter, start)
     while index >= 0:
         slashes = 0
@@ -39,6 +40,7 @@ def _closing_delimiter(text: str, delimiter: str, start: int) -> int:
 
 
 def _link_parts(text: str, start: int):
+    """Parse a Markdown link beginning at start into its end, label, and destination."""
     label_end = text.find("](", start + 1)
     if label_end < 0:
         return None
@@ -54,12 +56,14 @@ def _link_parts(text: str, start: int):
 
 
 def _render_inline(text: str, depth: int = 0) -> str:
+    """Render the supported inline subset while escaping all plain source text."""
     if depth > 8:
         return escape(text)
     output = []
     plain = []
 
     def flush():
+        """Escape and append buffered plain text before emitting formatted markup."""
         if plain:
             output.append(escape("".join(plain)))
             plain.clear()
@@ -123,6 +127,7 @@ def _render_inline(text: str, depth: int = 0) -> str:
 
 
 def _list_marker(line: str):
+    """Return normalized list-marker metadata for a bullet or numbered item."""
     match = _LIST_ITEM.match(line)
     if not match:
         return None
@@ -136,6 +141,7 @@ def _list_marker(line: str):
 
 
 def _split_table_row(line: str) -> list[str]:
+    """Split a Markdown table row on unescaped pipes and restore escaped pipes."""
     value = line.strip()
     if value.startswith("|"):
         value = value[1:]
@@ -157,6 +163,7 @@ def _split_table_row(line: str) -> list[str]:
 
 
 def _is_table_at(lines: list[str], index: int) -> bool:
+    """Check whether the current line is a table header followed by a separator."""
     if index + 1 >= len(lines) or "|" not in lines[index]:
         return False
     cells = _split_table_row(lines[index + 1])
@@ -164,6 +171,7 @@ def _is_table_at(lines: list[str], index: int) -> bool:
 
 
 def _is_block_start(lines: list[str], index: int) -> bool:
+    """Identify a block-level Markdown construct that ends a paragraph."""
     line = lines[index]
     return bool(
         _FENCE.match(line) or _HEADING.match(line) or _QUOTE.match(line)
@@ -172,6 +180,7 @@ def _is_block_start(lines: list[str], index: int) -> bool:
 
 
 def _render_list(lines: list[str], start_index: int, depth: int = 0) -> tuple[str, int]:
+    """Render a nested list and return its HTML plus the first unconsumed line index."""
     first = _list_marker(lines[start_index])
     base_indent = first["indent"]
     ordered = first["ordered"]
@@ -221,6 +230,7 @@ def _render_list(lines: list[str], start_index: int, depth: int = 0) -> tuple[st
 
 
 def _render_blocks(lines: list[str], depth: int = 0) -> str:
+    """Render supported block constructs as email-friendly HTML without raw HTML passthrough."""
     if depth > 8:
         return f'<p style="margin:0 0 12px;line-height:1.6;">{_render_inline(" ".join(line.strip() for line in lines))}</p>'
     output = []

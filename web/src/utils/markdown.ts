@@ -1,3 +1,4 @@
+/** Safe, parsed inline Markdown nodes shared by the React and email renderers. */
 export type MarkdownInline =
   | { type: "text"; value: string }
   | { type: "strong"; children: MarkdownInline[] }
@@ -6,7 +7,9 @@ export type MarkdownInline =
   | { type: "link"; href: string; children: MarkdownInline[] }
   | { type: "break" };
 
+/** One list item, including any nested block children. */
 export type MarkdownListItem = { content: MarkdownInline[]; children: MarkdownBlock[] };
+/** Discriminated union of the supported block-level Markdown constructs. */
 export type MarkdownBlock =
   | { type: "paragraph"; children: MarkdownInline[] }
   | { type: "heading"; level: number; children: MarkdownInline[] }
@@ -33,6 +36,7 @@ function closingDelimiter(value: string, delimiter: string, start: number): numb
   return -1;
 }
 
+/** Permit relative, HTTP(S), and mailto URLs; reject empty, protocol-relative, control-character, and other-scheme values. */
 export function safeMarkdownHref(value: string): string | null {
   const href = value.trim();
   if (!href || href.startsWith("//") || /[\u0000-\u0020]/.test(href)) return null;
@@ -52,6 +56,7 @@ function linkParts(value: string, start: number): { end: number; label: string; 
   return href ? { end, label: value.slice(start + 1, labelEnd), href } : null;
 }
 
+/** Parse the supported inline syntax into nodes, bounding recursive emphasis/link nesting. */
 export function parseInlineMarkdown(value: string, depth = 0): MarkdownInline[] {
   if (depth > 8) return [{ type: "text", value }];
   const nodes: MarkdownInline[] = [];
@@ -228,6 +233,7 @@ function parseList(lines: string[], startIndex: number, depth = 0): { block: Mar
   return { block, nextIndex: index };
 }
 
+/** Parse the supported block syntax into safe typed nodes; raw HTML remains ordinary text. */
 export function parseMarkdown(content: string, depth = 0): MarkdownBlock[] {
   const lines = String(content || "").replace(/\r\n?/g, "\n").split("\n");
   if (depth > 8) {
@@ -347,6 +353,7 @@ function renderBlockHtml(block: MarkdownBlock): string {
   return `<div style="overflow-x:auto;"><table style="border-collapse:collapse;margin:12px 0;width:100%;"><thead><tr>${header}</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
+/** Render parsed Markdown to email-friendly HTML with all source text escaped. */
 export function markdownToHtml(content: string): string {
   return parseMarkdown(content).map(renderBlockHtml).join("");
 }

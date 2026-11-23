@@ -204,7 +204,7 @@ Change keyword weights deliberately and review the effect on new articles. Use r
 - Remove inactive users and review administrator assignments.
 - Confirm page, action, and site-type permissions after role changes.
 - Review monitored location coordinates, site types, districts, priorities, and maintenance data.
-- Verify SMTP sender/recipient configuration after personnel changes.
+- Verify the active email sender profile and recipient configuration after personnel changes.
 - Verify LLM endpoint, model, context window, and access restrictions after provider changes.
 - Keep `DEMO_SEED_DATA=false` outside disposable demonstrations.
 

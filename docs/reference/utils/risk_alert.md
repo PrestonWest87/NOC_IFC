@@ -112,7 +112,7 @@ def get_alert_recipients() -> list[str]
 
 ### `get_smtp_config`
 
-**Purpose:** Retrieve the first `SystemConfig` row for SMTP configuration.
+**Purpose:** Retrieve the first `SystemConfig` row used to resolve the active outbound sender profile.
 
 **Signature:**
 ```python

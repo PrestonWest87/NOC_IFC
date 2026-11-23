@@ -78,6 +78,7 @@ function isDateTimePicker(field: TemplateField): boolean {
   return field.input_type === "datetime-local" || field.picker_type === "datetime-local";
 }
 
+/** Convert saved local timestamps (including legacy display strings) to datetime-local input values. */
 function dateTimePickerValue(value: string): string {
   const local = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(?:\s+(?:CT|CST|CDT))?$/i.exec(value.trim());
   if (local) return `${local[1]}T${local[2]}`;
@@ -239,6 +240,7 @@ function TemplateFieldInput({ field, value, onChange, readOnly = false }: {
   </label>;
 }
 
+/** Compose, schedule, and review permissioned operational emails from the server-provided template catalog. */
 export function OperationalEmailPage() {
   const { user } = useAuth();
   const isAdmin = isAdministrator(user);

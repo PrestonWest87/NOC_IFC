@@ -208,6 +208,7 @@ def _reference_matches(hazard_id, reference_id):
 
 
 def _stable_alert_id(feature):
+    """Prefer the CAP identifier; otherwise hash stable alert fields for deduplication."""
     properties = feature.get("properties") or {}
     identifier = properties.get("id") or feature.get("id")
     if identifier:

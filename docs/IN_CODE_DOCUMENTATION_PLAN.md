@@ -67,7 +67,7 @@ Use inline comments for non-obvious query-cache merge rules, permission-driven U
 
 ## Phased implementation
 
-### Progress record — 2026-10-26
+### Historical progress record — 2026-10-26
 
 The Phase 1–6 coverage pass is complete across the checked-in Python and React
 runtime: all 67 Python modules have module docstrings; all top-level and nested
@@ -81,6 +81,16 @@ architecture worktrees were byte-compared with zero differences.
 `migrations/schema_v1.py` remains byte-for-byte frozen per `AGENTS.md`; its mapped
 runtime counterparts are documented in `src/models/schema.py`. The frozen copy has
 a module-level description but its snapshot classes were not edited.
+
+### Source documentation follow-up — 2026-11-23
+
+The current `src/` inventory contains 66 Python modules and 64 exported
+TypeScript/TSX declarations. This follow-up documents previously undocumented
+nontrivial Python helpers and exported frontend contracts, and adds the Markdown
+renderer and API package initializer to `reference/SOURCE_COVERAGE.md`. All 66
+`src/` modules have module docs, every Python class/function outside the frozen
+`migrations/schema_v1.py` snapshot has a docstring, and all 64 exported TypeScript/TSX
+declarations have TSDoc. These are documentation-only changes.
 
 ### Phase 1 — Security, identity, restore, and permission contracts
 
@@ -98,7 +108,7 @@ Document `src/core/scheduler_registry.py`, `src/scheduler.py`, every `src/worker
 
 **Status:** Complete.
 
-Document the algorithms in `src/services.py`, `src/services/logic.py`, `src/services/categorizer.py`, `src/services/ioc_extractor.py`, and `src/services/aiops_engine.py`. Cover scoring thresholds, exact category/domain names, what data is considered, tie/fallback behavior, title/asset match caps, patient-zero scoring, fleet thresholds, site-health semantics, and positional map response contracts. Replace stale copied comments that mention removed Streamlit/PyDeck behavior when the corresponding source areas are next edited.
+The documentation pass covers algorithms in `src/services.py`, `src/services/logic.py`, `src/services/categorizer.py`, `src/services/ioc_extractor.py`, and `src/services/aiops_engine.py`: thresholds, exact category/domain names, input data, tie/fallback behavior, match caps, patient-zero scoring, fleet thresholds, site-health semantics, and positional map response contracts. Stale copied Streamlit/PyDeck comments have been removed.
 
 ### Phase 4 — LLM, email, reporting, and ML lifecycle
 
@@ -110,13 +120,13 @@ Document `src/utils/llm.py`, `src/utils/mailer.py`, `src/utils/risk_alert.py`, `
 
 **Status:** Complete.
 
-Add TSDoc to exported APIs in `web/src/App.tsx`, `web/src/utils/*`, `web/src/hooks/*`, `web/src/store/*`, and shared components. Add focused comments to large pages only for state transitions and permission-bound controls. Prioritize 401/403 handling, session storage, account theme synchronization, reconnect behavior, AIOps workflow state, large file downloads/restores, and the Regional Grid six-position compile-map response.
+TSDoc covers exported APIs in `web/src/App.tsx`, `web/src/utils/*`, `web/src/hooks/*`, `web/src/store/*`, shared components, and routed pages. Focused comments explain non-obvious state transitions and permission-bound controls, including 401/403 handling, session storage, account theme synchronization, reconnect behavior, AIOps workflow state, large file downloads/restores, and the Regional Grid six-position compile-map response.
 
 ### Phase 6 — Runtime configuration and maintenance tools
 
 **Status:** Complete.
 
-Document all functions and CLI flags in `scripts/*.py`, configuration loaders, database/migration setup, compatibility shims, and Docker/Vite/nginx startup behavior. Keep default values and bounds synchronized with `.env.example`, `JOB_REGISTRY`, and the matching config references.
+Functions and CLI flags in `scripts/*.py`, configuration loaders, database/migration setup, compatibility shims, and Docker/Vite/nginx startup behavior are documented. Keep default values and bounds synchronized with `.env.example`, `JOB_REGISTRY`, and the matching config references.
 
 ## Review checklist for each code change
 
@@ -129,7 +139,7 @@ Document all functions and CLI flags in `scripts/*.py`, configuration loaders, d
 - Does the documentation index/source-coverage map still include the module?
 - Do Python compile/import checks and the frontend production build pass? Run focused tests when code behavior changes.
 
-## Verification record
+## Historical verification record — 2026-10-26
 
 - Python 3.11-compatible compile check passed for `src/`, `scripts/`, and `migrations/`.
 - FastAPI import/OpenAPI generation passed: 177 paths and 189 HTTP operations.

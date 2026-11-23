@@ -1,6 +1,6 @@
 # Script: `scripts/seed_aiops_test_data.py`
 
-Creates deterministic synthetic SolarWinds-style records for AIOps workflow verification. Run it from the API/webhook image or another environment with the project dependencies and the intended `DATABASE_URL` configured.
+Creates repeatable synthetic SolarWinds-style records for AIOps workflow verification. Site coordinates and counts are fixed by the seed; generated alert timestamps use the current UTC time. Run it from the API/webhook image or another environment with the project dependencies and the intended `DATABASE_URL` configured.
 
 ```bash
 python scripts/seed_aiops_test_data.py          # dry run; writes nothing
@@ -14,6 +14,11 @@ python scripts/seed_aiops_test_data.py --apply  # delete/recreate AIOTEST-prefix
 - Without `--apply`, prints the planned counts and exits before opening the database.
 - With `--apply`, deletes `SolarWindsAlert` rows whose `node_name` starts with `AIOTEST-` and monitored locations named `AIOTEST Site NN`, recreates those locations, then passes each generated SolarWinds-shaped dictionary to `src.webhook_listener.process_payload_background()`.
 - The webhook processing path writes SolarWinds alert and timeline-event rows. The script's cleanup removes the matching test alerts and locations but does **not** remove matching timeline history; use the administrator-authorized timeline clear action only if that history also needs to be cleared.
+
+## Functions
+
+- `build_payload(site, city, index, node_type, alert_level, lat, lon)` creates one marked SolarWinds-shaped payload with placeholder `.invalid` links.
+- `main(apply)` previews the fixed counts when `apply` is false; otherwise it recreates the marked sites and submits each payload through `process_payload_background()`.
 
 ## Safety boundary
 

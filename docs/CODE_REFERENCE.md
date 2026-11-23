@@ -24,7 +24,7 @@ The detailed module pages live under `docs/reference/`. The current source-to-re
 | Operational email persistence and scheduling | `src/core/operational_email.py` | `reference/core/operational_email.md`, `SCHEDULER.md`, `DATABASE_SCHEMA.md` |
 | Database compatibility surface | `src/database.py` | `reference/database_compat.md` |
 | Model package | `src/models/__init__.py` | `reference/models/__init__.md` |
-| API lifecycle/auth/health | `src/api/main.py`, `src/api/auth_guard.py` | `reference/api/main.md` |
+| API package/lifecycle/auth/health | `src/api/__init__.py`, `src/api/main.py`, `src/api/auth_guard.py` | `reference/api/main.md` |
 | WebSocket manager | `src/api/ws_manager.py` | `reference/api/ws_manager.md` |
 | API route handlers | `src/api/routes/*.py` | `reference/api/routes/` and `API.md` (operation coverage is checked against OpenAPI) |
 | Data access and domain functions | `src/services.py` | `reference/services/services.md` |

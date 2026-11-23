@@ -76,6 +76,7 @@ function CsvImportControl({ pending, onImport, onError }: {
   </div>;
 }
 
+/** Show the A/Z network-order directory and reciprocal associations, with admin-only editing/import. */
 export function NetworkOrdersCircuitsTab({ canManage }: { canManage: boolean }) {
   const [records, setRecords] = useState<NetworkOrderRow[]>([]);
   const [notice, setNotice] = useState<{ message: string; error?: boolean } | null>(null);

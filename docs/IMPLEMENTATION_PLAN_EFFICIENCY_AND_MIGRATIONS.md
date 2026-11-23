@@ -75,7 +75,7 @@ These declared packages had no corresponding source imports and were removed:
 
 The LLM code calls a configurable chat-completions endpoint using `requests`; it does not import either provider SDK. Correct documentation that currently describes these packages as active.
 
-Add `httpx` to test-only requirements because the API tests use FastAPI's `TestClient`; do not rely on a removed SDK to install it transitively.
+`requirements-test.txt` pins `httpx2` for FastAPI/Starlette `TestClient`; do not rely on a runtime package to install the test client transport transitively.
 
 ### Preserve production integrations
 

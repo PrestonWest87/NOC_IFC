@@ -22,6 +22,47 @@ When a signature or default differs from an older section below, the current fun
 
 The `services.py` module is the central Data Access Layer (DAL) for the NOC Intelligence Fusion Center. Its functions bridge API routes to the database for authentication, dashboards, threat telemetry, regional grid analytics, AIOps RCA, reporting, user administration, recovery workflows, and scheduler configuration.
 
+## Additional current public operations
+
+These public helpers were added after the original function inventory. Their input/defaults and essential effects are listed here; their implementation docstrings remain authoritative.
+
+| Function | Current contract |
+|---|---|
+| `priority_tier(p)` | Extract a 1–5 priority tier from a numeric value or label such as `P1-Critical`. |
+| `import_fiber_email_contacts_csv(csv_text, mode, actor_user_id)` | Import Fiber contacts, merging by email or replacing the directory. |
+| `import_onpage_email_contacts_csv(csv_text, mode, actor_user_id)` | Import ONPAGE contacts, merging by department or replacing the directory. |
+| `import_network_order_circuits_csv(csv_text, mode, actor_user_id)` | Import network-order/circuit records, merging by circuit ID or replacing the directory. |
+| `active_nws_hazard_conditions(now=None)` | Return shared SQL conditions for NWS rows active at the supplied/current time. |
+| `filter_geojson_to_bbox(collection, bbox)` | Retain complete GeoJSON features that intersect a validated WGS84 view box. |
+| `filter_wildfires_to_bbox(payload, bbox)` | Scope WFCA incident points, perimeters, and footprints to a view box while retaining features with missing or malformed geometry. |
+| `get_active_nws_event_types()` | Return distinct event names from effective, unexpired, verified NWS rows. |
+| `auto_clear_expired_maintenance()` | Clear site maintenance after 11:59 PM Central on its ETR date and return cleared site names. |
+| `record_failed_login_attempt(username, source_ip=None)` | Persist enabled failed-login alerts and claim at most one alert per configured window. |
+| `normalize_user_email(value: str) -> tuple[str, str]` | Validate an email and return its display and case-folded forms. |
+| `get_pending_registration_invites()` | List live pending invitations without exposing stored token hashes. |
+| `revoke_registration_invite(invite_id, actor_user_id=None)` | Revoke one unused invitation and audit the actor. |
+| `validate_password(password)` | Enforce the shared minimum password length. |
+| `hash_password(password)` | Validate and bcrypt-hash a new password. |
+| `get_recovery_reviewer_emails(required_action='Action: Review Account Recovery Requests', exclude_user_id=None)` | Return unique verified reviewer addresses, optionally excluding the request subject. |
+| `get_user_directory()` | Build sanitized user rows with recovery-email, invitation, and access-history state. |
+| `create_display_account(username, password, role, full_name='', created_by=None)` | Create an email-optional display account with validated password and audit event. |
+| `submit_email_change_request(user_id, requested_email)` | Validate and queue a unique recovery-email change for review. |
+| `list_email_change_requests()` | List pending recovery-email requests without verification-token hashes. |
+| `review_email_change_request(request_id, reviewer_id, approve, reason='')` | Record the review decision; approval creates a hashed mailbox-verification token. |
+| `verify_recovery_email(raw_token)` | Consume an approved, unexpired mailbox-verification token and commit the verified address. |
+| `resend_recovery_email_verification(user_id)` | Rotate a pending verification token subject to the five-minute resend cooldown. |
+| `submit_password_reset_request(identifier, requester_ip=None)` | Hash request evidence, apply IP/identifier limits, and queue eligible requests for review. |
+| `list_password_reset_requests()` | List pending reset requests with safe account metadata. |
+| `review_password_reset_request(request_id, reviewer_id, approve, reason='')` | Record a review decision, prevent self-approval, and issue a token only for eligible mailboxes. |
+| `complete_password_reset(raw_token, new_password)` | Consume a single-use reset token, change the password hash, and revoke user sessions. |
+| `get_elastic_events(hours_back=24, page=1, page_size=100)` | Return a bounded, timestamp-ordered page from the local Elastic event cache. |
+| `get_aiops_timeline_events(allowed_site_names=None)` | Return latest timeline events, applying any site-name scope before the result limit. |
+| `user_has_all_site_type_access(user)` | Check whether the user is an administrator or holds all current site-type grants. |
+| `set_user_active(username, is_active, actor_user_id=None)` | Change account status, revoke sessions on disable, and append an audit event. |
+| `set_user_account_type(username, account_type, actor_user_id=None)` | Validate an individual/display transition, revoke sessions when changed, and audit it. |
+| `update_user_identity(username, full_name='', job_title='', contact_info='', actor_user_id=None)` | Update display identity fields and record the acting administrator. |
+| `revoke_user_sessions(username, actor_user_id=None)` | Revoke modern and legacy sessions for a user and append an audit event. |
+
 ---
 
 ## Utility Classes

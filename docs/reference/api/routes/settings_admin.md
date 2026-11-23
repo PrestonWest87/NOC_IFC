@@ -49,7 +49,7 @@ The full role-aware individual/display-account workflow, invitation queue, recov
 
 `POST /config` accepts a JSON object and calls `save_global_config(..., allow_system_fields=False)`. It is administrator-only. The service allowlist includes user-editable application configuration; system-maintained brief/risk-state fields are removed from this path. Risk/application UI changes now use the narrower category endpoints, while administrator-only compatibility writes remain available.
 
-`POST /config/test-email` accepts one validated recipient and sends a short message through the saved active SMTP profile. It uses the same sender selector as alerts, reports, recovery mail, and Operational Email; failures return HTTP 502 with a credential-safe message.
+`POST /config/test-email` accepts one validated recipient and sends a short message through the saved active sender profile. It uses the same sender selector as alerts, reports, recovery mail, and Operational Email; failures return HTTP 502 with a credential-safe message.
 
 ## Backup and restore
 

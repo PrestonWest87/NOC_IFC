@@ -18,6 +18,10 @@ Writes a source-prefixed message through the module logger. It defaults to `logg
 
 Reads `VmRSS` from `/proc/self/status` and logs resident memory. On systems without that file it logs a warning rather than raising.
 
+### `format_onpage_site_contacts(contacts)`
+
+Formats optional site contacts as a plain-text reference-only section for automatic ONPAGE email bodies. It normalizes whitespace, includes only nonempty name/phone/email fields, and returns an empty string when there are no usable contacts; these contacts are not message recipients.
+
 ### `_ensure_scorer()`
 
 Lazy-loads `src.services.logic.get_scorer()` into `_global_scorer`. ML retraining clears the global and reloads it after training.
@@ -66,12 +70,23 @@ Main RSS cycle. It loads active feeds, builds a seven-day known-link set, downlo
 | `job_internal_brief()` | Calls `trigger_internal_brief()` for asset-focused risk analysis; logs a warning and keeps the last saved brief when any required LLM batch or synthesis stage fails. |
 | `job_internal_risk()` | Saves a current internal risk snapshot and checks internal risk alerts. |
 | `job_daily_email_unified_brief()` | Reads the saved brief, builds current risk context, formats HTML, and sends to effective risk recipients (`SystemConfig.risk_alert_recipients`, environment fallback `RISK_ALERT_RECIPIENTS`). |
+| `job_operational_email_queue()` | Processes due one-time/daily/weekly Operational Email sends and records delivery results. |
 
 Each wrapper catches and logs its own exception so one AI or email failure does not terminate the scheduler loop.
 
 ## `run_database_maintenance()`
 
 Runs hourly retention deletion, orphan IOC cleanup, transaction commit/rollback, and SQLite `PRAGMA optimize` plus passive WAL checkpoint. Retention windows are documented in `docs/MAINTENANCE.md` and must be changed in source and reviewed together.
+
+## Other registry jobs
+
+### `job_database_backup()`
+
+Creates the scheduled encrypted full-database snapshot and logs its filename and table count. Failures are logged without stopping the scheduler loop.
+
+### `job_sync_elastic()`
+
+Runs the Elastic telemetry worker and logs skipped/unconfigured, error, or imported-event status without moving the page query off its local cache.
 
 ## `job_clear_expired_maintenance()`
 

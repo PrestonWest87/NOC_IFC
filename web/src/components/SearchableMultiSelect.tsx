@@ -1,8 +1,10 @@
 import { useId, useState } from "react";
 import { Check, ChevronDown, X } from "lucide-react";
 
+/** One selectable item; value is the selected identifier and label is shown and searched. */
 export type SearchableMultiSelectOption = { value: string; label: string };
 
+/** Searchable checkbox multi-select that returns selected values and renders removable chips. */
 export function SearchableMultiSelect({
   label, options, value, onChange, disabled = false, placeholder = "Choose items", noOptionsMessage = "No matching items.",
 }: {

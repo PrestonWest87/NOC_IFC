@@ -12,7 +12,7 @@ Webhook gateway ────────┘                     │
                                                ├── src/services/categorizer.py
                                                ├── src/services/ioc_extractor.py
                                                ├── src/services/aiops_engine.py
-                                               └── src/utils/{llm,mailer,risk_alert}.py
+                                               └── src/utils/{llm,mailer,risk_alert,markdown}.py
 ```
 
 `src/services/__init__.py` dynamically loads the sibling `src/services.py` file as `src.services` while retaining package search paths for `logic`, `categorizer`, `ioc_extractor`, and `aiops_engine`. This compatibility layout is intentional. `src.database` is a compatibility re-export of `src.core.db` and `src.models.schema`; it is not a second database implementation.
@@ -29,6 +29,7 @@ Webhook gateway ────────┘                     │
 | `src/utils/llm.py` | OpenAI-compatible chat completion, context lookup, map/reduce reports, and progress state | [`reference/utils/llm.md`](reference/utils/llm.md) |
 | `src/utils/mailer.py` | SMTP message formatting, attachments, STARTTLS, and delivery result | [`reference/utils/mailer.md`](reference/utils/mailer.md) |
 | `src/utils/risk_alert.py` | Risk-tier increase detection, a shared four-hour send cooldown, and earthquake email formatting | [`reference/utils/risk_alert.md`](reference/utils/risk_alert.md) |
+| `src/utils/markdown.py` | Safe rendering of the supported Markdown subset for email reports | [`reference/utils/markdown.md`](reference/utils/markdown.md) |
 | `src/train_model.py` | Feedback-labeled TF-IDF/logistic-regression model and atomic artifact replacement | [`reference/train_model.md`](reference/train_model.md) |
 | `src/workers/*.py` | CISA KEV, regional hazards, cloud status, telemetry, crime, Elastic cache, and Daily Fusion inputs | [`reference/README.md`](reference/README.md) |
 | `src/scheduler.py` | Registered job execution, schedule reload, retention, escalation, and periodic model/brief jobs | [`SCHEDULER.md`](SCHEDULER.md), [`reference/scheduler.md`](reference/scheduler.md) |
@@ -56,7 +57,7 @@ The categorizer emits exactly these nine labels: `Cyber: Exploits & Vulns`, `Cyb
 
 The extractor compiles 21 types in five categories: Network (IPv4, IPv6, URL, Domain, Email, ASN), Host Artifacts (SHA256, SHA1, MD5, Registry Key, Windows Path, Linux Path), Actor Infrastructure (BTC Wallet, XMR Wallet, Discord C2, Telegram C2), Cloud & DevOps (AWS API Key, AWS S3 Bucket, Azure Blob), and Taxonomy (CVE, MITRE ATT&CK). IOC results use `Category`, `Type`, `Indicator`, and `Context`; each side of the match can include a 45-character context window. Public/private/loopback/multicast/link-local/reserved IPs and the configured exact benign-domain list are excluded.
 
-**Observed compatibility mismatch:** the current categorizer labels differ from some exact labels still used in `get_executive_grid_intel()` and `ThreatTelemetryPage.tsx`. The matching consequences are recorded in [`DOCUMENTATION_AUDIT.md`](DOCUMENTATION_AUDIT.md); this documentation does not imply those source comparisons have been changed.
+Current category labels are aligned between the categorizer, `get_executive_grid_intel()`, and the Threat Telemetry filter. `KeywordAnalysisPage.tsx` retains color mappings for the legacy `Physical Security` and `Severe Weather` labels so older stored articles remain recognizable.
 
 ## Composite Intelligence Score
 

@@ -24,7 +24,7 @@ All notable changes to the NOC Intelligence Fusion Center application are docume
 
 ### Documentation
 - Reconciled user, API, permission, scheduler, data-flow, database, deployment, and module-reference guides against the checked-out implementation.
-- Added a source-to-documentation audit record, a complete permission reference, and a phased in-code docstring/comment plan. The plan is documentation only; source comments are not changed in this release.
+- Maintained the source-to-documentation audit record, permission reference, and in-code docstring/comment plan; the latest audit refreshed stale source claims and added local contracts to undocumented helpers without changing runtime behavior.
 
 > The complete current behavior is documented in `docs/`. The `v2.0.0` section below is a historical release snapshot, not a current runtime specification.
 

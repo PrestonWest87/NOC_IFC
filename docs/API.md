@@ -3,7 +3,7 @@
 Base URL: `http://localhost:8102/api/v1`
 WebSocket: `ws://localhost:8102/ws`
 
-This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-12 (203 paths and 219 HTTP operations). The running application's OpenAPI schema remains the source of truth.
+This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-23 (203 paths and 219 HTTP operations). The running application's OpenAPI schema remains the source of truth.
 
 ## Authentication
 
@@ -466,7 +466,7 @@ Body: `{weight: N}`. Validates 1-100, force-reloads scorer.
 Administrator-only compatibility endpoint for allowlisted editable `SystemConfig` fields. It can save both the existing SMTP profile and the Gmail profile, with `active_smtp_provider` selecting which profile sends all mail. Gmail uses `smtp.gmail.com:587` with STARTTLS and OAuth2 XOAUTH2 authentication using a client ID, client secret, and offline refresh token. OAuth secrets are write-only; omit them to retain saved values. It cannot write system-maintained brief/risk-state fields; the current UI uses category-specific `/application-settings/*` routes for risk scoring, application defaults, and scheduler changes.
 
 ### POST /admin/config/test-email
-Body: `{"recipient":"operator@example.com"}`. Sends a short test through the saved active SMTP profile; requires administrator access and returns HTTP 502 when delivery fails.
+Body: `{"recipient":"operator@example.com"}`. Sends a short test through the saved active sender profile; requires administrator access and returns HTTP 502 when delivery fails.
 
 ### POST /admin/assets/software
 Body: `{csv_body: "..."}`. Replaces all software assets.
@@ -606,11 +606,11 @@ Body: `{analytics, p1_at_risk}`. Generates weather brief.
 
 ## Operational Email Endpoints (/operational-email)
 
-Every route requires the `Operational Email` page grant. That page grant covers template use, immediate sending, scheduling/cancellation, and delivery history. Updating shared template defaults and managing signatures additionally requires the built-in administrator role. All sends use the configured global SMTP sender; callers cannot supply a From address.
+Every route requires the `Operational Email` page grant. That page grant covers template use, immediate sending, scheduling/cancellation, and delivery history. Updating shared template defaults and managing signatures additionally requires the built-in administrator role. All sends use the configured active global sender profile; callers cannot supply a From address.
 
 ### GET /operational-email/templates
 
-Returns the eleven templates, message fields, saved defaults, sender address, SMTP enabled state, current Central abbreviation, latest Global Dashboard shift analysis and timestamp, and attachment limits. Templates include Maintenance Notification, Fiber Maintenance Notification, Maintenance Start, Maintenance Complete, technician dispatch, Fiber Outage, Fiber Outage ONPAGE, linked follow-up/resolution, After-Hours ONPAGE, and Morning Report.
+Returns the eleven templates, message fields, saved defaults, sender address, active sender provider/readiness (`smtp_provider`, `smtp_enabled`), current Central abbreviation, latest Global Dashboard shift analysis and timestamp, and attachment limits. Templates include Maintenance Notification, Fiber Maintenance Notification, Maintenance Start, Maintenance Complete, technician dispatch, Fiber Outage, Fiber Outage ONPAGE, linked follow-up/resolution, After-Hours ONPAGE, and Morning Report.
 
 ### GET /operational-email/reference-data
 
@@ -642,7 +642,7 @@ Body: `{template_key, to, cc?, bcc?, subject?, body?, fields?, attachments?, mai
 
 Maintenance Start and Maintenance Complete require a successfully sent Maintenance Notification or Fiber Maintenance Notification via `source_email_id` (Maintenance Complete also accepts legacy `maintenance_notice_id`). Linked start/complete messages inherit source details and recipients, with editable Cc and preserved BCC. A grouped Fiber Maintenance source appears once and creates one Start/Complete message per company with a successful original delivery. Fiber follow-up and resolution templates accept `source_email_id` for a successfully sent Fiber Outage or Fiber Outage ONPAGE message. A grouped Fiber Outage source appears once and creates one update/resolution per company with a successful original delivery, retaining each company's source recipients and circuit subset. Single-message and ONPAGE source routing remains unchanged.
 
-Operational Email date/time fields are exposed as calendar controls. Maintenance notifications include a ticket title, date/time pickers, Risk (`None`, `Low`, `Medium`, or `High`), Disruption (`Non-Disruptive`, `Potentially Disruptive`, or `Disruptive`), a required Department performing the change selector (`IT Network` or `The Network Operations Center`), and one optional Expected impact field combining operational and departmental effects. Date/time values in sent message bodies use `MM/DD/YY HH:MM AM/PM` in the application timezone, followed by the current CST/CDT label. Fiber Maintenance includes MOP Type (`Demand`, `Standard`, or `Emergency`) and Expected impact. Fiber Outage requires an operator-entered Location; Network Orders/Circuit IDs are optional. Application Timezone is set automatically and is not an editable compose field. Fiber Maintenance and Maintenance Start label their combined details field Network Orders/Circuit IDs and A/Z locations; other Fiber templates use Network Orders/Circuit IDs. Fiber Outage no longer asks for Estimated restoration or Requested action; follow-up messages may still include an updated restoration estimate.
+Operational Email date/time fields are exposed as calendar controls. Maintenance notifications include a ticket title, date/time pickers, Risk (`None`, `Low`, `Medium`, or `High`), Disruption (`Non-Disruptive`, `Potentially Disruptive`, or `Disruptive`), a required Department performing the change selector (`IT Network` or `The Network Operations Center`), and one optional Expected impact field combining operational and departmental effects. Planned maintenance windows use `MM/DD/YY HH:MM AM/PM` in the application timezone with the current CST/CDT label; other date/time fields use that format and append a timezone suffix where their template includes one. Fiber Maintenance includes MOP Type (`Demand`, `Standard`, or `Emergency`) and Expected impact. Fiber Outage requires an operator-entered Location; Network Orders/Circuit IDs are optional. Application Timezone is set automatically and is not an editable compose field. Fiber Maintenance and Maintenance Start label their combined details field Network Orders/Circuit IDs and A/Z locations; other Fiber templates use Network Orders/Circuit IDs. Fiber Outage no longer asks for Estimated restoration or Requested action; follow-up messages may still include an updated restoration estimate.
 
 Fiber outage updates and resolution messages may be sent repeatedly and remain linked to their original ticket. Grouped Maintenance and Fiber Outage sources are listed once; linked messages fan out once per company with a successful original delivery. Fiber Maintenance and its linked Maintenance Start/Complete messages keep each circuit ID paired with its A/Z locations on a separate line. Other templates offer multi-select contact lookup plus editable recipient fields. After-Hours ONPAGE offers multi-select ONPAGE contacts for To and has no Cc/Bcc fields. Morning Report body is the latest `SystemConfig.rolling_summary` shift analysis from Global Dashboards, refreshed before delivery; it is sent as stored, without a date, window, title, or executive-summary wrapper.
 
@@ -666,11 +666,11 @@ Lists pending, recurring, and currently processing email schedules.
 
 ### DELETE /operational-email/scheduled/{email_id}
 
-Cancels a pending one-time or recurring send. An SMTP send already in progress returns `409`.
+Cancels a pending one-time or recurring send. A delivery attempt already in progress returns `409`.
 
 ### GET /operational-email/history?limit=100
 
-Returns recent SMTP attempts, outcomes, recipients, subject, sender, and attachment names. `limit` is bounded to 1–250.
+Returns recent delivery attempts, outcomes, recipients, subject, sender, and attachment names. `limit` is bounded to 1–250.
 
 ### GET /operational-email/history/{delivery_id}
 

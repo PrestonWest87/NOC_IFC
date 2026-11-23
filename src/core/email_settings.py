@@ -14,6 +14,7 @@ def get_active_smtp_profile(config, overrides: dict | None = None) -> dict:
     overrides = overrides or {}
 
     def value(name, default=None):
+        """Prefer pending admin edits, then the stored config value, then its default."""
         if name in overrides:
             return overrides[name]
         return getattr(config, name, default) if config is not None else default

@@ -531,7 +531,7 @@ Stores the latest public Microsoft 365 feed attempt/success and a sanitized erro
 | `operational_email_signatures` | `id`, `name`, `content`, active/default flags, actor/timestamp fields | Administrator-managed plain-text signatures |
 | `operational_emails` | `id`, `template_key`, recipients, schedule fields, status, `parent_email_id`, `group_id`, `group_company` | Message snapshots, one-time/daily/weekly schedules, and company fan-out groups |
 | `operational_email_attachments` | `id`, `operational_email_id`, filename, content type, binary content | Bounded files persisted with scheduled messages |
-| `operational_email_deliveries` | `id`, `operational_email_id`, sender, recipients, status, attempted/sent timestamps | Immutable SMTP attempt history, including hidden BCC envelope addresses |
+| `operational_email_deliveries` | `id`, `operational_email_id`, sender, recipients, status, attempted/sent timestamps | Immutable outbound-email attempt history, including provider and hidden BCC envelope addresses |
 | `fiber_email_contacts` | `id`, `name`, `company`, `email`, optional `phone`, `sort_order` | Ordered Fiber contact directory managed through Settings & Admin |
 | `onpage_email_contacts` | `id`, `department`, `email`, `sort_order` | Ordered ONPAGE department contact directory |
 | `network_order_circuits` | `id`, A/Z locations, circuit/network-order ID, company, associated circuit IDs, `sort_order` | Ordered network circuit reference table with reciprocal associations |
@@ -552,6 +552,6 @@ The application runs Alembic revisions at startup before seeding data. `Base.met
 - A bootstrap administrator only when `DEFAULT_ADMIN_PASSWORD` is configured and no users exist
 - 70 default keywords with weights
 - 7 default RSS feed sources
-- Ten Operational Email template defaults, inserted only when missing
+- Eleven Operational Email template defaults, inserted only when missing
 - Default system configuration
 - Rescales articles only when `RESCORE_ON_STARTUP=true` is explicitly configured

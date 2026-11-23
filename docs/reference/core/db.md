@@ -8,6 +8,13 @@ Provides the SQLite engine/session factory, startup migration integration, post-
 
 `DATABASE_URL` must use a SQLite URL. Non-SQLite backends fail during configuration with a clear error. The engine uses `NullPool`, `check_same_thread=False`, and a 30-second SQLite connection timeout.
 
+## Public helpers
+
+| Function | Contract |
+|---|---|
+| `validate_database_url(database_url)` | Parse a SQLAlchemy URL and reject any backend other than SQLite with `RuntimeError`. |
+| `get_db()` | Yield a request-scoped `SessionLocal` session and close it in `finally`; route/service code owns commits. |
+
 ## Startup sequence
 
 `init_db()` performs these steps before a process serves work:

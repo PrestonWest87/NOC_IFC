@@ -571,6 +571,7 @@ def _normalize_subject(value: str, field_name: str = "Subject") -> str:
 
 
 def _fields_by_key(template_key: str) -> dict[str, dict]:
+    """Return a template's field specifications keyed by field name."""
     definition = TEMPLATE_DEFINITIONS.get(template_key)
     if not definition:
         raise ValueError("Unknown operational email template.")
@@ -662,6 +663,7 @@ def _normalize_fields(
         if spec.get("options") and value not in spec["options"]:
             raise ValueError(f"Select a valid {spec['label'].lower()}.")
         result[key] = value
+    # Keep old saved template placeholders and source snapshots working with one composer field.
     if template_key in {"maintenance_notice", MAINTENANCE_START_TEMPLATE, "maintenance_complete"}:
         if not result["expected_impact"] and "expected_impact" not in fields:
             result["expected_impact"] = "\n".join(
@@ -770,6 +772,7 @@ def _account_event(db, event_type: str, actor_user_id: int | None, detail: dict)
 
 
 def _serialize_signature(signature: OperationalEmailSignature) -> dict:
+    """Convert a persisted signature into its API/history representation."""
     return {
         "id": signature.id,
         "name": signature.name,
@@ -795,6 +798,7 @@ def list_operational_email_signatures(*, include_inactive: bool = False) -> list
 
 
 def _validate_signature_values(name, content) -> tuple[str, str]:
+    """Validate and trim a signature name and body before persistence."""
     if not isinstance(name, str) or not name.strip() or len(name.strip()) > 100:
         raise ValueError("Signature name must contain 1–100 characters.")
     normalized_name = name.strip()
@@ -904,7 +908,7 @@ def deactivate_operational_email_signature(signature_id: int, actor_user_id: int
 
 
 def get_operational_email_templates() -> dict:
-    """Return the template catalog, editable defaults, SMTP sender, and capability flags."""
+    """Return the template catalog, editable defaults, active sender, and capability flags."""
     ensure_operational_email_templates()
     with SessionLocal() as db:
         rows = {
@@ -1067,6 +1071,7 @@ def _append_signature(body: str, signature_content: str | None) -> str:
 
 
 def _get_selected_signature(db, values: dict) -> OperationalEmailSignature | None:
+    """Resolve an explicitly selected active signature, the active default, or no signature."""
     signature_id = values.get("signature_id")
     use_default = values.get("use_default_signature", True)
     if not isinstance(use_default, bool):
@@ -1104,6 +1109,7 @@ def _legacy_fiber_network_order_details(fields: dict) -> str:
         return network_orders
 
     def split_values(value):
+        """Split a legacy delimited field into its original nonempty value order."""
         return [item.strip() for item in re.split(r"[;\r\n]+", str(value or "")) if item.strip()]
 
     circuit_ids = split_values(network_orders)
@@ -1138,6 +1144,7 @@ def _fiber_maintenance_completion_details(fields: dict) -> str:
 
 
 def _unique_field_values(values) -> list[str]:
+    """Trim and deduplicate recipient-like values case-insensitively, preserving first order."""
     result = []
     seen = set()
     for value in values:
@@ -1711,6 +1718,7 @@ def _prepare_grouped_source_messages(db, template_key: str, values: dict, *, for
 
 
 def _prepare_messages(db, template_key: str, values: dict, *, for_schedule: bool = False) -> list[tuple[str | None, dict]]:
+    """Route grouped templates to per-company preparation and others to a single message."""
     if template_key == FIBER_MAINTENANCE_TEMPLATE:
         return _prepare_fiber_maintenance_messages(db, values, for_schedule=for_schedule)
     fields = values.get("fields")

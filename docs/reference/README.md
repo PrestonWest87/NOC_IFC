@@ -13,7 +13,7 @@ This directory is the detailed source-oriented reference corpus. It is part of t
 - `database_compat.md`: active compatibility exports used by services and workers.
 - `models/`: SQLAlchemy entities and relationships.
 - `services/`: data access, scoring, categorization, IOC extraction, and AIOps algorithms.
-- `utils/`: LLM, mail, and risk-alert behavior.
+- `utils/`: LLM, mail, risk-alert, and safe Markdown rendering.
 - `workers/`: external feed workers and scheduled data integrations.
 - `web/`: React pages, components, hooks, state, and utilities.
 - `config/`: Docker, nginx, TypeScript, Vite, dependency, and environment-file notes.
