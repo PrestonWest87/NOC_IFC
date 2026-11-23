@@ -41,6 +41,7 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 - [x] Add Fiber and ONPAGE email contact directories and an A/Z network-order/circuit reference table with an additive SQLite migration.
 - [x] Add the Email Contacts and Network Orders & Circuits Settings tabs, explicit tab grants, read endpoints, and administrator-only table replacement endpoints.
 - [x] Add separate CSV import workflows for Fiber contacts, ONPAGE contacts, and network-order/circuit records.
+- [x] Add CSV downloads for Fiber contacts, ONPAGE contacts, and Network Orders/Circuits, retaining display order and associated circuit IDs.
 - [x] Validate row fields, bounds, single email addresses/phones, preserve display order, and audit replacements without storing contact values in audit details.
 - [x] Add reciprocal multi-select associated circuit/network-order IDs and preserve optional links in CSV merge imports. Operational Email now includes only the immediate associations of explicitly selected records, without traversing links from auto-included records.
 - [x] Update API, permission, schema, Settings UI/source documentation, and local-only service/API/migration tests.

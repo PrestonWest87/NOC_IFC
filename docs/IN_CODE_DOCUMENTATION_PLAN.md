@@ -84,12 +84,12 @@ a module-level description but its snapshot classes were not edited.
 
 ### Source documentation follow-up — 2026-11-23
 
-The current `src/` inventory contains 66 Python modules and 64 exported
+The current `src/` inventory contains 66 Python modules and 66 exported
 TypeScript/TSX declarations. This follow-up documents previously undocumented
 nontrivial Python helpers and exported frontend contracts, and adds the Markdown
 renderer and API package initializer to `reference/SOURCE_COVERAGE.md`. All 66
 `src/` modules have module docs, every Python class/function outside the frozen
-`migrations/schema_v1.py` snapshot has a docstring, and all 64 exported TypeScript/TSX
+`migrations/schema_v1.py` snapshot has a docstring, and all 66 exported TypeScript/TSX
 declarations have TSDoc. These are documentation-only changes.
 
 ### Phase 1 — Security, identity, restore, and permission contracts

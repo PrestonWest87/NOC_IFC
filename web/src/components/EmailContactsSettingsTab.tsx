@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Plus, Save, Trash2, Upload } from "lucide-react";
+import { Download, Plus, Save, Trash2, Upload } from "lucide-react";
 import api, { getApiErrorMessage } from "../utils/api";
+import { downloadCsv } from "../utils/csv";
 
 type FiberContact = {
   id?: number;
@@ -81,6 +82,7 @@ function ContactTable({
   onChange,
   onRemove,
   onSave,
+  onExport,
   onImport,
   onImportError,
 }: {
@@ -94,16 +96,20 @@ function ContactTable({
   onChange: (index: number, key: string, value: string) => void;
   onRemove: (index: number) => void;
   onSave: () => void;
+  onExport: () => void;
   onImport: (csvText: string, mode: CsvImportMode) => void;
   onImportError: (message: string) => void;
 }) {
   return <section style={{ ...cardStyle, minWidth: 0 }}>
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
       <h3 style={{ margin: 0, fontSize: "0.95rem" }}>{title}</h3>
-      {canManage && <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <CsvImportControl label={title} pending={pending} onImport={onImport} onError={onImportError} />
-        <button type="button" style={{ ...buttonStyle, opacity: pending ? 0.7 : 1 }} onClick={onAdd} disabled={pending}><Plus size={14} />Add contact</button>
-      </div>}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <button type="button" aria-label={`Export ${title} contacts CSV`} style={{ ...buttonStyle, opacity: pending ? 0.7 : 1 }} onClick={onExport} disabled={pending}><Download size={14} />Export CSV</button>
+        {canManage && <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <CsvImportControl label={title} pending={pending} onImport={onImport} onError={onImportError} />
+          <button type="button" style={{ ...buttonStyle, opacity: pending ? 0.7 : 1 }} onClick={onAdd} disabled={pending}><Plus size={14} />Add contact</button>
+        </div>}
+      </div>
     </div>
     <div style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", minWidth: 520, borderCollapse: "collapse", fontSize: "0.78rem" }}>
@@ -226,6 +232,7 @@ export function EmailContactsSettingsTab({ canManage }: { canManage: boolean }) 
       onChange={(index, key, value) => setFiber(rows => rows.map((row, rowIndex) => rowIndex === index ? { ...row, [key]: value } : row))}
       onRemove={index => setFiber(rows => rows.filter((_row, rowIndex) => rowIndex !== index))}
       onSave={() => { setNotice(null); fiberMutation.mutate(fiber); }}
+      onExport={() => downloadCsv("fiber-email-contacts.csv", ["name", "company", "email", "phone"], fiber.map(row => [row.name, row.company, row.email, row.phone]))}
       onImport={(csvText, mode) => { setNotice(null); fiberImportMutation.mutate({ csvText, mode }); }}
       onImportError={message => setNotice({ message, error: true })}
     />
@@ -243,6 +250,7 @@ export function EmailContactsSettingsTab({ canManage }: { canManage: boolean }) 
       onChange={(index, key, value) => setOnpage(rows => rows.map((row, rowIndex) => rowIndex === index ? { ...row, [key]: value } : row))}
       onRemove={index => setOnpage(rows => rows.filter((_row, rowIndex) => rowIndex !== index))}
       onSave={() => { setNotice(null); onpageMutation.mutate(onpage); }}
+      onExport={() => downloadCsv("onpage-email-contacts.csv", ["department", "email"], onpage.map(row => [row.department, row.email]))}
       onImport={(csvText, mode) => { setNotice(null); onpageImportMutation.mutate({ csvText, mode }); }}
       onImportError={message => setNotice({ message, error: true })}
     />

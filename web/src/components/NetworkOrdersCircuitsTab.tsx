@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Plus, Save, Trash2, Upload } from "lucide-react";
+import { Download, Plus, Save, Trash2, Upload } from "lucide-react";
 import { SearchableMultiSelect, type SearchableMultiSelectOption } from "./SearchableMultiSelect";
 import api, { getApiErrorMessage } from "../utils/api";
+import { downloadCsv } from "../utils/csv";
 
 type NetworkOrderRow = {
   id?: number;
@@ -38,6 +39,10 @@ const columns: { key: EditableNetworkOrderField; label: string }[] = [
   { key: "z_location", label: "Z location" },
   { key: "circuit_network_order_id", label: "Circuit/Network Order ID" },
   { key: "company", label: "Company" },
+];
+const CSV_HEADERS = [
+  "a_location", "z_location", "circuit_network_order_id", "company",
+  "associated_circuit_network_order_ids",
 ];
 
 function CsvImportControl({ pending, onImport, onError }: {
@@ -199,14 +204,29 @@ export function NetworkOrdersCircuitsTab({ canManage }: { canManage: boolean }) 
     <section style={{ ...cardStyle, minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
         <h4 style={{ margin: 0, fontSize: "0.9rem" }}>Circuit / Network Order Records</h4>
-        {canManage && <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <CsvImportControl
-            pending={saveMutation.isPending || importMutation.isPending}
-            onImport={(csvText, mode) => { setNotice(null); importMutation.mutate({ csvText, mode }); }}
-            onError={message => setNotice({ message, error: true })}
-          />
-          <button type="button" style={buttonStyle} onClick={() => { setRecords(rows => [...rows, { ...emptyRow }]); setNotice(null); }}><Plus size={14} />Add record</button>
-        </div>}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            style={{ ...buttonStyle, opacity: saveMutation.isPending || importMutation.isPending ? 0.7 : 1 }}
+            aria-label="Export Network Orders and Circuits CSV"
+            onClick={() => downloadCsv("network-orders-and-circuits.csv", CSV_HEADERS, records.map(row => [
+              row.a_location,
+              row.z_location,
+              row.circuit_network_order_id,
+              row.company,
+              (row.associated_circuit_network_order_ids || []).join("; "),
+            ]))}
+            disabled={saveMutation.isPending || importMutation.isPending}
+          ><Download size={14} />Export CSV</button>
+          {canManage && <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <CsvImportControl
+              pending={saveMutation.isPending || importMutation.isPending}
+              onImport={(csvText, mode) => { setNotice(null); importMutation.mutate({ csvText, mode }); }}
+              onError={message => setNotice({ message, error: true })}
+            />
+            <button type="button" style={buttonStyle} onClick={() => { setRecords(rows => [...rows, { ...emptyRow }]); setNotice(null); }}><Plus size={14} />Add record</button>
+          </div>}
+        </div>
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", minWidth: 1200, borderCollapse: "collapse", fontSize: "0.78rem" }}>

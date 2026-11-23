@@ -15,6 +15,7 @@ All notable changes to the NOC Intelligence Fusion Center application are docume
 
 ### Accounts, permissions, and administration
 - The canonical page/tab/action/site-type catalog is enforced by the API. AIOps WebSocket access requires the Active Board tab and filters data by site type.
+- Settings provides separate CSV exports for Fiber contacts, ONPAGE contacts, and Network Orders/Circuits, including associated circuit IDs.
 - Individual accounts use email invitations; display accounts may omit email. Password-reset and recovery-email changes require separate reviewer actions, and approved recovery addresses require mailbox verification.
 - Application Settings separates risk-scoring controls, scheduler configuration, global defaults, and failed-login alerts. Schedule edits are validated and reloaded by the worker without restart.
 

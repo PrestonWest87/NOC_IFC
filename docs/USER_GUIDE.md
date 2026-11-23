@@ -149,11 +149,11 @@ The UI contains Profile, Theme, Facilities, Email Contacts, Network Orders & Cir
 
 ### Email Contacts
 
-Administrators maintain separate Fiber contacts (Name, Company, Email, Phone) and ONPAGE contacts (Department, Email). Rows can be edited directly or imported from separate CSV files. CSV import defaults to merging/updating matching records; choose Replace all rows to replace that directory with the file. A tab grant is required to read the directory; only administrators can save or import rows.
+The directory has separate Fiber (Name, Company, Email, Phone) and ONPAGE (Department, Email) tables. Each table can be exported to CSV in display order by users with the tab read grant; administrators can also edit, save, or import CSV files. Export headers match the import format. Import defaults to merging/updating matching records; choose Replace all rows to replace that directory with the file.
 
 ### Network Orders & Circuits
 
-This tab stores circuit/network-order mappings with A location, Z location, Circuit/Network Order ID, Company, and multi-select Associated Circuit/Network Order IDs. Associate other rows by their circuit ID; links are saved reciprocally. Selecting a circuit in Operational Email automatically includes only its immediate associations; links from auto-included circuits are not followed. Administrators can add, edit, remove, save, or import CSV files containing these columns. Import defaults to merging by Circuit/Network Order ID; the optional associated-ID column uses semicolon-separated values and omitted values preserve existing links during merge. Replace all rows is also available. A separate tab grant controls directory read access.
+This tab stores circuit/network-order mappings with A location, Z location, Circuit/Network Order ID, Company, and multi-select Associated Circuit/Network Order IDs. Associate other rows by their circuit ID; links are saved reciprocally. Selecting a circuit in Operational Email automatically includes only its immediate associations; links from auto-included circuits are not followed. Users with the tab read grant can export the ordered records to CSV, including the semicolon-separated associated-ID column; administrators can add, edit, remove, save, or import CSV files. Import defaults to merging by Circuit/Network Order ID; if the associated-ID column is omitted, existing links are preserved during merge. Replace all rows is also available.
 
 ### Users & Roles
 
