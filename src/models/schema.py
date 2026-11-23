@@ -370,7 +370,7 @@ class SystemConfig(Base):
     alerted_wildfire_ids = Column(Text, default="[]")
     wildfire_proximity_state = Column(Text, default="{}")
     llm_context_window = Column(Integer, default=128000)
-    public_app_url = Column(String, default="http://localhost:8503")
+    public_app_url = Column(String, default="http://localhost:8501")
     risk_alert_recipients = Column(Text, nullable=True)
     remedyforce_ticket_email = Column(Text, nullable=True)
     noc_notify_email = Column(Text, nullable=True)
