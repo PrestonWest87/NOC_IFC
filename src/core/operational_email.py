@@ -398,6 +398,8 @@ TEMPLATE_DEFINITIONS = {
             {"key": "ticket_title", "label": "Ticket title", "required": False, "max_length": 250},
             {"key": "site", "label": "Site / service", "required": False, "max_length": 200},
             {"key": "work_scope", "label": "Planned work", "required": False, "max_length": 2000},
+            {"key": "network_orders", "label": "Network Orders/Circuit IDs and A/Z locations",
+             "required": False, "max_length": 70000, "multiline": True},
             {"key": "start_time", "label": "Original maintenance start", "required": False,
              "max_length": 120, "picker_type": "datetime-local"},
             {"key": "end_time", "label": "Original expected completion", "required": False,
@@ -1156,6 +1158,68 @@ def _unique_field_values(values) -> list[str]:
     return result
 
 
+def _network_order_identifiers(fields: dict) -> list[str]:
+    """Extract explicit network-order/circuit IDs from current and legacy message snapshots."""
+    # shortcut: ID discovery ignores prose; add a source field when a template exposes circuit IDs.
+    if not isinstance(fields, dict):
+        return []
+    identifiers = []
+    network_label = re.compile(
+        r"^(?:Network Orders(?:/Circuit IDs(?: and A/Z locations)?)?|Circuit IDs?)\s*:\s*",
+        re.IGNORECASE,
+    )
+    location_label = re.compile(r"^(?:A|Z) locations?\s*:", re.IGNORECASE)
+
+    def append_ids(value: str) -> None:
+        """Split a delimited network-order/circuit field into candidate identifiers."""
+        identifiers.extend(
+            part.strip() for part in re.split(r"[;,]+", value) if part.strip()
+        )
+
+    for key in ("network_orders", "circuit", "circuit_ids"):
+        for line in str(fields.get(key) or "").splitlines():
+            line = line.strip()
+            if not line or location_label.match(line) or line == "FIBER MAINTENANCE DETAILS":
+                continue
+            line = network_label.sub("", line)
+            if " — A: " in line:
+                line = line.split(" — A: ", 1)[0].strip()
+            append_ids(line)
+
+    for line in str(fields.get("fiber_details") or "").splitlines():
+        line = line.strip()
+        label = network_label.match(line)
+        if label:
+            line = line[label.end():]
+        elif " — A: " not in line:
+            continue
+        if " — A: " in line:
+            line = line.split(" — A: ", 1)[0].strip()
+        append_ids(line)
+    return _unique_field_values(identifiers)
+
+
+def _render_email_html_alternative(body: str, fields: dict) -> str:
+    """Escape the message and bold network-order identifiers in its HTML alternative."""
+    identifiers = sorted(_network_order_identifiers(fields), key=len, reverse=True)
+    if not identifiers:
+        rendered_body = escape(body)
+    else:
+        identifiers_pattern = re.compile(
+            r"(?<!\w)(?:" + "|".join(re.escape(value) for value in identifiers) + r")(?!\w)",
+            re.IGNORECASE,
+        )
+        parts = []
+        cursor = 0
+        for match in identifiers_pattern.finditer(body):
+            parts.append(escape(body[cursor:match.start()]))
+            parts.append(f"<strong>{escape(match.group(0))}</strong>")
+            cursor = match.end()
+        parts.append(escape(body[cursor:]))
+        rendered_body = "".join(parts)
+    return f'<pre style="white-space:pre-wrap;overflow-wrap:anywhere;margin:0">{rendered_body}</pre>'
+
+
 def _selected_network_order_records(db, fields: dict) -> list[NetworkOrderCircuit]:
     """Return explicitly selected records plus their immediate associated circuits."""
     if not isinstance(fields, dict):
@@ -1330,8 +1394,7 @@ def _prepare_message(
             parent_fields.setdefault("company", parent_fields.get("provider", ""))
         if template_key in {"maintenance_complete", MAINTENANCE_START_TEMPLATE} and parent.template_key == FIBER_MAINTENANCE_TEMPLATE:
             parent_fields = dict(parent_fields)
-            if template_key == MAINTENANCE_START_TEMPLATE:
-                parent_fields["network_orders"] = _legacy_fiber_network_order_details(parent_fields)
+            parent_fields["network_orders"] = _legacy_fiber_network_order_details(parent_fields)
             route = " to ".join(
                 value for value in (parent_fields.get("a_location"), parent_fields.get("z_location"))
                 if value
@@ -1831,16 +1894,16 @@ def _configured_sender_is_valid(sender: str | None) -> bool:
 
 
 def _attempt_delivery(email_id: int) -> dict:
-    """Send one stored message through the shared SMTP mailer and persist its outcome."""
+    """Send a stored message, bolding snapshot network IDs in HTML, and persist its outcome."""
     with SessionLocal() as db:
         email = db.query(OperationalEmail).filter_by(id=email_id).first()
         if not email or email.status != "processing":
             return {"email_id": email_id, "status": "error", "message": "Message is not ready to send."}
+        fields = dict(email.fields_json or {})
         source_error = None
         if TEMPLATE_DEFINITIONS.get(email.template_key, {}).get("live_source") == "global_shift_analysis":
             config = db.query(SystemConfig).first()
             source_text = (config.rolling_summary or "") if config else ""
-            fields = dict(email.fields_json or {})
             fields["shift_analysis"] = source_text
             email.fields_json = fields
             if not source_text.strip():
@@ -1898,10 +1961,7 @@ def _attempt_delivery(email_id: int) -> dict:
                 is_html=False,
                 attachments=encoded_attachments,
                 subject_prefix="",
-                html_alternative=(
-                    '<pre style="white-space:pre-wrap;overflow-wrap:anywhere;margin:0">'
-                    f"{escape(body)}</pre>"
-                ),
+                html_alternative=_render_email_html_alternative(body, fields),
             )
         except Exception:
             success, message = False, "SMTP delivery failed."

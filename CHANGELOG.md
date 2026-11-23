@@ -11,6 +11,7 @@ All notable changes to the NOC Intelligence Fusion Center application are docume
 - AIOps map status now distinguishes operational health from workflow state: unresolved alerts remain active after acknowledgement; maintenance is shown as an outline and does not hide active alert colors.
 - Escalation tracks successful on-page delivery per active node incident, separates page retries from site-ticket state, and applies same-node flapping suppression without consuming unrelated alerts.
 - Regional wildfires use WFCA incidents, reported perimeters, and recent FIRMS satellite-footprint estimates. Small-fire map/proximity rules are site-distance aware.
+- Maintenance Complete carries Fiber Maintenance Network Orders/Circuit IDs and paired A/Z locations into the close-out; network-order/circuit IDs are bolded in Operational Email's HTML alternative while preserving plain text.
 
 ### Accounts, permissions, and administration
 - The canonical page/tab/action/site-type catalog is enforced by the API. AIOps WebSocket access requires the Active Board tab and filters data by site type.

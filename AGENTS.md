@@ -66,6 +66,12 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 - [x] Refresh untouched shipped template bodies with migration `20261123_0023`, preserve customized defaults, update docs, and verify 41 Operational Email tests, 18 migration tests, API/web container builds, and Compose configuration.
 - [x] Push the intended change to `origin/dev`; leave unrelated README/integration-plan work and local-only tests unstaged.
 
+### Maintenance Complete circuit details and email emphasis — Completed
+
+- [x] Carry Fiber Maintenance Network Orders/Circuit IDs and paired A/Z locations into Maintenance Complete composer fields and linked-message snapshots, including company-scoped grouped notices.
+- [x] Bold structured network-order/circuit identifiers in the shared Operational Email HTML alternative while retaining the plain-text body; verify the 42-test Operational Email suite, including single and grouped sources.
+- [x] Update the Operational Email API/user/module references and verify the local-only Operational Email suite and API/web builds.
+
 ## Active Implementation Plan — Gmail Sender and Microsoft 365 Status
 
 **Implementation branch:** `dev`. Keep this emergency integration update on `dev`; preserve unrelated untracked integration-plan documents and keep local-only tests unstaged.

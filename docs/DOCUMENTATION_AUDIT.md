@@ -33,7 +33,7 @@ The guides and module references were refreshed to describe current behavior for
 - Bearer/session storage, structured 401/403 behavior, per-tab/action grants, site-type scoping, and WebSocket authorization/revalidation.
 - The current dashboard/settings/reporting/AIOps/logbook UI, Operational Email workspace, and permissioned Email Contacts/Network Orders Settings tabs.
 - Backup/restore operations, legacy partial imports, SQLite migration ordering through `20261123_0023`, request limits, and dev Compose port/network/data isolation.
-- Current sender-provider behavior (SMTP or Gmail), Operational Email calendar controls/unified Expected impact behavior, template-specific timezone suffixes, model/job/API counts, source-reference mappings, and the optional `DATABASE_URL` template description.
+- Current sender-provider behavior (SMTP or Gmail), Operational Email calendar controls/unified Expected impact behavior, Maintenance Complete circuit-detail transfer, HTML identifier emphasis, template-specific timezone suffixes, model/job/API counts, source-reference mappings, and the optional `DATABASE_URL` template description.
 - Public service/core/scheduler helper inventories in their source reference pages, plus source comment/docstring and TypeScript TSDoc coverage added after the 2026-10-26 pass.
 
 ## Constraints documented from source
@@ -65,7 +65,7 @@ These are current implementation constraints, not documentation errors:
 | Source coverage | Passed: 66 Python modules mapped; the API package initializer and Python Markdown renderer are indexed. |
 | Public symbol references | Passed: exported classes/functions in mapped backend, worker, scheduler, and script modules appear in their reference pages; API route operations are covered from OpenAPI. |
 | In-code documentation | Passed: all 66 `src/` modules have module docs, all Python classes/functions outside frozen `migrations/schema_v1.py` have docstrings, and 64/64 exported TypeScript/TSX declarations have TSDoc. |
-| Focused regression tests | Passed: 41 Operational Email tests and 18 migration tests; test files remain local-only. |
+| Focused regression tests | Passed: 42 Operational Email tests and 18 migration tests; test files remain local-only. |
 | Container/config checks | Passed: API/web Docker builds and `docker compose -p noc-ifc-dev config --quiet`; the web build retains the existing >500 kB map-chunk warning. |
 | Whitespace | Passed: `git diff --check`. |
 

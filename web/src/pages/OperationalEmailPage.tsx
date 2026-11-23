@@ -602,7 +602,9 @@ export function OperationalEmailPage() {
         .map(value => String(value || "").trim()).filter(Boolean).join("\n");
     }
     if (noticeItem.template_key === "fiber_maintenance_notice") {
-      if (selectedKey === "maintenance_start") sourceFields.network_orders = fiberCircuitDetails(sourceFields);
+      if (selectedKey === "maintenance_start" || selectedKey === "maintenance_complete") {
+        sourceFields.network_orders = fiberCircuitDetails(sourceFields);
+      }
       const route = [sourceFields.a_location, sourceFields.z_location].filter(Boolean).join(" to ");
       if (!sourceFields.site && route.length <= 200) sourceFields.site = route;
       if (selectedKey === "maintenance_complete") sourceFields.fiber_details = fiberMaintenanceDetails(sourceFields);
