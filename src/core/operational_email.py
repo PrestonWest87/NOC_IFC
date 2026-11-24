@@ -1662,6 +1662,13 @@ def _prepare_fiber_outage_messages(db, values: dict, *, for_schedule: bool) -> l
     if not template:
         raise ValueError("Operational email template is not initialized.")
     preview_fields = {key: str(value or "") for key, value in fields.items()}
+    for key, spec in _fields_by_key("fiber_outage").items():
+        is_datetime = (
+            spec.get("input_type") == "datetime-local"
+            or spec.get("picker_type") == "datetime-local"
+        )
+        if is_datetime and preview_fields.get(key):
+            preview_fields[key] = _format_datetime_local(preview_fields[key], spec["label"])
     preview_body = _render_text(template.default_body, preview_fields)
     preview_subject = _render_text(template.default_subject, preview_fields)
     if ((values.get("body") and values["body"] != preview_body)
@@ -1693,7 +1700,7 @@ def _prepare_fiber_outage_messages(db, values: dict, *, for_schedule: bool) -> l
     for key, group in groups.items():
         company_records = group["records"]
         company_contacts = contacts_by_company[key]
-        group_fields = dict(fields)
+        group_fields = dict(preview_fields)
         group_fields.update({
             "network_order_ids": "",
             "excluded_network_order_ids": "",
