@@ -6,6 +6,8 @@
 
 The page provides Compose, Scheduled, Sent / History, and administrator-only Template Defaults and Signatures panels. The page grant authorizes all ordinary page functions; shared defaults and signature administration are additionally restricted to administrators. Per-message recipients, subject, and body remain editable for page users except the live Morning Report and the company-grouped Fiber Maintenance subject/message previews.
 
+Fiber Outage ONPAGE provides optional free-text Rcount, Maps URL, and Closest Hand Hole inputs and includes supplied values in its message. Fiber Outage Follow-up and Resolution do not show Current status or Current service status fields.
+
 Fiber outage and grouped Fiber Maintenance follow-up BCC copies are rendered per company. A contact gets circuit/network-order fields only for circuits mapped to that Fiber-contact company; other or unlisted BCC contacts receive the rest of the message with those fields blank. BCC-only copies use the active Global From address in To while keeping the BCC recipients hidden. This applies to immediate, scheduled, ONPAGE, and linked outage or maintenance messages.
 
 The searchable Network Orders/Circuit IDs selector includes only the immediate associations of explicitly selected circuits; it does not follow associations of auto-included circuits. Operators can unselect direct associations that are not affected by a particular message; free-text Network Orders/Circuit IDs entry and configured-ID paste are retained.

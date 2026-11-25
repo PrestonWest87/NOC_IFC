@@ -2,7 +2,7 @@
 
 ## Current behavior
 
-The packaged migration head is `20261125_0024`. The API, worker, and webhook run pending Alembic revisions under a shared file lock before serving requests or starting jobs. A database already at head receives no schema DDL. A migration error stops startup; the application does not mark the failed revision as complete.
+The packaged migration head is `20261125_0025`. The API, worker, and webhook run pending Alembic revisions under a shared file lock before serving requests or starting jobs. A database already at head receives no schema DDL. A migration error stops startup; the application does not mark the failed revision as complete.
 
 The initial adoption revision (`20261002_0001`) was designed for:
 
@@ -31,6 +31,8 @@ Revision `20261120_0022` adds nullable batch group/company metadata to Operation
 Revision `20261123_0023` consolidates untouched Maintenance Notification, Maintenance Start, and Maintenance Complete impact wording into Expected impact. It updates only exact shipped defaults, preserves customized wording, and adds no tables or columns.
 
 Revision `20261125_0024` adds `operational_emails.bcc_copy_only` with a false default. Existing message and schedule rows remain ordinary deliveries; new BCC-only snapshots can carry circuit-filtered bodies without changing other recipients' message content, using Global From in To.
+
+Revision `20261125_0025` conditionally refreshes the shipped Fiber Outage ONPAGE body with optional Rcount, Maps URL, and Closest Hand Hole placeholders and removes the unused Current status lines from shipped follow-up/resolution bodies. Administrator-customized bodies and all schema objects are preserved.
 
 ## One-time data changes across revisions
 

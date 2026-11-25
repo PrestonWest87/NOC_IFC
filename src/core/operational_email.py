@@ -274,7 +274,8 @@ TEMPLATE_DEFINITIONS = {
             {"key": "reference", "label": "Ticket / carrier reference", "required": False, "max_length": 200},
             {"key": "update_time", "label": "Update time", "required": True, "max_length": 120,
              "picker_type": "datetime-local"},
-            {"key": "current_status", "label": "Current status", "required": True, "max_length": 120},
+            {"key": "current_status", "label": "Legacy current status", "required": False,
+             "max_length": 120, "visible": False},
             {"key": "update_details", "label": "Progress update", "required": True, "max_length": 3000,
              "multiline": True},
             {"key": "restoration_estimate", "label": "Updated restoration estimate", "required": False,
@@ -290,7 +291,6 @@ TEMPLATE_DEFINITIONS = {
             "Fiber contact information: {{contact}}\n"
             "Original outage start: {{outage_start}} {{timezone}}\n"
             "Update time: {{update_time}} {{timezone}}\n"
-            "Current status: {{current_status}}\n"
             "Progress update: {{update_details}}\n"
             "Updated restoration estimate: {{restoration_estimate}}\n"
             "Next update: {{next_update}}\n"
@@ -325,7 +325,8 @@ TEMPLATE_DEFINITIONS = {
              "picker_type": "datetime-local"},
             {"key": "resolution_details", "label": "Resolution details", "required": True, "max_length": 3000,
              "multiline": True},
-            {"key": "service_status", "label": "Current service status", "required": True, "max_length": 500},
+            {"key": "service_status", "label": "Legacy service status", "required": False,
+             "max_length": 500, "visible": False},
             {"key": "follow_up", "label": "Follow-up / monitoring plan", "required": False, "max_length": 2000,
              "multiline": True},
         ],
@@ -338,7 +339,6 @@ TEMPLATE_DEFINITIONS = {
             "Original outage start: {{outage_start}} {{timezone}}\n"
             "Service restored at: {{resolution_time}} {{timezone}}\n"
             "Resolution details: {{resolution_details}}\n"
-            "Current service status: {{service_status}}\n"
             "Follow-up / monitoring plan: {{follow_up}}\n"
             "Ticket / carrier reference: {{reference}}"
         ),
@@ -512,11 +512,20 @@ TEMPLATE_DEFINITIONS["fiber_outage_onpage"] = {
     "description": "Send a fiber outage page to selected ONPAGE contacts, with the Global From address on Cc.",
     "onpage_to": True,
     "network_order_bcc": False,
+    "fields": [
+        *TEMPLATE_DEFINITIONS["fiber_outage"]["fields"],
+        {"key": "rcount", "label": "Rcount", "required": False, "max_length": 200},
+        {"key": "maps_url", "label": "Maps URL", "required": False, "max_length": 2000},
+        {"key": "closest_hand_hole", "label": "Closest Hand Hole", "required": False, "max_length": 250},
+    ],
     "default_subject": "FIBER OUTAGE ONPAGE — {{site}}",
     "default_body": (
         "FIBER OUTAGE ONPAGE NOTIFICATION\n\n"
         "Location: {{site}}\n"
         "Network Orders/Circuit IDs: {{network_orders}}\n"
+        "Rcount: {{rcount}}\n"
+        "Maps URL: {{maps_url}}\n"
+        "Closest Hand Hole: {{closest_hand_hole}}\n"
         "Fiber contact information: {{contact}}\n"
         "Outage start: {{outage_start}} {{timezone}}\n"
         "Service impact: {{impact}}\n"
@@ -1992,10 +2001,9 @@ def _prepare_grouped_source_messages(db, template_key: str, values: dict, *, for
             OperationalEmail.bcc_copy_only.is_(True),
             OperationalEmailDelivery.status == "sent",
         ).distinct().all()
-    bcc_copies_by_company = {}
-    for copy in bcc_copy_rows:
-        key = str(copy.group_company or "").strip().casefold()
-        bcc_copies_by_company.setdefault(key, []).extend(copy.bcc_recipients or [])
+    inherited_bcc_copies = _unique_field_values(
+        recipient for copy in bcc_copy_rows for recipient in copy.bcc_recipients or []
+    )
     member_ids = [member.id for member in members]
     sent_ids = {
         email_id for (email_id,) in db.query(OperationalEmailDelivery.operational_email_id).filter(
@@ -2010,8 +2018,8 @@ def _prepare_grouped_source_messages(db, template_key: str, values: dict, *, for
     editable_fields = {
         MAINTENANCE_START_TEMPLATE: set(),
         "maintenance_complete": {"completion_time", "work_performed", "service_status", "follow_up"},
-        "fiber_outage_update": {"update_time", "current_status", "update_details", "restoration_estimate", "next_update"},
-        "fiber_outage_resolution": {"resolution_time", "resolution_details", "service_status", "follow_up"},
+        "fiber_outage_update": {"update_time", "update_details", "restoration_estimate", "next_update"},
+        "fiber_outage_resolution": {"resolution_time", "resolution_details", "follow_up"},
     }.get(template_key, set())
     raw_fields = values.get("fields") or {}
     if not isinstance(raw_fields, dict):
@@ -2029,13 +2037,10 @@ def _prepare_grouped_source_messages(db, template_key: str, values: dict, *, for
             "fields": {key: value for key, value in raw_fields.items() if key in editable_fields},
         })
         if template_key in FIBER_CIRCUIT_BCC_TEMPLATES:
-            inherited_copies = bcc_copies_by_company.get(
-                str(member.group_company or "").strip().casefold(), []
-            )
-            if inherited_copies:
+            if inherited_bcc_copies:
                 member_values["bcc"] = ", ".join(_unique_field_values([
                     *normalize_recipient_list(member_values.get("bcc")),
-                    *inherited_copies,
+                    *inherited_bcc_copies,
                 ]))
         message = _prepare_message(db, template_key, member_values, for_schedule=for_schedule)
         message.update({"group_id": batch_id, "group_company": member.group_company})
@@ -2065,6 +2070,45 @@ def _prepare_messages(db, template_key: str, values: dict, *, for_schedule: bool
     if template_key in FIBER_CIRCUIT_BCC_TEMPLATES:
         return [(None, item) for item in _scope_bcc_by_selected_circuits(db, message)]
     return [(None, message)]
+
+
+def _collapse_circuitless_bcc_copies(
+    db, prepared_messages: list[tuple[str | None, dict]],
+) -> list[tuple[str | None, dict]]:
+    """Send one circuit-free BCC copy per address across a company fan-out batch."""
+    selected_companies = {
+        str(prepared.get("group_company") or "").strip().casefold()
+        for _company, prepared in prepared_messages
+        if not prepared.get("bcc_copy_only") and prepared.get("group_company")
+    }
+    if not selected_companies:
+        return prepared_messages
+
+    contact_companies = _fiber_contact_company_map(db)
+    result = []
+    copy_indices = {}
+    for company, prepared in prepared_messages:
+        if not prepared.get("bcc_copy_only") or _network_order_identifiers(prepared["fields"]):
+            result.append((company, prepared))
+            continue
+        recipients = [
+            recipient for recipient in prepared["bcc_recipients"]
+            if not selected_companies.intersection(contact_companies.get(recipient.casefold(), set()))
+        ]
+        if not recipients:
+            continue
+        batch_id = prepared.get("group_id") or id(prepared)
+        if batch_id in copy_indices:
+            existing = result[copy_indices[batch_id]][1]
+            existing["bcc_recipients"] = _unique_field_values([
+                *existing["bcc_recipients"], *recipients,
+            ])
+            continue
+        prepared["bcc_recipients"] = _unique_field_values(recipients)
+        prepared["group_company"] = None
+        copy_indices[batch_id] = len(result)
+        result.append((None, prepared))
+    return result
 
 
 def _create_email_record(db, actor_user_id: int, prepared: dict, schedule: dict | None = None) -> OperationalEmail:
@@ -2280,7 +2324,9 @@ def send_operational_email(values: dict, actor_user_id: int) -> dict:
     template_key = values.get("template_key")
     ensure_operational_email_templates()
     with SessionLocal() as db:
-        prepared_messages = _prepare_messages(db, template_key, values)
+        prepared_messages = _collapse_circuitless_bcc_copies(
+            db, _prepare_messages(db, template_key, values)
+        )
         email_records = [
             (company, _create_email_record(db, actor_user_id, prepared).id,
              bool(prepared.get("bcc_copy_only")), prepared.get("group_company"))
@@ -2383,7 +2429,9 @@ def schedule_operational_email(values: dict, schedule_values: dict, actor_user_i
     ensure_operational_email_templates()
     with SessionLocal() as db:
         template_key = values.get("template_key")
-        prepared_messages = _prepare_messages(db, template_key, values, for_schedule=True)
+        prepared_messages = _collapse_circuitless_bcc_copies(
+            db, _prepare_messages(db, template_key, values, for_schedule=True)
+        )
         emails = [
             (company, _create_email_record(db, actor_user_id, prepared, schedule),
              bool(prepared.get("bcc_copy_only")))
