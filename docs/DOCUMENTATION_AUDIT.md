@@ -18,7 +18,7 @@ The implementation inventory checked includes:
 - The React SPA route map, user/session state, permission utilities, pages, shared components, and web runtime configuration.
 - `docker-compose.yml`, Dockerfiles, nginx/Vite configuration, Python/Node dependency manifests, `.env.example`, and operational/restore scripts.
 
-The OpenAPI schema generated from the checked-out source contains **203 paths and 219 HTTP operations**. The source defines 18 API router modules, 22 registry-managed scheduler jobs, 15 routed React page components (including public account-recovery pages), and 45 mapped ORM tables. The current single Alembic head is `20261125_0024`.
+The OpenAPI schema generated from the checked-out source contains **203 paths and 219 HTTP operations**. The source defines 18 API router modules, 22 registry-managed scheduler jobs, 15 routed React page components (including public account-recovery pages), and 45 mapped ORM tables. The current single Alembic head is `20261125_0025`.
 
 ## Corrections made in this documentation pass
 
@@ -32,7 +32,7 @@ The guides and module references were refreshed to describe current behavior for
 - The webhook's actual acceptance response (HTTP 200 with an accepted body), HMAC/replay checks, and background persistence boundary.
 - Bearer/session storage, structured 401/403 behavior, per-tab/action grants, site-type scoping, and WebSocket authorization/revalidation.
 - The current dashboard/settings/reporting/AIOps/logbook UI, Operational Email workspace, and permissioned Email Contacts/Network Orders Settings tabs.
-- Backup/restore operations, legacy partial imports, SQLite migration ordering through `20261125_0024`, request limits, and dev Compose port/network/data isolation.
+- Backup/restore operations, legacy partial imports, SQLite migration ordering through `20261125_0025`, request limits, and dev Compose port/network/data isolation.
 - Current sender-provider behavior (SMTP or Gmail), Operational Email calendar controls/unified Expected impact behavior, Maintenance Complete circuit-detail transfer, HTML identifier emphasis, template-specific timezone suffixes, model/job/API counts, source-reference mappings, and the optional `DATABASE_URL` template description.
 - Public service/core/scheduler helper inventories in their source reference pages, plus source comment/docstring and TypeScript TSDoc coverage added after the 2026-10-26 pass.
 

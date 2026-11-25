@@ -126,9 +126,13 @@ The Operational Email page uses one page permission for composing, sending, sche
 
 The Network Orders/Circuit IDs selector includes only the immediate associations of each explicitly selected circuit; it does not follow associations of auto-included circuits. You can unselect an immediate association or select another circuit explicitly, and the details field remains available for manual entry or pasting configured IDs.
 
+Fiber Outage ONPAGE adds optional free-text Rcount, Maps URL, and Closest Hand Hole fields to the composer and message. Fiber Outage Follow-up and Resolution no longer prompt for Current status or Current service status.
+
 Circuit-filtered BCC copies use the configured Global From address in To; the selected BCC contacts remain hidden envelope recipients.
 
 The same company match applies to linked Fiber Maintenance Start/Complete notices: other or unlisted BCC contacts keep the message and MOP information, but receive no circuit/network-order details.
+
+For company-grouped sends and schedules, circuit-free copies are consolidated so each unmatched BCC address receives one copy per occurrence, not one per company.
 
 - **Maintenance Notification** records a ticket title, site/service, planned-work window, Risk (None/Low/Medium/High), Disruption (Non-Disruptive/Potentially Disruptive/Disruptive), a required Department performing the change (`IT Network` or `The Network Operations Center`), and one optional Expected impact box for operational and departmental effects. Maintenance start and expected completion use date/time pickers.
 - **Fiber Maintenance Notification** adds an MOP Type dropdown (`Demand`, `Standard`, or `Emergency`), Expected impact, and a searchable multi-select Network Orders/Circuit IDs picker. Selecting a circuit automatically selects its direct associations only; it does not continue down their links. Select additional circuits explicitly or uncheck immediate associations not affected by the work. Each company then gets a separate email to its mapped Fiber contacts, Cc'ing Global From plus any administrator-configured default or sender-entered Cc recipients, with only its circuits and A/Z locations. Contact names and phone numbers are not filled into the message automatically. Each circuit is shown on its own line with its Network Order/Circuit ID and paired A-to-Z locations. Every selected company must have a configured Fiber email contact. Scheduled Fiber Maintenance is split the same way. The subject/message previews show the full selection and are read-only so company-specific emails can be safely rendered from shared template defaults.
