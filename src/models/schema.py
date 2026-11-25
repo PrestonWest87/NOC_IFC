@@ -186,6 +186,7 @@ class OperationalEmail(Base):
     parent_email_id = Column(Integer, ForeignKey("operational_emails.id"), nullable=True, index=True)
     group_id = Column(String(36), nullable=True, index=True)
     group_company = Column(String(200), nullable=True)
+    bcc_copy_only = Column(Boolean, nullable=False, default=False, server_default=text("0"))
     subject = Column(String(500), nullable=False)
     body = Column(Text, nullable=False)
     fields_json = Column(JSON, nullable=False, default=dict)

@@ -226,7 +226,7 @@ The legacy ER diagram is conceptual: its `(FK→)` labels do not distinguish enf
 
 Column types and nullability reflect the current SQLAlchemy mappings in `src/models/schema.py`. Defaults such as `utcnow`, `list`, and `dict` are client-side SQLAlchemy defaults unless explicitly identified as server defaults. The frozen legacy snapshot is `migrations/schema_v1.py`; revisions `20261002_0002` and `20261005_0003` add invitation revocation and alert dispatch-workflow state. Revision `20261005_0004` backfills legacy webhook alert site metadata; revision `20261013_0005` adds page-delivery state; revision `20261102_0006` adds the site-contact table; revision `20261103_0007` adds NWS alert lifecycle and provider freshness fields; revision `20261105_0008` adds LLM provider selection and nullable alert/Elastic environment overrides; revision `20261110_0009` adds Operational Email tables; revision `20261110_0010` adds signatures and message signature snapshots; revision `20261111_0011` adds Fiber/ONPAGE email contacts and network-order/circuit references; revision `20261112_0013` adds sender selection and Microsoft 365 status fields; revision `20261112_0014` adds Gmail OAuth client/refresh-token fields and clears the retired App Password value; revision `20261118_0020` adds associated circuit/network-order IDs.
 
-The current migration head is `20261123_0023`; revisions `20261111_0012` and `20261116_0015` conditionally refresh unchanged Operational Email defaults, and `20261117_0016`–`20261117_0019` plus `20261120_0021` and `20261123_0023` update saved Operational Email template text. Revision `20261118_0020` adds the associated-circuit JSON column and defaults existing rows to an empty list; `20261120_0021` and `20261123_0023` preserve customized template text and add no schema objects. Revision `20261120_0022` adds nullable delivery-group ID/company fields to existing Operational Email rows.
+The current migration head is `20261125_0024`; revisions `20261111_0012` and `20261116_0015` conditionally refresh unchanged Operational Email defaults, and `20261117_0016`–`20261117_0019` plus `20261120_0021` and `20261123_0023` update saved Operational Email template text. Revision `20261118_0020` adds the associated-circuit JSON column and defaults existing rows to an empty list; `20261120_0021` and `20261123_0023` preserve customized template text and add no schema objects. Revision `20261120_0022` adds nullable delivery-group ID/company fields to existing Operational Email rows; `20261125_0024` adds a false-default BCC-only snapshot flag.
 
 ### 2.1 `users` — User Accounts
 
@@ -863,7 +863,7 @@ Stores administrator-managed plain-text signatures. Deactivation preserves histo
 | `created_at` | DateTime | NO | `utcnow` | Creation time |
 | `updated_at` | DateTime | NO | `utcnow` | Last signature edit |
 
-### 2.39 `operational_emails` — Composed Messages and Persistent Schedules (27 columns)
+### 2.39 `operational_emails` — Composed Messages and Persistent Schedules (28 columns)
 
 Stores a message/signature snapshot, one-time or recurring schedule definition, delivery status, and an optional parent link for maintenance close-out or fiber-outage follow-up/resolution. Recurring sends retain one parent schedule row and create a delivery row for each occurrence. Morning Report refreshes its source body at send time; each delivery row captures the exact body delivered.
 
@@ -878,6 +878,7 @@ Stores a message/signature snapshot, one-time or recurring schedule definition, 
 | `parent_email_id` | Integer | YES | NULL | Indexed self-reference for maintenance/fiber follow-ups |
 | `group_id` | String(36) | YES | NULL | Indexed fan-out group for one master source selection |
 | `group_company` | String(200) | YES | NULL | Company matched to this message in a fan-out group |
+| `bcc_copy_only` | Boolean | NO | `false` | BCC-only copy whose circuit details are rendered for its recipients |
 | `subject` | String(500) | NO | — | Rendered subject snapshot |
 | `body` | Text | NO | — | Rendered plain-text body snapshot |
 | `fields_json` | JSON | NO | `{}` | Template form values |
