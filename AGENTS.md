@@ -27,6 +27,8 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 - [x] Add administrator-managed signatures with default/optional selection and immutable sent/scheduled snapshots.
 - [x] Update migration, API/UI/source docs, local-only tests, and verify fresh/existing SQLite upgrades, Python suite, frontend/container builds, and dev Compose health.
 - [x] Review and push intended source/docs only to `dev`; preserve unrelated untracked integration-plan documents and keep test files unstaged.
+- [x] Scope circuit-bearing Fiber BCC copies to each recipient's Fiber-contact company; unmatched/unlisted recipients retain the rest of the message in circuit-free send/schedule snapshots.
+- [x] Add the snapshot flag migration, update Operational Email docs/UI, and verify BCC scope behavior plus SQLite migration and frontend/API builds.
 
 ### Operational Email Cc Defaults and Maintenance Start — Completed
 

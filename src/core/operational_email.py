@@ -47,6 +47,14 @@ FIBER_MAINTENANCE_TEMPLATE = "fiber_maintenance_notice"
 FIBER_ONPAGE_TEMPLATE = "fiber_outage_onpage"
 MAINTENANCE_START_TEMPLATE = "maintenance_start"
 MAINTENANCE_COMPLETE_SOURCE_TEMPLATES = ("maintenance_notice", "fiber_maintenance_notice")
+FIBER_CIRCUIT_BCC_TEMPLATES = frozenset({
+    "fiber_outage", FIBER_ONPAGE_TEMPLATE, *FIBER_FOLLOWUP_TEMPLATES,
+    MAINTENANCE_START_TEMPLATE, "maintenance_complete",
+})
+_CIRCUIT_DETAIL_FIELDS = (
+    "network_orders", "circuit", "circuit_ids", "network_order_ids",
+    "excluded_network_order_ids", "a_location", "z_location", "fiber_details",
+)
 
 
 def application_timezone_abbreviation() -> str:
@@ -1297,6 +1305,210 @@ def _selected_network_order_records(db, fields: dict) -> list[NetworkOrderCircui
     return selected_records
 
 
+def _has_circuit_details(fields: dict) -> bool:
+    """Return whether a message snapshot contains structured circuit fields."""
+    return isinstance(fields, dict) and any(
+        str(fields.get(key) or "").strip() for key in _CIRCUIT_DETAIL_FIELDS
+    )
+
+
+def _fiber_contact_company_map(db) -> dict[str, set[str]]:
+    """Map configured Fiber email addresses to their normalized company names."""
+    result = {}
+    for contact in db.query(FiberEmailContact).all():
+        email = str(contact.email or "").strip().casefold()
+        company = str(contact.company or "").strip().casefold()
+        if email and company:
+            result.setdefault(email, set()).add(company)
+    return result
+
+
+def _network_order_records_for_message(db, fields: dict) -> list[NetworkOrderCircuit]:
+    """Resolve records already present in a snapshot without expanding associations again."""
+    raw_ids = str(fields.get("network_order_ids") or "")
+    row_ids = _unique_field_values(
+        value.strip() for value in re.split(r"[,;]", raw_ids) if value.strip().isdigit()
+    )
+    if row_ids:
+        ids = [int(value) for value in row_ids]
+        records = db.query(NetworkOrderCircuit).filter(NetworkOrderCircuit.id.in_(ids)).all()
+        records_by_id = {record.id: record for record in records}
+        return [records_by_id[record_id] for record_id in ids if record_id in records_by_id]
+
+    identifiers = _network_order_identifiers(fields)
+    if not identifiers:
+        return []
+    records = db.query(NetworkOrderCircuit).order_by(
+        NetworkOrderCircuit.sort_order, NetworkOrderCircuit.id
+    ).all()
+    records_by_circuit_id = {}
+    for record in records:
+        records_by_circuit_id.setdefault(record.circuit_network_order_id.strip().casefold(), []).append(record)
+    selected = []
+    for identifier in identifiers:
+        matches = records_by_circuit_id.get(identifier.casefold(), [])
+        if len(matches) == 1:
+            selected.append(matches[0])
+    return selected
+
+
+def _fields_for_network_order_records(
+    fields: dict, records: list[NetworkOrderCircuit],
+) -> dict:
+    """Keep only circuit IDs associated with one Fiber contact company."""
+    scoped_fields = dict(fields)
+    circuit_ids = _unique_field_values(record.circuit_network_order_id for record in records)
+    for key in ("network_orders", "circuit", "circuit_ids"):
+        if key in scoped_fields:
+            scoped_fields[key] = "\n".join(circuit_ids)
+    if "network_order_ids" in scoped_fields:
+        scoped_fields["network_order_ids"] = ", ".join(str(record.id) for record in records)
+    if "excluded_network_order_ids" in scoped_fields:
+        scoped_fields["excluded_network_order_ids"] = ""
+    for key in ("a_location", "z_location"):
+        if key in scoped_fields:
+            scoped_fields[key] = "; ".join(
+                _unique_field_values(getattr(record, key) for record in records)
+            )
+    return scoped_fields
+
+
+def _circuitless_fields(fields: dict) -> dict:
+    """Clear structured circuit identifiers while retaining the rest of the message."""
+    scoped_fields = dict(fields)
+    mop_type = next((
+        line.strip() for line in str(scoped_fields.get("fiber_details") or "").splitlines()
+        if line.strip().casefold().startswith("mop type:")
+    ), "")
+    for key in _CIRCUIT_DETAIL_FIELDS:
+        if key in scoped_fields:
+            scoped_fields[key] = ""
+    if mop_type:
+        scoped_fields["fiber_details"] = f"\nFIBER MAINTENANCE DETAILS\n{mop_type}\n"
+    return scoped_fields
+
+
+def _remove_circuit_identifiers(value: str, identifiers: list[str]) -> str:
+    """Remove excluded circuit IDs even when a customized template contains them literally."""
+    identifiers = _unique_field_values(identifiers)
+    if not identifiers:
+        return value
+    pattern = re.compile(
+        r"(?<!\w)(?:" + "|".join(re.escape(item) for item in sorted(identifiers, key=len, reverse=True))
+        + r")(?!\w)",
+        re.IGNORECASE,
+    )
+    return pattern.sub("", value)
+
+
+def _bcc_only_copy(
+    prepared: dict,
+    recipients: list[str],
+    fields: dict,
+) -> dict:
+    """Create an immutable BCC-only message rendered with recipient-scoped circuit data."""
+    global_sender = prepared["global_sender"]
+    if not _configured_sender_is_valid(global_sender):
+        raise ValueError("Configure one valid active Global From address for circuit-filtered BCC copies.")
+    copy = dict(prepared)
+    copy["fields"] = fields
+    allowed_ids = {value.casefold() for value in _network_order_identifiers(fields)}
+    excluded_ids = [
+        value for value in _network_order_identifiers(prepared["fields"])
+        if value.casefold() not in allowed_ids
+    ]
+    subject = _render_text(prepared["subject_template"], fields)
+    copy["subject"] = _normalize_subject(_remove_circuit_identifiers(subject, excluded_ids))
+    body = _render_text(prepared["body_template"], fields)
+    body = _remove_circuit_identifiers(body, excluded_ids)
+    body = _append_signature(body, prepared["signature_content"])
+    copy["body"] = body.replace("\r\n", "\n").replace("\r", "\n")
+    copy.update({
+        "to_recipients": [global_sender],
+        "cc_recipients": [],
+        "bcc_recipients": recipients,
+        "bcc_copy_only": True,
+    })
+    return copy
+
+
+def _scope_company_bcc(
+    prepared: dict,
+    company: str | None,
+    contact_companies: dict[str, set[str]],
+) -> list[dict]:
+    """Keep circuit-bearing BCCs within their company and send other BCCs a circuit-free copy."""
+    fields = prepared["fields"]
+    recipients = list(prepared["bcc_recipients"] or [])
+    company_key = str(company or "").strip().casefold()
+    if (
+        prepared["template_key"] not in FIBER_CIRCUIT_BCC_TEMPLATES
+        or not _has_circuit_details(fields)
+        or not recipients
+        or not company_key
+    ):
+        return [prepared]
+
+    matching = [
+        recipient for recipient in recipients
+        if company_key in contact_companies.get(recipient.casefold(), set())
+    ]
+    circuit_free = [recipient for recipient in recipients if recipient not in matching]
+    prepared["bcc_recipients"] = matching
+    if not circuit_free:
+        return [prepared]
+    return [prepared, _bcc_only_copy(prepared, circuit_free, _circuitless_fields(fields))]
+
+
+def _scope_bcc_by_selected_circuits(
+    db, prepared: dict, contact_companies: dict[str, set[str]] | None = None,
+) -> list[dict]:
+    """Give each Fiber BCC recipient only circuit details belonging to their company."""
+    fields = prepared["fields"]
+    recipients = list(prepared["bcc_recipients"] or [])
+    if (
+        prepared["template_key"] not in FIBER_CIRCUIT_BCC_TEMPLATES
+        or not _has_circuit_details(fields)
+        or not recipients
+    ):
+        return [prepared]
+
+    records = _network_order_records_for_message(db, fields)
+    if contact_companies is None:
+        contact_companies = _fiber_contact_company_map(db)
+    records_by_company = {}
+    for record in records:
+        company = str(record.company or "").strip().casefold()
+        if company:
+            records_by_company.setdefault(company, []).append(record)
+
+    recipients_by_records = {}
+    records_by_ids = {}
+    for recipient in recipients:
+        companies = contact_companies.get(recipient.casefold(), set())
+        matching_records = [
+            record for company, company_records in records_by_company.items()
+            if company in companies for record in company_records
+        ]
+        key = tuple(record.id for record in matching_records)
+        recipients_by_records.setdefault(key, []).append(recipient)
+        records_by_ids[key] = matching_records
+
+    batch_id = prepared.get("group_id") or uuid.uuid4().hex
+    prepared["group_id"] = batch_id
+    prepared["bcc_recipients"] = []
+    copies = [prepared]
+    for record_ids, scoped_recipients in recipients_by_records.items():
+        copy = _bcc_only_copy(
+            prepared,
+            scoped_recipients,
+            _fields_for_network_order_records(fields, records_by_ids[record_ids]),
+        )
+        copy["group_id"] = batch_id
+        copies.append(copy)
+    return copies
+
+
 def _resolve_network_order_contacts(db, template_key: str, fields: dict[str, str]) -> list[str]:
     """Validate selected network records, prefill empty details, and return Fiber BCCs."""
     definition = TEMPLATE_DEFINITIONS[template_key]
@@ -1380,7 +1592,10 @@ def _prepare_message(
             raise ValueError("Select a previously sent source email.")
         parent = db.query(OperationalEmail).filter_by(
             id=parent_id,
-        ).filter(OperationalEmail.template_key.in_(source_template_keys)).first()
+        ).filter(
+            OperationalEmail.template_key.in_(source_template_keys),
+            OperationalEmail.bcc_copy_only.is_(False),
+        ).first()
         has_sent_delivery = parent and db.query(OperationalEmailDelivery.id).filter_by(
             operational_email_id=parent.id,
             status="sent",
@@ -1549,6 +1764,11 @@ def _prepare_message(
         if recipient.casefold() not in bcc_seen:
             bcc_seen.add(recipient.casefold())
             bcc_recipients.append(recipient)
+    if template_key in FIBER_CIRCUIT_BCC_TEMPLATES and (
+        company_routed or (parent and parent.group_company)
+    ):
+        visible_to = {recipient.casefold() for recipient in to_recipients}
+        bcc_recipients = [recipient for recipient in bcc_recipients if recipient.casefold() not in visible_to]
     if not to_recipients:
         raise ValueError("At least one To recipient is required.")
     if bcc_recipients and not definition["allows_bcc"]:
@@ -1563,8 +1783,11 @@ def _prepare_message(
         "signature_id": signature_id,
         "signature_name": signature_name,
         "signature_content": signature_content,
+        "global_sender": global_sender,
         "subject": subject,
         "body": body,
+        "subject_template": subject_input,
+        "body_template": body_input,
         "fields": fields,
         "to_recipients": to_recipients,
         "cc_recipients": cc_recipients,
@@ -1657,7 +1880,8 @@ def _prepare_fiber_outage_messages(db, values: dict, *, for_schedule: bool) -> l
     fields = values.get("fields")
     records = _selected_network_order_records(db, fields)
     if not records:
-        return [(None, _prepare_message(db, "fiber_outage", values, for_schedule=for_schedule))]
+        message = _prepare_message(db, "fiber_outage", values, for_schedule=for_schedule)
+        return [(None, item) for item in _scope_bcc_by_selected_circuits(db, message)]
     template = db.query(OperationalEmailTemplate).filter_by(template_key="fiber_outage").first()
     if not template:
         raise ValueError("Operational email template is not initialized.")
@@ -1683,10 +1907,13 @@ def _prepare_fiber_outage_messages(db, values: dict, *, for_schedule: bool) -> l
         groups.setdefault(company.casefold(), {"company": company, "records": []})["records"].append(record)
 
     contacts_by_company = {}
+    contact_companies = {}
     for contact in db.query(FiberEmailContact).order_by(FiberEmailContact.sort_order, FiberEmailContact.id):
         company = str(contact.company or "").strip()
+        email = str(contact.email or "").strip().casefold()
         if company and contact.email:
             contacts_by_company.setdefault(company.casefold(), []).append(contact)
+            contact_companies.setdefault(email, set()).add(company.casefold())
     missing = [group["company"] for key, group in groups.items() if not contacts_by_company.get(key)]
     if missing:
         raise ValueError(f"No Fiber email contacts are configured for: {', '.join(missing)}.")
@@ -1719,7 +1946,10 @@ def _prepare_fiber_outage_messages(db, values: dict, *, for_schedule: bool) -> l
             db, "fiber_outage", company_values, for_schedule=for_schedule, company_routed=True,
         )
         company_message.update({"group_id": group_id, "group_company": group["company"]})
-        prepared.append((group["company"], company_message))
+        prepared.extend(
+            (group["company"], message)
+            for message in _scope_company_bcc(company_message, group["company"], contact_companies)
+        )
     return prepared
 
 
@@ -1740,6 +1970,7 @@ def _prepare_grouped_source_messages(db, template_key: str, values: dict, *, for
 
     parent = db.query(OperationalEmail).filter_by(id=parent_id).filter(
         OperationalEmail.template_key.in_(tuple(source_template_keys)),
+        OperationalEmail.bcc_copy_only.is_(False),
     ).first()
     if not parent or not parent.group_id or not db.query(OperationalEmailDelivery.id).filter_by(
         operational_email_id=parent.id, status="sent",
@@ -1748,7 +1979,23 @@ def _prepare_grouped_source_messages(db, template_key: str, values: dict, *, for
 
     members = db.query(OperationalEmail).filter_by(group_id=parent.group_id).filter(
         OperationalEmail.template_key.in_(tuple(source_template_keys)),
+        OperationalEmail.bcc_copy_only.is_(False),
     ).order_by(OperationalEmail.id).all()
+    bcc_copy_rows = []
+    if template_key in FIBER_CIRCUIT_BCC_TEMPLATES:
+        bcc_copy_rows = db.query(OperationalEmail).join(
+            OperationalEmailDelivery,
+            OperationalEmailDelivery.operational_email_id == OperationalEmail.id,
+        ).filter(
+            OperationalEmail.group_id == parent.group_id,
+            OperationalEmail.template_key.in_(tuple(source_template_keys)),
+            OperationalEmail.bcc_copy_only.is_(True),
+            OperationalEmailDelivery.status == "sent",
+        ).distinct().all()
+    bcc_copies_by_company = {}
+    for copy in bcc_copy_rows:
+        key = str(copy.group_company or "").strip().casefold()
+        bcc_copies_by_company.setdefault(key, []).extend(copy.bcc_recipients or [])
     member_ids = [member.id for member in members]
     sent_ids = {
         email_id for (email_id,) in db.query(OperationalEmailDelivery.operational_email_id).filter(
@@ -1771,6 +2018,7 @@ def _prepare_grouped_source_messages(db, template_key: str, values: dict, *, for
         return None
     batch_id = uuid.uuid4().hex
     prepared = []
+    contact_companies = _fiber_contact_company_map(db) if template_key in FIBER_CIRCUIT_BCC_TEMPLATES else {}
     for member in members:
         member_values = dict(values)
         member_values.pop("maintenance_notice_id", None)
@@ -1780,10 +2028,25 @@ def _prepare_grouped_source_messages(db, template_key: str, values: dict, *, for
             "body": "",
             "fields": {key: value for key, value in raw_fields.items() if key in editable_fields},
         })
+        if template_key in FIBER_CIRCUIT_BCC_TEMPLATES:
+            inherited_copies = bcc_copies_by_company.get(
+                str(member.group_company or "").strip().casefold(), []
+            )
+            if inherited_copies:
+                member_values["bcc"] = ", ".join(_unique_field_values([
+                    *normalize_recipient_list(member_values.get("bcc")),
+                    *inherited_copies,
+                ]))
         message = _prepare_message(db, template_key, member_values, for_schedule=for_schedule)
         message.update({"group_id": batch_id, "group_company": member.group_company})
         label = member.group_company or ", ".join(member.to_recipients or []) or f"Source email {member.id}"
-        prepared.append((label, message))
+        if template_key in FIBER_CIRCUIT_BCC_TEMPLATES and member.group_company:
+            variants = _scope_company_bcc(message, member.group_company, contact_companies)
+        elif template_key in FIBER_CIRCUIT_BCC_TEMPLATES:
+            variants = _scope_bcc_by_selected_circuits(db, message, contact_companies)
+        else:
+            variants = [message]
+        prepared.extend((label, variant) for variant in variants)
     return prepared
 
 
@@ -1798,7 +2061,10 @@ def _prepare_messages(db, template_key: str, values: dict, *, for_schedule: bool
         grouped = _prepare_grouped_source_messages(db, template_key, values, for_schedule=for_schedule)
         if grouped is not None:
             return grouped
-    return [(None, _prepare_message(db, template_key, values, for_schedule=for_schedule))]
+    message = _prepare_message(db, template_key, values, for_schedule=for_schedule)
+    if template_key in FIBER_CIRCUIT_BCC_TEMPLATES:
+        return [(None, item) for item in _scope_bcc_by_selected_circuits(db, message)]
+    return [(None, message)]
 
 
 def _create_email_record(db, actor_user_id: int, prepared: dict, schedule: dict | None = None) -> OperationalEmail:
@@ -1830,6 +2096,7 @@ def _create_email_record(db, actor_user_id: int, prepared: dict, schedule: dict 
         parent_email_id=prepared["parent_email_id"],
         group_id=prepared.get("group_id"),
         group_company=prepared.get("group_company"),
+        bcc_copy_only=prepared.get("bcc_copy_only", False),
         subject=prepared["subject"],
         body=prepared["body"],
         fields_json=prepared["fields"],
@@ -2009,53 +2276,79 @@ def _attempt_delivery(email_id: int) -> dict:
 
 
 def send_operational_email(values: dict, actor_user_id: int) -> dict:
-    """Validate, persist, and deliver one message or company-specific message group."""
+    """Validate, persist, and deliver one message or its company-scoped variants."""
     template_key = values.get("template_key")
     ensure_operational_email_templates()
     with SessionLocal() as db:
         prepared_messages = _prepare_messages(db, template_key, values)
         email_records = [
-            (company, _create_email_record(db, actor_user_id, prepared).id)
+            (company, _create_email_record(db, actor_user_id, prepared).id,
+             bool(prepared.get("bcc_copy_only")), prepared.get("group_company"))
             for company, prepared in prepared_messages
         ]
     group_id = prepared_messages[0][1].get("group_id") if prepared_messages else None
-    if not group_id:
+    if len(email_records) == 1 and not group_id:
         return _attempt_delivery(email_records[0][1])
 
     deliveries = []
-    for company, email_id in email_records:
+    bcc_copy_deliveries = []
+    all_deliveries = []
+    for company, email_id, bcc_copy_only, _group_company in email_records:
         delivery = _attempt_delivery(email_id)
-        delivery["company"] = company
-        deliveries.append(delivery)
-    sent_count = sum(item["status"] == "sent" for item in deliveries)
+        if company:
+            delivery["company"] = company
+        all_deliveries.append(delivery)
+        (bcc_copy_deliveries if bcc_copy_only else deliveries).append(delivery)
+    all_sent = sum(item["status"] == "sent" for item in all_deliveries)
+    overall_status = "sent" if all_sent == len(all_deliveries) else "partial" if all_sent else "failed"
+    has_company_groups = any(group_company for _company, _email_id, is_copy, group_company in email_records if not is_copy)
+
+    if not has_company_groups:
+        result = deliveries[0]
+        primary_status = result["status"]
+        result["status"] = overall_status
+        if bcc_copy_deliveries:
+            copy_sent = sum(item["status"] == "sent" for item in bcc_copy_deliveries)
+            result["message"] = (
+                f"Email sent; {copy_sent} of {len(bcc_copy_deliveries)} circuit-filtered BCC copies sent."
+                if primary_status == "sent"
+                else f"Email delivery failed: {result['message']} {copy_sent} circuit-filtered BCC copies sent."
+            )
+            result["bcc_copy_deliveries"] = bcc_copy_deliveries
+            result["email_ids"] = [email_id for _company, email_id, _copy, _group in email_records]
+            result["delivery_ids"] = [item.get("delivery_id") for item in all_deliveries]
+        return result
+
+    sent_companies = sum(item["status"] == "sent" for item in deliveries)
     company_count = len(deliveries)
     group_name = "Fiber Maintenance" if template_key == FIBER_MAINTENANCE_TEMPLATE else TEMPLATE_DEFINITIONS[template_key]["label"]
-    if sent_count == company_count:
-        status = "sent"
+    if sent_companies == company_count:
         message = f"Sent {group_name} notices to {company_count} compan{'y' if company_count == 1 else 'ies'}."
-    elif sent_count:
-        status = "partial"
+    elif sent_companies:
         failed_companies = ", ".join(
             f"{item['company']}: {item['message']}" for item in deliveries if item["status"] != "sent"
         )
-        message = f"Sent {sent_count} of {company_count} {group_name} notices; failed: {failed_companies}."
+        message = f"Sent {sent_companies} of {company_count} {group_name} notices; failed: {failed_companies}."
     else:
-        status = "failed"
         failed_companies = ", ".join(
             f"{item['company']}: {item['message']}" for item in deliveries
         )
         message = f"{group_name} notices failed for all {company_count} companies: {failed_companies}."
+    if bcc_copy_deliveries:
+        copy_sent = sum(item["status"] == "sent" for item in bcc_copy_deliveries)
+        message += f" Circuit-filtered BCC copies sent: {copy_sent}/{len(bcc_copy_deliveries)}."
     return {
         "grouped": True,
         "group_id": group_id,
-        "status": status,
+        "status": overall_status,
         "message": message,
         "company_count": company_count,
         "email_id": deliveries[0]["email_id"],
         "delivery_id": deliveries[0].get("delivery_id"),
-        "email_ids": [item["email_id"] for item in deliveries],
-        "delivery_ids": [item.get("delivery_id") for item in deliveries],
+        "email_ids": [email_id for _company, email_id, _copy, _group in email_records],
+        "delivery_ids": [item.get("delivery_id") for item in all_deliveries],
         "deliveries": deliveries,
+        "bcc_copy_deliveries": bcc_copy_deliveries,
         "sent_at": next((item["sent_at"] for item in reversed(deliveries) if item.get("sent_at")), None),
     }
 
@@ -2092,24 +2385,41 @@ def schedule_operational_email(values: dict, schedule_values: dict, actor_user_i
         template_key = values.get("template_key")
         prepared_messages = _prepare_messages(db, template_key, values, for_schedule=True)
         emails = [
-            (company, _create_email_record(db, actor_user_id, prepared, schedule))
+            (company, _create_email_record(db, actor_user_id, prepared, schedule),
+             bool(prepared.get("bcc_copy_only")))
             for company, prepared in prepared_messages
         ]
         group_id = prepared_messages[0][1].get("group_id") if prepared_messages else None
-        if not group_id:
+        if len(emails) == 1 and not group_id:
             return _serialize_email(emails[0][1])
-        serialized = [_serialize_email(email) for _company, email in emails]
-        count = len(serialized)
+        serialized = [_serialize_email(email) for _company, email, _is_copy in emails]
+        primary = [item for item in serialized if not item["bcc_copy_only"]]
+        copies = [item for item in serialized if item["bcc_copy_only"]]
+        has_company_groups = any(email.group_company for _company, email, is_copy in emails if not is_copy)
+        if not has_company_groups:
+            result = primary[0]
+            result["email_ids"] = [item["id"] for item in serialized]
+            if copies:
+                result["message"] = (
+                    f"Scheduled email with {len(copies)} circuit-filtered BCC "
+                    f"cop{'y' if len(copies) == 1 else 'ies'}."
+                )
+            return result
+
+        count = len(primary)
         group_name = "Fiber Maintenance" if template_key == FIBER_MAINTENANCE_TEMPLATE else TEMPLATE_DEFINITIONS[template_key]["label"]
+        message = f"Scheduled {group_name} notices for {count} compan{'y' if count == 1 else 'ies'}."
+        if copies:
+            message += f" Circuit-filtered BCC copies: {len(copies)}."
         return {
             "grouped": True,
             "group_id": group_id,
             "status": serialized[0]["status"],
-            "message": f"Scheduled {group_name} notices for {count} compan{'y' if count == 1 else 'ies'}.",
+            "message": message,
             "company_count": count,
-            "id": serialized[0]["id"],
+            "id": primary[0]["id"],
             "email_ids": [item["id"] for item in serialized],
-            "next_run_at": serialized[0]["next_run_at"],
+            "next_run_at": primary[0]["next_run_at"],
             "emails": serialized,
         }
 
@@ -2125,6 +2435,7 @@ def _serialize_email(email: OperationalEmail, include_body: bool = False) -> dic
         "parent_email_id": email.parent_email_id,
         "group_id": email.group_id,
         "group_company": email.group_company,
+        "bcc_copy_only": email.bcc_copy_only,
         "subject": email.subject,
         "to": list(email.to_recipients or []),
         "cc": list(email.cc_recipients or []),
@@ -2193,6 +2504,7 @@ def list_operational_email_history(limit: int = 100) -> list[dict]:
                 "id": row.id,
                 "email_id": row.operational_email_id,
                 "template_key": row.email.template_key if row.email else "",
+                "bcc_copy_only": bool(row.email and row.email.bcc_copy_only),
                 "status": row.status,
                 "smtp_provider": row.smtp_provider or "smtp",
                 "sender_address": row.sender_address,
@@ -2220,6 +2532,7 @@ def get_operational_email_delivery(delivery_id: int) -> dict | None:
             "email_id": row.operational_email_id,
             "group_id": row.email.group_id if row.email else None,
             "group_company": row.email.group_company if row.email else None,
+            "bcc_copy_only": bool(row.email and row.email.bcc_copy_only),
             "template_key": row.email.template_key if row.email else "",
             "status": row.status,
             "smtp_provider": row.smtp_provider or "smtp",
@@ -2241,8 +2554,11 @@ def get_operational_email_delivery(delivery_id: int) -> dict | None:
 def _list_sent_source_groups(db, template_keys: tuple[str, ...], limit: int) -> list[dict]:
     """List one selectable source per fan-out batch, using each member's latest success."""
     latest_sent = db.query(OperationalEmailDelivery.operational_email_id.label("email_id"),
-                           func.max(OperationalEmailDelivery.id).label("delivery_id")).filter(
+                           func.max(OperationalEmailDelivery.id).label("delivery_id")).join(
+        OperationalEmail, OperationalEmail.id == OperationalEmailDelivery.operational_email_id,
+    ).filter(
         OperationalEmailDelivery.status == "sent",
+        OperationalEmail.bcc_copy_only.is_(False),
     ).group_by(OperationalEmailDelivery.operational_email_id).subquery()
     rows = db.query(OperationalEmail, OperationalEmailDelivery).join(
         latest_sent, latest_sent.c.email_id == OperationalEmail.id,
@@ -2250,6 +2566,7 @@ def _list_sent_source_groups(db, template_keys: tuple[str, ...], limit: int) -> 
         OperationalEmailDelivery, OperationalEmailDelivery.id == latest_sent.c.delivery_id,
     ).filter(
         OperationalEmail.template_key.in_(template_keys),
+        OperationalEmail.bcc_copy_only.is_(False),
     ).order_by(
         OperationalEmailDelivery.sent_at.desc(), OperationalEmail.id.desc(),
     ).limit(limit * 50).all()
@@ -2258,6 +2575,28 @@ def _list_sent_source_groups(db, template_keys: tuple[str, ...], limit: int) -> 
     for email, delivery in rows:
         key = email.group_id or f"email:{email.id}"
         groups.setdefault(key, []).append((email, delivery))
+
+    group_ids = [email.group_id for email, _delivery in rows if email.group_id]
+    bcc_copies_by_group = {}
+    if group_ids:
+        latest_bcc_copy = db.query(
+            OperationalEmailDelivery.operational_email_id.label("email_id"),
+            func.max(OperationalEmailDelivery.id).label("delivery_id"),
+        ).join(
+            OperationalEmail, OperationalEmail.id == OperationalEmailDelivery.operational_email_id,
+        ).filter(
+            OperationalEmail.bcc_copy_only.is_(True),
+            OperationalEmail.group_id.in_(group_ids),
+            OperationalEmail.template_key.in_(template_keys),
+            OperationalEmailDelivery.status == "sent",
+        ).group_by(OperationalEmailDelivery.operational_email_id).subquery()
+        bcc_copy_rows = db.query(OperationalEmail, OperationalEmailDelivery).join(
+            latest_bcc_copy, latest_bcc_copy.c.email_id == OperationalEmail.id,
+        ).join(
+            OperationalEmailDelivery, OperationalEmailDelivery.id == latest_bcc_copy.c.delivery_id,
+        ).all()
+        for email, _delivery in bcc_copy_rows:
+            bcc_copies_by_group.setdefault(email.group_id, []).append(email)
 
     result = []
     for members in groups.values():
@@ -2273,11 +2612,12 @@ def _list_sent_source_groups(db, template_keys: tuple[str, ...], limit: int) -> 
             if values:
                 fields[field] = separator.join(values)
         companies = _unique_field_values(email.group_company for email, _delivery in members)
+        group_key = source.group_id or f"email:{source.id}"
         result.append({
             "id": source.id,
             "group_id": source.group_id,
-            "grouped": bool(source.group_id),
-            "company_count": len(members),
+            "grouped": bool(source.group_company),
+            "company_count": len(companies) or len(members),
             "companies": companies,
             "email_ids": [email.id for email, _delivery in members],
             "template_key": source.template_key,
@@ -2288,9 +2628,11 @@ def _list_sent_source_groups(db, template_keys: tuple[str, ...], limit: int) -> 
             "cc": _unique_field_values(
                 recipient for _email, delivery in members for recipient in delivery.cc_recipients or []
             ),
-            "bcc": _unique_field_values(
-                recipient for _email, delivery in members for recipient in delivery.bcc_recipients or []
-            ),
+            "bcc": _unique_field_values([
+                *(recipient for _email, delivery in members for recipient in delivery.bcc_recipients or []),
+                *(recipient for email in bcc_copies_by_group.get(group_key, [])
+                  for recipient in email.bcc_recipients or []),
+            ]),
             "fields": fields,
             "sent_at": max(
                 (delivery.sent_at for _email, delivery in members if delivery.sent_at),
