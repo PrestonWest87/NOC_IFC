@@ -48,6 +48,10 @@ const FIBER_SENDER_TO_KEYS = new Set([
 const FIBER_BCC_TEMPLATE_KEYS = new Set([
   "fiber_outage", "fiber_outage_resolution",
 ]);
+const FIBER_CIRCUIT_BCC_KEYS = new Set([
+  "fiber_outage", "fiber_outage_onpage", "fiber_outage_update", "fiber_outage_resolution",
+  "maintenance_start", "maintenance_complete",
+]);
 
 const inputStyle: React.CSSProperties = {
   width: "100%", boxSizing: "border-box", padding: "0.55rem 0.65rem", borderRadius: 6,
@@ -427,7 +431,7 @@ export function OperationalEmailPage() {
     mutationFn: (payload: any) => api.post("/operational-email/send", payload).then(response => response.data),
     onSuccess: result => {
       setNotice({
-        message: result.grouped ? result.message : result.status === "sent" ? "Email sent successfully." : result.message || "Email delivery failed.",
+        message: result.message || (result.status === "sent" ? "Email sent successfully." : "Email delivery failed."),
         error: result.status !== "sent",
       });
       queryClient.invalidateQueries({ queryKey: ["operational-email-history"] });
@@ -437,7 +441,7 @@ export function OperationalEmailPage() {
   const scheduleMutation = useMutation({
     mutationFn: (payload: any) => api.post("/operational-email/schedule", payload).then(response => response.data),
     onSuccess: result => {
-      setNotice({ message: result.grouped ? result.message : `Email scheduled. Next send: ${formatTime(result.next_run_at)}.` });
+      setNotice({ message: result.message || `Email scheduled. Next send: ${formatTime(result.next_run_at)}.` });
       queryClient.invalidateQueries({ queryKey: ["operational-email-scheduled"] });
     },
     onError: error => setNotice({ message: getApiErrorMessage(error, "Email could not be scheduled."), error: true }),
@@ -1020,12 +1024,15 @@ export function OperationalEmailPage() {
             <label><span style={labelStyle}>{fiberMaintenance || fiberOutageCompanyRouted ? "To · selected companies' Fiber contacts *" : groupedFiberOutageSource || groupedMaintenanceSource ? "To · source companies' recipients *" : fiberOnpage ? "To · ONPAGE contacts *" : fiberToSender ? "To · Global From *" : "To *"}</span><input value={to} onChange={event => setTo(event.target.value)} readOnly={fiberToSender || fiberOnpage || groupedCompanyMessage} placeholder="person@example.com, team@example.com" style={{ ...inputStyle, opacity: fiberToSender || fiberOnpage || groupedCompanyMessage ? 0.8 : 1 }} /></label>
             {selectedTemplate.allows_cc && <label><span style={labelStyle}>{fiberMaintenance || fiberOutageCompanyRouted ? "Cc · Global From always included" : groupedMaintenanceSource || groupedFiberOutageSource ? "Cc · per-company source Cc retained" : fiberOnpage ? "Cc · Global From" : "Cc"}</span><input value={cc} onChange={event => setCc(event.target.value)} readOnly={fiberOnpage} style={{ ...inputStyle, opacity: fiberOnpage ? 0.8 : 1 }} /></label>}
             {selectedTemplate.allows_bcc && <label style={{ gridColumn: "1 / -1" }}><span style={labelStyle}>Bcc (hidden from recipients)</span><input value={bcc} onChange={event => setBcc(event.target.value)} style={inputStyle} /></label>}
+            {selectedTemplate.allows_bcc && FIBER_CIRCUIT_BCC_KEYS.has(selectedKey)
+              && (!["maintenance_start", "maintenance_complete"].includes(selectedKey) || groupedMaintenanceSource)
+              && <small style={{ gridColumn: "1 / -1", color: "var(--text-muted)" }}>BCC recipients receive circuit/network-order details only for circuits mapped to their Fiber-contact company; other BCC copies retain the rest of the message with those details omitted and use Global From in To.</small>}
           </div>
           <label><span style={labelStyle}>Subject *</span><input value={subject} maxLength={500} readOnly={groupedCompanyMessage} onChange={event => { setSubjectTouched(true); setSubject(event.target.value); }} style={{ ...inputStyle, opacity: groupedCompanyMessage ? 0.85 : 1 }} /></label>
           <label><span style={labelStyle}>{selectedKey === "morning_report" ? "Latest Global Dashboard shift analysis" : "Message *"}</span><textarea value={body} maxLength={200000} readOnly={selectedKey === "morning_report" || groupedCompanyMessage} onChange={event => { setBodyTouched(true); setBody(event.target.value); }} rows={12} style={{ ...inputStyle, resize: selectedKey === "morning_report" || groupedCompanyMessage ? "none" : "vertical", lineHeight: 1.45, fontFamily: "var(--font-mono)", opacity: selectedKey === "morning_report" || groupedCompanyMessage ? 0.85 : 1 }} /></label>
           {fiberMaintenance && <small style={{ color: "var(--text-muted)" }}>Subject and message previews are read-only and include the full selection. Each company-specific email is rendered with only that company's circuits and A/Z details; mapped Fiber contacts are recipients only, and contact names/phone numbers are not autofilled into the message. Administrators can edit the shared wording in Template Defaults.</small>}
-          {fiberOutageCompanyRouted && <small style={{ color: "var(--text-muted)" }}>This outage will be sent separately to each selected company's Fiber contacts, with only that company's circuits. Global From is always on Cc; the Bcc field remains available for additional recipients.</small>}
-          {(groupedMaintenanceSource || groupedFiberOutageSource) && <small style={{ color: "var(--text-muted)" }}>This source represents {maintenanceSourceGrouped ? "maintenance" : "outage"} notices sent to {maintenanceSourceGrouped ? (maintenanceQuery.data || []).find((item: any) => item.id === Number(maintenanceNoticeId))?.company_count || 1 : (fiberOutagesQuery.data || []).find((item: any) => item.id === Number(fiberOutageId))?.company_count || 1} companies. The linked update/closeout will be sent once per successful company delivery with that company's source details and recipients. Source Cc/Bcc are retained per company; add any extra recipients in those fields.</small>}
+          {fiberOutageCompanyRouted && <small style={{ color: "var(--text-muted)" }}>This outage will be sent separately to each selected company's Fiber contacts, with only that company's circuits. Global From is always on Cc; BCC recipients receive circuit details only for their mapped company.</small>}
+          {(groupedMaintenanceSource || groupedFiberOutageSource) && <small style={{ color: "var(--text-muted)" }}>This source represents {maintenanceSourceGrouped ? "maintenance" : "outage"} notices sent to {maintenanceSourceGrouped ? (maintenanceQuery.data || []).find((item: any) => item.id === Number(maintenanceNoticeId))?.company_count || 1 : (fiberOutagesQuery.data || []).find((item: any) => item.id === Number(fiberOutageId))?.company_count || 1} companies. The linked update/closeout will be sent once per successful company delivery with that company's source details and recipients. Source Cc/Bcc are retained per company; BCC recipients from other companies receive the remaining message without circuit/network-order details.</small>}
           {selectedKey === "morning_report" && <p style={{ margin: "-0.4rem 0 0", color: "var(--text-muted)", fontSize: "0.74rem" }}>
             Sent exactly as currently stored in Global Dashboards{templatesQuery.data?.latest_shift_analysis_time ? ` · updated ${formatTime(templatesQuery.data.latest_shift_analysis_time)}` : ""}. The latest analysis is refreshed again at delivery time.
             {!String(templatesQuery.data?.latest_shift_analysis || "").trim() && <span style={{ color: "var(--accent-orange)" }}> No shift analysis is currently available.</span>}
@@ -1052,8 +1059,8 @@ export function OperationalEmailPage() {
         <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.78rem" }}>
           <thead><tr>{["Template / subject", "Recipients", "Cadence", "Next send", "Status", ""].map(label => <th key={label} style={{ textAlign: "left", padding: "0.5rem", borderBottom: "1px solid var(--border-primary)" }}>{label}</th>)}</tr></thead>
           <tbody>{(scheduledQuery.data || []).map((item: any) => <tr key={item.id}>
-            <td style={{ padding: "0.55rem", borderBottom: "1px solid var(--border-primary)" }}><strong>{templates.find(template => template.key === item.template_key)?.label || item.template_key}</strong><br />{item.subject}</td>
-            <td style={{ padding: "0.55rem", borderBottom: "1px solid var(--border-primary)" }}>{(item.to || []).join(", ")}</td>
+            <td style={{ padding: "0.55rem", borderBottom: "1px solid var(--border-primary)" }}><strong>{templates.find(template => template.key === item.template_key)?.label || item.template_key}{item.bcc_copy_only ? " · BCC copy (circuit details filtered)" : ""}</strong><br />{item.subject}</td>
+            <td style={{ padding: "0.55rem", borderBottom: "1px solid var(--border-primary)" }}>{(item.to || []).join(", ") || (item.bcc_copy_only ? "BCC-only" : "—")}</td>
             <td style={{ padding: "0.55rem", borderBottom: "1px solid var(--border-primary)" }}>{item.schedule_type === "once" ? "One-time" : item.schedule_type === "daily" ? `Daily ${item.recurrence_time} CT` : `Weekly ${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][item.recurrence_weekday]} ${item.recurrence_time} CT`}</td>
             <td style={{ padding: "0.55rem", borderBottom: "1px solid var(--border-primary)" }}>{formatTime(item.next_run_at)}</td>
             <td style={{ padding: "0.55rem", borderBottom: "1px solid var(--border-primary)" }}>{item.status}{item.last_error ? <div style={{ color: "var(--accent-red)" }}>{item.last_error}</div> : null}</td>
@@ -1071,9 +1078,9 @@ export function OperationalEmailPage() {
           <thead><tr>{["Sent / attempted", "Template", "Subject", "To", "Result", ""].map(label => <th key={label} style={{ textAlign: "left", padding: "0.5rem", borderBottom: "1px solid var(--border-primary)" }}>{label}</th>)}</tr></thead>
           <tbody>{(historyQuery.data || []).map((item: any) => <tr key={item.id}>
             <td style={{ padding: "0.55rem", borderBottom: "1px solid var(--border-primary)" }}>{formatTime(item.sent_at || item.attempted_at)}</td>
-            <td style={{ padding: "0.55rem", borderBottom: "1px solid var(--border-primary)" }}>{templates.find(template => template.key === item.template_key)?.label || item.template_key}</td>
+            <td style={{ padding: "0.55rem", borderBottom: "1px solid var(--border-primary)" }}>{templates.find(template => template.key === item.template_key)?.label || item.template_key}{item.bcc_copy_only ? " · BCC copy (circuit details filtered)" : ""}</td>
             <td style={{ padding: "0.55rem", borderBottom: "1px solid var(--border-primary)" }}>{item.subject}</td>
-            <td style={{ padding: "0.55rem", borderBottom: "1px solid var(--border-primary)" }}>{(item.to || []).join(", ")}</td>
+            <td style={{ padding: "0.55rem", borderBottom: "1px solid var(--border-primary)" }}>{(item.to || []).join(", ") || (item.bcc_copy_only ? "BCC-only" : "—")}</td>
             <td style={{ padding: "0.55rem", borderBottom: "1px solid var(--border-primary)", color: item.status === "sent" ? "var(--accent-green)" : "var(--accent-red)" }}>{item.status}{item.error_message ? <div>{item.error_message}</div> : null}</td>
             <td style={{ padding: "0.55rem", borderBottom: "1px solid var(--border-primary)" }}><button type="button" onClick={() => setSelectedDeliveryId(item.id)} style={{ ...buttonStyle, padding: "0.35rem 0.55rem", background: "var(--bg-card)", color: "var(--text-primary)" }}>View</button></td>
           </tr>)}
@@ -1084,7 +1091,7 @@ export function OperationalEmailPage() {
         <div style={{ ...cardStyle, width: "min(800px, 96vw)", maxHeight: "90vh", overflow: "auto" }} onClick={event => event.stopPropagation()}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}><h3 style={{ margin: 0 }}>Email delivery details</h3><button type="button" onClick={() => setSelectedDeliveryId(null)} aria-label="Close" style={{ ...buttonStyle, background: "var(--bg-card)", color: "var(--text-primary)" }}><X size={15} /></button></div>
           {deliveryDetailQuery.isLoading ? <p>Loading...</p> : deliveryDetailQuery.data && <>
-            <p><strong>Sender profile:</strong> {deliveryDetailQuery.data.smtp_provider === "gmail" ? "Gmail" : "Existing SMTP"}<br /><strong>From:</strong> {deliveryDetailQuery.data.sender_address || "—"}<br /><strong>To:</strong> {(deliveryDetailQuery.data.to || []).join(", ")}<br /><strong>Cc:</strong> {(deliveryDetailQuery.data.cc || []).join(", ")}<br /><strong>Bcc:</strong> {(deliveryDetailQuery.data.bcc || []).join(", ")}<br /><strong>Subject:</strong> {deliveryDetailQuery.data.subject}<br /><strong>Status:</strong> {deliveryDetailQuery.data.status}</p>
+             <p><strong>Sender profile:</strong> {deliveryDetailQuery.data.smtp_provider === "gmail" ? "Gmail" : "Existing SMTP"}<br /><strong>From:</strong> {deliveryDetailQuery.data.sender_address || "—"}<br /><strong>To:</strong> {(deliveryDetailQuery.data.to || []).join(", ") || (deliveryDetailQuery.data.bcc_copy_only ? "BCC-only copy" : "—")}<br /><strong>Cc:</strong> {(deliveryDetailQuery.data.cc || []).join(", ")}<br /><strong>Bcc:</strong> {(deliveryDetailQuery.data.bcc || []).join(", ")}<br /><strong>Subject:</strong> {deliveryDetailQuery.data.subject}<br /><strong>Status:</strong> {deliveryDetailQuery.data.status}{deliveryDetailQuery.data.bcc_copy_only ? " · circuit details filtered" : ""}</p>
             <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", padding: 12, borderRadius: 6, background: "var(--bg-secondary)", fontSize: "0.8rem" }}>{deliveryDetailQuery.data.body}</pre>
           </>}
         </div>
