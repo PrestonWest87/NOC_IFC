@@ -10,4 +10,4 @@
 - Passes one connection to Alembic. Waiting processes acquire the lock and re-check the database revision after the prior process finishes.
 - Errors propagate to `init_db()` and prevent the affected API, worker, or webhook process from starting its work.
 
-The migration head is `20261125_0024`. Revision `20261125_0024` adds a false-default `operational_emails.bcc_copy_only` flag for circuit-filtered BCC snapshots. See [Migration Compatibility](../../MIGRATION_COMPATIBILITY.md) for the complete revision history and upgrade behavior.
+The migration head is `20261125_0025`. Revision `20261125_0024` adds a false-default `operational_emails.bcc_copy_only` flag for circuit-filtered BCC snapshots. Revision `20261125_0025` conditionally updates untouched Fiber email bodies without adding schema objects. See [Migration Compatibility](../../MIGRATION_COMPATIBILITY.md) for the complete revision history and upgrade behavior.

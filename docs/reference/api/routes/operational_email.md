@@ -2,7 +2,9 @@
 
 Mount prefix: `/api/v1/operational-email`. Every route has the blanket `Operational Email` page dependency. Shared-template changes and signature writes additionally require the built-in administrator role.
 
-Circuit-filtered BCC-only snapshots use the active Global From address in To; the selected recipients remain hidden envelope recipients. This also applies to grouped Fiber Maintenance Start/Complete messages, preserving MOP and other non-circuit fields for unmatched companies.
+Fiber Outage ONPAGE supports optional free-text `rcount`, `maps_url`, and `closest_hand_hole` fields. Fiber Outage Follow-up and Resolution no longer expose status fields.
+
+Circuit-filtered BCC-only snapshots use the active Global From address in To; selected recipients remain hidden envelope recipients. Circuit-free copies are consolidated to one per BCC address per grouped send. Grouped Fiber Maintenance Start/Complete copies preserve MOP and other non-circuit fields for unmatched companies.
 
 ## Operations
 

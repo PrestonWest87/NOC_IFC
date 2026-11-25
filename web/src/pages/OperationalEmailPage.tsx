@@ -965,8 +965,8 @@ export function OperationalEmailPage() {
               || (selectedKey === "maintenance_complete" && Boolean(maintenanceNoticeId) && !["completion_time", "work_performed", "service_status", "follow_up"].includes(field.key))
               || ((selectedKey === "fiber_outage_update" || selectedKey === "fiber_outage_resolution") && Boolean(fiberOutageId)
                 && !(selectedKey === "fiber_outage_update"
-                  ? ["update_time", "current_status", "update_details", "restoration_estimate", "next_update"].includes(field.key)
-                  : ["resolution_time", "resolution_details", "service_status", "follow_up"].includes(field.key)))}
+                  ? ["update_time", "update_details", "restoration_estimate", "next_update"].includes(field.key)
+                  : ["resolution_time", "resolution_details", "follow_up"].includes(field.key)))}
             onChange={value => updateTemplateField(field, value)}
           />)}
         </div>
@@ -1026,7 +1026,7 @@ export function OperationalEmailPage() {
             {selectedTemplate.allows_bcc && <label style={{ gridColumn: "1 / -1" }}><span style={labelStyle}>Bcc (hidden from recipients)</span><input value={bcc} onChange={event => setBcc(event.target.value)} style={inputStyle} /></label>}
             {selectedTemplate.allows_bcc && FIBER_CIRCUIT_BCC_KEYS.has(selectedKey)
               && (!["maintenance_start", "maintenance_complete"].includes(selectedKey) || groupedMaintenanceSource)
-              && <small style={{ gridColumn: "1 / -1", color: "var(--text-muted)" }}>BCC recipients receive circuit/network-order details only for circuits mapped to their Fiber-contact company; other BCC copies retain the rest of the message with those details omitted and use Global From in To.</small>}
+              && <small style={{ gridColumn: "1 / -1", color: "var(--text-muted)" }}>BCC recipients receive circuit/network-order details only for circuits mapped to their Fiber-contact company; each unmatched BCC address gets one circuit-free copy per grouped send, using Global From in To.</small>}
           </div>
           <label><span style={labelStyle}>Subject *</span><input value={subject} maxLength={500} readOnly={groupedCompanyMessage} onChange={event => { setSubjectTouched(true); setSubject(event.target.value); }} style={{ ...inputStyle, opacity: groupedCompanyMessage ? 0.85 : 1 }} /></label>
           <label><span style={labelStyle}>{selectedKey === "morning_report" ? "Latest Global Dashboard shift analysis" : "Message *"}</span><textarea value={body} maxLength={200000} readOnly={selectedKey === "morning_report" || groupedCompanyMessage} onChange={event => { setBodyTouched(true); setBody(event.target.value); }} rows={12} style={{ ...inputStyle, resize: selectedKey === "morning_report" || groupedCompanyMessage ? "none" : "vertical", lineHeight: 1.45, fontFamily: "var(--font-mono)", opacity: selectedKey === "morning_report" || groupedCompanyMessage ? 0.85 : 1 }} /></label>

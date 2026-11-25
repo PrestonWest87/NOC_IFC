@@ -29,6 +29,9 @@ Automated tests under `tests/` are local-only and intentionally excluded from ve
 - [x] Review and push intended source/docs only to `dev`; preserve unrelated untracked integration-plan documents and keep test files unstaged.
 - [x] Scope circuit-bearing Fiber BCC copies to each recipient's Fiber-contact company; unmatched/unlisted recipients retain the rest of the message in circuit-free send/schedule snapshots.
 - [x] Add the snapshot flag migration, update Operational Email docs/UI, and verify BCC scope behavior plus SQLite migration and frontend/API builds.
+- [x] Remove unused status prompts from Fiber Outage Follow-up/Resolution and add optional Rcount, Maps URL, and Closest Hand Hole fields to Fiber Outage ONPAGE.
+- [x] Send at most one circuit-free BCC copy per address for each grouped send/schedule, including linked follow-ups.
+- [x] Conditionally refresh only untouched shipped email bodies, update docs, and verify SQLite migration, BCC/composer behavior, API/web builds, compilation, and diff checks.
 
 ### Operational Email Cc Defaults and Maintenance Start — Completed
 
