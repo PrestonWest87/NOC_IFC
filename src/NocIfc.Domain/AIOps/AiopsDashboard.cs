@@ -67,3 +67,12 @@ public enum AiopsNeedsDispatchOutcome
 }
 
 public sealed record AiopsNeedsDispatchUpdate(AiopsNeedsDispatchOutcome Outcome, int UpdatedAlerts);
+
+public enum AiopsSiteResolutionOutcome
+{
+    Resolved,
+    SiteScopeDenied,
+    SiteNotFound,
+}
+
+public sealed record AiopsSiteResolutionUpdate(AiopsSiteResolutionOutcome Outcome, int ResolvedAlerts);

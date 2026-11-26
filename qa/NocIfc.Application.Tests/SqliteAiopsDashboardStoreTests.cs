@@ -160,13 +160,23 @@ public sealed class SqliteAiopsDashboardStoreTests
             }
             Assert.True(await store.SetClusterDispatchAsync(
                 [1], false, "dispatcher", now.AddMinutes(2), allowed, CancellationToken.None));
+            Assert.Equal(AiopsSiteResolutionOutcome.SiteScopeDenied,
+                (await store.ResolveSiteAsync("Field Office", "resolver", now.AddMinutes(3), allowed, CancellationToken.None)).Outcome);
+            Assert.Equal(AiopsSiteResolutionOutcome.SiteNotFound,
+                (await store.ResolveSiteAsync("Missing", "resolver", now.AddMinutes(3), null, CancellationToken.None)).Outcome);
+            var resolution = await store.ResolveSiteAsync(
+                "Central NOC", "resolver", now.AddMinutes(3), allowed, CancellationToken.None);
+            Assert.Equal(AiopsSiteResolutionOutcome.Resolved, resolution.Outcome);
+            Assert.Equal(2, resolution.ResolvedAlerts);
+            Assert.Equal(0, (await store.ResolveSiteAsync(
+                "Central NOC", "resolver", now.AddMinutes(4), allowed, CancellationToken.None)).ResolvedAlerts);
 
             await using (var connection = connections.Create())
             {
                 await connection.OpenAsync();
                 await using var verify = connection.CreateCommand();
                 verify.CommandText = """
-                    SELECT a.is_correlated, a.needs_dispatch, a.acknowledged_by, a.acknowledged_at,
+                    SELECT a.status, a.resolved_at, a.is_correlated, a.needs_dispatch, a.acknowledged_by, a.acknowledged_at,
                            a.is_dispatched, a.dispatched_by, a.dispatched_at,
                            l.status_modified_by, l.status_modified_at
                     FROM solarwinds_alerts a JOIN monitored_locations l ON l.name = a.mapped_location
@@ -174,15 +184,27 @@ public sealed class SqliteAiopsDashboardStoreTests
                     """;
                 await using var reader = await verify.ExecuteReaderAsync();
                 Assert.True(await reader.ReadAsync());
-                Assert.True(reader.GetBoolean(0));
-                Assert.False(reader.GetBoolean(1));
-                Assert.Equal("operator", reader.GetString(2));
-                Assert.Equal(Format(now), reader.GetString(3));
-                Assert.False(reader.GetBoolean(4));
-                Assert.Equal("dispatcher", reader.GetString(5));
-                Assert.Equal(Format(now.AddMinutes(2)), reader.GetString(6));
+                Assert.Equal("Resolved", reader.GetString(0));
+                Assert.Equal(Format(now.AddMinutes(3)), reader.GetString(1));
+                Assert.True(reader.GetBoolean(2));
+                Assert.False(reader.GetBoolean(3));
+                Assert.Equal("operator", reader.GetString(4));
+                Assert.Equal(Format(now), reader.GetString(5));
+                Assert.False(reader.GetBoolean(6));
                 Assert.Equal("dispatcher", reader.GetString(7));
                 Assert.Equal(Format(now.AddMinutes(2)), reader.GetString(8));
+                Assert.Equal("resolver", reader.GetString(9));
+                Assert.Equal(Format(now.AddMinutes(3)), reader.GetString(10));
+            }
+            await using (var connection = connections.Create())
+            {
+                await connection.OpenAsync();
+                await using var verify = connection.CreateCommand();
+                verify.CommandText = "SELECT COUNT(*), message FROM timeline_events WHERE event_type = 'Resolution' AND site_name = 'Central NOC'";
+                await using var reader = await verify.ExecuteReaderAsync();
+                Assert.True(await reader.ReadAsync());
+                Assert.Equal(1, reader.GetInt32(0));
+                Assert.Equal("[OK] resolver marked Central NOC Up and resolved 2 active alert(s)", reader.GetString(1));
             }
         }
         finally

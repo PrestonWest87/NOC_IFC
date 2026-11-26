@@ -217,6 +217,46 @@ public sealed class AiopsRcaReadController(
         };
     }
 
+    [HttpPost("rca/resolve-site")]
+    [RequireAction("Tab: AIOps RCA -> Active Board")]
+    [RequireAction("Action: Acknowledge RCA Alerts")]
+    public async Task<IActionResult> ResolveSite(
+        [FromBody] JsonObject? request,
+        CancellationToken cancellationToken)
+    {
+        var user = AuthenticatedUserContext.GetUser(HttpContext);
+        if (user is null)
+        {
+            return Unauthorized(new { detail = new { code = "unauthenticated", message = "Not authenticated" } });
+        }
+        var siteName = request?["site_name"] is JsonValue siteValue
+            && siteValue.TryGetValue<string>(out var site)
+                ? site.Trim()
+                : "";
+        if (siteName.Length == 0)
+        {
+            return UnprocessableEntity(new { detail = "site_name is required." });
+        }
+        var result = await dashboard.ResolveSiteAsync(user, siteName, cancellationToken);
+        if (result.Outcome == AiopsSiteResolutionOutcome.SiteScopeDenied)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                detail = new
+                {
+                    code = "site_scope_denied",
+                    message = "This site is outside your permitted site types.",
+                },
+            });
+        }
+        if (result.Outcome == AiopsSiteResolutionOutcome.SiteNotFound)
+        {
+            return NotFound(new { detail = "Site not found." });
+        }
+        investigating.Set(siteName, false);
+        return Ok(new { status = "ok", resolved_alerts = result.ResolvedAlerts });
+    }
+
     [HttpPost("rca/investigate")]
     [RequireAction("Tab: AIOps RCA -> Active Board")]
     [RequireAction("Action: Dispatch RCA Tickets")]

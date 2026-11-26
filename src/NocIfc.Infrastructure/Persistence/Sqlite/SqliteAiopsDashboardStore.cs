@@ -361,6 +361,83 @@ public sealed class SqliteAiopsDashboardStore(SqliteConnectionFactory connection
         return true;
     }
 
+    public async Task<AiopsSiteResolutionUpdate> ResolveSiteAsync(
+        string siteName,
+        string username,
+        DateTime resolvedAtUtc,
+        IReadOnlySet<string>? allowedSiteNames,
+        CancellationToken cancellationToken)
+    {
+        if (allowedSiteNames is not null && !allowedSiteNames.Contains(siteName))
+        {
+            return new AiopsSiteResolutionUpdate(AiopsSiteResolutionOutcome.SiteScopeDenied, 0);
+        }
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
+        int locationId;
+        await using (var location = connection.CreateCommand())
+        {
+            location.Transaction = transaction;
+            location.CommandText = "SELECT id FROM monitored_locations WHERE name = $site LIMIT 1";
+            location.Parameters.AddWithValue("$site", siteName);
+            var value = await location.ExecuteScalarAsync(cancellationToken);
+            if (value is null)
+            {
+                return new AiopsSiteResolutionUpdate(AiopsSiteResolutionOutcome.SiteNotFound, 0);
+            }
+            locationId = Convert.ToInt32(value, CultureInfo.InvariantCulture);
+        }
+
+        var timestamp = FormatDate(resolvedAtUtc);
+        int resolvedAlerts;
+        await using (var updateAlerts = connection.CreateCommand())
+        {
+            updateAlerts.Transaction = transaction;
+            updateAlerts.CommandText = """
+                UPDATE solarwinds_alerts
+                SET status = 'Resolved', resolved_at = $now, needs_dispatch = 0
+                WHERE mapped_location = $site AND status != 'Resolved'
+                """;
+            updateAlerts.Parameters.AddWithValue("$now", timestamp);
+            updateAlerts.Parameters.AddWithValue("$site", siteName);
+            resolvedAlerts = await updateAlerts.ExecuteNonQueryAsync(cancellationToken);
+        }
+        if (resolvedAlerts == 0)
+        {
+            return new AiopsSiteResolutionUpdate(AiopsSiteResolutionOutcome.Resolved, 0);
+        }
+
+        await using (var updateLocation = connection.CreateCommand())
+        {
+            updateLocation.Transaction = transaction;
+            updateLocation.CommandText = """
+                UPDATE monitored_locations
+                SET status_modified_by = $username, status_modified_at = $now
+                WHERE id = $id
+                """;
+            updateLocation.Parameters.AddWithValue("$username", username);
+            updateLocation.Parameters.AddWithValue("$now", timestamp);
+            updateLocation.Parameters.AddWithValue("$id", locationId);
+            await updateLocation.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using (var insertEvent = connection.CreateCommand())
+        {
+            insertEvent.Transaction = transaction;
+            insertEvent.CommandText = """
+                INSERT INTO timeline_events (timestamp, source, event_type, message, site_name)
+                VALUES ($now, 'User', 'Resolution', $message, $site)
+                """;
+            insertEvent.Parameters.AddWithValue("$now", timestamp);
+            insertEvent.Parameters.AddWithValue("$message",
+                $"[OK] {username} marked {siteName} Up and resolved {resolvedAlerts} active alert(s)");
+            insertEvent.Parameters.AddWithValue("$site", siteName);
+            await insertEvent.ExecuteNonQueryAsync(cancellationToken);
+        }
+        transaction.Commit();
+        return new AiopsSiteResolutionUpdate(AiopsSiteResolutionOutcome.Resolved, resolvedAlerts);
+    }
+
     private static string AddSiteFilter(SqliteCommand command, IReadOnlySet<string>? allowedSiteNames, string column)
     {
         if (allowedSiteNames is null) return "";

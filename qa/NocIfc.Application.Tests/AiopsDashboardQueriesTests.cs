@@ -117,6 +117,14 @@ public sealed class AiopsDashboardQueriesTests
             string username,
             DateTime modifiedAtUtc,
             CancellationToken cancellationToken) => Task.FromResult(true);
+
+        public Task<AiopsSiteResolutionUpdate> ResolveSiteAsync(
+            string siteName,
+            string username,
+            DateTime resolvedAtUtc,
+            IReadOnlySet<string>? allowedSiteNames,
+            CancellationToken cancellationToken) => Task.FromResult(
+                new AiopsSiteResolutionUpdate(AiopsSiteResolutionOutcome.Resolved, 0));
     }
 
     private sealed class StubFacilityStore(IReadOnlyList<MonitoredLocationEntry> locations) : IFacilityDirectoryStore

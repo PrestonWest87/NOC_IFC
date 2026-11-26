@@ -145,6 +145,16 @@ public sealed class AiopsDashboardQueries(
         return updated ? AiopsSiteMaintenanceOutcome.Updated : AiopsSiteMaintenanceOutcome.SiteNotFound;
     }
 
+    public async Task<AiopsSiteResolutionUpdate> ResolveSiteAsync(
+        AuthenticatedUser user,
+        string siteName,
+        CancellationToken cancellationToken)
+    {
+        var allowedSiteNames = await GetAllowedSiteNamesAsync(user, cancellationToken);
+        return await dashboard.ResolveSiteAsync(
+            siteName, user.Username, DateTime.UtcNow, allowedSiteNames, cancellationToken);
+    }
+
     private async Task<IReadOnlySet<string>?> GetAllowedSiteNamesAsync(
         AuthenticatedUser user,
         CancellationToken cancellationToken) =>

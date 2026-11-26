@@ -43,4 +43,10 @@ public interface IAiopsDashboardStore
         string username,
         DateTime modifiedAtUtc,
         CancellationToken cancellationToken);
+    Task<AiopsSiteResolutionUpdate> ResolveSiteAsync(
+        string siteName,
+        string username,
+        DateTime resolvedAtUtc,
+        IReadOnlySet<string>? allowedSiteNames,
+        CancellationToken cancellationToken);
 }
