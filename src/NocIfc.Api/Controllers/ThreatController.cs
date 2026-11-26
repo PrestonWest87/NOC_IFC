@@ -11,7 +11,8 @@ namespace NocIfc.Api.Controllers;
 public sealed class ThreatController(
     CisaKevQueries kev,
     ThreatArticleQueries articles,
-    ThreatStatusQueries threatStatus) : ControllerBase
+    ThreatStatusQueries threatStatus,
+    ThreatHuntingCommands huntingCommands) : ControllerBase
 {
     [HttpGet("cloud-outages")]
     [RequireAction("Tab: Threat Telemetry -> Cloud Services")]
@@ -105,5 +106,51 @@ public sealed class ThreatController(
 
         var entries = await kev.GetRecentAsync(limit, daysBack, cancellationToken);
         return Ok(entries.Select(CisaKevResponse.From).ToArray());
+    }
+
+    [HttpPost("sync-elastic-cache")]
+    [RequireAction("Tab: Reporting -> Elastic SIEM Report")]
+    [RequireAction("Action: Manually Sync Data")]
+    public async Task<IActionResult> SyncElasticCache(
+        [FromQuery(Name = "hours_back")] int hoursBack = 24,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var result = await huntingCommands.SyncElasticCacheAsync(hoursBack, cancellationToken);
+            if (result.Status is "error" or "skipped")
+            {
+                return StatusCode(result.Status == "skipped" ? 503 : 502,
+                    new { detail = result.Message ?? "Elastic cache sync failed." });
+            }
+            return Ok(new { status = "ok", message = "Elastic cache synced.", result = new { status = result.Status, imported = result.Imported } });
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            return UnprocessableEntity(new { detail = exception.Message });
+        }
+    }
+
+    [HttpPost("generate-siem-triage")]
+    [RequireAction("Tab: Reporting -> Elastic SIEM Report")]
+    [RequireAction("Action: Trigger AI Functions")]
+    public async Task<IActionResult> GenerateSiemTriage(
+        [FromBody] SiemTriageRequest? request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var events = request?.ToEvents() ?? throw new ArgumentException("Provide between 1 and 50 SIEM events.");
+            var summary = await huntingCommands.GenerateSiemTriageAsync(events, cancellationToken);
+            return Ok(new { summary = summary.Length == 0 ? "Unable to generate triage summary." : summary });
+        }
+        catch (SiemTriagePayloadTooLargeException exception)
+        {
+            return StatusCode(413, new { detail = exception.Message });
+        }
+        catch (ArgumentException exception)
+        {
+            return UnprocessableEntity(new { detail = exception.Message });
+        }
     }
 }

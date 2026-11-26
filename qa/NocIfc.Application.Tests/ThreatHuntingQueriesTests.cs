@@ -122,5 +122,9 @@ public sealed class ThreatHuntingQueriesTests
             int pageSize,
             int hoursBack,
             CancellationToken cancellationToken) => Task.FromResult(ElasticPage);
+
+        public Task<int> AddElasticEventsAsync(
+            IReadOnlyList<ElasticEventEntry> events,
+            CancellationToken cancellationToken) => Task.FromResult(0);
     }
 }

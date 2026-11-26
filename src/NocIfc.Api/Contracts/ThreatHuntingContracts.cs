@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using NocIfc.Application.Features.Threat;
 using NocIfc.Domain.Threat;
@@ -62,4 +63,91 @@ public sealed record ElasticEventsPageResponse(
         page.Page,
         page.PageSize,
         page.HoursBack);
+}
+
+public sealed class SiemTriageRequest
+{
+    [JsonPropertyName("events")]
+    public List<SiemTriageEventRequest?>? Events { get; init; }
+
+    public IReadOnlyList<SiemTriageEvent> ToEvents()
+    {
+        if (Events is not { Count: >= 1 and <= 50 })
+        {
+            throw new ArgumentException("Provide between 1 and 50 SIEM events.");
+        }
+        return Events.Select(item => item?.ToEvent()
+            ?? throw new ArgumentException("SIEM events must be objects.")).ToArray();
+    }
+}
+
+public sealed class SiemTriageEventRequest
+{
+    [JsonPropertyName("id")]
+    public JsonElement? Id { get; init; }
+
+    [JsonPropertyName("timestamp")]
+    public string? Timestamp { get; init; }
+
+    [JsonPropertyName("index_name")]
+    public string? IndexName { get; init; }
+
+    [JsonPropertyName("severity")]
+    public JsonElement? Severity { get; init; }
+
+    [JsonPropertyName("message")]
+    public string? Message { get; init; }
+
+    [JsonPropertyName("source_ip")]
+    public string? SourceIp { get; init; }
+
+    [JsonPropertyName("event_category")]
+    public string? EventCategory { get; init; }
+
+    public SiemTriageEvent ToEvent()
+    {
+        CheckLength(Timestamp, "timestamp", 64);
+        CheckLength(IndexName, "index_name", 256);
+        CheckLength(Message, "message", 2000);
+        CheckLength(SourceIp, "source_ip", 128);
+        CheckLength(EventCategory, "event_category", 256);
+        return new SiemTriageEvent(
+            ReadScalar(Id, "id", allowDecimal: false),
+            Timestamp,
+            IndexName,
+            ReadScalar(Severity, "severity", allowDecimal: true),
+            Message,
+            SourceIp,
+            EventCategory);
+    }
+
+    private static string? ReadScalar(JsonElement? value, string field, bool allowDecimal)
+    {
+        if (value is null || value.Value.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+        var element = value.Value;
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            return element.GetString();
+        }
+        if (element.ValueKind == JsonValueKind.Number)
+        {
+            var raw = element.GetRawText();
+            if (allowDecimal || raw.IndexOfAny(['.', 'e', 'E']) < 0)
+            {
+                return raw;
+            }
+        }
+        throw new ArgumentException($"{field} must be text or a supported number.");
+    }
+
+    private static void CheckLength(string? value, string field, int maximum)
+    {
+        if (value is not null && value.Length > maximum)
+        {
+            throw new ArgumentException($"{field} must be no longer than {maximum} characters.");
+        }
+    }
 }

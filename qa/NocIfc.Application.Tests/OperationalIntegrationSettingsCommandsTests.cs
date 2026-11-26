@@ -85,6 +85,9 @@ public sealed class OperationalIntegrationSettingsCommandsTests
                 "", "", "", "", "", "", false, true, "", 15, 500, "", "",
                 new Dictionary<string, string>()));
 
+        public Task<ElasticClientSettings> GetElasticClientSettingsAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new ElasticClientSettings("", "", true, "", 15, 500));
+
         public Task SaveAsync(
             OperationalIntegrationSettingsUpdate update,
             int actorUserId,

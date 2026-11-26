@@ -61,11 +61,11 @@ public sealed class LlmConnectionTestCommandsTests
 
     private sealed class StubTester : ILlmConnectionTester
     {
-        public LlmConnectionTestSettings? Settings { get; private set; }
+        public LlmProviderSettings? Settings { get; private set; }
         public int Calls { get; private set; }
 
         public Task<LlmConnectionTestResult> TestAsync(
-            LlmConnectionTestSettings settings,
+            LlmProviderSettings settings,
             CancellationToken cancellationToken)
         {
             Calls++;

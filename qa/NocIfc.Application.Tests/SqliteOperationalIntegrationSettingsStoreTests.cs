@@ -29,6 +29,14 @@ public sealed class SqliteOperationalIntegrationSettingsStoreTests
             Assert.Equal("environment", settings.Sources["risk_alert_recipients"]);
             Assert.Equal("database", settings.Sources["elastic_url"]);
             Assert.Equal("database", settings.Sources["elastic_api_key"]);
+
+            var clientSettings = await store.GetElasticClientSettingsAsync(CancellationToken.None);
+            Assert.Equal("", clientSettings.Endpoint);
+            Assert.Equal("", clientSettings.ApiKey);
+            Assert.False(clientSettings.VerifyCertificates);
+            Assert.Equal("/environment/ca.pem", clientSettings.CaCertificates);
+            Assert.Equal(30d, clientSettings.RequestTimeoutSeconds);
+            Assert.Equal(1000, clientSettings.MaxResults);
         }
         finally
         {
@@ -52,6 +60,9 @@ public sealed class SqliteOperationalIntegrationSettingsStoreTests
             Assert.Equal("https://environment-elastic.example.com", effective.ElasticUrl);
             Assert.Equal("environment", effective.Sources["elastic_url"]);
             Assert.True(effective.ElasticApiKeyConfigured);
+            var clientSettings = await store.GetElasticClientSettingsAsync(CancellationToken.None);
+            Assert.Equal("https://environment-elastic.example.com", clientSettings.Endpoint);
+            Assert.Equal("sensitive-elastic-key", clientSettings.ApiKey);
 
             await using var connection = connections.Create();
             await connection.OpenAsync();

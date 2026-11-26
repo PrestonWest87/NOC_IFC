@@ -26,7 +26,7 @@ public sealed class ProviderAwareLlmConnectionTesterTests
         });
 
         var result = await tester.TestAsync(
-            new LlmConnectionTestSettings("openai_compatible", "https://8.8.8.8/v1", "key", "model-x"),
+            new LlmProviderSettings("openai_compatible", "https://8.8.8.8/v1", "key", "model-x"),
             CancellationToken.None);
 
         Assert.True(result.Success);
@@ -55,7 +55,7 @@ public sealed class ProviderAwareLlmConnectionTesterTests
         });
 
         var result = await tester.TestAsync(
-            new LlmConnectionTestSettings("ollama_native", "http://127.0.0.1:11434", "", "qwen3:8b"),
+            new LlmProviderSettings("ollama_native", "http://127.0.0.1:11434", "", "qwen3:8b"),
             CancellationToken.None);
 
         Assert.True(result.Success);
@@ -79,7 +79,7 @@ public sealed class ProviderAwareLlmConnectionTesterTests
         });
 
         var result = await tester.TestAsync(
-            new LlmConnectionTestSettings("openai_compatible", "http://127.0.0.1:11434/v1", "", "model"),
+            new LlmProviderSettings("openai_compatible", "http://127.0.0.1:11434/v1", "", "model"),
             CancellationToken.None);
 
         Assert.False(result.Success);
@@ -87,12 +87,44 @@ public sealed class ProviderAwareLlmConnectionTesterTests
         Assert.Equal(0, calls);
     }
 
-    private static ProviderAwareLlmConnectionTester Tester(
+    [Fact]
+    public async Task GeneratesProviderAwareCompletionWithBoundedNativeOptions()
+    {
+        string? requestJson = null;
+        var client = Tester(async (request, cancellationToken) =>
+        {
+            requestJson = await request.Content!.ReadAsStringAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"message":{"content":"triage complete"}}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            };
+        });
+
+        var result = await client.CompleteAsync(
+            new LlmProviderSettings("ollama_native", "http://127.0.0.1:11434", "", "qwen3:8b"),
+            [new LlmChatMessage("user", "untrusted event")],
+            0.2,
+            4096,
+            TimeSpan.FromMinutes(5),
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal("triage complete", result.Content);
+        using var payload = JsonDocument.Parse(requestJson!);
+        Assert.Equal(0.2, payload.RootElement.GetProperty("options").GetProperty("temperature").GetDouble());
+        Assert.Equal(4096, payload.RootElement.GetProperty("options").GetProperty("num_predict").GetInt32());
+        Assert.Equal("untrusted event", payload.RootElement.GetProperty("messages")[0].GetProperty("content").GetString());
+    }
+
+    private static ProviderAwareLlmClient Tester(
         Func<HttpRequestMessage, HttpResponseMessage> handler,
         bool allowPrivate = false) =>
         new(new HttpClient(new StubHandler((request, _) => Task.FromResult(handler(request)))), new LlmEndpointPolicy(allowPrivate));
 
-    private static ProviderAwareLlmConnectionTester Tester(
+    private static ProviderAwareLlmClient Tester(
         Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> handler,
         bool allowPrivate = false) =>
         new(new HttpClient(new StubHandler(handler)), new LlmEndpointPolicy(allowPrivate));

@@ -19,4 +19,7 @@ public interface IThreatHuntingStore
         int pageSize,
         int hoursBack,
         CancellationToken cancellationToken);
+    Task<int> AddElasticEventsAsync(
+        IReadOnlyList<ElasticEventEntry> events,
+        CancellationToken cancellationToken);
 }

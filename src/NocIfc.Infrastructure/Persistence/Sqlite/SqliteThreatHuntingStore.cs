@@ -115,6 +115,53 @@ public sealed class SqliteThreatHuntingStore(SqliteConnectionFactory connections
         return new PagedElasticEvents(events, total, page, pageSize, hoursBack);
     }
 
+    public async Task<int> AddElasticEventsAsync(
+        IReadOnlyList<ElasticEventEntry> events,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT OR IGNORE INTO elastic_events
+                (id, timestamp, index_name, severity, message, source_ip, event_category)
+            SELECT $id, $timestamp, $index_name, $severity, $message, $source_ip, $event_category
+            WHERE NOT EXISTS (
+                SELECT 1 FROM elastic_events
+                WHERE id = $id OR ($legacy_id IS NOT NULL AND id = $legacy_id)
+            )
+            """;
+        var id = command.Parameters.Add("$id", SqliteType.Text);
+        var legacyId = command.Parameters.Add("$legacy_id", SqliteType.Text);
+        var timestamp = command.Parameters.Add("$timestamp", SqliteType.Text);
+        var indexName = command.Parameters.Add("$index_name", SqliteType.Text);
+        var severity = command.Parameters.Add("$severity", SqliteType.Text);
+        var message = command.Parameters.Add("$message", SqliteType.Text);
+        var sourceIp = command.Parameters.Add("$source_ip", SqliteType.Text);
+        var eventCategory = command.Parameters.Add("$event_category", SqliteType.Text);
+        var imported = 0;
+        foreach (var item in events)
+        {
+            if (string.IsNullOrWhiteSpace(item.Id))
+            {
+                continue;
+            }
+            id.Value = item.Id;
+            legacyId.Value = (object?)item.LegacyId ?? DBNull.Value;
+            timestamp.Value = FormatDate(item.Timestamp ?? DateTime.UtcNow);
+            indexName.Value = (object?)item.IndexName ?? DBNull.Value;
+            severity.Value = (object?)item.Severity ?? DBNull.Value;
+            message.Value = (object?)item.Message ?? DBNull.Value;
+            sourceIp.Value = (object?)item.SourceIp ?? DBNull.Value;
+            eventCategory.Value = (object?)item.EventCategory ?? DBNull.Value;
+            imported += await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        transaction.Commit();
+        return imported;
+    }
+
     private static string FormatDate(DateTime value) =>
         value.ToString("yyyy-MM-dd HH:mm:ss.ffffff", CultureInfo.InvariantCulture);
 

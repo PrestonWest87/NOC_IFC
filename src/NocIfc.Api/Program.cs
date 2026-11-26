@@ -1,4 +1,5 @@
 using System.Globalization;
+using NocIfc.Application.Abstractions.Elastic;
 using NocIfc.Application.Abstractions.Dashboard;
 using NocIfc.Api.Middleware;
 using NocIfc.Application.Abstractions.Email;
@@ -11,6 +12,7 @@ using NocIfc.Application.Features.Dashboard;
 using NocIfc.Application.Features.Settings;
 using NocIfc.Application.Features.Threat;
 using NocIfc.Infrastructure.Email;
+using NocIfc.Infrastructure.Integrations.Elastic;
 using NocIfc.Infrastructure.Integrations.Llm;
 using NocIfc.Infrastructure.Persistence.Sqlite;
 using NocIfc.Infrastructure.Security;
@@ -81,13 +83,17 @@ builder.Services.AddScoped<IThreatStatusStore, SqliteThreatStatusStore>();
 builder.Services.AddScoped<ThreatStatusQueries>();
 builder.Services.AddScoped<IThreatHuntingStore, SqliteThreatHuntingStore>();
 builder.Services.AddScoped<ThreatHuntingQueries>();
+builder.Services.AddScoped<ThreatHuntingCommands>();
+builder.Services.AddScoped<IElasticEventSource>(_ => new ElasticSearchClient());
 builder.Services.AddScoped<IFailedLoginAlertStore, SqliteFailedLoginAlertStore>();
 builder.Services.AddHttpClient<GmailOAuthTokenProvider>(client => client.Timeout = TimeSpan.FromSeconds(10));
 builder.Services.AddScoped<IEmailSender, SqliteEmailSender>();
-builder.Services.AddHttpClient<ProviderAwareLlmConnectionTester>(client => client.Timeout = TimeSpan.FromSeconds(35))
+builder.Services.AddHttpClient<ProviderAwareLlmClient>(client => client.Timeout = TimeSpan.FromMinutes(5))
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddScoped<ILlmConnectionTester>(services =>
-    services.GetRequiredService<ProviderAwareLlmConnectionTester>());
+    services.GetRequiredService<ProviderAwareLlmClient>());
+builder.Services.AddScoped<ILlmChatCompletionClient>(services =>
+    services.GetRequiredService<ProviderAwareLlmClient>());
 builder.Services.AddScoped<IRoleDirectory, SqliteRoleDirectory>();
 builder.Services.AddScoped<IRoleWriter, SqliteRoleDirectory>();
 builder.Services.AddScoped<RoleQueries>();

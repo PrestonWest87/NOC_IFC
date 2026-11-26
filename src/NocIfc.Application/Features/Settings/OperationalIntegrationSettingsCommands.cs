@@ -34,6 +34,14 @@ public sealed record OperationalIntegrationSettings(
     string CrimeAlertEmail,
     IReadOnlyDictionary<string, string> Sources);
 
+public sealed record ElasticClientSettings(
+    string Endpoint,
+    string ApiKey,
+    bool VerifyCertificates,
+    string CaCertificates,
+    double RequestTimeoutSeconds,
+    int MaxResults);
+
 public sealed record OperationalIntegrationSettingsUpdate(
     string? RiskAlertRecipients,
     string? RemedyforceTicketEmail,

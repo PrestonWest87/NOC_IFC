@@ -1,5 +1,5 @@
 using System.Globalization;
-using System.Text.Json;
+using NocIfc.Domain.Threat;
 using NocIfc.Infrastructure.Persistence.Sqlite;
 using Xunit;
 
@@ -47,7 +47,8 @@ public sealed class SqliteThreatHuntingStoreTests
                         (4,1,'Domain','old.example','Old indicator','2026-01-01 00:00:00');
                     INSERT INTO elastic_events VALUES
                         ('event-1',$recent,'index-a','critical','New event','192.0.2.1','network'),
-                        ('event-2',$recent2,'index-b','high','Older event',NULL,'endpoint');
+                        ('event-2',$recent2,'index-b','high','Older event',NULL,'endpoint'),
+                        ('legacy-event','2026-01-01 00:00:00','index-old','warning','Old event',NULL,'endpoint');
                     """;
                 setup.Parameters.AddWithValue("$recent", FormatDate(now.AddMinutes(-10)));
                 setup.Parameters.AddWithValue("$recent2", FormatDate(now.AddMinutes(-20)));
@@ -71,6 +72,19 @@ public sealed class SqliteThreatHuntingStoreTests
             Assert.Single(elastic.Items);
             Assert.Equal("event-2", elastic.Items[0].Id);
             Assert.Equal(1, elastic.PageSize);
+
+            var imported = await store.AddElasticEventsAsync(
+            [
+                new("index-a:legacy-event", now, "index-a", "HIGH", "Duplicate", null, null, "legacy-event"),
+                new("index-b:fresh-event", now, "index-b", "CRITICAL", "New", null, null, "fresh-event"),
+                new("index-b:fresh-event", now, "index-b", "CRITICAL", "New", null, null, "fresh-event"),
+            ],
+            CancellationToken.None);
+            Assert.Equal(1, imported);
+            var afterSync = await store.GetElasticEventsAsync(now.AddHours(-1), 1, 20, 1, CancellationToken.None);
+            Assert.Equal(3, afterSync.Total);
+            Assert.Contains(afterSync.Items, item => item.Id == "index-b:fresh-event");
+            Assert.DoesNotContain(afterSync.Items, item => item.Id == "index-a:legacy-event");
         }
         finally
         {

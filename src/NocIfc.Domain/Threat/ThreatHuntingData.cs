@@ -16,7 +16,8 @@ public sealed record ElasticEventEntry(
     string? Severity,
     string? Message,
     string? SourceIp,
-    string? EventCategory);
+    string? EventCategory,
+    string? LegacyId = null);
 
 public sealed record PagedElasticEvents(
     IReadOnlyList<ElasticEventEntry> Items,

@@ -100,6 +100,51 @@ public sealed class SqliteOperationalIntegrationSettingsStore(
             sources);
     }
 
+    public async Task<ElasticClientSettings> GetElasticClientSettingsAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT elastic_url, elastic_api_key, elastic_verify_certs, elastic_ca_certs,
+                   elastic_request_timeout, elastic_max_results
+            FROM system_config
+            ORDER BY id
+            LIMIT 1
+            """;
+        string? endpoint = null;
+        string? apiKey = null;
+        bool? verifyCertificates = null;
+        string? caCertificates = null;
+        double? timeout = null;
+        int? maxResults = null;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                endpoint = ReadString(reader, 0);
+                apiKey = ReadString(reader, 1);
+                verifyCertificates = reader.IsDBNull(2) ? null : reader.GetBoolean(2);
+                caCertificates = ReadString(reader, 3);
+                timeout = reader.IsDBNull(4) ? null : reader.GetDouble(4);
+                maxResults = reader.IsDBNull(5) ? null : reader.GetInt32(5);
+            }
+        }
+
+        var resolvedApiKey = (apiKey ?? environment.ElasticApiKey).Trim();
+        if (resolvedApiKey.Trim().ToLowerInvariant() is "your_read_only_api_key" or "changeme" or "placeholder")
+        {
+            resolvedApiKey = "";
+        }
+        return new ElasticClientSettings(
+            endpoint ?? environment.ElasticUrl,
+            resolvedApiKey,
+            verifyCertificates ?? environment.ElasticVerifyCerts,
+            caCertificates ?? environment.ElasticCaCerts ?? "",
+            timeout ?? environment.ElasticRequestTimeout,
+            maxResults ?? environment.ElasticMaxResults);
+    }
+
     public async Task SaveAsync(
         OperationalIntegrationSettingsUpdate update,
         int actorUserId,

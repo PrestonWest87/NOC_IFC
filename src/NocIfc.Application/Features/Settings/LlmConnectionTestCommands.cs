@@ -47,7 +47,7 @@ public sealed class LlmConnectionTestCommands(
             apiKey = await settings.GetSavedLlmApiKeyForProviderAsync(provider, cancellationToken);
         }
         return await tester.TestAsync(
-            new LlmConnectionTestSettings(provider, endpoint, apiKey, modelName),
+            new LlmProviderSettings(provider, endpoint, apiKey, modelName),
             cancellationToken);
     }
 }

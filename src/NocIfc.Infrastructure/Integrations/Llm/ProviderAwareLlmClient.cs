@@ -9,47 +9,83 @@ namespace NocIfc.Infrastructure.Integrations.Llm;
 
 public sealed record LlmEndpointPolicy(bool AllowPrivateEndpoints);
 
-public sealed class ProviderAwareLlmConnectionTester(HttpClient httpClient, LlmEndpointPolicy policy)
-    : ILlmConnectionTester
+public sealed class ProviderAwareLlmClient(HttpClient httpClient, LlmEndpointPolicy policy)
+    : ILlmConnectionTester, ILlmChatCompletionClient
 {
     private const int MaxResponseBytes = 1_000_000;
     private static readonly HashSet<string> LocalProviders =
         new(["ollama_openai", "ollama_native", "vllm"], StringComparer.Ordinal);
 
     public async Task<LlmConnectionTestResult> TestAsync(
-        LlmConnectionTestSettings settings,
+        LlmProviderSettings settings,
         CancellationToken cancellationToken)
     {
+        var result = await CompleteAsync(
+            settings,
+            [
+                new LlmChatMessage("system", "You are a helpful assistant."),
+                new LlmChatMessage("user", "Reply with exactly: CONNECTION_OK"),
+            ],
+            0,
+            20,
+            TimeSpan.FromSeconds(30),
+            cancellationToken);
+        if (!result.Success)
+        {
+            return new LlmConnectionTestResult(false,
+                result.Error ?? "Connection failed unexpectedly. Check the API server logs.");
+        }
+        var responseText = result.Content ?? "";
+        return new LlmConnectionTestResult(true,
+            $"Connection successful. Model response: {responseText[..Math.Min(240, responseText.Length)]}");
+    }
+
+    public async Task<LlmChatCompletionResult> CompleteAsync(
+        LlmProviderSettings settings,
+        IReadOnlyList<LlmChatMessage> messages,
+        double temperature,
+        int maxTokens,
+        TimeSpan requestTimeout,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(settings.Endpoint))
+        {
+            return new LlmChatCompletionResult(false, null, "Endpoint URL is required.");
+        }
+        if (string.IsNullOrWhiteSpace(settings.ModelName))
+        {
+            return new LlmChatCompletionResult(false, null, "Model name is required.");
+        }
+        if (messages.Count == 0 || maxTokens < 1 || requestTimeout <= TimeSpan.Zero)
+        {
+            return new LlmChatCompletionResult(false, null, "Invalid model request settings.");
+        }
         if (!TryBuildChatUri(settings.Endpoint, settings.Provider, out var uri)
             || !await IsAllowedEndpointAsync(uri, settings.Provider, cancellationToken))
         {
-            return new LlmConnectionTestResult(false,
+            return new LlmChatCompletionResult(false, null,
                 "Endpoint is not allowed. Use a valid HTTP(S) URL; local/private endpoints require an explicit local provider or ALLOW_PRIVATE_LLM_ENDPOINTS.");
         }
 
-        object[] messages =
-        [
-            new { role = "system", content = "You are a helpful assistant." },
-            new { role = "user", content = "Reply with exactly: CONNECTION_OK" },
-        ];
+        var chatMessages = messages.Select(message => new { role = message.Role, content = message.Content }).ToArray();
         object payload = settings.Provider == "ollama_native"
             ? new
             {
                 model = settings.ModelName,
-                messages,
+                messages = chatMessages,
                 stream = false,
-                options = new { temperature = 0.0, num_predict = 20 },
+                options = new { temperature, num_predict = maxTokens },
             }
             : new
             {
                 model = settings.ModelName,
-                messages,
-                temperature = 0.0,
-                max_tokens = 20,
+                messages = chatMessages,
+                temperature,
+                max_tokens = maxTokens,
             };
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        timeout.CancelAfter(requestTimeout);
         using var request = new HttpRequestMessage(HttpMethod.Post, uri)
         {
             Content = JsonContent.Create(payload),
@@ -66,41 +102,40 @@ public sealed class ProviderAwareLlmConnectionTester(HttpClient httpClient, LlmE
                 request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
             if (!response.IsSuccessStatusCode)
             {
-                return new LlmConnectionTestResult(false,
+                return new LlmChatCompletionResult(false, null,
                     $"The {settings.Provider} endpoint returned HTTP {(int)response.StatusCode}. Check the provider selection and API path.");
             }
             var responseBytes = await ReadBoundedResponseAsync(response, timeout.Token);
             if (responseBytes is null)
             {
-                return new LlmConnectionTestResult(false, "The model endpoint response was too large.");
+                return new LlmChatCompletionResult(false, null, "The model endpoint response was too large.");
             }
             using var document = JsonDocument.Parse(responseBytes);
             var content = ReadContent(document.RootElement, settings.Provider);
             if (string.IsNullOrWhiteSpace(content))
             {
-                return new LlmConnectionTestResult(false, "The model endpoint returned an empty response.");
+                return new LlmChatCompletionResult(false, null, "The model endpoint returned an empty response.");
             }
-            var responseText = content.Trim();
-            return new LlmConnectionTestResult(true,
-                $"Connection successful. Model response: {responseText[..Math.Min(240, responseText.Length)]}");
+            return new LlmChatCompletionResult(true, content.Trim(), null);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return new LlmConnectionTestResult(false, "Request timed out after 30 seconds.");
+            return new LlmChatCompletionResult(false, null,
+                $"Request timed out after {requestTimeout.TotalSeconds:g} seconds.");
         }
         catch (HttpRequestException)
         {
-            return new LlmConnectionTestResult(false,
+            return new LlmChatCompletionResult(false, null,
                 "Could not connect to the model endpoint. Check its hostname, port, and reachability from the API container.");
         }
-        catch (JsonException)
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException)
         {
-            return new LlmConnectionTestResult(false,
+            return new LlmChatCompletionResult(false, null,
                 $"The {settings.Provider} endpoint returned an unexpected chat response. Check that the selected API type matches the server.");
         }
         catch (Exception)
         {
-            return new LlmConnectionTestResult(false, "Connection failed unexpectedly. Check the API server logs.");
+            return new LlmChatCompletionResult(false, null, "Connection failed unexpectedly. Check the API server logs.");
         }
     }
 

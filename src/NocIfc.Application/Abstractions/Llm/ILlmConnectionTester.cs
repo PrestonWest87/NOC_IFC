@@ -1,6 +1,6 @@
 namespace NocIfc.Application.Abstractions.Llm;
 
-public sealed record LlmConnectionTestSettings(
+public sealed record LlmProviderSettings(
     string Provider,
     string Endpoint,
     string ApiKey,
@@ -11,6 +11,6 @@ public sealed record LlmConnectionTestResult(bool Success, string Message);
 public interface ILlmConnectionTester
 {
     Task<LlmConnectionTestResult> TestAsync(
-        LlmConnectionTestSettings settings,
+        LlmProviderSettings settings,
         CancellationToken cancellationToken);
 }
