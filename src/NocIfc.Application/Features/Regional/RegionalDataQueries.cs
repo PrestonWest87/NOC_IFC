@@ -91,7 +91,7 @@ public sealed class RegionalDataQueries(IRegionalDataStore regionalData)
         return requested.OrderBy(name => name, StringComparer.Ordinal).ToArray();
     }
 
-    private static Wgs84Box? ParseBoundingBox(string? value)
+    public static Wgs84Box? ParseBoundingBox(string? value)
     {
         if (value is null or "")
         {

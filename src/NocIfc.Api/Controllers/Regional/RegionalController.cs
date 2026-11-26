@@ -16,7 +16,8 @@ public sealed class RegionalController(
     SiteTypeQueries siteTypes,
     RegionalWeatherPreferenceCommands weatherPreferences,
     RegionalDataQueries regionalData,
-    RegionalForecastQueries forecasts) : ControllerBase
+    RegionalForecastQueries forecasts,
+    RegionalWildfireQueries wildfireData) : ControllerBase
 {
     [HttpGet("locations")]
     [RequireAnyAction(
@@ -78,6 +79,22 @@ public sealed class RegionalController(
         catch (ArgumentOutOfRangeException exception)
         {
             return UnprocessableEntity(new { detail = exception.Message });
+        }
+    }
+
+    [HttpGet("wildfires")]
+    [RequireAction("Tab: Regional Grid -> Geospatial Map")]
+    public async Task<IActionResult> GetWildfires(
+        [FromQuery] string? bbox,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await wildfireData.GetAsync(bbox, cancellationToken));
+        }
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new { detail = exception.Message });
         }
     }
 

@@ -98,6 +98,12 @@ builder.Services.AddHttpClient<NwsForecastClient>(client => client.Timeout = Tim
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddScoped<INwsForecastProvider>(services => services.GetRequiredService<NwsForecastClient>());
 builder.Services.AddScoped<RegionalForecastQueries>();
+builder.Services.AddSingleton(ArkansasFireCoverage.LoadBundled());
+builder.Services.AddSingleton<WfcaWildfireSnapshotCache>();
+builder.Services.AddHttpClient<WfcaWildfireClient>(client => client.Timeout = TimeSpan.FromSeconds(20))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+builder.Services.AddScoped<IRegionalWildfireProvider>(services => services.GetRequiredService<WfcaWildfireClient>());
+builder.Services.AddScoped<RegionalWildfireQueries>();
 builder.Services.AddScoped<IElasticEventSource>(_ => new ElasticSearchClient());
 builder.Services.AddScoped<IFailedLoginAlertStore, SqliteFailedLoginAlertStore>();
 builder.Services.AddHttpClient<GmailOAuthTokenProvider>(client => client.Timeout = TimeSpan.FromSeconds(10));

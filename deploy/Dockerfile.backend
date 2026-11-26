@@ -3,6 +3,7 @@ WORKDIR /source
 
 COPY global.json Directory.Build.props Directory.Packages.props NocIfc.sln ./
 COPY contracts/permission_catalog.json contracts/
+COPY web/public/maps/arkansas-border-counties-v1.geojson web/public/maps/
 COPY src/NocIfc.Domain/NocIfc.Domain.csproj src/NocIfc.Domain/
 COPY src/NocIfc.Application/NocIfc.Application.csproj src/NocIfc.Application/
 COPY src/NocIfc.Infrastructure/NocIfc.Infrastructure.csproj src/NocIfc.Infrastructure/

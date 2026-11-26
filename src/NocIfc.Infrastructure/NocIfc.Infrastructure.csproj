@@ -2,6 +2,7 @@
   <ItemGroup>
     <ProjectReference Include="../NocIfc.Application/NocIfc.Application.csproj" />
     <ProjectReference Include="../NocIfc.Domain/NocIfc.Domain.csproj" />
+    <EmbeddedResource Include="../../web/public/maps/arkansas-border-counties-v1.geojson" LogicalName="NocIfc.Infrastructure.Regional.arkansas-border-counties-v1.geojson" />
     <PackageReference Include="BCrypt.Net-Next" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="MailKit" />

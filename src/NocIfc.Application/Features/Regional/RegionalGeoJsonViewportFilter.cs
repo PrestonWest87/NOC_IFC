@@ -7,6 +7,9 @@ public readonly record struct Wgs84Box(double West, double South, double East, d
 
 public static class RegionalGeoJsonViewportFilter
 {
+    public static bool IntersectsViewport(JsonNode? geometry, Wgs84Box viewport) =>
+        geometry is not JsonObject geometryObject || GeometryIntersects(geometryObject, viewport) is not false;
+
     public static JsonNode FilterCurrentAlerts(JsonNode? collection, DateTime nowUtc)
     {
         var result = new JsonObject { ["type"] = "FeatureCollection" };
