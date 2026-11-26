@@ -51,6 +51,39 @@ public sealed class RequireActionAttribute(string permission) : RequirePermissio
 {
 }
 
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false, Inherited = true)]
+public sealed class RequireAnyActionAttribute : Attribute, IAuthorizationFilter
+{
+    private readonly string[] _permissions;
+
+    public RequireAnyActionAttribute(params string[] permissions)
+    {
+        if (permissions.Length == 0)
+        {
+            throw new ArgumentException("At least one action permission is required.", nameof(permissions));
+        }
+        var unknown = permissions.FirstOrDefault(permission => !PermissionCatalog.ContainsGrant(permission));
+        if (unknown is not null)
+        {
+            throw new ArgumentException($"Unknown action permission: {unknown}", nameof(permissions));
+        }
+        _permissions = permissions;
+    }
+
+    public void OnAuthorization(AuthorizationFilterContext context)
+    {
+        var user = AuthenticatedUserContext.GetUser(context.HttpContext);
+        if (user is null)
+        {
+            context.Result = PermissionResponses.Unauthenticated();
+        }
+        else if (!user.IsAdministrator && !_permissions.Any(permission => user.AllowedActions.Contains(permission, StringComparer.Ordinal)))
+        {
+            context.Result = PermissionResponses.Denied(string.Join(" or ", _permissions), "tab");
+        }
+    }
+}
+
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true, Inherited = true)]
 public sealed class RequireAdministratorAttribute : Attribute, IAuthorizationFilter
 {
@@ -84,6 +117,7 @@ internal static class PermissionResponses
         {
             "role" => "Administrator role required",
             "page" => $"Missing page permission: {permission}",
+            "tab" => $"Missing tab permission: {permission}",
             _ => $"Missing permission: {permission}",
         };
         return new ObjectResult(new

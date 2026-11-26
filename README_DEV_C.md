@@ -173,6 +173,8 @@ NOC_IFC/
 │   │   │   │   └── IOperationalDashboardStore.cs
 │   │   │   ├── Email/
 │   │   │   │   └── IEmailSender.cs
+│   │   │   ├── Regional/
+│   │   │   │   └── IRegionalPreferenceStore.cs
 │   │   │   ├── Elastic/
 │   │   │   │   └── IElasticEventSource.cs
 │   │   │   ├── Feeds/
@@ -195,6 +197,8 @@ NOC_IFC/
 │   │       │   ├── SiteTypeQueries.cs
 │   │       │   ├── UserAdminCommands.cs
 │   │       │   └── UserDirectoryQueries.cs
+│   │       ├── Regional/
+│   │       │   └── RegionalWeatherPreferenceCommands.cs
 │   │       ├── Threat/
 │   │       │   ├── CisaKevQueries.cs
 │   │       │   ├── KeywordScorer.cs
@@ -237,6 +241,7 @@ NOC_IFC/
 │   │   │   │   ├── SqliteThreatArticleStore.cs
 │   │   │   │   ├── SqliteThreatStatusStore.cs
 │   │   │   │   ├── SqliteThreatHuntingStore.cs
+│   │   │   │   ├── SqliteRegionalPreferenceStore.cs
 │   │   │   │   ├── SqliteOperationalDashboardStore.cs
 │   │   │   │   ├── SqliteAuthenticationStore.cs
 │   │   │   │   ├── SqliteAccountRecoveryStore.cs
@@ -292,6 +297,7 @@ NOC_IFC/
 │   │   │   ├── UserInvitationsController.cs
 │   │   │   ├── RecoveryEmailController.cs
 │   │   │   ├── RecoveryEmailAdminController.cs
+│   │   │   ├── Regional/RegionalController.cs
 │   │   │   ├── Identity/
 │   │   │   ├── Threat/
 │   │   │   ├── AIOps/
@@ -347,6 +353,7 @@ NOC_IFC/
 │
 ├── qa/                               # Tracked .NET/contract test projects
 │   ├── NocIfc.Application.Tests/
+│   │   ├── SqliteRegionalPreferenceStoreTests.cs
 │   │   ├── ThreatHuntingQueriesTests.cs
 │   │   ├── ThreatHuntingCommandsTests.cs
 │   │   ├── ElasticSearchClientTests.cs
@@ -505,7 +512,8 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Ported the Settings AI/SMTP tab read/write path with write-only secret handling, provider-change key clearing, test email through the saved active profile, and provider-aware LLM connection testing with private-endpoint policy.
 - Ported Facilities site-type-scoped reads, admin location edit/import, site-contact validation/replace, and contact preservation for same-name sites on replace imports. Added administrator-only software and hardware asset CSV replacement endpoints for the existing Internal Assets tab.
 - Ported Global Risk executive intelligence using persisted OSINT, CISA, crime, hazard, history, and scoring settings, including CIS thresholds, manual/hybrid overrides, output annotations, and daily score persistence.
+- Ported Regional Grid site-scoped location reads, site-type catalog, and per-user weather preference reads/replacements with any-tab authorization. Regional GeoJSON, forecast, wildfire, alerts-log, map compilation, and hazard sync remain to be ported.
 - Ported Threat Hunting IOC listing and repeated-CVE grouping, validated OSINT pivots, bounded quoted-term article search, paginated Elastic-cache reads, manual Elastic sync, and bounded SIEM triage across both `/api/v1/hunting` and the legacy `/api/v1/threat` aliases. Manual sync and triage retain their page/tab/action authorization and compatible skip/error/payload-size responses.
-- The no-cache C# Docker build and all 114 C# tests pass (91 application, 23 API). Isolated HTTP smoke checks covered authentication, settings, reference directories, all read-only Threat Telemetry GETs, RSS management, Facilities scoping/edit/import/site contacts, Internal Assets imports, operational dashboard reads and article actions, Internal Risk snapshot/history, Global Risk executive scoring, Threat Hunting IOC/pivot/search/Elastic reads, both manual-sync and triage route prefixes, payload limits, and page/action permissions, AI/SMTP secret-safe settings, and a successful mocked Ollama-compatible connection test. Elastic scroll and SIEM completion use mocked HTTP; no live Elastic endpoint or model credentials were used, and no SMTP delivery was attempted. The C# API is not yet wired into Compose, and the existing Python API/worker/webhook continue serving the rest of the application. Remaining work includes Backup & Restore and Danger Zone settings, dashboard/internal risk and brief generation, other manual syncs, full LLM/email/Operational Email workflows, WebSockets, worker, webhook, and Compose cutover.
+- The no-cache C# Docker build and all 116 C# tests pass (92 application, 24 API). Isolated HTTP smoke checks covered authentication, settings, reference directories, read-only Threat Telemetry GETs, Regional Grid location/site-type/weather-preference routes and site scoping, RSS management, Facilities edits/import/site contacts, Internal Assets imports, operational dashboard reads and article actions, Internal Risk snapshot/history, Global Risk scoring, Threat Hunting and both sync/triage route prefixes, payload bounds, and page/tab/action permissions. Elastic scroll, SIEM completion, and Ollama-compatible connection tests use mocks; no live provider credentials were used and no SMTP delivery was attempted. The C# API is not yet wired into Compose, and the existing Python API/worker/webhook continue serving the rest of the application. Remaining work includes Regional map/weather data, Backup & Restore and Danger Zone settings, dashboard/internal risk and brief generation, other manual syncs, full LLM/email/Operational Email workflows, WebSockets, worker, webhook, and Compose cutover.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.

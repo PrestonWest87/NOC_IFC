@@ -66,6 +66,32 @@ public sealed class PermissionFilterTests
     }
 
     [Fact]
+    public async Task RequireAnyActionAllowsOneGrantAndReportsAllMissingAlternatives()
+    {
+        const string first = "Tab: Regional Grid -> Geospatial Map";
+        const string second = "Tab: Regional Grid -> Location Matrix";
+        var allowedContext = await AuthenticatedContext(
+            new AuthenticatedUser(8, "operator", "analyst", [], [second], []));
+        var allowedFilter = new AuthorizationFilterContext(
+            new ActionContext(allowedContext, new RouteData(), new ActionDescriptor()), []);
+        new RequireAnyActionAttribute(first, second).OnAuthorization(allowedFilter);
+        Assert.Null(allowedFilter.Result);
+
+        var deniedContext = await AuthenticatedContext(new AuthenticatedUser(8, "operator", "analyst", [], [], []));
+        var deniedFilter = new AuthorizationFilterContext(
+            new ActionContext(deniedContext, new RouteData(), new ActionDescriptor()), []);
+        new RequireAnyActionAttribute(first, second).OnAuthorization(deniedFilter);
+
+        var result = Assert.IsType<ObjectResult>(deniedFilter.Result);
+        Assert.Equal(StatusCodes.Status403Forbidden, result.StatusCode);
+        using var body = JsonDocument.Parse(JsonSerializer.Serialize(result.Value));
+        var detail = body.RootElement.GetProperty("detail");
+        Assert.Equal("tab", detail.GetProperty("scope").GetString());
+        Assert.Equal($"{first} or {second}", detail.GetProperty("permission").GetString());
+        Assert.Equal($"Missing tab permission: {first} or {second}", detail.GetProperty("message").GetString());
+    }
+
+    [Fact]
     public async Task AdministratorOnlyFilterUsesRoleScopedStructured403()
     {
         var context = await AuthenticatedContext(new AuthenticatedUser(8, "manager", "analyst", [], ["Action: Manage Roles"], []));
