@@ -1,5 +1,6 @@
 using System.Globalization;
 using NocIfc.Application.Abstractions.Elastic;
+using NocIfc.Application.Abstractions.AIOps;
 using NocIfc.Application.Abstractions.Dashboard;
 using NocIfc.Api.Middleware;
 using NocIfc.Application.Abstractions.Email;
@@ -14,6 +15,7 @@ using NocIfc.Application.Features.Dashboard;
 using NocIfc.Application.Features.Settings;
 using NocIfc.Application.Features.Threat;
 using NocIfc.Application.Features.Regional;
+using NocIfc.Application.Features.AIOps;
 using NocIfc.Application.Features.Logbook;
 using NocIfc.Infrastructure.Email;
 using NocIfc.Infrastructure.Integrations.Elastic;
@@ -97,6 +99,9 @@ builder.Services.AddScoped<RegionalMapQueries>();
 builder.Services.AddScoped<RegionalHazardSyncCommands>();
 builder.Services.AddScoped<IShiftLogbookStore, SqliteShiftLogbookStore>();
 builder.Services.AddScoped<ShiftLogbookCommands>();
+builder.Services.AddScoped<IAiopsDashboardStore, SqliteAiopsDashboardStore>();
+builder.Services.AddSingleton<AiopsInvestigationState>();
+builder.Services.AddScoped<AiopsDashboardQueries>();
 builder.Services.AddSingleton(new NwsForecastConfiguration(
     builder.Configuration["nws_api_user_agent"] ?? "NOC-IFC/2.0 (https://test.weasts.net)",
     builder.Configuration["default_admin_email"] ?? ""));
