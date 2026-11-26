@@ -155,6 +155,17 @@ public sealed class AiopsDashboardQueries(
             siteName, user.Username, DateTime.UtcNow, allowedSiteNames, cancellationToken);
     }
 
+    public async Task<bool> ResolveAlertAsync(
+        AuthenticatedUser user,
+        int alertId,
+        string nodeName,
+        CancellationToken cancellationToken)
+    {
+        var allowedSiteNames = await GetAllowedSiteNamesAsync(user, cancellationToken);
+        return await dashboard.ResolveAlertAsync(
+            alertId, nodeName, DateTime.UtcNow, allowedSiteNames, cancellationToken);
+    }
+
     private async Task<IReadOnlySet<string>?> GetAllowedSiteNamesAsync(
         AuthenticatedUser user,
         CancellationToken cancellationToken) =>

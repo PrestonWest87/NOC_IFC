@@ -105,6 +105,7 @@ public sealed class AiopsTicketCommandsTests
         public Task<AiopsNeedsDispatchUpdate> SetSiteNeedsDispatchAsync(string siteName, bool needsDispatch, string username, DateTime modifiedAtUtc, IReadOnlySet<string>? allowedSiteNames, CancellationToken cancellationToken) => Task.FromResult(new AiopsNeedsDispatchUpdate(AiopsNeedsDispatchOutcome.Updated, 0));
         public Task<bool> SetSiteMaintenanceAsync(string siteName, bool isMaintenance, DateTime? maintenanceEtr, string? maintenanceReason, string username, DateTime modifiedAtUtc, CancellationToken cancellationToken) => Task.FromResult(true);
         public Task<AiopsSiteResolutionUpdate> ResolveSiteAsync(string siteName, string username, DateTime resolvedAtUtc, IReadOnlySet<string>? allowedSiteNames, CancellationToken cancellationToken) => Task.FromResult(new AiopsSiteResolutionUpdate(AiopsSiteResolutionOutcome.Resolved, 0));
+        public Task<bool> ResolveAlertAsync(int alertId, string nodeName, DateTime resolvedAtUtc, IReadOnlySet<string>? allowedSiteNames, CancellationToken cancellationToken) => Task.FromResult(true);
     }
 
     private sealed class StubFacilityStore : IFacilityDirectoryStore

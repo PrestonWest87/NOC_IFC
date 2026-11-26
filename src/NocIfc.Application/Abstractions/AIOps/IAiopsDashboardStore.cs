@@ -53,4 +53,10 @@ public interface IAiopsDashboardStore
         DateTime resolvedAtUtc,
         IReadOnlySet<string>? allowedSiteNames,
         CancellationToken cancellationToken);
+    Task<bool> ResolveAlertAsync(
+        int alertId,
+        string nodeName,
+        DateTime resolvedAtUtc,
+        IReadOnlySet<string>? allowedSiteNames,
+        CancellationToken cancellationToken);
 }

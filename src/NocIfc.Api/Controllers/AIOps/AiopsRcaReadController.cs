@@ -258,6 +258,33 @@ public sealed class AiopsRcaReadController(
         return Ok(new { status = "ok", resolved_alerts = result.ResolvedAlerts });
     }
 
+    [HttpPost("rca/resolve-alert")]
+    [RequireAction("Tab: AIOps RCA -> Active Board")]
+    [RequireAction("Action: Acknowledge RCA Alerts")]
+    public async Task<IActionResult> ResolveAlert(
+        [FromQuery(Name = "alert_id")] int alertId = 0,
+        [FromQuery(Name = "node_name")] string? nodeName = "",
+        CancellationToken cancellationToken = default)
+    {
+        var user = AuthenticatedUserContext.GetUser(HttpContext);
+        if (user is null)
+        {
+            return Unauthorized(new { detail = new { code = "unauthenticated", message = "Not authenticated" } });
+        }
+        if (!await dashboard.ResolveAlertAsync(user, alertId, nodeName ?? "", cancellationToken))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                detail = new
+                {
+                    code = "site_scope_denied",
+                    message = "One or more alerts are outside your permitted site types.",
+                },
+            });
+        }
+        return Ok(new { status = "ok" });
+    }
+
     [HttpPost("rca/send-ticket")]
     [RequireAction("Tab: AIOps RCA -> Active Board")]
     [RequireAction("Action: Dispatch RCA Tickets")]

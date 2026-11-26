@@ -175,6 +175,14 @@ public sealed class SqliteAiopsDashboardStoreTests
             Assert.Equal(2, resolution.ResolvedAlerts);
             Assert.Equal(0, (await store.ResolveSiteAsync(
                 "Central NOC", "resolver", now.AddMinutes(4), allowed, CancellationToken.None)).ResolvedAlerts);
+            Assert.False(await store.ResolveAlertAsync(
+                3, "server-1", now.AddMinutes(5), allowed, CancellationToken.None));
+            Assert.True(await store.ResolveAlertAsync(
+                999, "missing", now.AddMinutes(5), null, CancellationToken.None));
+            Assert.True(await store.ResolveAlertAsync(
+                0, "missing", now.AddMinutes(5), allowed, CancellationToken.None));
+            Assert.True(await store.ResolveAlertAsync(
+                1, "router-1", now.AddMinutes(5), allowed, CancellationToken.None));
 
             await using (var connection = connections.Create())
             {
@@ -190,7 +198,7 @@ public sealed class SqliteAiopsDashboardStoreTests
                 await using var reader = await verify.ExecuteReaderAsync();
                 Assert.True(await reader.ReadAsync());
                 Assert.Equal("Resolved", reader.GetString(0));
-                Assert.Equal(Format(now.AddMinutes(3)), reader.GetString(1));
+                Assert.Equal(Format(now.AddMinutes(5)), reader.GetString(1));
                 Assert.True(reader.GetBoolean(2));
                 Assert.False(reader.GetBoolean(3));
                 Assert.Equal("operator", reader.GetString(4));
@@ -208,8 +216,22 @@ public sealed class SqliteAiopsDashboardStoreTests
                 verify.CommandText = "SELECT COUNT(*), message FROM timeline_events WHERE event_type = 'Resolution' AND site_name = 'Central NOC'";
                 await using var reader = await verify.ExecuteReaderAsync();
                 Assert.True(await reader.ReadAsync());
-                Assert.Equal(1, reader.GetInt32(0));
-                Assert.Equal("[OK] resolver marked Central NOC Up and resolved 2 active alert(s)", reader.GetString(1));
+                Assert.Equal(2, reader.GetInt32(0));
+            }
+            await using (var connection = connections.Create())
+            {
+                await connection.OpenAsync();
+                await using var verify = connection.CreateCommand();
+                verify.CommandText = "SELECT source, event_type, message FROM timeline_events WHERE event_type = 'Resolution' AND site_name = 'Central NOC' ORDER BY id";
+                await using var reader = await verify.ExecuteReaderAsync();
+                Assert.True(await reader.ReadAsync());
+                Assert.Equal("User", reader.GetString(0));
+                Assert.Equal("Resolution", reader.GetString(1));
+                Assert.Equal("[OK] resolver marked Central NOC Up and resolved 2 active alert(s)", reader.GetString(2));
+                Assert.True(await reader.ReadAsync());
+                Assert.Equal("User", reader.GetString(0));
+                Assert.Equal("Resolution", reader.GetString(1));
+                Assert.Equal("[OK] Operator manually resolved router-1", reader.GetString(2));
             }
         }
         finally

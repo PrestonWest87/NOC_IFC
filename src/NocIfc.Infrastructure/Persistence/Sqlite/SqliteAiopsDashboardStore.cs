@@ -462,6 +462,59 @@ public sealed class SqliteAiopsDashboardStore(SqliteConnectionFactory connection
         return new AiopsSiteResolutionUpdate(AiopsSiteResolutionOutcome.Resolved, resolvedAlerts);
     }
 
+    public async Task<bool> ResolveAlertAsync(
+        int alertId,
+        string nodeName,
+        DateTime resolvedAtUtc,
+        IReadOnlySet<string>? allowedSiteNames,
+        CancellationToken cancellationToken)
+    {
+        if (alertId <= 0) return true;
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
+        string? siteName;
+        await using (var select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = "SELECT mapped_location FROM solarwinds_alerts WHERE id = $id";
+            select.Parameters.AddWithValue("$id", alertId);
+            var mappedLocation = await select.ExecuteScalarAsync(cancellationToken);
+            if (mappedLocation is null) return allowedSiteNames is null;
+            siteName = mappedLocation is string name ? name : null;
+            if (allowedSiteNames is not null
+                && (siteName is null || !allowedSiteNames.Contains(siteName))) return false;
+        }
+
+        var timestamp = FormatDate(resolvedAtUtc);
+        await using (var update = connection.CreateCommand())
+        {
+            update.Transaction = transaction;
+            update.CommandText = """
+                UPDATE solarwinds_alerts
+                SET status = 'Resolved', resolved_at = $now, needs_dispatch = 0
+                WHERE id = $id
+                """;
+            update.Parameters.AddWithValue("$now", timestamp);
+            update.Parameters.AddWithValue("$id", alertId);
+            await update.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using (var insertEvent = connection.CreateCommand())
+        {
+            insertEvent.Transaction = transaction;
+            insertEvent.CommandText = """
+                INSERT INTO timeline_events (timestamp, source, event_type, message, site_name)
+                VALUES ($now, 'User', 'Resolution', $message, $site)
+                """;
+            insertEvent.Parameters.AddWithValue("$now", timestamp);
+            insertEvent.Parameters.AddWithValue("$message", $"[OK] Operator manually resolved {nodeName}");
+            insertEvent.Parameters.AddWithValue("$site", (object?)siteName ?? DBNull.Value);
+            await insertEvent.ExecuteNonQueryAsync(cancellationToken);
+        }
+        transaction.Commit();
+        return true;
+    }
+
     private static string AddSiteFilter(SqliteCommand command, IReadOnlySet<string>? allowedSiteNames, string column)
     {
         if (allowedSiteNames is null) return "";
