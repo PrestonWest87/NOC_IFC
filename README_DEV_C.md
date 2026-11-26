@@ -13,7 +13,7 @@ Confirmed direction:
 - Retire the local scikit-learn article classifier and Keep/Dismiss feedback feature.
 - Preserve the external LLM provider integrations; they are configured remote services, not bundled model weights.
 - Keep the existing frontend architecture and public API behavior. Removing the classifier and feedback controls is a focused feature removal, not a frontend rewrite.
-- Start from the current `dev` branch. Do not modify `main` or `original-main`; do not merge or push this branch without a later request.
+- Start from the current `dev` branch. Do not modify or merge into `main` or `original-main`. Checkpoint commits and pushes to `dev-c` are user-authorized.
 
 The GitHub tracking issue is [#1 — Re-architect and rebuild the back end in a C lang. C++ and C#](https://github.com/PrestonWest87/NOC_IFC/issues/1). Use it as the project checklist and status log.
 
@@ -120,7 +120,8 @@ NOC_IFC/
 │   │   │   ├── KeywordWeight.cs
 │   │   │   ├── ThreatArticle.cs
 │   │   │   ├── RssCatalog.cs
-│   │   │   └── ThreatStatus.cs
+│   │   │   ├── ThreatStatus.cs
+│   │   │   └── ThreatHuntingData.cs
 │   │   ├── Dashboard/
 │   │   │   ├── ExecutiveIntel.cs
 │   │   │   ├── InternalRiskData.cs
@@ -164,7 +165,8 @@ NOC_IFC/
 │   │   │   │   ├── ICisaKevStore.cs
 │   │   │   │   ├── IRssSettingsStore.cs
 │   │   │   │   ├── IThreatArticleStore.cs
-│   │   │   │   └── IThreatStatusStore.cs
+│   │   │   │   ├── IThreatStatusStore.cs
+│   │   │   │   └── IThreatHuntingStore.cs
 │   │   │   ├── Dashboard/
 │   │   │   │   ├── IExecutiveIntelStore.cs
 │   │   │   │   ├── IInternalRiskStore.cs
@@ -195,7 +197,8 @@ NOC_IFC/
 │   │       │   ├── KeywordScorer.cs
 │   │       │   ├── RssSettingsCommands.cs
 │   │       │   ├── ThreatArticleQueries.cs
-│   │       │   └── ThreatStatusQueries.cs
+│   │       │   ├── ThreatStatusQueries.cs
+│   │       │   └── ThreatHuntingQueries.cs
 │   │       ├── Dashboard/
 │   │       │   ├── DashboardQueries.cs
 │   │       │   ├── ExecutiveIntelQueries.cs
@@ -229,6 +232,7 @@ NOC_IFC/
 │   │   │   │   ├── SqliteExecutiveIntelStore.cs
 │   │   │   │   ├── SqliteThreatArticleStore.cs
 │   │   │   │   ├── SqliteThreatStatusStore.cs
+│   │   │   │   ├── SqliteThreatHuntingStore.cs
 │   │   │   │   ├── SqliteOperationalDashboardStore.cs
 │   │   │   │   ├── SqliteAuthenticationStore.cs
 │   │   │   │   ├── SqliteAccountRecoveryStore.cs
@@ -278,6 +282,7 @@ NOC_IFC/
 │   │   │   ├── PermissionsController.cs
 │   │   │   ├── SettingsReferenceDirectoriesController.cs
 │   │   │   ├── ThreatController.cs
+│   │   │   ├── ThreatHuntingController.cs
 │   │   │   ├── UserAdminController.cs
 │   │   │   ├── UserInvitationsController.cs
 │   │   │   ├── RecoveryEmailController.cs
@@ -307,6 +312,7 @@ NOC_IFC/
 │   │   ├── Contracts/RssSettingsContracts.cs
 │   │   ├── Contracts/ThreatArticleContracts.cs
 │   │   ├── Contracts/ThreatStatusContracts.cs
+│   │   ├── Contracts/ThreatHuntingContracts.cs
 │   │   ├── Contracts/IntegrationSettingsContracts.cs
 │   │   ├── Contracts/SchedulerSettingsContracts.cs
 │   │   ├── Contracts/SettingsReferenceDirectoryContracts.cs
@@ -336,6 +342,8 @@ NOC_IFC/
 │
 ├── qa/                               # Tracked .NET/contract test projects
 │   ├── NocIfc.Application.Tests/
+│   │   ├── ThreatHuntingQueriesTests.cs
+│   │   └── SqliteThreatHuntingStoreTests.cs
 │   ├── NocIfc.Api.Tests/
 │   ├── NocIfc.IntegrationChecks/
 │   ├── NocIfc.ContractChecks/
@@ -475,7 +483,7 @@ Use issue #1 as the master checklist. Update it at phase gates with completed fe
 
 ## Current status
 
-The first conversion slice is implemented locally on `dev-c`:
+The first conversion slices are committed and pushed on `dev-c`; implementation continues in user-authorized checkpoints:
 
 - Removed the local scikit-learn classifier, training routes/job/permission, Keep/Dismiss actions, and related UI controls. Keyword weights and scoring remain; historical `human_feedback` column values remain inert and are no longer exposed by the service serializer.
 - New backups omit the retired classifier. Legacy encrypted packages remain verifiable, but restore ignores model payloads and does not overwrite an existing stale artifact.
@@ -490,6 +498,7 @@ The first conversion slice is implemented locally on `dev-c`:
 - Ported the Settings AI/SMTP tab read/write path with write-only secret handling, provider-change key clearing, test email through the saved active profile, and provider-aware LLM connection testing with private-endpoint policy.
 - Ported Facilities site-type-scoped reads, admin location edit/import, site-contact validation/replace, and contact preservation for same-name sites on replace imports. Added administrator-only software and hardware asset CSV replacement endpoints for the existing Internal Assets tab.
 - Ported Global Risk executive intelligence using persisted OSINT, CISA, crime, hazard, history, and scoring settings, including CIS thresholds, manual/hybrid overrides, output annotations, and daily score persistence.
-- The no-cache C# Docker build and all one hundred four C# tests pass (81 application, 23 API). Isolated HTTP smoke checks covered authentication, settings, reference directories, all read-only Threat Telemetry GETs, RSS management, Facilities scoping/edit/import/site contacts, Internal Assets imports, operational dashboard reads and article actions, Internal Risk snapshot/history, Global Risk executive scoring, AI/SMTP secret-safe settings, and a successful mocked Ollama-compatible connection test. Gmail OAuth and LLM provider tests use no live credentials; no SMTP delivery was attempted. The C# API is not yet wired into Compose, and the existing Python API/worker/webhook continue serving the rest of the application. Remaining work includes Backup & Restore and Danger Zone settings, dashboard/internal risk and brief generation, manual syncs, full LLM/email/Operational Email workflows, WebSockets, worker, webhook, and Compose cutover.
+- Ported read-only Threat Hunting IOC listing and repeated-CVE grouping, validated OSINT pivot URLs, bounded quoted-term article search, and paginated reads from the local Elastic cache. Manual Elastic cache synchronization and AI SIEM triage remain to be ported.
+- The no-cache C# Docker build and all 109 C# tests pass (86 application, 23 API). Isolated HTTP smoke checks covered authentication, settings, reference directories, all read-only Threat Telemetry GETs, RSS management, Facilities scoping/edit/import/site contacts, Internal Assets imports, operational dashboard reads and article actions, Internal Risk snapshot/history, Global Risk executive scoring, Threat Hunting IOC/pivot/search/Elastic reads and permissions, AI/SMTP secret-safe settings, and a successful mocked Ollama-compatible connection test. Gmail OAuth and LLM provider tests use no live credentials; no SMTP delivery was attempted. The C# API is not yet wired into Compose, and the existing Python API/worker/webhook continue serving the rest of the application. Remaining work includes Backup & Restore and Danger Zone settings, dashboard/internal risk and brief generation, manual syncs and SIEM triage, full LLM/email/Operational Email workflows, WebSockets, worker, webhook, and Compose cutover.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.
