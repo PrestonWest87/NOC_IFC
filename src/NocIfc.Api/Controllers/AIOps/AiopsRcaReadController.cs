@@ -15,6 +15,7 @@ public sealed class AiopsRcaReadController(
     AiopsDashboardQueries dashboard,
     AiopsRcaAnalysisQueries analysis,
     AiopsTicketCommands tickets,
+    AiopsSitrepQueries sitrep,
     AiopsInvestigationState investigating) : ControllerBase
 {
     [HttpGet("aiops/dashboard")]
@@ -361,6 +362,31 @@ public sealed class AiopsRcaReadController(
             }
         }
         return Ok(new { ticket = AiopsRcaTicketTextGenerator.Generate(request.ToInput()) });
+    }
+
+    [HttpGet("rca/sitrep")]
+    [RequireAction("Tab: AIOps RCA -> Global Correlation")]
+    [RequireAction("Action: Generate Reports")]
+    public async Task<IActionResult> GetSitrep(CancellationToken cancellationToken)
+    {
+        var user = AuthenticatedUserContext.GetUser(HttpContext);
+        if (user is null)
+        {
+            return Unauthorized(new { detail = new { code = "unauthenticated", message = "Not authenticated" } });
+        }
+        var report = await sitrep.GenerateAsync(user, cancellationToken);
+        if (report is null)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                detail = new
+                {
+                    code = "site_scope_denied",
+                    message = "This global sitrep requires access to all site types.",
+                },
+            });
+        }
+        return Ok(new { report });
     }
 
     [HttpPost("rca/investigate")]

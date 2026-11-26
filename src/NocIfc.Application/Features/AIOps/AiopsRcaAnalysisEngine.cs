@@ -48,10 +48,11 @@ public sealed class AiopsRcaAnalysisEngine
         IReadOnlyList<MonitoredLocationEntry> locations,
         AiopsRcaAnalysisContext context,
         bool canViewChronicInsights,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        bool includeFleetCorrelations = true)
     {
         var clusters = Cluster(activeAlerts, nowUtc);
-        var fleetOutages = IdentifyFleetOutages(clusters);
+        var fleetOutages = includeFleetCorrelations ? IdentifyFleetOutages(clusters) : [];
         var sites = locations.Where(location => !string.IsNullOrEmpty(location.Name))
             .GroupBy(location => location.Name!, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
@@ -61,7 +62,8 @@ public sealed class AiopsRcaAnalysisEngine
             StringComparer.Ordinal);
         var chronicInsights = canViewChronicInsights ? GenerateChronicInsights(context.RecentAlerts) : null;
         return new AiopsRcaAnalysisResult(
-            clusters, fleetOutages, rootCauses, events, canViewChronicInsights, chronicInsights);
+            clusters, fleetOutages, rootCauses, events, canViewChronicInsights, chronicInsights,
+            context.CloudOutages.Count, context.ActiveWeather.Count);
     }
 
     public static string? NormalizeDomainHint(string? value)

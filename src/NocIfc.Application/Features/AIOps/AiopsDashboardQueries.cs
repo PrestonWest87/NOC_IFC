@@ -83,6 +83,16 @@ public sealed class AiopsDashboardQueries(
         return new AiopsScopedDashboardInputs(alerts, events, locations, allowedSiteNames, user.IsAdministrator);
     }
 
+    internal async Task<AiopsScopedDashboardInputs> GetGlobalInputsAsync(
+        AuthenticatedUser user,
+        CancellationToken cancellationToken)
+    {
+        var locations = await facilities.GetAdminLocationsAsync(cancellationToken);
+        var alerts = await dashboard.GetUnresolvedAlertsAsync(null, cancellationToken);
+        var events = await dashboard.GetTimelineEventsAsync(null, 50, cancellationToken);
+        return new AiopsScopedDashboardInputs(alerts, events, locations, null, user.IsAdministrator);
+    }
+
     public async Task<bool> AcknowledgeAlertsAsync(
         AuthenticatedUser user,
         IReadOnlyList<int> alertIds,

@@ -75,4 +75,6 @@ public sealed record AiopsRcaAnalysisResult(
     IReadOnlyDictionary<string, AiopsRootCause> RootCause,
     IReadOnlyList<AiopsTimelineEventEntry> Events,
     bool CanViewChronicInsights,
-    AiopsChronicInsights? ChronicInsights);
+    AiopsChronicInsights? ChronicInsights,
+    int ActiveCloudOutageCount,
+    int ActiveWeatherHazardCount);
