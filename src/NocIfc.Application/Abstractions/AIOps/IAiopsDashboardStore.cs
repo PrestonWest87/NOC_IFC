@@ -21,6 +21,10 @@ public interface IAiopsDashboardStore
         DateTime acknowledgedAtUtc,
         IReadOnlySet<string>? allowedSiteNames,
         CancellationToken cancellationToken);
+    Task<bool> CanAccessAlertIdsAsync(
+        IReadOnlyList<int> alertIds,
+        IReadOnlySet<string>? allowedSiteNames,
+        CancellationToken cancellationToken);
     Task<bool> SetClusterDispatchAsync(
         IReadOnlyList<int> alertIds,
         bool isDispatched,

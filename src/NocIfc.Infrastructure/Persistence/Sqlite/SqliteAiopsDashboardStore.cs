@@ -139,6 +139,30 @@ public sealed class SqliteAiopsDashboardStore(SqliteConnectionFactory connection
             null,
             cancellationToken);
 
+    public async Task<bool> CanAccessAlertIdsAsync(
+        IReadOnlyList<int> alertIds,
+        IReadOnlySet<string>? allowedSiteNames,
+        CancellationToken cancellationToken)
+    {
+        if (allowedSiteNames is null) return true;
+        var ids = alertIds.Where(id => id > 0).Distinct().ToArray();
+        if (ids.Length == 0) return true;
+        if (allowedSiteNames.Count == 0) return false;
+
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT mapped_location FROM solarwinds_alerts WHERE id = $id";
+        var idParameter = command.Parameters.Add("$id", SqliteType.Integer);
+        foreach (var id in ids)
+        {
+            idParameter.Value = id;
+            var mappedLocation = await command.ExecuteScalarAsync(cancellationToken);
+            if (mappedLocation is not string siteName || !allowedSiteNames.Contains(siteName)) return false;
+        }
+        return true;
+    }
+
     public async Task<bool> SetClusterDispatchAsync(
         IReadOnlyList<int> alertIds,
         bool isDispatched,

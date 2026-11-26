@@ -14,6 +14,7 @@ namespace NocIfc.Api.Controllers.AIOps;
 public sealed class AiopsRcaReadController(
     AiopsDashboardQueries dashboard,
     AiopsRcaAnalysisQueries analysis,
+    AiopsTicketCommands tickets,
     AiopsInvestigationState investigating) : ControllerBase
 {
     [HttpGet("aiops/dashboard")]
@@ -255,6 +256,49 @@ public sealed class AiopsRcaReadController(
         }
         investigating.Set(siteName, false);
         return Ok(new { status = "ok", resolved_alerts = result.ResolvedAlerts });
+    }
+
+    [HttpPost("rca/send-ticket")]
+    [RequireAction("Tab: AIOps RCA -> Active Board")]
+    [RequireAction("Action: Dispatch RCA Tickets")]
+    public async Task<IActionResult> SendTicket(
+        [FromBody] RcaSendTicketRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var user = AuthenticatedUserContext.GetUser(HttpContext);
+        if (user is null)
+        {
+            return Unauthorized(new { detail = new { code = "unauthenticated", message = "Not authenticated" } });
+        }
+        if (request is null)
+        {
+            return UnprocessableEntity(new { detail = "A ticket request is required." });
+        }
+        if (request.AlertIds is null)
+        {
+            return UnprocessableEntity(new { detail = "alert_ids must be a list of integers." });
+        }
+        var result = await tickets.SendAsync(user, new AiopsManualTicket(
+            request.Site, request.Priority, request.TicketText, request.Recipient,
+            request.AlertIds, request.Sla), cancellationToken);
+        if (result.ScopeFailure != AiopsTicketScopeFailure.None)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                detail = new
+                {
+                    code = "site_scope_denied",
+                    message = result.ScopeFailure == AiopsTicketScopeFailure.Site
+                        ? "This site is outside your permitted site types."
+                        : "One or more alerts are outside your permitted site types.",
+                },
+            });
+        }
+        return Ok(new
+        {
+            status = result.Delivery!.Success ? "ok" : "error",
+            message = result.Delivery.Message,
+        });
     }
 
     [HttpPost("rca/investigate")]

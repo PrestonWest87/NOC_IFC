@@ -83,6 +83,11 @@ public sealed class SqliteAiopsDashboardStoreTests
             Assert.Equal("Warning", events[0].Message);
             Assert.Equal(2, counts["Central NOC"]);
             Assert.Equal(2, outages.Count);
+            Assert.True(await store.CanAccessAlertIdsAsync([1, 1], allowed, CancellationToken.None));
+            Assert.False(await store.CanAccessAlertIdsAsync([1, 3], allowed, CancellationToken.None));
+            Assert.False(await store.CanAccessAlertIdsAsync([999], allowed, CancellationToken.None));
+            Assert.True(await store.CanAccessAlertIdsAsync([0, -1], allowed, CancellationToken.None));
+            Assert.True(await store.CanAccessAlertIdsAsync([999], null, CancellationToken.None));
 
             var needsDispatch = await store.SetSiteNeedsDispatchAsync(
                 "Central NOC", true, "operator", now, allowed, CancellationToken.None);

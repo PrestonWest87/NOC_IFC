@@ -92,6 +92,11 @@ public sealed class AiopsDashboardQueriesTests
             IReadOnlySet<string>? allowedSiteNames,
             CancellationToken cancellationToken) => Task.FromResult(true);
 
+        public Task<bool> CanAccessAlertIdsAsync(
+            IReadOnlyList<int> alertIds,
+            IReadOnlySet<string>? allowedSiteNames,
+            CancellationToken cancellationToken) => Task.FromResult(true);
+
         public Task<bool> SetClusterDispatchAsync(
             IReadOnlyList<int> alertIds,
             bool isDispatched,

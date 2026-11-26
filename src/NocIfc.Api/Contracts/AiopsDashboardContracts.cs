@@ -15,6 +15,27 @@ public sealed class RcaDispatchRequest
     public bool IsDispatched { get; init; } = true;
 }
 
+public sealed class RcaSendTicketRequest
+{
+    [JsonPropertyName("site")]
+    public string? Site { get; init; }
+
+    [JsonPropertyName("priority")]
+    public string? Priority { get; init; } = "P3";
+
+    [JsonPropertyName("ticket_text")]
+    public string? TicketText { get; init; }
+
+    [JsonPropertyName("recipient")]
+    public string? Recipient { get; init; } = "remedyforceworkflow@aecc.com, noc@aecc.com";
+
+    [JsonPropertyName("alert_ids")]
+    public int[]? AlertIds { get; init; } = [];
+
+    [JsonPropertyName("sla")]
+    public string? Sla { get; init; } = "N/A (Manual Dispatch)";
+}
+
 public sealed record AiopsAlertResponse(
     [property: JsonPropertyName("id")] int Id,
     [property: JsonPropertyName("event_type")] string? EventType,
