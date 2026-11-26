@@ -88,6 +88,8 @@ builder.Services.AddScoped<ThreatHuntingQueries>();
 builder.Services.AddScoped<ThreatHuntingCommands>();
 builder.Services.AddScoped<IRegionalPreferenceStore, SqliteRegionalPreferenceStore>();
 builder.Services.AddScoped<RegionalWeatherPreferenceCommands>();
+builder.Services.AddScoped<IRegionalDataStore, SqliteRegionalDataStore>();
+builder.Services.AddScoped<RegionalDataQueries>();
 builder.Services.AddScoped<IElasticEventSource>(_ => new ElasticSearchClient());
 builder.Services.AddScoped<IFailedLoginAlertStore, SqliteFailedLoginAlertStore>();
 builder.Services.AddHttpClient<GmailOAuthTokenProvider>(client => client.Timeout = TimeSpan.FromSeconds(10));

@@ -2,8 +2,8 @@ using Microsoft.AspNetCore.Mvc;
 using NocIfc.Api.Authentication;
 using NocIfc.Api.Authorization;
 using NocIfc.Api.Contracts;
-using NocIfc.Application.Features.Identity;
 using NocIfc.Application.Features.Regional;
+using NocIfc.Application.Features.Identity;
 using NocIfc.Application.Features.Settings;
 
 namespace NocIfc.Api.Controllers.Regional;
@@ -14,7 +14,8 @@ namespace NocIfc.Api.Controllers.Regional;
 public sealed class RegionalController(
     FacilityDirectoryCommands facilities,
     SiteTypeQueries siteTypes,
-    RegionalWeatherPreferenceCommands weatherPreferences) : ControllerBase
+    RegionalWeatherPreferenceCommands weatherPreferences,
+    RegionalDataQueries regionalData) : ControllerBase
 {
     [HttpGet("locations")]
     [RequireAnyAction(
@@ -34,6 +35,33 @@ public sealed class RegionalController(
         var locations = await facilities.GetLocationsAsync(user, cancellationToken);
         return Ok(locations.Select(MonitoredLocationResponse.From).ToArray());
     }
+
+    [HttpGet("geojson")]
+    [RequireAnyAction(
+        "Tab: Regional Grid -> Geospatial Map",
+        "Tab: Regional Grid -> Executive Dash",
+        "Tab: Regional Grid -> Hazard Analytics",
+        "Tab: Regional Grid -> Weather Alerts Log",
+        "Tab: Regional Grid -> Atmos Weather")]
+    public async Task<IActionResult> GetGeoJson(
+        [FromQuery] string? layers,
+        [FromQuery] string? bbox,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await regionalData.GetGeoJsonAsync(layers, bbox, cancellationToken));
+        }
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new { detail = exception.Message });
+        }
+    }
+
+    [HttpGet("weather-alerts-log")]
+    [RequireAction("Tab: Regional Grid -> Weather Alerts Log")]
+    public async Task<IActionResult> GetWeatherAlertsLog(CancellationToken cancellationToken) =>
+        Ok(await regionalData.GetWeatherAlertsLogAsync(cancellationToken));
 
     [HttpGet("site-types")]
     public async Task<IActionResult> GetSiteTypes(CancellationToken cancellationToken) =>
