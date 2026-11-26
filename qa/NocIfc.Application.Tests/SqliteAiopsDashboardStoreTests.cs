@@ -48,7 +48,7 @@ public sealed class SqliteAiopsDashboardStoreTests
                         id,event_type,severity,node_name,ip_address,status,details,raw_payload,mapped_location,
                         received_at,is_dispatched,is_ticketed,is_correlated,needs_dispatch,event_category)
                     VALUES
-                        (1,'Down','Critical','router-1','192.0.2.1','Down','timeout','{"source":"test"}','Central NOC',$now,0,0,0,0,'network'),
+                        (1,'Down','Critical','router-1','192.0.2.1','Down','timeout','{"source":"test"}','Central NOC',$now,0,0,0,1,'network'),
                         (2,'Down','High','router-2','192.0.2.2','Acknowledged','link loss',NULL,'Central NOC',$now,0,0,1,0,'network'),
                         (3,'Down','Critical','server-1','192.0.2.3','Down','timeout',NULL,'Field Office',$now,0,0,0,0,'compute'),
                         (4,'Down','Critical','router-3','192.0.2.4','Resolved','fixed',NULL,'Central NOC',$now,0,0,0,0,'network');
@@ -90,6 +90,22 @@ public sealed class SqliteAiopsDashboardStoreTests
                 [999], "operator", now, allowed, CancellationToken.None));
             Assert.True(await store.AcknowledgeAlertsAsync(
                 [999], "admin", now, null, CancellationToken.None));
+            Assert.False(await store.SetClusterDispatchAsync(
+                [1, 3], true, "dispatcher", now, allowed, CancellationToken.None));
+            Assert.True(await store.SetClusterDispatchAsync(
+                [1], true, "dispatcher", now.AddMinutes(1), allowed, CancellationToken.None));
+            await using (var connection = connections.Create())
+            {
+                await connection.OpenAsync();
+                await using var verify = connection.CreateCommand();
+                verify.CommandText = "SELECT is_dispatched, needs_dispatch FROM solarwinds_alerts WHERE id = 1";
+                await using var reader = await verify.ExecuteReaderAsync();
+                Assert.True(await reader.ReadAsync());
+                Assert.True(reader.GetBoolean(0));
+                Assert.False(reader.GetBoolean(1));
+            }
+            Assert.True(await store.SetClusterDispatchAsync(
+                [1], false, "dispatcher", now.AddMinutes(2), allowed, CancellationToken.None));
 
             await using (var connection = connections.Create())
             {
@@ -97,6 +113,7 @@ public sealed class SqliteAiopsDashboardStoreTests
                 await using var verify = connection.CreateCommand();
                 verify.CommandText = """
                     SELECT a.is_correlated, a.needs_dispatch, a.acknowledged_by, a.acknowledged_at,
+                           a.is_dispatched, a.dispatched_by, a.dispatched_at,
                            l.status_modified_by, l.status_modified_at
                     FROM solarwinds_alerts a JOIN monitored_locations l ON l.name = a.mapped_location
                     WHERE a.id = 1
@@ -107,8 +124,11 @@ public sealed class SqliteAiopsDashboardStoreTests
                 Assert.False(reader.GetBoolean(1));
                 Assert.Equal("operator", reader.GetString(2));
                 Assert.Equal(Format(now), reader.GetString(3));
-                Assert.Equal("operator", reader.GetString(4));
-                Assert.Equal(Format(now), reader.GetString(5));
+                Assert.False(reader.GetBoolean(4));
+                Assert.Equal("dispatcher", reader.GetString(5));
+                Assert.Equal(Format(now.AddMinutes(2)), reader.GetString(6));
+                Assert.Equal("dispatcher", reader.GetString(7));
+                Assert.Equal(Format(now.AddMinutes(2)), reader.GetString(8));
             }
         }
         finally

@@ -91,6 +91,14 @@ public sealed class AiopsDashboardQueriesTests
             DateTime acknowledgedAtUtc,
             IReadOnlySet<string>? allowedSiteNames,
             CancellationToken cancellationToken) => Task.FromResult(true);
+
+        public Task<bool> SetClusterDispatchAsync(
+            IReadOnlyList<int> alertIds,
+            bool isDispatched,
+            string username,
+            DateTime dispatchedAtUtc,
+            IReadOnlySet<string>? allowedSiteNames,
+            CancellationToken cancellationToken) => Task.FromResult(true);
     }
 
     private sealed class StubFacilityStore(IReadOnlyList<MonitoredLocationEntry> locations) : IFacilityDirectoryStore

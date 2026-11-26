@@ -90,4 +90,20 @@ public sealed class AiopsDashboardQueries(
         return await dashboard.AcknowledgeAlertsAsync(
             alertIds, user.Username, DateTime.UtcNow, allowedSiteNames, cancellationToken);
     }
+
+    public async Task<bool> SetClusterDispatchAsync(
+        AuthenticatedUser user,
+        IReadOnlyList<int> alertIds,
+        bool isDispatched,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlySet<string>? allowedSiteNames = user.IsAdministrator
+            ? null
+            : (await facilities.GetLocationsAsync(user, cancellationToken))
+                .Where(location => !string.IsNullOrEmpty(location.Name))
+                .Select(location => location.Name!)
+                .ToHashSet(StringComparer.Ordinal);
+        return await dashboard.SetClusterDispatchAsync(
+            alertIds, isDispatched, user.Username, DateTime.UtcNow, allowedSiteNames, cancellationToken);
+    }
 }

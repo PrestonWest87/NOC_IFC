@@ -6,6 +6,15 @@ using NocIfc.Domain.Settings;
 
 namespace NocIfc.Api.Contracts;
 
+public sealed class RcaDispatchRequest
+{
+    [JsonPropertyName("alert_ids")]
+    public int[] AlertIds { get; init; } = [];
+
+    [JsonPropertyName("is_dispatched")]
+    public bool IsDispatched { get; init; } = true;
+}
+
 public sealed record AiopsAlertResponse(
     [property: JsonPropertyName("id")] int Id,
     [property: JsonPropertyName("event_type")] string? EventType,

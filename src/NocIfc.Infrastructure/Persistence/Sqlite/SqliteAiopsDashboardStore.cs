@@ -125,6 +125,48 @@ public sealed class SqliteAiopsDashboardStore(SqliteConnectionFactory connection
         string username,
         DateTime acknowledgedAtUtc,
         IReadOnlySet<string>? allowedSiteNames,
+        CancellationToken cancellationToken) =>
+        await UpdateScopedAlertsAsync(
+            alertIds,
+            username,
+            acknowledgedAtUtc,
+            allowedSiteNames,
+            """
+            UPDATE solarwinds_alerts
+            SET is_correlated = 1, needs_dispatch = 0, acknowledged_by = $username, acknowledged_at = $now
+            WHERE id = $id
+            """,
+            null,
+            cancellationToken);
+
+    public async Task<bool> SetClusterDispatchAsync(
+        IReadOnlyList<int> alertIds,
+        bool isDispatched,
+        string username,
+        DateTime dispatchedAtUtc,
+        IReadOnlySet<string>? allowedSiteNames,
+        CancellationToken cancellationToken) =>
+        await UpdateScopedAlertsAsync(
+            alertIds,
+            username,
+            dispatchedAtUtc,
+            allowedSiteNames,
+            """
+            UPDATE solarwinds_alerts
+            SET is_dispatched = $is_dispatched, needs_dispatch = 0,
+                dispatched_by = $username, dispatched_at = $now
+            WHERE id = $id
+            """,
+            isDispatched,
+            cancellationToken);
+
+    private async Task<bool> UpdateScopedAlertsAsync(
+        IReadOnlyList<int> alertIds,
+        string username,
+        DateTime updatedAtUtc,
+        IReadOnlySet<string>? allowedSiteNames,
+        string updateSql,
+        bool? isDispatched,
         CancellationToken cancellationToken)
     {
         var ids = alertIds.Where(id => id > 0).Distinct().ToArray();
@@ -156,18 +198,18 @@ public sealed class SqliteAiopsDashboardStore(SqliteConnectionFactory connection
             }
         }
 
-        var timestamp = FormatDate(acknowledgedAtUtc);
+        var timestamp = FormatDate(updatedAtUtc);
         await using (var update = connection.CreateCommand())
         {
             update.Transaction = transaction;
-            update.CommandText = """
-                UPDATE solarwinds_alerts
-                SET is_correlated = 1, needs_dispatch = 0, acknowledged_by = $username, acknowledged_at = $now
-                WHERE id = $id
-                """;
+            update.CommandText = updateSql;
             var idParameter = update.Parameters.Add("$id", SqliteType.Integer);
             update.Parameters.AddWithValue("$username", username);
             update.Parameters.AddWithValue("$now", timestamp);
+            if (isDispatched is not null)
+            {
+                update.Parameters.AddWithValue("$is_dispatched", isDispatched.Value);
+            }
             foreach (var alert in existing)
             {
                 idParameter.Value = alert.Id;
