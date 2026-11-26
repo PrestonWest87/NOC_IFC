@@ -49,6 +49,23 @@ public sealed class SqliteShiftLogbookStoreTests
             Assert.Equal("Jane Operator", await store.GetUserFullNameAsync(1, CancellationToken.None));
             Assert.Equal(new[] { "admin", "analyst" }, await store.GetRoleNamesAsync(CancellationToken.None));
 
+            await using (var connection = connections.Create())
+            {
+                await connection.OpenAsync();
+                await using var generated = connection.CreateCommand();
+                generated.CommandText = """
+                    INSERT INTO shift_logs(id,analyst,author_role,shift_date,shift_period,content,created_at,is_deleted)
+                    VALUES (4,'Jane Operator','analyst',$date,'End of Day','Generated summary',$date,0)
+                    """;
+                generated.Parameters.AddWithValue("$date", Format(now));
+                await generated.ExecuteNonQueryAsync();
+            }
+            var summaryEntries = await store.GetSummaryEntriesAsync(
+                "analyst", null, true,
+                now.AddDays(-1), now.AddDays(1), 200, CancellationToken.None);
+            Assert.Single(summaryEntries);
+            Assert.Equal("Visible note", summaryEntries[0].Content);
+
             var id = await store.CreateAsync("Jane Operator", "analyst", "Afternoon", "New note", now, now, CancellationToken.None);
             var created = await store.GetByIdAsync(id, CancellationToken.None);
             Assert.NotNull(created);

@@ -9,6 +9,14 @@ public interface IShiftLogbookStore
         DateTime? startUtc,
         DateTime? endExclusiveUtc,
         CancellationToken cancellationToken);
+    Task<IReadOnlyList<ShiftLogEntry>> GetSummaryEntriesAsync(
+        string? roleFilter,
+        string? shiftPeriod,
+        bool excludeGeneratedSummaries,
+        DateTime startUtc,
+        DateTime endExclusiveUtc,
+        int limit,
+        CancellationToken cancellationToken);
     Task<IReadOnlyList<string>> GetRoleNamesAsync(CancellationToken cancellationToken);
     Task<string?> GetUserFullNameAsync(int userId, CancellationToken cancellationToken);
     Task<int> CreateAsync(

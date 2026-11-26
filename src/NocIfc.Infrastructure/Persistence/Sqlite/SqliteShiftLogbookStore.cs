@@ -34,6 +34,42 @@ public sealed class SqliteShiftLogbookStore(SqliteConnectionFactory connections)
         return entries;
     }
 
+    public async Task<IReadOnlyList<ShiftLogEntry>> GetSummaryEntriesAsync(
+        string? roleFilter,
+        string? shiftPeriod,
+        bool excludeGeneratedSummaries,
+        DateTime startUtc,
+        DateTime endExclusiveUtc,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, analyst, author_role, shift_date, shift_period, content, created_at, is_deleted
+            FROM shift_logs
+            WHERE is_deleted = 0
+              AND ($role IS NULL OR author_role = $role)
+              AND ($period IS NULL OR shift_period = $period)
+              AND ($excludeGenerated = 0 OR shift_period IS NULL OR shift_period NOT IN ('End of Day', 'End of Week'))
+              AND julianday(created_at) >= julianday($start)
+              AND julianday(created_at) < julianday($end)
+            ORDER BY created_at DESC
+            LIMIT $limit
+            """;
+        command.Parameters.AddWithValue("$role", (object?)roleFilter ?? DBNull.Value);
+        command.Parameters.AddWithValue("$period", (object?)shiftPeriod ?? DBNull.Value);
+        command.Parameters.AddWithValue("$excludeGenerated", excludeGeneratedSummaries ? 1 : 0);
+        command.Parameters.AddWithValue("$start", FormatDate(startUtc));
+        command.Parameters.AddWithValue("$end", FormatDate(endExclusiveUtc));
+        command.Parameters.AddWithValue("$limit", limit);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var entries = new List<ShiftLogEntry>();
+        while (await reader.ReadAsync(cancellationToken)) entries.Add(ReadEntry(reader));
+        return entries;
+    }
+
     public async Task<IReadOnlyList<string>> GetRoleNamesAsync(CancellationToken cancellationToken)
     {
         await using var connection = connections.Create();
