@@ -262,13 +262,6 @@ def boost_score(article_id: int, amount: int = Query(15, ge=1, le=100)):
     return {"status": "ok"}
 
 
-@router.post("/articles/feedback", dependencies=[Depends(require_action("Tab: Dashboards -> Operational")), Depends(require_action("Action: Trigger AI Functions"))])
-def article_feedback(article_id: int, feedback: int = Query(0, ge=0, le=2)):
-    """Persist a neutral/dismiss/keep label and apply first-label keyword feedback."""
-    svc.change_status(article_id, feedback)
-    return {"status": "ok"}
-
-
 @router.post("/articles/generate-bluf", dependencies=[Depends(require_action("Tab: Dashboards -> Operational")), Depends(require_action("Action: Trigger AI Functions"))])
 def generate_article_bluf(article_id: int = Query(0, ge=0)):
     """Generate and persist a BLUF for an existing article."""

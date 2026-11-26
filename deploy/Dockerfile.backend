@@ -1,0 +1,28 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /source
+
+COPY global.json Directory.Build.props Directory.Packages.props NocIfc.sln ./
+COPY contracts/permission_catalog.json contracts/
+COPY src/NocIfc.Domain/NocIfc.Domain.csproj src/NocIfc.Domain/
+COPY src/NocIfc.Application/NocIfc.Application.csproj src/NocIfc.Application/
+COPY src/NocIfc.Infrastructure/NocIfc.Infrastructure.csproj src/NocIfc.Infrastructure/
+COPY src/NocIfc.Api/NocIfc.Api.csproj src/NocIfc.Api/
+COPY qa/NocIfc.Application.Tests/NocIfc.Application.Tests.csproj qa/NocIfc.Application.Tests/
+COPY qa/NocIfc.Api.Tests/NocIfc.Api.Tests.csproj qa/NocIfc.Api.Tests/
+RUN dotnet restore NocIfc.sln
+
+COPY src/NocIfc.Domain/ src/NocIfc.Domain/
+COPY src/NocIfc.Application/ src/NocIfc.Application/
+COPY src/NocIfc.Infrastructure/ src/NocIfc.Infrastructure/
+COPY src/NocIfc.Api/ src/NocIfc.Api/
+COPY qa/NocIfc.Application.Tests/ qa/NocIfc.Application.Tests/
+COPY qa/NocIfc.Api.Tests/ qa/NocIfc.Api.Tests/
+RUN dotnet test NocIfc.sln --configuration Release --no-restore
+RUN dotnet publish src/NocIfc.Api/NocIfc.Api.csproj --configuration Release --no-restore --output /publish
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS api
+WORKDIR /app
+ENV ASPNETCORE_URLS=http://+:8101
+COPY --from=build --chown=10001:10001 /publish/ ./
+USER 10001
+ENTRYPOINT ["dotnet", "NocIfc.Api.dll"]

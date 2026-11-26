@@ -76,7 +76,7 @@ The legacy ER diagram is conceptual: its `(FK→)` labels do not distinguish enf
 │ keywords_found(JSON)│       │   keyword_scoring     │
 │ is_bubbled          │       │─────────────────────│
 │ story_group         │       │ articles.score ←    │
-│ human_feedback      │       │   keyword.weight     │
+│ human_feedback(legacy)│      │   keyword.weight     │
 │ ai_bluf             │       └─────────────────────┘
 │ is_pinned           │
 └─────────────────────┘
@@ -449,7 +449,7 @@ The current migration head is `20261125_0025`; revisions `20261111_0012` and `20
 | `keywords_found` | JSON | YES | NULL | — | Matched keyword list |
 | `is_bubbled` | Boolean | YES | `False` | — | Surface to dashboard |
 | `story_group` | String | YES | NULL | — | Cluster/grouping ID |
-| `human_feedback` | Integer | YES | `0` | — | ML label: `1` dismiss/noise, `2` keep/important; `0` neutral |
+| `human_feedback` | Integer | YES | `0` | — | Retained legacy feedback value; no active behavior reads or writes it |
 | `ai_bluf` | Text | YES | NULL | — | AI-generated BLUF |
 | `is_pinned` | Boolean | YES | `False` | YES | Prevents auto-purge |
 | `full_content` | Text | YES | NULL | — | Extracted article content |

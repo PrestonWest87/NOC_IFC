@@ -1,0 +1,48 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NocIfc.Domain", "src\NocIfc.Domain\NocIfc.Domain.csproj", "{6C2A62D1-16C3-4676-859A-AF8F3264A101}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NocIfc.Application", "src\NocIfc.Application\NocIfc.Application.csproj", "{6C2A62D1-16C3-4676-859A-AF8F3264A102}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NocIfc.Infrastructure", "src\NocIfc.Infrastructure\NocIfc.Infrastructure.csproj", "{6C2A62D1-16C3-4676-859A-AF8F3264A103}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NocIfc.Api", "src\NocIfc.Api\NocIfc.Api.csproj", "{6C2A62D1-16C3-4676-859A-AF8F3264A104}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NocIfc.Application.Tests", "qa\NocIfc.Application.Tests\NocIfc.Application.Tests.csproj", "{6C2A62D1-16C3-4676-859A-AF8F3264A105}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NocIfc.Api.Tests", "qa\NocIfc.Api.Tests\NocIfc.Api.Tests.csproj", "{6C2A62D1-16C3-4676-859A-AF8F3264A106}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6C2A62D1-16C3-4676-859A-AF8F3264A101}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A101}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A101}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A101}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A102}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A102}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A102}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A102}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A103}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A103}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A103}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A103}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A104}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A104}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A104}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A104}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A105}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A105}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A105}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A105}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A106}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A106}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A106}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6C2A62D1-16C3-4676-859A-AF8F3264A106}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

@@ -342,7 +342,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 
 ### Permission Strings (must match exactly)
 
-`docs/PERMISSIONS.md` contains the complete catalog. `src/core/permissions.py` is the canonical backend/role-editor catalog; frontend route/tab/action references must match its keys and descriptions. Do not copy a partial grant list into new guides.
+`docs/PERMISSIONS.md` contains the complete catalog. `contracts/permission_catalog.json` is the shared permission contract; `src/core/permissions.py` is the Python adapter and the C# application embeds the same JSON. Frontend route/tab/action references must match its keys and descriptions. Do not copy a partial grant list into new guides.
 
 ### Frontend Routes
 
@@ -368,7 +368,7 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `src/api/routes/*.py` | 18 route modules, including permissions, user administration, application settings, and Operational Email |
 | `src/services.py` | Central data-access and domain-service module |
 | `src/services/aiops_engine.py` | EnterpriseAIOpsEngine — clustering, patient zero, RCA |
-| `src/services/logic.py` | HybridScorer — keyword + ML scoring |
+| `src/services/logic.py` | KeywordScorer — keyword-only scoring on dev-c |
 | `src/services/categorizer.py` | Article categorization (9 regex categories) |
 | `src/services/ioc_extractor.py` | IOC extraction (21 rule types across 5 categories) |
 | `src/core/db.py` | SQLite-only engine/session + startup migration/bootstrap entrypoint |
@@ -386,7 +386,10 @@ The complete environment template and source mapping are maintained in [`.env.ex
 | `src/core/restore_control.py` | Cross-process maintenance marker, API drain counters, and restore progress state |
 | `src/core/ui_restore.py` | UI restore orchestration, writer quiescence, and runtime refresh |
 | `src/models/schema.py` | 45 SQLAlchemy models |
-| `src/core/permissions.py` | Canonical page, tab, and action permission catalog |
+| `contracts/permission_catalog.json` | Shared page, tab, and action permission contract |
+| `src/core/permissions.py` | Python adapter for the shared permission contract |
+| `NocIfc.sln` | C# modular backend solution under active development on `dev-c` |
+| `src/NocIfc.Api/Controllers/` | C# MVC API controllers; keep them thin and call application use cases |
 | `src/core/site_contact_validation.py` | Shared server-side validation for optional site contact fields |
 | `src/api/routes/settings.py` | Settings reads, including tab-authorized Email Contacts and Network Orders directories |
 | `web/src/components/EmailContactsSettingsTab.tsx` | Fiber and ONPAGE email-contact directory editor/read view |
@@ -447,13 +450,13 @@ The complete environment template and source mapping are maintained in [`.env.ex
 ## What's Been Done (Changelog)
 
 ### Encrypted Full Backup and Restore
-- Full SQLite online snapshots include every database table and the persisted ML model artifact when present; `.env` secrets remain separate.
+- Full SQLite online snapshots include every database table; legacy packages may also contain the retired article-classifier artifact. New dev-c snapshots omit it; `.env` secrets remain separate.
 - Packages use authenticated AES-256-GCM encryption, checksums, a versioned manifest, and bounded upload/restore validation.
 - Manual and pre-restore safety backups are retained independently and labeled separately; scheduled backups run Sundays at midnight Central and retain the latest three.
-- Restore can run from the UI through coordinated API/worker/webhook maintenance, with an offline CLI fallback, pre-restore safety backup, migration checks, atomic DB/model replacement, and rollback handling.
+- Restore can run from the UI through coordinated API/worker/webhook maintenance, with an offline CLI fallback, pre-restore safety backup, migration checks, atomic database replacement, and rollback handling. Legacy classifier payloads are validated but ignored.
 - Restored sessions and outstanding registration/reset/recovery-email links are invalidated while request/audit history remains.
 - Administrator APIs/UI manage manual backups, downloads, validated staging, and coordinated UI restore; successful restore clears staged packages, while `scripts/restore_backup.py` remains the offline fallback.
-- ML artifacts now persist under `/app/data/models/ml_model.pkl` and are atomically written by training.
+- The dev-c backend rewrite removes scikit-learn/joblib article scoring and Keep/Dismiss feedback; persisted historical labels remain inert until any later data-cleanup migration.
 
 ### Brief Generation Progress
 - Async background thread with 5-stage progress (gathering, cyber_map, phys_map, synthesizing, complete)

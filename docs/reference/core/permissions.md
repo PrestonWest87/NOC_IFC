@@ -1,13 +1,13 @@
-# Module: `src.core.permissions`
+# Shared Permission Contract
 
-The canonical catalog of page, action, and tab permission keys used by backend authorization and the Users & Roles editor.
+`contracts/permission_catalog.json` is the canonical page, action, and tab catalog used by backend authorization and the Users & Roles editor. `src.core.permissions` loads it for the Python runtime; the C# application embeds the same file. The frontend maps catalog keys to its routes and local tab identifiers.
 
 ## Catalogs
 
-- `PAGE_CATALOG` declares each frontend page key, route, and description.
-- `ACTION_CATALOG` declares action keys, groups, descriptions, and the recognized legacy `Action: Trigger AI Functions` key.
-- `TAB_CATALOG` maps frontend page identifiers to tab keys, labels, and tab values.
-- `PAGE_KEYS`, `ACTION_KEYS`, and `TAB_KEYS` are derived from those catalogs; `ADMIN_ACTIONS` is the combined recognized action/tab key list used by authorization helpers.
+- `pages` declares each frontend page key, route, and description.
+- `actions` declares action keys, groups, descriptions, and the recognized legacy `Action: Trigger AI Functions` key.
+- `tabs` maps frontend page identifiers to tab keys, labels, and tab values.
+- The Python adapter derives `PAGE_KEYS`, `ACTION_KEYS`, `TAB_KEYS`, and `ADMIN_ACTIONS` from the JSON file.
 - `public_permission_catalog()` returns the catalog structure consumed by the role editor.
 
-The catalogs describe stable key names, not the full enforcement policy. Route dependencies and `src.api.auth_guard` enforce grants; the frontend permission utilities mirror them for visibility and UX. Keep frontend permission strings aligned with this catalog when changing either side.
+The catalog defines stable key names, not enforcement policy. Backend authorization enforces grants; frontend permission utilities mirror the keys for visibility and usability. Keep frontend mappings aligned with this file when changing either side.

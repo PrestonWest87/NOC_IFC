@@ -521,20 +521,6 @@ Returns compact fetch age, last attempt/success, error, status code, duration, f
 
 ---
 
-### `change_status(art_id: int, new_feedback: int)`
-
-**Purpose:** Changes human feedback status on an article and adjusts keyword weights.
-
-**Parameters:**
-- `art_id` (int) -- Article ID
-- `new_feedback` (int) -- 1 (negative), 2 (positive)
-
-**Dependencies:** `Article`, `Keyword`, `SessionLocal`
-
-**Flow:** If feedback changes from 0 to 1/2 and article has keywords, adjusts each keyword weight: +1 for positive feedback, -1 (min 1) for negative feedback.
-
----
-
 ### `save_ai_bluf(art_id: int, bluf_text: str)`
 
 **Purpose:** Saves AI-generated BLUF (Bottom Line Up Front) text on an article.
@@ -1405,16 +1391,6 @@ In `replace` mode, contacts for sites with the same name are reattached to the r
 
 ---
 
-### `get_ml_counts() -> tuple`
-
-**Purpose:** Returns counts of positively and negatively reviewed articles.
-
-**Returns:** `tuple[int, int, int]` -- `(positive_count, negative_count, total_count)`
-
-**Dependencies:** `Article`, `SessionLocal`
-
----
-
 ### `get_backup_data() -> dict`
 
 **Purpose:** Exports the legacy configuration subset for compatibility backup.
@@ -1476,9 +1452,9 @@ In `replace` mode, contacts for sites with the same name are reattached to the r
 
 **Returns:** `int` -- Number of articles rescored.
 
-**Dependencies:** `Article`, `ExtractedIOC`, `HybridScorer`, `categorize_text`, `ioc_engine`, `SessionLocal`
+**Dependencies:** `Article`, `ExtractedIOC`, `KeywordScorer`, `categorize_text`, `ioc_engine`, `SessionLocal`
 
-**Flow:** For each article, computes score + reasons via HybridScorer, updates category via categorizer, extracts IOCs for high-scoring cyber articles, saves all changes.
+**Flow:** For each article, computes score + reasons via KeywordScorer, updates category via categorizer, extracts IOCs for high-scoring cyber articles, saves all changes.
 
 ---
 

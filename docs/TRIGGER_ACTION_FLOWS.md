@@ -20,7 +20,7 @@ The success response confirms queueing only; it is not a persistence acknowledgm
 
 ## 2. Scheduler triggers
 
-The single `worker` process registers 22 jobs from `JOB_REGISTRY`. It runs registry entries with `startup_run=true` during boot in four groups separated by 30-second pauses; scheduled callbacks use a two-thread executor and same-function non-overlap guard. On boot, enabled startup jobs can initiate external HTTP, email, LLM, and database work.
+The single `worker` process registers 21 jobs from `JOB_REGISTRY`. It runs registry entries with `startup_run=true` during boot in four groups separated by 30-second pauses; scheduled callbacks use a two-thread executor and same-function non-overlap guard. On boot, enabled startup jobs can initiate external HTTP, email, LLM, and database work.
 
 | Job | Default trigger | Main work |
 |---|---|---|
@@ -43,7 +43,6 @@ The single `worker` process registers 22 jobs from `JOB_REGISTRY`. It runs regis
 | `global_brief` | Daily 02:00 Central; starts on boot | Generate/save US CI and global threat brief |
 | `daily_fusion_report` | Daily 06:00 Central | Generate/save previous Central calendar day's Daily Fusion report |
 | `daily_email_brief` | Daily 07:00 Central | Send the saved Unified Brief to effective risk recipients (`SystemConfig.risk_alert_recipients`, with `RISK_ALERT_RECIPIENTS` fallback) |
-| `ml_retrain` | Sunday 02:00 Central | Train from feedback labels and reload scorer |
 | `database_backup` | Sunday 00:00 Central | Create full encrypted backup; retain newest three scheduled packages |
 
 `tiered_alert_escalation` is bounded to 1–5 minutes and cannot be disabled. `database_backup` cannot be disabled. Daily/weekly jobs remain on `America/Chicago`; other interval minima/maxima are in `SCHEDULER.md`.
@@ -88,7 +87,6 @@ Recovery-email changes follow a separate request → reviewer approval → mailb
 | Open article | `GET /threat/articles/{id}` | Reads article, persisted keyword weights, and related IOCs. |
 | Pin/unpin | `POST /dashboard/articles/toggle-pin` -> `toggle_pin()` | Toggles shared `Article.is_pinned`. |
 | Boost score | `POST /dashboard/articles/boost-score` -> `boost_score()` | Adds the requested amount, capped at 100. |
-| Keep/dismiss | `POST /dashboard/articles/feedback` -> `change_status()` | Writes label 2/1; only a first label from 0 adjusts matched keyword weights. |
 | Manually refresh RSS/KEV/cloud/crime | Corresponding `/threat/*` route | Calls the worker/service synchronously and returns before any separate scheduled run. |
 | Manually sync Elastic | `/hunting/sync-elastic-cache` | Runs a bounded Elastic query; local `elastic_events` cache is refreshed. |
 
@@ -151,12 +149,12 @@ The server-side AIOps WebSocket requires the page and Active Board tab. Both acc
 ## 8. Backup and restore triggers
 
 ```text
-Admin creates encrypted backup -> SQLite online snapshot + model if present -> AES-GCM package
+Admin creates encrypted backup -> SQLite online snapshot -> AES-GCM package
 Admin stages upload -> authenticate/decrypt/check manifest/checksum/SQLite integrity -> keep staged
 Admin starts restore -> maintenance marker -> drain API/worker/webhook -> close sockets
   -> validate + migrate staged DB -> pre-restore encrypted backup
-  -> atomic database/model swap with rollback -> invalidate sessions/links -> clear staging
-  -> refresh runtime caches/scorer -> report completion by restore capability ID
+  -> atomic database replacement with rollback -> invalidate sessions/links -> clear staging
+  -> refresh runtime caches/keyword scorer -> report completion by restore capability ID
 ```
 
 The offline CLI requires `--maintenance-confirmed` only after API, worker, and webhook writers are stopped. Environment secrets are not part of a full backup.

@@ -3,8 +3,6 @@ sqlalchemy>=2.0,<2.1
 feedparser
 schedule
 python-dotenv
-scikit-learn
-joblib
 requests
 bcrypt==4.1.2
 aiohttp

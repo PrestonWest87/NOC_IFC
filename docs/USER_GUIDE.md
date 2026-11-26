@@ -20,7 +20,7 @@ The sidebar contains up to ten pages: Global Dashboards, Threat Telemetry, Regio
 
 Shows 24-hour high-score article, CISA KEV, weather-hazard, and unresolved cloud-outage counts. The Threat Triage panel separates pinned from live articles; Infrastructure Status shows KEVs, cloud status, and hazards; AI Analysis shows the rolling shift handoff and authorized security-audit action. The subpanels rotate every ten seconds while Auto-Rotate is enabled.
 
-Article actions include Pin/Unpin, +15 Score, Keep, Dismiss, and BLUF where the matching action grants are present. Keep/Dismiss writes analyst feedback; the first label on an article can adjust matched keyword weights. Pin/score/feedback actions require their corresponding grants.
+Article actions include Pin/Unpin, +15 Score, and BLUF where the matching action grants are present. Pin and score actions require their corresponding grants. Article scoring is keyword-weight based; Keep/Dismiss feedback and classifier training have been retired.
 
 ### Global Risk
 
@@ -40,7 +40,7 @@ Risk-scoring controls are in **Settings > Application Settings**, not on the das
 
 ### RSS Triage
 
-Pinned, Live, Low, and Search sub-tabs provide article pagination and category/search filters. Opening an article can show full-content enrichment, matched keyword weights, and extracted IOCs. Pin, score boost, and feedback controls each require their own action grant. Manual feed fetch requires `Action: Manually Sync Data`.
+Pinned, Live, Low, and Search sub-tabs provide article pagination and category/search filters. Opening an article can show full-content enrichment, matched keyword weights, and extracted IOCs. Pin and score-boost controls require their own action grants. Manual feed fetch requires `Action: Manually Sync Data`.
 
 The category dropdown uses the same labels as the backend categorizer, including `Cloud & IT Infrastructure`, `Physical Security & Crime`, `Severe Weather & Natural Hazards`, and `Data Breach & Privacy`.
 
@@ -153,7 +153,7 @@ Overview, keyword ranking, category breakdown, timeline, score distribution, and
 
 ## Settings & Admin (`#/settings`)
 
-The UI contains Profile, Theme, Facilities, Email Contacts, Network Orders & Circuits, Internal Assets, RSS Sources, ML Training, AI & SMTP, Application Settings, Users & Roles, Backup & Restore, and Danger Zone. Profile and Theme are self-service views once the Settings page is granted. The other sections use independent tab permissions; data changes require additional action permissions or the built-in administrator role.
+The UI contains Profile, Theme, Facilities, Email Contacts, Network Orders & Circuits, Internal Assets, RSS Sources, AI & SMTP, Application Settings, Users & Roles, Backup & Restore, and Danger Zone. Profile and Theme are self-service views once the Settings page is granted. The other sections use independent tab permissions; data changes require additional action permissions or the built-in administrator role.
 
 ### Email Contacts
 
@@ -177,7 +177,7 @@ The SMTP Broadcast panel keeps the existing SMTP relay and a Gmail/Google Worksp
 
 ### Backup & Restore and Danger Zone
 
-Full backup/restore and destructive controls are administrator-only in the UI. Encrypted `.nocbackup` packages include a consistent SQLite snapshot and the model artifact when present; `.env` is external. A UI restore pauses/drains API, worker, webhook, and WebSocket writers, validates/migrates the staged package, creates a pre-restore backup, atomically installs it with rollback handling, and invalidates restored sessions/links. JSON and `.db` tools are legacy partial imports/exports, not full backups. See [Maintenance](MAINTENANCE.md).
+Full backup/restore and destructive controls are administrator-only in the UI. New encrypted `.nocbackup` packages include a consistent SQLite snapshot; legacy packages with an optional retired classifier artifact remain verifiable, but restore ignores that artifact. `.env` is external. A UI restore pauses/drains API, worker, webhook, and WebSocket writers, validates/migrates the staged package, creates a pre-restore backup, atomically installs it with rollback handling, and invalidates restored sessions/links. JSON and `.db` tools are legacy partial imports/exports, not full backups. See [Maintenance](MAINTENANCE.md).
 
 ## Realtime behavior and safe interpretation
 

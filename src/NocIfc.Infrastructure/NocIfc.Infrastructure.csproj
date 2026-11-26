@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../NocIfc.Application/NocIfc.Application.csproj" />
+    <ProjectReference Include="../NocIfc.Domain/NocIfc.Domain.csproj" />
+    <PackageReference Include="BCrypt.Net-Next" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="MailKit" />
+  </ItemGroup>
+</Project>

@@ -455,7 +455,7 @@ class InternalRiskSnapshot(Base):
 
 
 class Article(Base):
-    """Ingested/scored intelligence article, analyst feedback, enrichment, and pin state."""
+    """Ingested/scored intelligence article, enrichment, and pin state."""
     __tablename__ = "articles"
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String)
@@ -468,7 +468,7 @@ class Article(Base):
     keywords_found = Column(JSON)
     is_bubbled = Column(Boolean, default=False)
     story_group = Column(String, nullable=True)
-    human_feedback = Column(Integer, default=0)
+    human_feedback = Column(Integer, default=0)  # Legacy values retained for existing databases; no active behavior.
     full_content = Column(Text, nullable=True)
     ai_bluf = Column(Text, nullable=True)
     is_pinned = Column(Boolean, default=False, index=True)

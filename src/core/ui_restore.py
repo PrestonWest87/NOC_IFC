@@ -102,7 +102,7 @@ def _wait_for_writers(restore_id: str) -> None:
 
 
 def _refresh_restored_runtime() -> None:
-    """Clear process-local service caches and reload the optional scorer after replacement."""
+    """Clear process-local service caches and reload keyword weights after replacement."""
     from src import services as svc
 
     for value in vars(svc).values():
@@ -117,9 +117,7 @@ def _refresh_restored_runtime() -> None:
 
         force_reload_scorer()
     except Exception:
-        # The restored database/model files remain valid even if the optional
-        # scorer artifact cannot be loaded; keyword scoring remains available.
-        logger.exception("Could not reload the optional ML scorer after restore")
+        logger.exception("Could not reload the keyword scorer after restore")
 
 
 def _run_restore(restore_id: str) -> None:

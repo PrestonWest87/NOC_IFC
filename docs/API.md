@@ -3,7 +3,7 @@
 Base URL: `http://localhost:8102/api/v1`
 WebSocket: `ws://localhost:8102/ws`
 
-This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-23 (203 paths and 219 HTTP operations). The running application's OpenAPI schema remains the source of truth.
+This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-25 (198 paths and 214 HTTP operations after retiring classifier-training and feedback endpoints). The running application's OpenAPI schema remains the source of truth.
 
 ## Authentication
 
@@ -157,9 +157,6 @@ Body: `{intel_data...}`
 ### POST /dashboard/articles/toggle-pin?article_id=
 
 ### POST /dashboard/articles/boost-score?article_id=&amount=15
-
-### POST /dashboard/articles/feedback?article_id=&feedback=
-Feedback: 0=neutral, 1=dismiss (negative), 2=keep (positive). Triggers keyword weight adjustment.
 
 ### POST /dashboard/articles/generate-bluf?article_id=
 Generates an AI BLUF summary for an article.
@@ -440,7 +437,6 @@ Associated circuit IDs must reference one existing Network Orders & Circuits row
 - `GET /application-settings/risk-scoring` and `PUT /application-settings/risk-scoring` — writes require `Action: Adjust Risk Scoring Overrides`.
 - `GET /application-settings/scheduler` — registered jobs, defaults, bounds, and current schedules.
 - `PATCH /application-settings/scheduler/jobs/{job_key}` — writes require `Action: Manage Scheduler Settings`; settings are bounded and reloaded by the worker without restart.
-- `GET /application-settings/ml-counts` and `POST /application-settings/ml-retrain` — training requires the ML Training tab and `Action: Train ML Model`.
 
 ## Admin Endpoints (/admin)
 
@@ -459,8 +455,6 @@ Body: `{weight: N}`. Validates 1-100, force-reloads scorer.
 ### DELETE /admin/keywords/{keyword_id}
 
 ### DELETE /admin/feeds/{feed_id}
-
-### GET /admin/ml-counts
 
 ### POST /admin/config
 Administrator-only compatibility endpoint for allowlisted editable `SystemConfig` fields. It can save both the existing SMTP profile and the Gmail profile, with `active_smtp_provider` selecting which profile sends all mail. Gmail uses `smtp.gmail.com:587` with STARTTLS and OAuth2 XOAUTH2 authentication using a client ID, client secret, and offline refresh token. OAuth secrets are write-only; omit them to retain saved values. It cannot write system-maintained brief/risk-state fields; the current UI uses category-specific `/application-settings/*` routes for risk scoring, application defaults, and scheduler changes.
@@ -535,7 +529,7 @@ Returns whether encrypted backups are configured, the byte limit, and the schedu
 Returns encrypted full-backup filename, kind (`Manual`, `Pre-restore safety`, or `Scheduled`), creation time, and size metadata. New pre-restore snapshots receive their own filename/category; older packages retain their original label until reclassified.
 
 ### POST /admin/backups
-Creates and returns a manual encrypted full SQLite snapshot. It includes every SQLite table and the persistent ML model artifact when present. Stored database credentials are encrypted with the package; `.env` and environment variables are not included.
+Creates and returns a manual encrypted full SQLite snapshot of every SQLite table. Legacy packages may contain a retired classifier artifact; it is validated but never restored. Stored database credentials are encrypted with the package; `.env` and environment variables are not included.
 
 ### GET /admin/backups/{backup_id}/download
 Streams the selected encrypted `.nocbackup` package with `Cache-Control: no-store`.
@@ -592,9 +586,6 @@ Wipes all weather/hazard/GeoJSON data.
 
 ### POST /admin/maintenance
 Runs database maintenance (dedup, purge old data).
-
-### POST /admin/ml-retrain
-Administrator-only compatibility endpoint for ML training. Delegated retraining uses `POST /application-settings/ml-retrain` with `Action: Train ML Model`.
 
 ## LLM Endpoints (/llm)
 

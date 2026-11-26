@@ -3,7 +3,7 @@ import { getAllowedTabs } from "../utils/permissions";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api, { getApiErrorMessage } from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
-import { hasActionPermission, isAdministrator } from "../utils/permissions";
+import { isAdministrator } from "../utils/permissions";
 import { UsersRolesTab } from "../components/UsersRolesTab";
 import { ApplicationSettingsTab } from "../components/ApplicationSettingsTab";
 import { SiteContactsDialog } from "../components/SiteContactsDialog";
@@ -13,9 +13,9 @@ import { ConusMap } from "../components/ConusMap";
 import {
   Trash2, Upload, Download, RefreshCw, AlertTriangle, Save,
    Key, Shield, Settings as SettingsIcon, Database, FileJson,
-   Rss, Cpu, Brain, Mail, Users, HardDrive, Skull, Server, Globe, Network,
+   Rss, Cpu, Mail, Users, HardDrive, Skull, Server, Globe, Network,
   FileSpreadsheet, Plus, Eye, EyeOff, X, User, Loader2, Palette,
-  Pin, PinOff, ThumbsUp, ThumbsDown
+  Pin, PinOff
 } from "lucide-react";
 import { ThemeSelector } from "../components/ThemeSelector";
 import { ScatterplotLayer } from "@deck.gl/layers";
@@ -29,7 +29,6 @@ const TABS = [
   { id: "network-orders", label: "Network Orders & Circuits", icon: Network },
   { id: "assets", label: "Internal Assets", icon: Server },
   { id: "rss", label: "RSS Sources", icon: Rss },
-  { id: "ml", label: "ML Training", icon: Brain },
   { id: "ai-smtp", label: "AI & SMTP", icon: SettingsIcon },
   { id: "application", label: "Application Settings", icon: Shield },
   { id: "users", label: "Users & Roles", icon: Users },
@@ -146,12 +145,6 @@ export function SettingsPage() {
     enabled: tab === "rss",
   });
 
-  const { data: mlCounts } = useQuery({
-    queryKey: ["application-ml-counts"],
-    queryFn: () => api.get("/application-settings/ml-counts").then(r => r.data),
-    enabled: tab === "ml",
-  });
-
   const saveConfigMutation = useMutation({
     mutationFn: (data: any) => {
       const payload = { ...data };
@@ -209,7 +202,6 @@ export function SettingsPage() {
       {tab === "network-orders" && <NetworkOrdersCircuitsTab canManage={isAdmin} />}
       {tab === "assets" && <AssetsTab canManage={isAdmin} />}
       {tab === "rss" && <RssTab lists={lists} queryClient={queryClient} canManage={isAdmin} />}
-      {tab === "ml" && <MlTab mlCounts={mlCounts} canTrain={isAdmin || hasActionPermission(currentUser, "Action: Train ML Model")} />}
       {tab === "ai-smtp" && <AiSmtpTab config={config} configLoading={configLoading} saveConfigMutation={saveConfigMutation} readOnly={!isAdmin} />}
       {tab === "users" && <UsersRolesTab user={currentUser} />}
       {tab === "application" && <ApplicationSettingsTab user={currentUser} />}
@@ -754,12 +746,6 @@ function RssTab({ lists, queryClient, canManage }: { lists: any; queryClient: an
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["settings-articles"] }); },
   });
 
-  const feedbackMut = useMutation({
-    mutationFn: ({ articleId, feedback }: { articleId: number; feedback: number }) =>
-      api.post("/dashboard/articles/feedback", null, { params: { article_id: articleId, feedback } }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["settings-articles"] }); },
-  });
-
   const { data: recentArticles } = useQuery({
     queryKey: ["settings-articles"],
     queryFn: () => api.get("/threat/articles", { params: { category: "live", page: 1, page_size: 20 } }).then(r => r.data),
@@ -774,7 +760,7 @@ function RssTab({ lists, queryClient, canManage }: { lists: any; queryClient: an
   if (!canManage) {
     return <div style={{ display: "grid", gap: "1.25rem" }}>
       <div role="status" style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-md)", padding: "0.75rem 1rem", color: "var(--text-secondary)", fontSize: "0.8rem" }}>
-        Read-only access. An administrator manages RSS feeds, scoring keywords, and article feedback.
+        Read-only access. An administrator manages RSS feeds and scoring keywords.
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
         <Card title="Keywords" icon={Globe}>
@@ -883,9 +869,9 @@ function RssTab({ lists, queryClient, canManage }: { lists: any; queryClient: an
         </Card>
       </div>
 
-      <Card title="Article Feedback Queue" icon={Brain} wide>
+      <Card title="Recent Articles" icon={Rss} wide>
         <p style={{ color: "var(--text-muted)", fontSize: "0.75rem", margin: "0 0 0.75rem" }}>
-          Recent articles — use Keep/Dismiss to train keyword weights, Pin to bookmark, +15 Score to elevate.
+          Pin an article to bookmark it or use +15 Score to elevate it.
         </p>
         {articles.length === 0 ? (
           <div style={{ color: "var(--text-muted)", fontSize: "0.85rem", padding: "1rem 0", textAlign: "center" }}>No articles loaded. Fetch RSS feeds to populate.</div>
@@ -908,12 +894,6 @@ function RssTab({ lists, queryClient, canManage }: { lists: any; queryClient: an
                   <button onClick={() => boostScoreMut.mutate(art.id)} style={{ background: "none", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", color: "var(--text-secondary)", cursor: "pointer", padding: "0.2rem 0.35rem", fontSize: "0.7rem", display: "inline-flex", alignItems: "center", gap: "0.15rem" }}>
                     +15
                   </button>
-                  <button onClick={() => feedbackMut.mutate({ articleId: art.id, feedback: 2 })} style={{ background: "none", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", color: "var(--accent-green)", cursor: "pointer", padding: "0.2rem 0.35rem", fontSize: "0.7rem", display: "inline-flex", alignItems: "center", gap: "0.15rem" }}>
-                    <ThumbsUp size={11} /> Keep
-                  </button>
-                  <button onClick={() => feedbackMut.mutate({ articleId: art.id, feedback: 1 })} style={{ background: "none", border: "1px solid var(--border-primary)", borderRadius: "var(--radius-sm)", color: "#f87171", cursor: "pointer", padding: "0.2rem 0.35rem", fontSize: "0.7rem", display: "inline-flex", alignItems: "center", gap: "0.15rem" }}>
-                    <ThumbsDown size={11} /> Dismiss
-                  </button>
                 </div>
               </div>
             ))}
@@ -925,41 +905,7 @@ function RssTab({ lists, queryClient, canManage }: { lists: any; queryClient: an
 }
 
 /* ============================
-   4. ML TRAINING TAB
-   ============================ */
-function MlTab({ mlCounts, canTrain }: { mlCounts: any; canTrain: boolean }) {
-  const queryClient = useQueryClient();
-  const retrain = useMutation({
-    mutationFn: () => api.post("/application-settings/ml-retrain"),
-    onSuccess: () => { alert("Model retrained."); queryClient.invalidateQueries({ queryKey: ["application-ml-counts"] }); },
-    onError: (e: any) => alert("Error: " + (e.response?.data?.detail || e.message)),
-  });
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "1rem" }}>
-        <Card title="Total Samples" icon={Database}>
-          <div style={{ fontSize: "2rem", fontWeight: 700, color: "var(--accent-blue)" }}>{mlCounts?.total ?? 0}</div>
-        </Card>
-        <Card title="Positives (Kept)" icon={Brain}>
-          <div style={{ fontSize: "2rem", fontWeight: 700, color: "var(--accent-orange)" }}>{mlCounts?.positive ?? 0}</div>
-        </Card>
-        <Card title="Negatives (Dismissed)" icon={Brain}>
-          <div style={{ fontSize: "2rem", fontWeight: 700, color: "var(--accent-red)" }}>{mlCounts?.negative ?? 0}</div>
-        </Card>
-      </div>
-      <Card title="Model Training">
-        {canTrain ? <button onClick={() => retrain.mutate()} disabled={retrain.isPending} style={btn("var(--accent-cyan)")}>
-          {retrain.isPending ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
-          {retrain.isPending ? "Training..." : "Retrain Model Now"}
-        </button> : <p role="status" style={{ color: "var(--text-muted)", fontSize: "0.8rem", margin: 0 }}>Your role can view training statistics. Retraining requires the Train ML Model action.</p>}
-      </Card>
-    </div>
-  );
-}
-
-/* ============================
-   5. AI & SMTP TAB
+   4. AI & SMTP TAB
    ============================ */
 function AiSmtpTab({ config, configLoading, saveConfigMutation, readOnly }: { config: any; configLoading: boolean; saveConfigMutation: any; readOnly: boolean }) {
   const [form, setForm] = useState<any>(null);

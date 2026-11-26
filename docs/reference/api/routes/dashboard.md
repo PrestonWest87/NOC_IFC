@@ -42,7 +42,6 @@ All article mutation parameters are query parameters, not JSON bodies.
 |---|---|---|
 | `POST /articles/toggle-pin?article_id=...` | Operational tab + `Action: Pin Articles` | Toggles the article's shared pin state. |
 | `POST /articles/boost-score?article_id=...&amount=15` | Operational tab + `Action: Boost Threat Score` | Adds a 1–100 amount; score is capped at 100. |
-| `POST /articles/feedback?article_id=...&feedback=...` | Operational tab + legacy `Action: Trigger AI Functions` | Accepts 0 (neutral), 1 (dismiss), or 2 (keep). A first transition from neutral to 1/2 adjusts matched keyword weights by one; repeat feedback does not reapply the adjustment. |
 | `POST /articles/generate-bluf?article_id=...` | Operational tab + legacy `Action: Trigger AI Functions` | Generates and stores an article BLUF. Missing ID returns a controlled error result. |
 
 Detailed endpoint inventory and response notes are in [`API.md`](../../../API.md#dashboard-endpoints-dashboard).

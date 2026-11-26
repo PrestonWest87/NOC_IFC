@@ -7,7 +7,7 @@ import { ScatterplotLayer, PolygonLayer } from "@deck.gl/layers";
 import type { MapViewState } from "@deck.gl/core";
 import {
   Bug, ShieldAlert, Cpu, Cloud, Shield, CloudSun, Globe, Bot, FileText,
-  Pin, PinOff, ThumbsUp, ThumbsDown, Brain, ChevronLeft, ChevronRight,
+  Pin, PinOff, Brain, ChevronLeft, ChevronRight,
   RefreshCw, AlertTriangle, CheckCircle, MapPin, Activity, ChevronDown, ChevronUp,
 } from "lucide-react";
 import api from "../utils/api";
@@ -324,12 +324,6 @@ export function ThreatTelemetryPage() {
 
   const boostScoreMut = useMutation({
     mutationFn: (articleId: number) => api.post("/dashboard/articles/boost-score", null, { params: { article_id: articleId, amount: 15 } }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["articles"] }); },
-  });
-
-  const feedbackMut = useMutation({
-    mutationFn: ({ articleId, feedback }: { articleId: number; feedback: number }) =>
-      api.post("/dashboard/articles/feedback", null, { params: { article_id: articleId, feedback } }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["articles"] }); },
   });
 
@@ -723,12 +717,6 @@ export function ThreatTelemetryPage() {
                     {canBoost && <button onClick={(e) => { e.stopPropagation(); boostScoreMut.mutate(art.id); }} style={s.btn} title="+15 Score">
                       +15 Score
                     </button>}
-                    {canAi && <button onClick={(e) => { e.stopPropagation(); feedbackMut.mutate({ articleId: art.id, feedback: 2 }); }} style={s.btn} title="Keep">
-                      <ThumbsUp size={12} style={{ verticalAlign: "middle" }} /> Keep
-                    </button>}
-                    {canAi && <button onClick={(e) => { e.stopPropagation(); feedbackMut.mutate({ articleId: art.id, feedback: 1 }); }} style={{ ...s.btn, color: "#f87171" }} title="Dismiss">
-                      <ThumbsDown size={12} style={{ verticalAlign: "middle" }} /> Dismiss
-                    </button>}
                     {canAi && !art.ai_bluf && (
                       <button onClick={(e) => { e.stopPropagation(); blufMut.mutate(art.id); }} style={{ ...s.btn, color: "var(--accent-blue, #38bdf8)" }} title="Generate BLUF">
                         <Brain size={12} style={{ verticalAlign: "middle" }} /> BLUF
@@ -755,12 +743,6 @@ export function ThreatTelemetryPage() {
               </button>}
               {canBoost && <button onClick={(e) => { e.stopPropagation(); boostScoreMut.mutate(art.id); }} style={s.btn} title="+15 Score">
                 +15 Score
-              </button>}
-              {canAi && <button onClick={(e) => { e.stopPropagation(); feedbackMut.mutate({ articleId: art.id, feedback: 2 }); }} style={s.btn} title="Keep">
-                <ThumbsUp size={12} style={{ verticalAlign: "middle" }} /> Keep
-              </button>}
-              {canAi && <button onClick={(e) => { e.stopPropagation(); feedbackMut.mutate({ articleId: art.id, feedback: 1 }); }} style={{ ...s.btn, color: "#f87171" }} title="Dismiss">
-                <ThumbsDown size={12} style={{ verticalAlign: "middle" }} /> Dismiss
               </button>}
               {canAi && !art.ai_bluf && (
                 <button onClick={(e) => { e.stopPropagation(); blufMut.mutate(art.id); }} style={{ ...s.btn, color: "var(--accent-blue, #38bdf8)" }} title="Generate BLUF">

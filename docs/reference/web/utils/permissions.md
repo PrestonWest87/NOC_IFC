@@ -41,7 +41,6 @@ Permission mapping and resolution utilities for tab-level access control. Maps a
 | `settings` | `Tab: Settings -> Facility Locations` | `"facilities"` |
 | `settings` | `Tab: Settings -> Internal Assets` | `"assets"` |
 | `settings` | `Tab: Settings -> RSS Sources` | `"rss"` |
-| `settings` | `Tab: Settings -> ML Training` | `"ml"` |
 | `settings` | `Tab: Settings -> AI & SMTP` | `"ai-smtp"` |
 | `settings` | `Tab: Settings -> Application Settings` | `"application"` |
 | `settings` | `Tab: Settings -> Users & Roles` | `"users"` |

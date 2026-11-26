@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../NocIfc.Domain/NocIfc.Domain.csproj" />
+    <EmbeddedResource Include="../../contracts/permission_catalog.json" LogicalName="NocIfc.Application.permission_catalog.json" />
+  </ItemGroup>
+</Project>

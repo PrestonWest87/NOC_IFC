@@ -99,11 +99,11 @@ def log_memory_usage(tag=""):
 _global_scorer = None
 
 def _ensure_scorer():
-    """Load the process-local HybridScorer on first use and reuse it afterward."""
+    """Load the process-local keyword scorer on first use and reuse it afterward."""
     global _global_scorer
     if _global_scorer is None:
         from src.services.logic import get_scorer
-        log("Loading NLP Scorer into memory...", "SYSTEM")
+        log("Loading keyword scorer into memory...", "SYSTEM")
         _global_scorer = get_scorer()
     return _global_scorer
 
@@ -972,28 +972,6 @@ def job_tiered_alert_escalation(now_utc=None):
 
     gc.collect()
 
-# =====================================================================
-# 4. AUTOMATED ML RETRAINING
-# =====================================================================
-
-def job_retrain_ml():
-    """Automated Weekly ML Retraining Pipeline"""
-    global _global_scorer
-    from src.train_model import train
-    log("[AI] Initiating weekly ML Model Retraining...", "SYSTEM")
-    try:
-        train()
-        log("[OK] ML Model retrained successfully and saved to disk.", "SYSTEM")
-        
-        # Hot-Reload the scorer in memory so the new neural weights take effect immediately
-        _global_scorer = None
-        _ensure_scorer()
-        log(" Global NLP Scorer hot-reloaded with fresh model weights.", "SYSTEM")
-        
-    except Exception as e:
-        log(f"[ERROR] ML Training Pipeline failed: {e}", "SYSTEM")
-
-
 def job_database_backup():
     """Create the weekly encrypted full-database backup."""
     from src.core.backup_manager import create_backup
@@ -1086,7 +1064,6 @@ def _scheduler_functions():
         "job_unified_brief": job_unified_brief,
         "fetch_cisa_kev": fetch_cisa_kev,
         "job_global_brief": job_global_brief,
-        "job_retrain_ml": job_retrain_ml,
         "job_database_backup": job_database_backup,
         "job_daily_email_unified_brief": job_daily_email_unified_brief,
         "job_operational_email_queue": job_operational_email_queue,
@@ -1203,7 +1180,7 @@ def run_scheduler():
 
 
 def _reload_worker_runtime_after_restore():
-    """Discard ORM/service/model state cached before an in-place full restore."""
+    """Discard ORM/service/scorer state cached before an in-place full restore."""
     global _loaded_scheduler_revision
     from src import services as svc
 

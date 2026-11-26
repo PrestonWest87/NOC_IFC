@@ -17,7 +17,7 @@ The detailed module pages live under `docs/reference/`. The current source-to-re
 | Database lifecycle | `src/core/db.py` | `reference/core/db.md` |
 | SQLite migrations | `src/core/migration_runner.py`, `alembic.ini`, `migrations/env.py`, `migrations/schema_v1.py`, `migrations/versions/*.py` | `reference/core/migration_runner.md`, `MIGRATION_COMPATIBILITY.md` |
 | Bootstrap seeding | `src/core/bootstrap.py` | `reference/core/bootstrap.md` |
-| Permission catalog | `src/core/permissions.py` | `reference/core/permissions.md` |
+| Shared permission catalog | `contracts/permission_catalog.json`, `src/core/permissions.py` | `reference/core/permissions.md` |
 | Scheduler registry | `src/core/scheduler_registry.py` | `reference/core/scheduler_registry.md`, `SCHEDULER.md` |
 | Persistent data/model paths | `src/core/paths.py` | `reference/core/paths.md` |
 | Encrypted backups and restore | `src/core/backup_manager.py`, `src/core/restore_control.py`, `src/core/ui_restore.py` | `reference/core/backup_restore.md`, `MAINTENANCE.md` |
@@ -39,7 +39,6 @@ The detailed module pages live under `docs/reference/`. The current source-to-re
 | Scheduler | `src/scheduler.py` | `SCHEDULER.md`, `reference/scheduler.md` |
 | Workers | `src/workers/*.py` | `reference/workers/` |
 | Webhook | `src/webhook_listener.py` | `WEBHOOK.md`, `reference/api/webhook_listener.md` |
-| ML training | `src/train_model.py` | `reference/train_model.md` |
 | Operational scripts | `scripts/*.py` | `reference/scripts/` and `reference/core/backup_restore.md` |
 
 ## Frontend Modules

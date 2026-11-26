@@ -21,7 +21,7 @@ external feeds / webhook / API actions
       FastAPI, React, WebSocket, SMTP
 ```
 
-API, worker, and webhook use one shared SQLite file on the `./data-dev` volume in this dev Compose project. Migrations execute before normal service work. Full encrypted backups snapshot the SQLite file and persistent model artifact; environment secrets remain outside the package.
+API, worker, and webhook use one shared SQLite file on the `./data-dev` volume in this dev Compose project. Migrations execute before normal service work. Full encrypted backups snapshot the SQLite file; legacy classifier artifacts are no longer generated or restored, and environment secrets remain outside the package.
 
 ## 1. RSS ingestion, scoring, and article enrichment
 
@@ -33,7 +33,7 @@ active FeedSource rows
   -> known links published in prior 7 days
   -> aiohttp fetch in chunks of 5 (15 s/feed)
   -> parse each feed's entries
-  -> HybridScorer(title + summary)
+  -> KeywordScorer(title + summary)
   -> categorizer(title + summary)
   -> IOC extraction when score >= 50 and category starts "Cyber"
   -> per-article nested-transaction insert
@@ -45,18 +45,9 @@ active FeedSource rows
 
 Articles with score at least 40 start with enrichment status `pending`. The separate enrichment job selects pending/failed rows with fewer than three attempts, uses two fetch workers, stores at most 200,000 characters, and writes success/failure metadata. It is not part of the RSS request path.
 
-### Hybrid article score
+### Keyword article score
 
-Keyword score is the sum of each configured keyword weight found as a lowercase substring. If the optional scikit-learn model exists, `predict_proba()` adjusts that score:
-
-| Condition | Effect |
-|---|---|
-| Keep probability ≥0.75 and keyword score <50 | Raise score to at least 65 |
-| Keep probability ≤0.25 and keyword score ≥50 | Reduce current score by 60% |
-| Keep probability >0.50 and score >0 | Add `keep_probability * 10` |
-| Final result | Cap at 100 |
-
-An article is `is_bubbled` at score ≥45. IOC extraction uses a separate score ≥50 gate and a category prefix of `Cyber`. Keyword weights edited through the API are constrained to 1–100 and reload the in-process scorer. The optional model trains on `human_feedback=1` (noise) and `2` (keep), requires at least 10 labels, and is atomically written under the SQLite data directory.
+The score is the sum of each configured keyword weight found as a lowercase substring, capped at 100. Matching keyword names are stored as reasons. Keyword weights edited through the API are constrained to 1–100 and reload the in-process scorer. An article is `is_bubbled` at score ≥45. IOC extraction uses a separate score ≥50 gate and a category prefix of `Cyber`.
 
 ### Category names
 
@@ -193,7 +184,7 @@ All worker data freshness depends on upstream provider availability. Empty/no-ne
 
 The `database_maintenance` job runs every 60 minutes by default. It deletes old rows using the exact windows in [`MAINTENANCE.md`](MAINTENANCE.md#scheduled-maintenance-and-retention), cleans orphaned IOCs, expires recovery records, then attempts SQLite `PRAGMA optimize` and a passive WAL checkpoint. Article deduplication also runs after each RSS cycle.
 
-The encrypted backup job is weekly Sunday 00:00 Central, cannot be disabled, and keeps the newest three scheduled packages. Manual/pre-restore safety backups use separate retention. Backup/restore uses the SQLite online backup API, versioned manifest, checksums, AES-256-GCM chunk authentication, persistent model artifact, restore migration, maintenance drain, atomic installation, and rollback. `.env` is not included.
+The encrypted backup job is weekly Sunday 00:00 Central, cannot be disabled, and keeps the newest three scheduled packages. Manual/pre-restore safety backups use separate retention. Backup/restore uses the SQLite online backup API, versioned manifest, checksums, AES-256-GCM chunk authentication, restore migration, maintenance drain, atomic installation, and rollback. Legacy optional model entries are validated but ignored on restore. `.env` is not included.
 
 ## Known wire contracts
 

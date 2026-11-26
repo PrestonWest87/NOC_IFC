@@ -1,37 +1,22 @@
-"""Combine persisted keyword weights with an optional reloadable ML scorer."""
+"""Score articles with the configured keyword weights."""
 
-import os
 import logging
-import joblib
 from src.core.db import SessionLocal
-from src.core.paths import ml_model_path
 from src.models.schema import Keyword
 
 logger = logging.getLogger(__name__)
 
-class HybridScorer:
-    """Score article text from a database keyword snapshot plus an optional ML model."""
+class KeywordScorer:
+    """Score article text from a snapshot of persisted keyword weights."""
 
-    def __init__(self, model_path=None):
-        """Load the persisted model when present and snapshot configured keyword weights."""
-        if model_path is None:
-            model_path = str(ml_model_path())
-        self.model_path = model_path
-        self.model = None
-
-        if os.path.exists(self.model_path):
-            logger.info("HybridScorer: loading ML model from %s", model_path)
-            self.model = joblib.load(self.model_path)
-            logger.info("HybridScorer: model loaded successfully")
-        else:
-            logger.warning("HybridScorer: no ML model found at %s, using keyword-only scoring", model_path)
-
+    def __init__(self):
+        """Snapshot configured keyword weights for repeatable scoring within a process."""
         with SessionLocal() as session:
             self.keywords = {k.word.lower(): k.weight for k in session.query(Keyword).all()}
-            logger.info("HybridScorer: loaded %d keywords from database", len(self.keywords))
+            logger.info("KeywordScorer: loaded %d keywords from database", len(self.keywords))
 
     def score(self, text: str):
-        """Return a capped score and reasons after keyword scoring and ML adjustments."""
+        """Return a score capped at 100 and the matching keyword reasons."""
         text_lower = text.lower()
         reasons = []
 
@@ -42,46 +27,21 @@ class HybridScorer:
                 reasons.append(word)
 
         logger.debug("score: keyword_score=%.1f matched_keywords=%d", kw_score, len(reasons))
-        final_score = kw_score
-
-        if self.model:
-            prediction_probs = self.model.predict_proba([text_lower])[0]
-
-            if len(prediction_probs) > 1:
-                keep_prob = prediction_probs[1]
-            else:
-                keep_prob = 1.0 if self.model.classes_[0] == 1 else 0.0
-
-            if keep_prob >= 0.75 and final_score < 50.0:
-                final_score = max(final_score, 65.0)
-                reasons.append(f"[AI] AI Boost: Hidden Threat Detected (Confidence: {int(keep_prob * 100)}%)")
-
-            elif keep_prob <= 0.25 and final_score >= 50.0:
-                noise_confidence = int((1 - keep_prob) * 100)
-                penalty = final_score * 0.60
-                final_score -= penalty
-                reasons.append(f"[AI] AI Penalty: Context identified as Noise (Confidence: {noise_confidence}%)")
-
-            elif keep_prob > 0.50 and final_score > 0:
-                bonus = keep_prob * 10.0
-                final_score += bonus
-                reasons.append(f"[AI] AI Synergy Bonus (+{int(bonus)})")
-
-        logger.debug("score: final_score=%.1f ml_boost=%s", final_score, self.model is not None)
-        return min(final_score, 100.0), reasons
+        logger.debug("score: keyword_score=%.1f matched_keywords=%d", kw_score, len(reasons))
+        return min(kw_score, 100.0), reasons
 
 _SCORER_INSTANCE = None
 
 def get_scorer():
-    """Return the lazily initialized process-local scorer singleton."""
+    """Return the lazily initialized process-local keyword scorer."""
     global _SCORER_INSTANCE
     if _SCORER_INSTANCE is None:
-        logger.info("get_scorer: creating new HybridScorer instance")
-        _SCORER_INSTANCE = HybridScorer()
+        logger.info("get_scorer: creating new KeywordScorer instance")
+        _SCORER_INSTANCE = KeywordScorer()
     return _SCORER_INSTANCE
 
 def force_reload_scorer():
-    """Replace the process-local scorer so model/keyword changes take effect."""
+    """Replace the process-local scorer so keyword changes take effect."""
     global _SCORER_INSTANCE
-    logger.info("force_reload_scorer: reloading scorer with fresh model and keywords")
-    _SCORER_INSTANCE = HybridScorer()
+    logger.info("force_reload_scorer: reloading scorer with fresh keyword weights")
+    _SCORER_INSTANCE = KeywordScorer()

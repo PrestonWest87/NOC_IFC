@@ -60,7 +60,7 @@ The API uses `src.core.db`; the scheduler imports the compatibility surface from
 
 ### Correlation and scoring
 
-- `HybridScorer` combines configured keyword weights with the persisted ML model when available.
+- `KeywordScorer` sums configured keyword weights and records the matched keywords as score reasons.
 - `categorize_text` assigns article categories using the categorizer rules.
 - `EnterpriseIOCExtractor` refangs and extracts indicators, validates IPs, and attaches context.
 - `EnterpriseAIOpsEngine` maps devices into the ontology, clusters alerts by site, finds fleet outages, identifies patient zero, calculates root cause, and produces chronic insights. Its canonical Internet-domain key is `INTERNET`; `PRIMARY_INTERNET` is accepted as a normalized compatibility alias. Unclassified devices return `UNKNOWN_DOMAIN` from the engine.
@@ -72,7 +72,7 @@ The API uses `src.core.db`; the scheduler imports the compatibility surface from
 
 1. `fetch_feeds` reads active `FeedSource` rows and links published in the preceding seven days.
 2. `fetch_all_feeds_chunked` downloads up to five feeds concurrently per chunk with a 15-second request timeout.
-3. `parse_and_score_feed` scores the title plus summary with `HybridScorer`, assigns the category returned by the current regex categorizer, and extracts IOCs only when score is at least 50 and category starts with `Cyber`.
+3. `parse_and_score_feed` scores the title plus summary with `KeywordScorer`, assigns the category returned by the current regex categorizer, and extracts IOCs only when score is at least 50 and category starts with `Cyber`.
 4. `bulk_save_to_db` persists each article and its IOC rows in a per-article nested transaction, then commits the cycle's successful inserts.
 5. `enrich_pending_articles` separately fetches full text for articles scoring at least 40, with at most three attempts and a 200,000-character storage bound.
 6. `deduplicate_articles` runs after each feed cycle. It removes recent exact-link duplicates and title pairs over the 85% RapidFuzz ratio threshold within source-domain/hour/title-length buckets.
@@ -91,7 +91,7 @@ The web build precompiles and serves local contiguous-US state outlines plus Ark
 
 The API middleware reads a Bearer session token supplied by the frontend and attaches the authenticated user to protected requests; legacy `token` and `session_token` query parameters remain accepted. Login creates an opaque database-backed session token; this is not JWT authentication. 401 responses invalidate the frontend session; 403 responses return structured permission details and preserve it. The WebSocket endpoint requires `?token=<session token>`, the `AIOps RCA` page and `Tab: AIOps RCA -> Active Board`, periodically revalidates the session/grants, filters payloads by allowed site types, and authorizes client commands separately.
 
-RBAC is represented by role page permissions, action permissions, tab permissions, and allowed site types. `src/core/permissions.py` is the canonical permission catalog used by the role editor; frontend permission utilities mirror its keys. Sensitive operations have distinct grants for report generation, report dispatch, arbitrary email, risk overrides, scheduler changes, user/role management, and recovery review. The full key list and built-in role rules are in [Permissions](PERMISSIONS.md). Backend route dependencies remain authoritative; the frontend hides/labels controls for usability.
+RBAC is represented by role page permissions, action permissions, tab permissions, and allowed site types. `contracts/permission_catalog.json` is the shared permission contract; the Python adapter and C# API consume the same keys, while frontend permission utilities map those keys to local page/tab identifiers. Sensitive operations have distinct grants for report generation, report dispatch, arbitrary email, risk overrides, scheduler changes, user/role management, and recovery review. The full key list and built-in role rules are in [Permissions](PERMISSIONS.md). Backend authorization remains authoritative; the frontend hides/labels controls for usability.
 
 Individual accounts are created through email invitations. Administrator-created display accounts may omit email and use administrator-assisted recovery. Recovery-email changes and password resets are queued for permission-based user-administrator review; approved recovery addresses must also be mailbox-verified.
 
@@ -125,7 +125,7 @@ After migrations, SQLite startup enables WAL. Each NullPool connection receives 
 | Engine/session/migrations/seeds | `src/core/db.py` |
 | API lifecycle and WebSocket | `src/api/main.py`, `src/api/ws_manager.py` |
 | Authentication middleware | `src/api/auth_guard.py` |
-| Canonical permissions | `src/core/permissions.py` |
+| Shared permission contract | `contracts/permission_catalog.json` |
 | Route handlers | `src/api/routes/*.py` |
 | Services and DAL | `src/services.py`, `src/services/*.py` |
 | Scheduler registry, persistence, and reload | `src/core/scheduler_registry.py`, `src/scheduler.py` |

@@ -61,15 +61,12 @@ $ du -sh data 2>/dev/null || true
 ## Weekly Checklist
 
 1. Review high-volume and repeatedly failing feed sources.
-2. Review keyword weights, unused keywords, and analyst feedback in Keyword Analysis.
-3. Confirm the article corpus has enough labeled feedback before ML retraining.
-4. Review site maintenance records, stale alerts, and recurring RCA patterns.
-5. Confirm a current database backup can be located and opened.
-6. Review user roles, inactive accounts, page permissions, action permissions, and site-type access.
-7. Review webhook signing configuration and source IP restrictions.
-8. Review Docker image age and dependency security findings.
-
-ML retraining runs Sunday at 02:00 and requires at least 10 labeled articles. The trained model is reloaded by the worker after successful training.
+2. Review keyword weights and unused keywords in Keyword Analysis.
+3. Review site maintenance records, stale alerts, and recurring RCA patterns.
+4. Confirm a current database backup can be located and opened.
+5. Review user roles, inactive accounts, page permissions, action permissions, and site-type access.
+6. Review webhook signing configuration and source IP restrictions.
+7. Review Docker image age and dependency security findings.
 
 ## Monthly Checklist
 
@@ -110,7 +107,7 @@ The job also runs SQLite optimization and a passive WAL checkpoint. Pinned artic
 
 ## Database Backups
 
-The full-backup service uses SQLite's online backup API, so a snapshot is consistent while the API and worker are writing (including committed WAL content). It captures the complete SQLite database rather than an ORM allowlist, and includes the persistent ML model artifact when present. Stored database credentials are inside the encrypted database snapshot; `.env` and environment secrets are intentionally outside the package.
+The full-backup service uses SQLite's online backup API, so a snapshot is consistent while the API and worker are writing (including committed WAL content). It captures the complete SQLite database rather than an ORM allowlist. New packages do not include the retired article classifier; legacy optional model entries are validated but ignored on restore. Stored database credentials are inside the encrypted database snapshot; `.env` and environment secrets are intentionally outside the package.
 
 Configure `BACKUP_ENCRYPTION_ACTIVE_KEY_ID` and `BACKUP_ENCRYPTION_KEYS` in the deployment environment before using backup operations. Each key is 32 random bytes encoded as 64 hex characters; `BACKUP_ENCRYPTION_KEYS` is a JSON map from key IDs to keys. Generate a key with `python -c 'import secrets; print(secrets.token_hex(32))'`. Protect it separately from the application host and retain previous key IDs while backups still use them. Losing a key makes its backups unrecoverable. `.env` is not stored in backup packages.
 
@@ -142,7 +139,7 @@ docker compose run --rm --no-deps api python scripts/restore_backup.py \
   /app/data/backups/staged/<stage-id>.nocbackup --maintenance-confirmed
 ```
 
-The UI restore and offline command decrypt and validate the package, upgrade the staged database to the packaged application's migration head, create an encrypted pre-restore safety backup, invalidate restored login sessions and outstanding registration/reset/recovery-email links, and atomically install the database and model artifact. On success, all staged restore packages are removed; the permanent manual/scheduled backups and pre-restore safety package remain. Request and account-audit history are preserved. If validation or installation fails, the live files are left intact or rolled back and staged packages remain available for retry. For the offline command, keep all writers stopped until it exits. If it exits with an error, review the output and bring the services back up before troubleshooting.
+The UI restore and offline command decrypt and validate the package, upgrade the staged database to the packaged application's migration head, create an encrypted pre-restore safety backup, invalidate restored login sessions and outstanding registration/reset/recovery-email links, and atomically install the database. On success, all staged restore packages are removed; the permanent manual/scheduled backups and pre-restore safety package remain. Request and account-audit history are preserved. If validation or installation fails, the live database is left intact or rolled back and staged packages remain available for retry. For the offline command, keep all writers stopped until it exits. If it exits with an error, review the output and bring the services back up before troubleshooting.
 
 The backup directory labels pre-restore safety snapshots separately from user-created manual backups. Packages created before this label was added may still appear as manual backups until their manifest is checked and they are relabeled.
 
@@ -154,7 +151,7 @@ For a failed release, use the rollback tag or a previously verified image/commit
 
 ## Scheduler Maintenance
 
-The worker registers all configured schedules during boot, then submits only the registry entries marked `startup_run` through a bounded two-thread executor. Boot can therefore immediately generate external requests and LLM work; daily email, Daily Fusion report, ML retraining, database maintenance, and weekly backup wait for their configured times. See [Scheduler](SCHEDULER.md) for the exact boot groups.
+The worker registers all configured schedules during boot, then submits only the registry entries marked `startup_run` through a bounded two-thread executor. Boot can therefore immediately generate external requests and LLM work; daily email, Daily Fusion report, database maintenance, and weekly backup wait for their configured times. See [Scheduler](SCHEDULER.md) for the exact boot groups.
 
 Current high-impact jobs include:
 
@@ -167,7 +164,6 @@ Current high-impact jobs include:
 - Global brief daily at 02:00.
 - Encrypted full-database backup Sunday at 00:00 Central; latest three scheduled packages retained.
 - Daily email brief at 07:00 Central time.
-- ML retraining Sunday at 02:00.
 
 Schedules are registry-managed and configurable from Settings > Application Settings; escalation and encrypted database backup cannot be disabled. The worker reloads persisted schedule changes without a restart. Updating a Markdown table does not change runtime behavior.
 

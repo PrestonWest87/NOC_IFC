@@ -114,7 +114,7 @@ The documentation pass covers algorithms in `src/services.py`, `src/services/log
 
 **Status:** Complete.
 
-Document `src/utils/llm.py`, `src/utils/mailer.py`, `src/utils/risk_alert.py`, `src/train_model.py`, and `src/workers/report_worker.py`. Capture context-window resolution, timeout/fallback behavior, map/reduce sequencing, progress-store lifetime, trusted/untrusted prompt inputs, email recipient/config requirements, training labels/minimum sample count, and atomic model replacement.
+Document `src/utils/llm.py`, `src/utils/mailer.py`, `src/utils/risk_alert.py`, and `src/workers/report_worker.py`. Capture context-window resolution, timeout/fallback behavior, map/reduce sequencing, progress-store lifetime, trusted/untrusted prompt inputs, and email recipient/config requirements. Classifier training has been retired.
 
 ### Phase 5 — Frontend state and page contracts
 

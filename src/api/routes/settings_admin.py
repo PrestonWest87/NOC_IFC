@@ -165,7 +165,6 @@ def add_keywords(raw_text: str = ""):
     svc.add_bulk_keywords(raw_text)
     return {"status": "ok"}
 
-
 @router.post("/feeds/bulk")
 def add_feeds(raw_text: str = ""):
     """Parse and add a newline-delimited RSS feed list."""
@@ -202,14 +201,6 @@ def delete_feed(feed_id: int):
     logger.info("DELETE /admin/feeds/%d", feed_id)
     svc.delete_record("FeedSource", feed_id)
     return {"status": "ok"}
-
-
-@router.get("/ml-counts")
-def ml_counts():
-    """Return the positive/negative article-label counts used by model training."""
-    logger.debug("GET /admin/ml-counts")
-    pos, neg, total = svc.get_ml_counts()
-    return {"positive": pos, "negative": neg, "total": total}
 
 
 @router.post("/config")
@@ -769,19 +760,3 @@ def maintenance():
     from src.scheduler import run_database_maintenance
     run_database_maintenance()
     return {"status": "ok"}
-
-
-@router.post("/ml-retrain")
-def ml_retrain():
-    """Run legacy administrator-only training and reload the in-process scorer."""
-    logger.info("POST /admin/ml-retrain")
-    from src.train_model import train
-    from src.services.logic import force_reload_scorer
-    try:
-        train()
-        force_reload_scorer()
-        logger.info("POST /admin/ml-retrain success")
-        return {"status": "ok", "message": "Model retrained and scorer reloaded."}
-    except Exception as e:
-        logger.error("POST /admin/ml-retrain failed: %s", e)
-        return {"status": "error", "message": str(e)}

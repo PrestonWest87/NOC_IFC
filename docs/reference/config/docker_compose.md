@@ -123,5 +123,5 @@ Services attach to Docker's built-in `bridge` network. The `web` and `web-dev` c
 
 | Host Path | Container Path | Services | Purpose |
 |-----------|---------------|----------|---------|
-| `./data-dev` | `/app/data` | api, worker, webhook | Dev SQLite DB, cached data, and model artifacts; separate from existing `./data` |
+| `./data-dev` | `/app/data` | api, worker, webhook | Dev SQLite DB and cached data; separate from existing `./data` |
 | `./web` | `/app` | web-dev | Frontend source for Vite HMR |

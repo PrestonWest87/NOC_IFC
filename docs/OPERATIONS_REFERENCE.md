@@ -79,7 +79,7 @@ These environment values remain supported as fallback runtime configuration. A d
 
 ## Frequency Controls
 
-The values below are registry defaults for all 22 jobs; a user with scheduler-management permission may save a different validated value in Settings > Application Settings. `src/core/scheduler_registry.py` is the source of truth. NWS alert polling and the operational email queue are fixed at one minute and cannot be disabled.
+The values below are registry defaults for all 21 jobs; a user with scheduler-management permission may save a different validated value in Settings > Application Settings. `src/core/scheduler_registry.py` is the source of truth. NWS alert polling and the operational email queue are fixed at one minute and cannot be disabled.
 
 | Behavior | Source location | Current value |
 |---|---|---:|
@@ -103,7 +103,6 @@ The values below are registry defaults for all 22 jobs; a user with scheduler-ma
 | Daily Fusion report | `JOB_REGISTRY["daily_fusion_report"]` | Daily 06:00 America/Chicago |
 | Daily email | `JOB_REGISTRY["daily_email_brief"]` | Daily 07:00 America/Chicago |
 | Operational email queue | `JOB_REGISTRY["operational_email_queue"]` | 1 minute (cannot be disabled) |
-| ML retraining | `JOB_REGISTRY["ml_retrain"]` | Sunday 02:00 America/Chicago |
 | Encrypted database backup | `JOB_REGISTRY["database_backup"]` | Sunday 00:00 America/Chicago (cannot be disabled) |
 
 The WebSocket dashboard broadcaster is independent of the scheduler and broadcasts every 10 seconds while clients are connected.
@@ -112,7 +111,7 @@ The WebSocket dashboard broadcaster is independent of the scheduler and broadcas
 
 Change these through the Settings UI or the corresponding `SystemConfig` fields, not by adding environment variables that the code does not read:
 
-- Keyword weights: `Keyword.weight`; validated by the keyword routes and applied by `HybridScorer`.
+- Keyword weights: `Keyword.weight`; validated by the keyword routes and applied by `KeywordScorer`.
 - Scoring mode and CIS overrides: `scoring_mode`, criticality/lethality overrides, and risk offsets.
 - LLM provider/model/context: `SystemConfig` LLM fields; `src/utils/llm.py` applies context-window limits.
 - Notification destinations and Elastic URL/key/TLS/query bounds: Settings > Application Settings; null overrides use the matching environment value.
@@ -122,4 +121,4 @@ Change these through the Settings UI or the corresponding `SystemConfig` fields,
 
 ## Safe Database Actions
 
-Create and verify an encrypted full SQLite backup through Settings > Backup & Restore before destructive work. Packages include all database tables and the trained model when present; `.env` secrets remain separate. Restore uses the offline maintenance-window procedure in [Maintenance](MAINTENANCE.md#restore-and-disaster-recovery). The legacy Settings JSON exports cover only supported application-model subsets and are not full database backups. Schema migrations run automatically at backend startup; conditional bootstrap data preserves existing keyword weights and custom role grants.
+Create and verify an encrypted full SQLite backup through Settings > Backup & Restore before destructive work. New packages include all database tables; legacy optional classifier artifacts are validated but ignored on restore. `.env` secrets remain separate. Restore uses the offline maintenance-window procedure in [Maintenance](MAINTENANCE.md#restore-and-disaster-recovery). The legacy Settings JSON exports cover only supported application-model subsets and are not full database backups. Schema migrations run automatically at backend startup; conditional bootstrap data preserves existing keyword weights and custom role grants.

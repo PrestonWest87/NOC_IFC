@@ -21,6 +21,7 @@
 | Understand job timing and escalation | [SCHEDULER.md](SCHEDULER.md), [ESCALATION.md](ESCALATION.md) |
 | Understand ingestion pipelines | [DATA_FLOWS.md](DATA_FLOWS.md), [TRIGGER_ACTION_FLOWS.md](TRIGGER_ACTION_FLOWS.md) |
 | Review the source/docs audit | [DOCUMENTATION_AUDIT.md](DOCUMENTATION_AUDIT.md) |
+| Review code risks and future improvements | [REPOSITORY_AUDIT_2026-11-16.md](REPOSITORY_AUDIT_2026-11-16.md) |
 | Plan source docstrings and comments | [IN_CODE_DOCUMENTATION_PLAN.md](IN_CODE_DOCUMENTATION_PLAN.md) |
 | Review startup migration and efficiency work | [IMPLEMENTATION_PLAN_EFFICIENCY_AND_MIGRATIONS.md](IMPLEMENTATION_PLAN_EFFICIENCY_AND_MIGRATIONS.md), [implementation log](IMPLEMENTATION_LOG_EFFICIENCY_AND_MIGRATIONS.md) |
 

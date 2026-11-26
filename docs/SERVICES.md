@@ -22,7 +22,7 @@ Webhook gateway ────────┘                     │
 | Module | Responsibility | Detailed reference |
 |---|---|---|
 | `src/services.py` | Central data-access, scoring orchestration, account/recovery, site-scope and Settings reference directories, regional analytics, reporting, and compatibility operations | [`reference/services/services.md`](reference/services/services.md) |
-| `src/services/logic.py` | Keyword-plus-ML article score and lazy scorer reload | [`reference/services/logic.md`](reference/services/logic.md) |
+| `src/services/logic.py` | Keyword-only article score and lazy scorer reload | [`reference/services/logic.md`](reference/services/logic.md) |
 | `src/services/categorizer.py` | Regex categorization of article title/summary/full text | [`reference/services/categorizer.md`](reference/services/categorizer.md) |
 | `src/services/ioc_extractor.py` | Defanged indicator normalization, extraction, public-IP/domain filters, and context | [`reference/services/ioc_extractor.md`](reference/services/ioc_extractor.md) |
 | `src/services/aiops_engine.py` | SolarWinds alert clustering, canonical infrastructure domains, patient-zero ranking, fleet detection, root cause, and 60-day insights | [`reference/services/aiops_engine.md`](reference/services/aiops_engine.md) |
@@ -30,9 +30,8 @@ Webhook gateway ────────┘                     │
 | `src/utils/mailer.py` | SMTP message formatting, attachments, STARTTLS, and delivery result | [`reference/utils/mailer.md`](reference/utils/mailer.md) |
 | `src/utils/risk_alert.py` | Risk-tier increase detection, a shared four-hour send cooldown, and earthquake email formatting | [`reference/utils/risk_alert.md`](reference/utils/risk_alert.md) |
 | `src/utils/markdown.py` | Safe rendering of the supported Markdown subset for email reports | [`reference/utils/markdown.md`](reference/utils/markdown.md) |
-| `src/train_model.py` | Feedback-labeled TF-IDF/logistic-regression model and atomic artifact replacement | [`reference/train_model.md`](reference/train_model.md) |
 | `src/workers/*.py` | CISA KEV, regional hazards, cloud status, telemetry, crime, Elastic cache, and Daily Fusion inputs | [`reference/README.md`](reference/README.md) |
-| `src/scheduler.py` | Registered job execution, schedule reload, retention, escalation, and periodic model/brief jobs | [`SCHEDULER.md`](SCHEDULER.md), [`reference/scheduler.md`](reference/scheduler.md) |
+| `src/scheduler.py` | Registered job execution, schedule reload, retention, escalation, and periodic brief jobs | [`SCHEDULER.md`](SCHEDULER.md), [`reference/scheduler.md`](reference/scheduler.md) |
 
 ## Scoring and article enrichment
 
@@ -40,16 +39,9 @@ Webhook gateway ────────┘                     │
 
 `src/scheduler.py:fetch_feeds()` loads active feeds, builds a seven-day link set, downloads up to five feeds concurrently per chunk (15-second request timeout), then processes feed entries sequentially. Scoring and categorization use title plus summary. Article persistence uses one nested transaction per article so a duplicate does not discard unrelated rows. Full-content extraction is a separate job: it selects score-40-or-higher articles with fewer than three attempts, uses two fetch threads, and stores at most 200,000 characters.
 
-### Hybrid scoring
+### Keyword scoring
 
-`HybridScorer.score()` adds each matched keyword's configured weight. If a model exists, it predicts the probability for the `keep` class:
-
-- `keep_prob >= 0.75` and keyword score below 50 sets the score to at least 65.
-- `keep_prob <= 0.25` and keyword score at least 50 applies a 60% reduction.
-- `keep_prob > 0.50` with a positive score adds `keep_prob * 10` points.
-- The final score is capped at 100. Missing model files leave keyword-only scoring active.
-
-The persisted feedback mapping is `0=neutral`, `1=dismiss/noise`, `2=keep/important`. The first transition from neutral to a label adjusts each matched keyword by one point (floor 1 for a dismissal); later feedback updates do not repeat that adjustment. Manual keyword changes require weights 1–100 and reload the in-process scorer.
+`KeywordScorer.score()` adds the configured weight for each matched keyword and returns the matched words as score reasons. The score is capped at 100. Keep/Dismiss feedback and classifier training are retired; existing `human_feedback` values remain inert for database compatibility. Manual keyword changes require weights 1–100 and reload the in-process scorer.
 
 ### Current category and IOC contracts
 

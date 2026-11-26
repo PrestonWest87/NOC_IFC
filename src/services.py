@@ -125,9 +125,9 @@ def priority_tier(p):
     return int(m.group()) if m else 3
 
 def to_dotdict(obj):
-    """Convert an ORM row's mapped columns to attribute-accessible data, or return `None`."""
+    """Convert an ORM row to attribute-accessible data, omitting retired feedback values."""
     if not obj: return None
-    return DotDict({c.name: getattr(obj, c.name) for c in obj.__table__.columns})
+    return DotDict({c.name: getattr(obj, c.name) for c in obj.__table__.columns if c.name != "human_feedback"})
 
 def to_dotdict_list(objs):
     """Convert an iterable of ORM rows to `DotDict` values."""
@@ -2273,21 +2273,6 @@ def boost_score(art_id, amount=15):
     with SessionLocal() as db:
         a = db.query(Article).filter_by(id=art_id).first()
         if a: a.score = min(100.0, a.score + amount); db.commit()
-
-def change_status(art_id, new_feedback):
-    """Persist a feedback label and adjust matched keyword weights on the first non-neutral label."""
-    with SessionLocal() as db:
-        a = db.query(Article).filter_by(id=art_id).first()
-        if a:
-            if a.human_feedback == 0 and new_feedback in [1, 2] and a.keywords_found:
-                existing = {k.word: k for k in db.query(Keyword).filter(Keyword.word.in_(a.keywords_found)).all()}
-                for kw in a.keywords_found:
-                    kdb = existing.get(kw)
-                    if kdb:
-                        if new_feedback == 2: kdb.weight += 1
-                        elif new_feedback == 1: kdb.weight = max(1, kdb.weight - 1)
-            a.human_feedback = new_feedback
-            db.commit()
 
 def save_ai_bluf(art_id, bluf_text):
     """Persist a generated BLUF string on the target article when it exists."""
@@ -6149,7 +6134,7 @@ def add_bulk_keywords(raw_text):
         db.commit()
 
 def update_keyword_weight(keyword_id: int, weight: int):
-    """Update one 1–100 keyword weight and reload the in-process scorer."""
+    """Update one 1–100 keyword weight and reload the in-process keyword scorer."""
     if not isinstance(weight, int) or weight < 1 or weight > 100:
         raise ValueError("Weight must be an integer between 1 and 100")
     with SessionLocal() as db:
@@ -6183,12 +6168,6 @@ def get_admin_lists():
     """Return keyword, feed, and legacy user lists for administrator settings views."""
     with SessionLocal() as db:
         return to_dotdict_list(db.query(Keyword).order_by(Keyword.weight.desc()).all()), to_dotdict_list(db.query(FeedSource).all()), to_dotdict_list(db.query(User).all())
-
-def get_ml_counts():
-    """Return kept, dismissed, and total article feedback counts."""
-    with SessionLocal() as db:
-        pos, neg = db.query(Article).filter(Article.human_feedback == 2).count(), db.query(Article).filter(Article.human_feedback == 1).count()
-        return pos, neg, pos + neg
 
 def get_backup_data():
     """Export the legacy partial settings backup containing keywords, feeds, locations, and aliases."""
@@ -6453,12 +6432,12 @@ def recategorize_all_articles():
         return count
 
 def rescore_all_articles():
-    """Re-score all articles, refresh categories, and rebuild eligible cyber IOC rows."""
-    from src.services.logic import HybridScorer
+    """Re-score all articles from keywords, refresh categories, and rebuild eligible cyber IOC rows."""
+    from src.services.logic import KeywordScorer
     from src.services.categorizer import categorize_text
     from src.services.ioc_extractor import ioc_engine
 
-    scorer = HybridScorer()
+    scorer = KeywordScorer()
     ALERT_THRESHOLD = 45
     count = 0
 

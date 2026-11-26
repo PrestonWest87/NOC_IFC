@@ -70,7 +70,7 @@ On this dev branch, access the UI at `http://localhost:8503`. The Compose projec
 | Memory limit | 1.5 GB |
 | Environment | `.env` file |
 
-Runs all 22 registry-managed background jobs. The complete schedules, startup-run policy, and non-disableable jobs are maintained in [Scheduler and Background Jobs](SCHEDULER.md).
+Runs all 21 registry-managed background jobs. The complete schedules, startup-run policy, and non-disableable jobs are maintained in [Scheduler and Background Jobs](SCHEDULER.md).
 
 ### webhook — SolarWinds Gateway
 
@@ -366,7 +366,7 @@ All dev containers attach to Docker's built-in bridge network without allocating
 | Area | Current behavior | Production consideration |
 |------|------------------|--------------------------|
 | REST authentication | `authentication_middleware` protects `/api/v1/*` except the explicit login, registration/recovery, health, and readiness routes. Bearer tokens are preferred; query tokens remain for compatibility. | Configure the reverse proxy and access logs so session tokens are not recorded from legacy query-string clients. |
-| Authorization | Route dependencies enforce page, tab, action, administrator, and site-type grants. The canonical permission catalog is `src/core/permissions.py`. | Keep role grants least-privilege and verify any custom roles after upgrades. |
+| Authorization | Backend authorization enforces page, tab, action, administrator, and site-type grants. The shared catalog is `contracts/permission_catalog.json`; Python and C# adapters consume it. | Keep role grants least-privilege and verify any custom roles after upgrades. |
 | Administrative routes | Legacy `/admin/*` routes require the administrator role; newer user and application settings routes use their specific permissions. | Do not expose backend ports directly to untrusted networks. |
 | CORS | `CORS_ORIGINS` is an explicit origin list; the default allows the local production and development frontends. | Set only the deployed frontend origin(s). |
 | WebSocket | Requires a session token and AIOps page/Active Board access; sessions and permissions are revalidated, and site data is filtered. | Prefer TLS (`wss://`) through a reverse proxy and restrict direct access to host port 8102. |

@@ -8,7 +8,7 @@ import {
   RefreshCw, FileText, TrendingUp, Award,
   ExternalLink, ChevronDown, ChevronRight, Info, RotateCw, Send,
   X, Check, Clock, MapPin, Server, Mail, Zap, Loader2,
-  Pin, PinOff, ThumbsUp, ThumbsDown,
+  Pin, PinOff,
 } from "lucide-react";
 import api from "../utils/api";
 import { useAuth } from "../utils/AuthContext";
@@ -124,14 +124,12 @@ const btnArticle: React.CSSProperties = {
   lineHeight: 1,
 };
 
-function ArticleItem({ article, onPin, onBoost, onFeedback, canPin, canBoost, canFeedback }: {
+function ArticleItem({ article, onPin, onBoost, canPin, canBoost }: {
   article: any;
   onPin: (id: number) => void;
   onBoost: (id: number) => void;
-  onFeedback: (id: number, fb: number) => void;
   canPin: boolean;
   canBoost: boolean;
-  canFeedback: boolean;
 }) {
   return (
     <div style={articleStyle}>
@@ -162,12 +160,6 @@ function ArticleItem({ article, onPin, onBoost, onFeedback, canPin, canBoost, ca
         {canBoost && <button onClick={() => onBoost(article.id)} style={btnArticle} title="+15 Score">
           +15 Score
         </button>}
-        {canFeedback && <button onClick={() => onFeedback(article.id, 2)} style={btnArticle} title="Keep">
-          <ThumbsUp size={11} /> Keep
-        </button>}
-        {canFeedback && <button onClick={() => onFeedback(article.id, 1)} style={{ ...btnArticle, color: "#f87171" }} title="Dismiss">
-          <ThumbsDown size={11} /> Dismiss
-        </button>}
       </div>
     </div>
   );
@@ -186,7 +178,6 @@ export function DashboardPage() {
   const canGenerateReports = hasActionPermission(user, "Action: Generate Reports");
   const canGenerateRiskSnapshot = hasActionPermission(user, "Action: Generate Risk Snapshot");
   const canDispatchReports = hasActionPermission(user, "Action: Dispatch Exec Report");
-  const canRunAiFunctions = hasActionPermission(user, "Action: Trigger AI Functions");
   const canRunRcaAnalysis = hasActionPermission(user, "Action: Run RCA Analysis");
   const canViewThreatTelemetry = hasPagePermission(user, "Threat Telemetry");
   const canViewCisa = canViewThreatTelemetry && hasActionPermission(user, "Tab: Threat Telemetry -> CISA KEV");
@@ -339,12 +330,6 @@ export function DashboardPage() {
 
   const boostScoreMut = useMutation({
     mutationFn: (articleId: number) => api.post("/dashboard/articles/boost-score", null, { params: { article_id: articleId, amount: 15 } }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["pinned-articles"] }); queryClient.invalidateQueries({ queryKey: ["live-articles"] }); },
-  });
-
-  const feedbackMut = useMutation({
-    mutationFn: ({ articleId, feedback }: { articleId: number; feedback: number }) =>
-      api.post("/dashboard/articles/feedback", null, { params: { article_id: articleId, feedback } }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["pinned-articles"] }); queryClient.invalidateQueries({ queryKey: ["live-articles"] }); },
   });
 
@@ -548,7 +533,7 @@ export function DashboardPage() {
                   {(!pinnedArticles || pinnedArticles.length === 0) ? (
                     <div style={{ color: "var(--text-muted, #94a3b8)", fontSize: "0.85rem", padding: "1rem 0" }}>No pinned articles.</div>
                   ) : (
-                    pinnedArticles.map((a: any) => <ArticleItem key={a.id} article={a} onPin={(id) => togglePinMut.mutate(id)} onBoost={(id) => boostScoreMut.mutate(id)} onFeedback={(id, fb) => feedbackMut.mutate({ articleId: id, feedback: fb })} canPin={hasActionPermission(user, "Action: Pin Articles")} canBoost={hasActionPermission(user, "Action: Boost Threat Score")} canFeedback={canRunAiFunctions} />)
+                    pinnedArticles.map((a: any) => <ArticleItem key={a.id} article={a} onPin={(id) => togglePinMut.mutate(id)} onBoost={(id) => boostScoreMut.mutate(id)} canPin={hasActionPermission(user, "Action: Pin Articles")} canBoost={hasActionPermission(user, "Action: Boost Threat Score")} />)
                   )}
                 </div>
               </div>
@@ -560,7 +545,7 @@ export function DashboardPage() {
                   {(!liveArticles || liveArticles.length === 0) ? (
                     <div style={{ color: "var(--text-muted, #94a3b8)", fontSize: "0.85rem", padding: "1rem 0" }}>No live articles.</div>
                   ) : (
-                    liveArticles.map((a: any) => <ArticleItem key={a.id} article={a} onPin={(id) => togglePinMut.mutate(id)} onBoost={(id) => boostScoreMut.mutate(id)} onFeedback={(id, fb) => feedbackMut.mutate({ articleId: id, feedback: fb })} canPin={hasActionPermission(user, "Action: Pin Articles")} canBoost={hasActionPermission(user, "Action: Boost Threat Score")} canFeedback={canRunAiFunctions} />)
+                    liveArticles.map((a: any) => <ArticleItem key={a.id} article={a} onPin={(id) => togglePinMut.mutate(id)} onBoost={(id) => boostScoreMut.mutate(id)} canPin={hasActionPermission(user, "Action: Pin Articles")} canBoost={hasActionPermission(user, "Action: Boost Threat Score")} />)
                   )}
                 </div>
               </div>

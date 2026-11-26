@@ -95,11 +95,6 @@ JOB_REGISTRY = {
         "function": "job_global_brief", "schedule_type": "daily", "run_at": "02:00",
         "timezone": "America/Chicago", "enabled": True, "can_disable": True, "startup_run": True,
     },
-    "ml_retrain": {
-        "label": "ML retraining", "description": "Retrain and hot-reload the scoring model.",
-        "function": "job_retrain_ml", "schedule_type": "weekly", "weekday": "sunday", "run_at": "02:00",
-        "timezone": "America/Chicago", "enabled": True, "can_disable": True, "startup_run": False,
-    },
     "daily_email_brief": {
         "label": "Daily email brief", "description": "Email the latest unified brief to configured recipients.",
         "function": "job_daily_email_unified_brief", "schedule_type": "daily", "run_at": "07:00",

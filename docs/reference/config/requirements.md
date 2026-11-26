@@ -23,13 +23,11 @@ The Python image installs only runtime dependencies. The test manifest adds pinn
 | `trafilatura` | Article full-text extraction. |
 | `shapely` | Regional polygon, point, and geometry operations. |
 | `pyproj>=3.6,<4` | Meter-accurate local AEQD projection for the Arkansas 50-mile border buffer. |
-| `scikit-learn` | ML article scoring and scheduled model training. |
-| `joblib` | Persisting and loading the trained model. |
 | `elasticsearch>=8.0.0,<9.0.0` | Production Elastic telemetry/search integration; retained in the standard image. Tests mock the client or leave `ELASTIC_URL` blank. |
 | `rapidfuzz` | Native title-similarity ratio used by article deduplication. |
 | `bcrypt==4.1.2` | Password hashing. |
 
-Removed unused direct requirements: PostgreSQL's `psycopg2-binary`, `beautifulsoup4`, `aiofiles`, `openai`, and `google-generativeai`. LLM calls use `requests` with the configured compatible endpoint, not provider SDKs. Pandas was removed after active regional, AIOps, settings, and model-training code was converted to records, counters, and Python lists. `pydeck` was not a declared dependency; its unreferenced legacy rendering helpers were removed.
+Removed unused direct requirements: `scikit-learn`, `joblib`, PostgreSQL's `psycopg2-binary`, `beautifulsoup4`, `aiofiles`, `openai`, and `google-generativeai`. The article classifier and Keep/Dismiss feedback feature are retired; article scoring uses keyword weights only. LLM calls use `requests` with the configured compatible endpoint, not provider SDKs. Pandas was removed after active regional, AIOps, and settings code was converted to records, counters, and Python lists. `pydeck` was not a declared dependency; its unreferenced legacy rendering helpers were removed.
 
 ## Installing dependencies
 

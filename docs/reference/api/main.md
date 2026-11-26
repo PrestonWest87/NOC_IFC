@@ -27,7 +27,7 @@ Creates the FastAPI application, mounts REST routers, coordinates SQLite/restore
 | `user_admin` | `/api/v1/user-admin` |
 | `application_settings` | `/api/v1/application-settings` |
 
-The checked-out app's OpenAPI schema contains 203 paths and 219 HTTP operations. `docs/API.md` is the human reference for request behavior and route permissions.
+The checked-out app's OpenAPI schema contains 198 paths and 214 HTTP operations after retiring classifier-training and article-feedback endpoints. `docs/API.md` is the human reference for request behavior and route permissions.
 
 ## `lifespan(app)`
 

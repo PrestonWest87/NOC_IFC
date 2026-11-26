@@ -1,6 +1,6 @@
 # SettingsPage.tsx
 
-Settings & Admin page. Provides thirteen tabs: Profile, Theme, Facilities, Email Contacts, Network Orders & Circuits, Internal Assets, RSS Sources, ML Training, AI & SMTP, Application Settings, Users & Roles, Backup & Restore, and Danger Zone.
+Settings & Admin page. Provides twelve tabs: Profile, Theme, Facilities, Email Contacts, Network Orders & Circuits, Internal Assets, RSS Sources, AI & SMTP, Application Settings, Users & Roles, Backup & Restore, and Danger Zone.
 
 ## Current Source Behavior
 
@@ -11,8 +11,8 @@ The Email Contacts tab contains editable Fiber (Name, Company, Email, Phone) and
 ## Constants
 
 ### `TABS`
-Array of 13 tab configuration objects. Tab visibility is filtered by the current user's `Tab: Settings -> ...` grants; administrators see every tab:
-`profile`, `theme`, `facilities`, `email-contacts`, `network-orders`, `assets`, `rss`, `ml`, `ai-smtp`, `application`, `users`, `backup`, `danger`.
+Array of 12 tab configuration objects. Tab visibility is filtered by the current user's `Tab: Settings -> ...` grants; administrators see every tab:
+`profile`, `theme`, `facilities`, `email-contacts`, `network-orders`, `assets`, `rss`, `ai-smtp`, `application`, `users`, `backup`, `danger`.
 
 ### `btn(color)`
 Returns a `React.CSSProperties` object with the given background color.
@@ -177,23 +177,6 @@ RSS Sources management — bulk add keywords and feeds.
 Two-column grid:
 - Keywords card (textarea for bulk add "word, weight", existing keyword list with delete buttons via `POST /admin/keywords/bulk`)
 - RSS Feeds card (textarea for bulk add "URL, Name", existing feed list with delete buttons via `POST /admin/feeds/bulk`)
-
----
-
-## `MlTab({ mlCounts, canTrain })`
-
-### Purpose
-ML Training tab — displays dataset counts and retrain trigger.
-
-### Props
-| Prop | Type | Description |
-|------|------|-------------|
-| `mlCounts` | `any` | Object with `total`, `positive`, `negative` counts |
-| `canTrain` | `boolean` | Whether manual retraining is permitted. |
-
-### Returns
-- Three metric cards (Total Samples, Positives, Negatives)
-- Retrain Model Now button via `POST /application-settings/ml-retrain`, shown only with `Action: Train ML Model`.
 
 ---
 

@@ -11,7 +11,7 @@ It re-exports:
 
 ## Runtime Usage
 
-The worker imports model/session symbols from this module. `src/services.py`, `src/train_model.py`, and email/scheduler paths also use it. Removing or renaming it requires migrating every active import in the same change; it must not be treated as an unused legacy file.
+The worker imports model/session symbols from this module. `src/services.py` and email/scheduler paths also use it. Removing or renaming it requires migrating every active import in the same change; it must not be treated as an unused legacy file.
 
 ## Operational Boundary
 

@@ -24,7 +24,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from src.core.config import settings
-from src.core.paths import application_data_dir, ml_model_path, sqlite_database_path
+from src.core.paths import application_data_dir, sqlite_database_path
 
 logger = logging.getLogger(__name__)
 
@@ -393,7 +393,7 @@ def _extract_and_validate(package_path: Path, workspace: Path, max_bytes: int):
     archive_path = workspace / "payload.zip"
     _decrypt_file(package_path, archive_path, max_bytes)
     database_path = workspace / "database.sqlite"
-    model_path = workspace / "ml_model.pkl"
+    legacy_model_path = workspace / "ml_model.pkl"
     try:
         with zipfile.ZipFile(archive_path, "r") as archive:
             members = archive.infolist()
@@ -428,13 +428,15 @@ def _extract_and_validate(package_path: Path, workspace: Path, max_bytes: int):
             if model is not None:
                 model_info = archive.getinfo("model/ml_model.pkl")
                 _copy_archive_entry(
-                    archive, model_info, model_path, model["size_bytes"], model["sha256"], max_bytes,
+                    archive, model_info, legacy_model_path, model["size_bytes"], model["sha256"], max_bytes,
                 )
             db_metadata = _database_metadata(database_path)
             if db_metadata["tables"] != manifest["database"]["tables"]:
                 raise BackupError("The SQLite table inventory does not match the signed backup manifest.")
         archive_path.unlink(missing_ok=True)
-        yield manifest, database_path, model_path if manifest.get("model") is not None else None
+        # Older packages may contain a model. Validate it for package integrity,
+        # but the retired classifier artifact is never restored or used.
+        yield manifest, database_path, legacy_model_path if manifest.get("model") is not None else None
     except zipfile.BadZipFile as exc:
         raise BackupError("The decrypted backup archive is corrupt.") from exc
 
@@ -549,11 +551,10 @@ def create_backup(
     reason: str | None = None,
     created_by: str | None = None,
     database_path: str | Path | None = None,
-    model_path: str | Path | None = None,
     backup_dir: str | Path | None = None,
     max_bytes: int | None = None,
 ) -> dict:
-    """Create and encrypt a full SQLite snapshot, optionally including the persisted model.
+    """Create and encrypt a full SQLite snapshot.
 
     Scheduled packages use the three-file retention policy; manual and
     pre-restore safety snapshots are retained independently.
@@ -566,7 +567,6 @@ def create_backup(
     if source_path is None:
         raise BackupError("A persistent SQLite database file is required for full backups.")
     source_path = source_path.resolve()
-    current_model = Path(model_path) if model_path is not None else ml_model_path()
     root = _backup_root(backup_dir)
     created_at = datetime.now(timezone.utc).replace(microsecond=0)
     backup_id = uuid.uuid4().hex
@@ -578,19 +578,6 @@ def create_backup(
         workspace = Path(work)
         snapshot_path = workspace / "database.sqlite"
         database_info = _sqlite_snapshot(source_path, snapshot_path)
-        model_info = None
-        included_model = None
-        if current_model.exists():
-            if not current_model.is_file() or current_model.is_symlink():
-                raise BackupError("The trained model artifact is not a regular file.")
-            included_model = workspace / "ml_model.pkl"
-            shutil.copyfile(current_model, included_model)
-            os.chmod(included_model, 0o600)
-            model_info = {
-                "file": "model/ml_model.pkl",
-                "size_bytes": included_model.stat().st_size,
-                "sha256": _sha256_file(included_model),
-            }
         database_info.update({"file": "database.sqlite"})
         manifest = {
             "format_version": BACKUP_FORMAT_VERSION,
@@ -600,20 +587,16 @@ def create_backup(
             "reason": str(reason or "")[:200] or None,
             "created_by": str(created_by or "")[:128] or None,
             "database": database_info,
-            "model": model_info,
+            "model": None,
         }
         archive_path = workspace / "payload.zip"
         with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
             archive.write(snapshot_path, "database.sqlite")
-            if included_model is not None:
-                archive.write(included_model, "model/ml_model.pkl")
             info = zipfile.ZipInfo("manifest.json")
             info.compress_type = zipfile.ZIP_STORED
             info.external_attr = 0o600 << 16
             archive.writestr(info, json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8"))
         snapshot_path.unlink(missing_ok=True)
-        if included_model is not None:
-            included_model.unlink(missing_ok=True)
         if archive_path.stat().st_size > limit:
             raise BackupError("The full backup archive exceeds BACKUP_MAX_BYTES.")
 
@@ -629,7 +612,7 @@ def create_backup(
             _prune_scheduled(root, keep=3)
     return _file_record(final_path, category, created_at, {
         "table_count": database_info["table_count"],
-        "model_included": model_info is not None,
+        "model_included": False,
         "reason": manifest["reason"],
     } | {"encrypted_size_bytes": encrypted_size})
 
@@ -897,15 +880,15 @@ def restore_backup(
     *,
     maintenance_confirmed: bool = False,
     database_path: str | Path | None = None,
-    model_path: str | Path | None = None,
     backup_dir: str | Path | None = None,
     max_bytes: int | None = None,
 ) -> dict:
     """Install a validated full snapshot after all API, worker, and webhook writers are stopped.
 
-    The staged database is migrated and credentials are invalidated before live
-    files are touched. A pre-restore package is created when a live database
-    exists; installation failures restore the prior database/model artifacts.
+    The staged database is migrated and credentials are invalidated before the
+    live file is touched. Legacy model entries are validated but ignored. A
+    pre-restore package is created when a live database exists; installation
+    failures restore the prior database.
     """
     if not maintenance_confirmed:
         raise BackupError("Pass maintenance_confirmed=True only after stopping API, worker, and webhook services.")
@@ -915,14 +898,12 @@ def restore_backup(
     if live_database is None:
         raise BackupError("A persistent SQLite database file is required for restore.")
     live_database = live_database.resolve()
-    live_model = Path(model_path) if model_path is not None else ml_model_path()
     root = _backup_root(backup_dir)
     live_database.parent.mkdir(parents=True, exist_ok=True)
-    live_model.parent.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="noc-ifc-restore-") as work:
         workspace = Path(work)
-        with _extract_and_validate(package, workspace, limit) as (manifest, restored_db, restored_model):
+        with _extract_and_validate(package, workspace, limit) as (manifest, restored_db, _legacy_model):
             _upgrade_database(restored_db)
             _database_metadata(restored_db)
             invalidated = _invalidate_restored_credentials(restored_db)
@@ -930,46 +911,28 @@ def restore_backup(
 
             safety_backup = None
             current_db_snapshot = workspace / "current.sqlite"
-            old_model = workspace / "current-model.pkl"
             had_current_db = live_database.is_file()
-            had_current_model = live_model.is_file()
             if had_current_db:
                 safety_backup = create_backup(
                     "manual", reason="pre-restore safety snapshot", created_by="offline-restore",
-                    database_path=live_database, model_path=live_model,
+                    database_path=live_database,
                     backup_dir=root, max_bytes=limit,
                 )
                 _sqlite_snapshot(live_database, current_db_snapshot)
-            if had_current_model:
-                shutil.copyfile(live_model, old_model)
 
             new_db_temp = _copy_to_temporary_file(restored_db, live_database.parent, live_database.name)
-            new_model_temp = None
-            if restored_model is not None:
-                new_model_temp = _copy_to_temporary_file(restored_model, live_model.parent, live_model.name)
             old_db_temp = None
-            old_model_temp = None
             swapped_database = False
-            swapped_model = False
             sidecars_touched = False
             try:
                 if had_current_db:
                     old_db_temp = _copy_to_temporary_file(current_db_snapshot, live_database.parent, f"{live_database.name}.rollback")
-                if had_current_model:
-                    old_model_temp = _copy_to_temporary_file(old_model, live_model.parent, f"{live_model.name}.rollback")
 
                 sidecars_touched = True
                 _restore_sidecars(live_database)
                 os.replace(new_db_temp, live_database)
                 swapped_database = True
-                if new_model_temp is not None:
-                    os.replace(new_model_temp, live_model)
-                    swapped_model = True
-                else:
-                    live_model.unlink(missing_ok=True)
-                    swapped_model = True
                 _fsync_directory(live_database.parent)
-                _fsync_directory(live_model.parent)
             except Exception as exc:
                 if swapped_database or sidecars_touched:
                     _restore_sidecars(live_database)
@@ -977,20 +940,11 @@ def restore_backup(
                         os.replace(old_db_temp, live_database)
                     else:
                         live_database.unlink(missing_ok=True)
-                if swapped_model:
-                    if old_model_temp is not None and old_model_temp.exists():
-                        os.replace(old_model_temp, live_model)
-                    else:
-                        live_model.unlink(missing_ok=True)
-                raise BackupError("Restore failed while installing files; the prior database/model were rolled back.") from exc
+                raise BackupError("Restore failed while installing files; the prior database was rolled back.") from exc
             finally:
                 new_db_temp.unlink(missing_ok=True)
-                if new_model_temp is not None:
-                    new_model_temp.unlink(missing_ok=True)
                 if old_db_temp is not None:
                     old_db_temp.unlink(missing_ok=True)
-                if old_model_temp is not None:
-                    old_model_temp.unlink(missing_ok=True)
 
     staged_packages_cleared = clear_staged_backups(backup_dir=root)
     logger.warning(
@@ -1001,7 +955,7 @@ def restore_backup(
         "status": "restored",
         "backup_created_at": manifest["created_at"],
         "table_count": manifest["database"]["table_count"],
-        "model_restored": manifest.get("model") is not None,
+        "model_restored": False,
         "credentials_invalidated": invalidated,
         "pre_restore_backup": safety_backup["filename"] if safety_backup else None,
         "staged_packages_cleared": staged_packages_cleared,

@@ -35,7 +35,7 @@ Important source boundaries today:
 
 | Current source | Responsibility | Target location |
 |---|---|---|
-| `src/api/main.py`, `src/api/routes/` | REST, WebSocket, middleware, endpoint binding | `src/NocIfc.Api/` |
+| `src/api/main.py`, `src/api/routes/` | REST, WebSocket, middleware, endpoint binding | Feature-scoped controllers and WebSocket handlers in `src/NocIfc.Api/` |
 | `src/services.py` | Cross-cutting domain behavior and data access | Feature use cases in `NocIfc.Application`; query adapters in `NocIfc.Infrastructure` |
 | `src/models/schema.py`, `src/core/db.py` | SQLite schema and connection behavior | `NocIfc.Infrastructure/Persistence/Sqlite/` |
 | `src/scheduler.py`, `src/workers/` | Job schedule and provider jobs | `src/NocIfc.Worker/Jobs/` |
@@ -76,6 +76,15 @@ Dependency direction:
 
 Add abstractions at real boundaries: SQLite access, email delivery, external feeds, LLM providers, system time, and optional native compute. Avoid an interface or generic repository for every class/table. Use feature-specific queries and keep SQL behavior explicit where that best preserves the legacy schema.
 
+### HTTP API style
+
+- Use ASP.NET Core MVC controllers as the default for REST operations. Organize controllers by feature/resource rather than putting all operations into one controller or one large `Program.cs` route map.
+- Keep controllers as thin HTTP adapters: bind and validate requests, apply authorization policies, call an application use case, and return a response DTO. Do not put business logic or SQLite queries in controllers.
+- Preserve existing `/api/v1` paths, methods, status codes, JSON shapes, and permission behavior. Centralize exception and validation response mapping and verify it with contract tests.
+- ASP.NET Core's `[ApiController]` validation defaults differ from FastAPI's validation response (including status code and body shape). Configure a compatibility response rather than allowing framework defaults to change the frontend contract.
+- Keep health/readiness in a small diagnostics controller. WebSockets use a dedicated connection handler, not an MVC action. The separate SolarWinds webhook host can use a focused controller.
+- Avoid a generic `BaseController` unless a concrete repeated HTTP concern requires it; use shared middleware, filters, authorization policies, and application services for cross-cutting behavior.
+
 ## Proposed file structure
 
 ```text
@@ -89,52 +98,217 @@ NOC_IFC/
 ├── .editorconfig
 ├── compose.yaml                      # Canonical tracked Compose topology
 ├── compose.dev-c.yaml                # dev-c project name, ports, and data-dev-c
+├── contracts/
+│   └── permission_catalog.json       # Shared Python/C# permission contract
 │
 ├── src/
 │   ├── NocIfc.Domain/
 │   │   ├── Identity/
+│   │   │   ├── AuthenticatedUser.cs
+│   │   │   ├── FailedLoginAlert.cs
+│   │   │   ├── LoginCredential.cs
+│   │   │   ├── LoginUser.cs
+│   │   │   ├── PendingRegistrationInvite.cs
+│   │   │   ├── PasswordResetRequestInfo.cs
+│   │   │   ├── RecoveryEmailRequestInfo.cs
+│   │   │   ├── RegistrationInviteInfo.cs
+│   │   │   ├── RoleDefinition.cs
+│   │   │   ├── UserAdminTarget.cs
+│   │   │   └── UserDirectoryEntry.cs
 │   │   ├── Threat/
+│   │   │   ├── CisaKevEntry.cs
+│   │   │   ├── KeywordWeight.cs
+│   │   │   ├── ThreatArticle.cs
+│   │   │   ├── RssCatalog.cs
+│   │   │   └── ThreatStatus.cs
+│   │   ├── Dashboard/
+│   │   │   ├── InternalRiskData.cs
+│   │   │   └── OperationalDashboard.cs
 │   │   ├── AIOps/
 │   │   ├── Regional/
 │   │   ├── Reporting/
 │   │   ├── Settings/
+│   │   │   ├── RiskScoringSettings.cs
+│   │   │   ├── MonitoredLocationEntry.cs
+│   │   │   └── SettingsReferenceDirectoryEntry.cs
 │   │   └── OperationalEmail/
 │   │
 │   ├── NocIfc.Application/
 │   │   ├── Abstractions/
+│   │   │   ├── Identity/
+│   │   │   │   ├── IUserSessionResolver.cs
+│   │   │   │   ├── IAuthenticationStore.cs
+│   │   │   │   ├── IAccountRecoveryStore.cs
+│   │   │   │   ├── IFailedLoginAlertStore.cs
+│   │   │   │   ├── IRecoveryEmailStore.cs
+│   │   │   │   ├── IRoleDirectory.cs
+│   │   │   │   ├── IRoleWriter.cs
+│   │   │   │   ├── IPasswordVerifier.cs
+│   │   │   │   ├── IPasswordHasher.cs
+│   │   │   │   ├── ISiteTypeDirectory.cs
+│   │   │   │   ├── IUserDirectory.cs
+│   │   │   │   └── IUserAdminStore.cs
 │   │   │   ├── Clock/
 │   │   │   ├── Persistence/
+│   │   │   ├── Settings/
+│   │   │   │   ├── IApplicationSettingsStore.cs
+│   │   │   │   ├── IAiSmtpSettingsStore.cs
+│   │   │   │   ├── IAssetInventoryStore.cs
+│   │   │   │   ├── IFacilityDirectoryStore.cs
+│   │   │   │   ├── IOperationalIntegrationSettingsStore.cs
+│   │   │   │   ├── IRiskScoringSettingsStore.cs
+│   │   │   │   ├── ISchedulerSettingsStore.cs
+│   │   │   │   └── ISettingsReferenceDirectoryStore.cs
+│   │   │   ├── Threat/
+│   │   │   │   ├── ICisaKevStore.cs
+│   │   │   │   ├── IRssSettingsStore.cs
+│   │   │   │   ├── IThreatArticleStore.cs
+│   │   │   │   └── IThreatStatusStore.cs
+│   │   │   ├── Dashboard/
+│   │   │   │   ├── IInternalRiskStore.cs
+│   │   │   │   └── IOperationalDashboardStore.cs
 │   │   │   ├── Email/
+│   │   │   │   └── IEmailSender.cs
 │   │   │   ├── Feeds/
 │   │   │   ├── Llm/
+│   │   │   │   └── ILlmConnectionTester.cs
 │   │   │   └── NativeCompute/
 │   │   └── Features/
 │   │       ├── Identity/
+│   │       │   ├── AccountRecoveryCommands.cs
+│   │       │   ├── AuthenticationService.cs
+│   │       │   ├── CapabilityTokenHash.cs
+│   │       │   ├── EmailAddressRules.cs
+│   │       │   ├── PermissionCatalog.cs
+│   │       │   ├── RoleAccessPolicy.cs
+│   │       │   ├── RoleCommands.cs
+│   │       │   ├── RoleQueries.cs
+│   │       │   ├── RecoveryEmailCommands.cs
+│   │       │   ├── RecoveryReviewerQueries.cs
+│   │       │   ├── SiteTypeQueries.cs
+│   │       │   ├── UserAdminCommands.cs
+│   │       │   └── UserDirectoryQueries.cs
 │   │       ├── Threat/
+│   │       │   ├── CisaKevQueries.cs
+│   │       │   ├── KeywordScorer.cs
+│   │       │   ├── RssSettingsCommands.cs
+│   │       │   ├── ThreatArticleQueries.cs
+│   │       │   └── ThreatStatusQueries.cs
+│   │       ├── Dashboard/
+│   │       │   ├── DashboardQueries.cs
+│   │       │   └── InternalRiskQueries.cs
 │   │       ├── AIOps/
 │   │       ├── Regional/
 │   │       ├── Reporting/
 │   │       ├── Settings/
+│   │       │   ├── ApplicationSettingsCommands.cs
+│   │       │   ├── AiSmtpSettingsCommands.cs
+│   │       │   ├── AssetInventoryCommands.cs
+│   │       │   ├── CsvRecordParser.cs
+│   │       │   ├── FacilityDirectoryCommands.cs
+│   │       │   ├── LlmConnectionTestCommands.cs
+│   │       │   ├── OperationalIntegrationSettingsCommands.cs
+│   │       │   ├── RiskScoringCommands.cs
+│   │       │   ├── SchedulerSettingsCommands.cs
+│   │       │   ├── SiteContactRules.cs
+│   │       │   └── SettingsReferenceDirectoryCommands.cs
 │   │       ├── OperationalEmail/
 │   │       └── BackupRestore/
 │   │
 │   ├── NocIfc.Infrastructure/
-│   │   ├── Persistence/Sqlite/
-│   │   │   ├── Connections/
-│   │   │   ├── Queries/
-│   │   │   └── SchemaVersionCheck/
+│   │   ├── Persistence/
+│   │   │   ├── Sqlite/
+│   │   │   │   ├── SqliteConnectionFactory.cs
+│   │   │   │   ├── SqliteReadinessProbe.cs
+│   │   │   │   ├── SqliteCisaKevStore.cs
+│   │   │   │   ├── SqliteRssSettingsStore.cs
+│   │   │   │   ├── SqliteInternalRiskStore.cs
+│   │   │   │   ├── SqliteThreatArticleStore.cs
+│   │   │   │   ├── SqliteThreatStatusStore.cs
+│   │   │   │   ├── SqliteOperationalDashboardStore.cs
+│   │   │   │   ├── SqliteAuthenticationStore.cs
+│   │   │   │   ├── SqliteAccountRecoveryStore.cs
+│   │   │   │   ├── SqliteFailedLoginAlertStore.cs
+│   │   │   │   ├── SqliteRecoveryEmailStore.cs
+│   │   │   │   ├── SqliteUserSessionResolver.cs
+│   │   │   │   ├── SqliteRoleDirectory.cs
+│   │   │   │   ├── SqliteSiteTypeDirectory.cs
+│   │   │   │   ├── SqliteUserDirectory.cs
+│   │   │   │   ├── SqliteUserAdminStore.cs
+│   │   │   │   ├── SqliteJson.cs
+│   │   │   │   ├── SqliteApplicationSettingsStore.cs
+│   │   │   │   ├── SqliteAiSmtpSettingsStore.cs
+│   │   │   │   ├── SqliteAssetInventoryStore.cs
+│   │   │   │   ├── SqliteFacilityDirectoryStore.cs
+│   │   │   │   ├── SqliteSettingsReferenceDirectoryStore.cs
+│   │   │   │   ├── SqliteOperationalIntegrationSettingsStore.cs
+│   │   │   │   ├── SqliteRiskScoringSettingsStore.cs
+│   │   │   │   └── SqliteSchedulerSettingsStore.cs
+│   │   │   └── Queries/
+│   │   ├── Email/
+│   │   │   ├── GmailOAuthTokenProvider.cs
+│   │   │   └── SqliteEmailSender.cs
+│   │   ├── Security/
+│   │   │   └── BCryptPasswordVerifier.cs
 │   │   ├── Integrations/
 │   │   │   ├── Feeds/
 │   │   │   ├── Weather/
 │   │   │   ├── Elastic/
 │   │   │   ├── Llm/
+│   │   │   │   └── ProviderAwareLlmConnectionTester.cs
 │   │   │   └── Email/
 │   │   ├── BackupRestore/
 │   │   └── NativeCompute/            # Only if the C++ gate passes
 │   │
 │   ├── NocIfc.Api/
-│   │   ├── Endpoints/
-│   │   ├── Authentication/
+│   │   ├── Controllers/
+│   │   │   ├── AuthenticationController.cs
+│   │   │   ├── AccountRecoveryController.cs
+│   │   │   ├── ApplicationSettingsController.cs
+│   │   │   ├── AiSmtpSettingsController.cs
+│   │   │   ├── AssetInventoryController.cs
+│   │   │   ├── DiagnosticsController.cs
+│   │   │   ├── DashboardController.cs
+│   │   │   ├── FacilitiesController.cs
+│   │   │   ├── LlmController.cs
+│   │   │   ├── PermissionsController.cs
+│   │   │   ├── SettingsReferenceDirectoriesController.cs
+│   │   │   ├── ThreatController.cs
+│   │   │   ├── UserAdminController.cs
+│   │   │   ├── UserInvitationsController.cs
+│   │   │   ├── RecoveryEmailController.cs
+│   │   │   ├── RecoveryEmailAdminController.cs
+│   │   │   ├── Identity/
+│   │   │   ├── Threat/
+│   │   │   ├── AIOps/
+│   │   │   ├── Regional/
+│   │   │   ├── Settings/
+│   │   │   └── OperationalEmail/
+│   │   ├── Authentication/AuthenticatedUserContext.cs
+│   │   ├── Authorization/PermissionFilters.cs
+│   │   ├── Contracts/RoleDefinitionRequest.cs
+│   │   ├── Contracts/RoleResponse.cs
+│   │   ├── Contracts/LoginRequest.cs
+│   │   ├── Contracts/LoginResponse.cs
+│   │   ├── Contracts/InvitationResponses.cs
+│   │   ├── Contracts/RegistrationRequest.cs
+│   │   ├── Contracts/PasswordResetRequestResponse.cs
+│   │   ├── Contracts/ApplicationSettingsContracts.cs
+│   │   ├── Contracts/AiSmtpSettingsContracts.cs
+│   │   ├── Contracts/AssetInventoryContracts.cs
+│   │   ├── Contracts/DashboardContracts.cs
+│   │   ├── Contracts/CisaKevResponse.cs
+│   │   ├── Contracts/FacilityDirectoryContracts.cs
+│   │   ├── Contracts/RssSettingsContracts.cs
+│   │   ├── Contracts/ThreatArticleContracts.cs
+│   │   ├── Contracts/ThreatStatusContracts.cs
+│   │   ├── Contracts/IntegrationSettingsContracts.cs
+│   │   ├── Contracts/SchedulerSettingsContracts.cs
+│   │   ├── Contracts/SettingsReferenceDirectoryContracts.cs
+│   │   ├── Contracts/RecoveryEmailRequestResponse.cs
+│   │   ├── Contracts/UserAdminRequests.cs
+│   │   ├── Contracts/UserDirectoryResponse.cs
+│   │   ├── Middleware/SessionAuthenticationMiddleware.cs
 │   │   ├── WebSockets/
 │   │   └── Program.cs
 │   ├── NocIfc.Worker/
@@ -142,7 +316,7 @@ NOC_IFC/
 │   │   ├── Scheduling/
 │   │   └── Program.cs
 │   └── NocIfc.Webhook/
-│       ├── Endpoints/SolarWinds/
+│       ├── Controllers/SolarWindsController.cs
 │       └── Program.cs
 │
 ├── native/                           # Not created until profiling justifies it
@@ -156,7 +330,8 @@ NOC_IFC/
 │   └── regional/                     # Canonical map inputs/generated artifacts
 │
 ├── qa/                               # Tracked .NET/contract test projects
-│   ├── NocIfc.UnitChecks/
+│   ├── NocIfc.Application.Tests/
+│   ├── NocIfc.Api.Tests/
 │   ├── NocIfc.IntegrationChecks/
 │   ├── NocIfc.ContractChecks/
 │   └── Fixtures/
@@ -239,7 +414,7 @@ The `native/` project and `NocIfc.Infrastructure/NativeCompute/` adapter remain 
 
 ### 5. Port API features by vertical slice
 
-For each feature, port endpoint binding, application use case, persistence query, permission check, and parity test together. Suggested order:
+For each feature, port controller action, application use case, persistence query, permission check, and parity test together. Organize controllers by feature/resource; do not create one controller per operation or move business logic into controllers. Suggested order:
 
 1. Authentication, sessions, authorization catalog, user administration, recovery.
 2. Settings, reference directories, and read-only dashboard/threat data.
@@ -283,8 +458,8 @@ Preserve API and WebSocket contracts, the six-position regional map response, ex
 Use issue #1 as the master checklist. Update it at phase gates with completed feature groups, commits/PR links, verification results, and blockers. Suggested top-level checklist:
 
 - [ ] Lock target architecture, compatibility inventory, and performance baselines.
-- [ ] Remove local classifier and Keep/Dismiss feature.
-- [ ] Add C# solution, layered modules, isolated dev-c Compose, and image build.
+- [x] Remove local classifier and Keep/Dismiss feature.
+- [ ] Add C# solution, layered modules, feature-scoped MVC controllers, isolated dev-c Compose, and image build.
 - [ ] Port SQLite access and schema readiness; validate host-side migrations.
 - [ ] Port identity/permissions and REST/WebSocket feature groups.
 - [ ] Port worker jobs and SolarWinds webhook.
@@ -295,4 +470,20 @@ Use issue #1 as the master checklist. Update it at phase gates with completed fe
 
 ## Current status
 
-This branch currently contains the plan only. No backend code, frontend code, schema, migrations, tests, deployment files, or GitHub issue content are changed by this plan commit.
+The first conversion slice is implemented locally on `dev-c`:
+
+- Removed the local scikit-learn classifier, training routes/job/permission, Keep/Dismiss actions, and related UI controls. Keyword weights and scoring remain; historical `human_feedback` column values remain inert and are no longer exposed by the service serializer.
+- New backups omit the retired classifier. Legacy encrypted packages remain verifiable, but restore ignores model payloads and does not overwrite an existing stale artifact.
+- Added the .NET 10 solution, shared SQLite connection factory, schema-version readiness probe, MVC diagnostics and global application-settings controllers, and separate C# API Docker image. `/health` and `/ready` retain their paths and basic response shapes; readiness requires Alembic head `20261125_0025`, while migration execution remains host-side Python.
+- Added C# session validation against existing `user_sessions` and legacy `users.session_token` rows, plus MVC permissions-catalog, authentication, user-admin, and application-settings controllers. Login verifies existing Python bcrypt hashes, creates compatible session tokens, and returns the same sanitized profile/grants. Hashed invitation validation, single-use registration, and user-admin invitation list/create/resend/revoke are ported, along with `/auth/me`, logout, theme updates, profile/password updates, account-type changes, and assisted resets. Password-reset requests are rate-limited and anti-enumerating; review, one-time reset tokens, session revocation, and audit events are ported. Recovery-email request/review, mailbox verification, resend cooldown, and reviewer notifications are also ported. Global application defaults preserve recipient secrecy and validate the selected SMTP/Gmail profile before enabling failed-login alerts. Role choices/definitions, site types, the sanitized user directory, custom-role create/update, display-account creation, user role/status changes, and session revocation preserve permission boundaries. The canonical permission data now lives in `contracts/permission_catalog.json`, consumed by both Python and C#.
+- Ported keyword scoring into `NocIfc.Domain`/`NocIfc.Application` with a unit test for matching and score capping; it is not yet used by the Python ingestion worker.
+- Ported notification/Elastic integration settings with environment fallback, explicit reset-to-environment behavior, validation, secret-safe reads, and changed-field-only audit; ported registry-backed scheduler settings reads/writes with revision increments, Central-time validation, job bounds, non-disableable safety jobs, and transactional audit.
+- Ported Fiber/ONPAGE and network-order/circuit reference directories with scoped reads, administrator-only ordered replacement, CSV merge/replace, reciprocal links, and row-count-only audits. Added permissioned read-only CISA KEV listing with date lookback and result bounds.
+- Ported all read-only Threat Telemetry GETs: paginated RSS triage/detail, CISA KEV, cloud outages, Microsoft 365 feed freshness/service mapping, and perimeter-crime incidents, with tab permissions and response-shape compatibility.
+- Ported RSS Settings catalog reads and admin keyword/feed bulk-add, weight-update, and delete operations; the existing Settings RSS UI now has matching C# routes. Added operational dashboard metrics, pinned/live articles, current hazards, threat trends, tab-filtered saved briefs, and authorized article pin/score actions.
+- Added permissioned Internal Risk snapshot/history reads with legacy JSON payloads and failure-notice-safe saved briefs.
+- Ported the Settings AI/SMTP tab read/write path with write-only secret handling, provider-change key clearing, test email through the saved active profile, and provider-aware LLM connection testing with private-endpoint policy.
+- Ported Facilities site-type-scoped reads, admin location edit/import, site-contact validation/replace, and contact preservation for same-name sites on replace imports. Added administrator-only software and hardware asset CSV replacement endpoints for the existing Internal Assets tab.
+- The no-cache C# Docker build and all one hundred one C# tests pass (78 application, 23 API). Isolated HTTP smoke checks covered authentication, settings, reference directories, all read-only Threat Telemetry GETs, RSS management, Facilities scoping/edit/import/site contacts, Internal Assets imports, operational dashboard reads and article actions, Internal Risk snapshot/history, AI/SMTP secret-safe settings, and a successful mocked Ollama-compatible connection test. Gmail OAuth and LLM provider tests use no live credentials; no SMTP delivery was attempted. The C# API is not yet wired into Compose, and the existing Python API/worker/webhook continue serving the rest of the application. Remaining work includes Backup & Restore and Danger Zone settings, dashboard Global Risk/executive and report generation, manual syncs, full LLM/email/Operational Email workflows, WebSockets, worker, webhook, and Compose cutover.
+
+The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.

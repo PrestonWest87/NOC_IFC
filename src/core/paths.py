@@ -27,12 +27,3 @@ def application_data_dir(database_url: str | None = None) -> Path:
     """Use the database directory as the durable application-data root."""
     db_path = sqlite_database_path(database_url)
     return db_path.parent if db_path else PROJECT_ROOT / "data"
-
-
-def ml_model_path(database_url: str | None = None) -> Path:
-    """Return the shared, persistent location of the trained scorer artifact."""
-    db_path = sqlite_database_path(database_url)
-    if db_path is None:
-        # Preserve the repository-local location for in-memory development/tests.
-        return PROJECT_ROOT / "src" / "ml_model.pkl"
-    return db_path.parent / "models" / "ml_model.pkl"

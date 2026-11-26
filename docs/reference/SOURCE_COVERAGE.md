@@ -22,10 +22,10 @@ This index records the current source-to-reference mapping after the reference c
 | `src/core/migration_runner.py`, `alembic.ini`, `migrations/env.py`, `migrations/schema_v1.py`, `migrations/versions/*.py` | `core/migration_runner.md`, `../MIGRATION_COMPATIBILITY.md`, `../DATABASE_SCHEMA.md` |
 | `src/core/bootstrap.py` | `core/bootstrap.md` |
 | `src/core/operational_email.py` | `core/operational_email.md`, `../SCHEDULER.md`, `../DATABASE_SCHEMA.md`, `../API.md` |
-| `src/core/permissions.py` | `core/permissions.md`, `../API.md`, `../ARCHITECTURE.md` |
+| `contracts/permission_catalog.json`, `src/core/permissions.py` | `core/permissions.md`, `../API.md`, `../ARCHITECTURE.md` |
 | `src/core/scheduler_registry.py` | `core/scheduler_registry.md`, `../SCHEDULER.md` |
 | `src/core/site_contact_validation.py` | `core/site_contact_validation.md`, `services/services.md`, `../API.md`, `../ESCALATION.md` |
-| `src/core/paths.py` | `core/paths.md`, `train_model.md`, `services/logic.md` |
+| `src/core/paths.py` | `core/paths.md` |
 | `src/core/backup_manager.py` | `core/backup_restore.md`, `../MAINTENANCE.md`, `../API.md` |
 | `src/core/restore_control.py`, `src/core/ui_restore.py` | `core/backup_restore.md`, `../MAINTENANCE.md` |
 | `src/database.py` | `database_compat.md` |
@@ -44,7 +44,6 @@ This index records the current source-to-reference mapping after the reference c
 | `src/utils/__init__.py` | `utils/__init__.md` |
 | `src/scheduler.py` | `scheduler.md`, `../SCHEDULER.md` |
 | `src/webhook_listener.py` | `api/webhook_listener.md`, `../WEBHOOK.md` |
-| `src/train_model.py` | `train_model.md` |
 | `src/workers/*.py` | `workers/*.md` |
 | `scripts/restore_backup.py` | `core/backup_restore.md`, `../MAINTENANCE.md` |
 | `scripts/seed_aiops_test_data.py` | `scripts/seed_aiops_test_data.md` |

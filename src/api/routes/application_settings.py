@@ -282,32 +282,3 @@ def update_scheduler_job(job_key: str, body: SchedulerUpdate, user=Depends(get_c
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "saved", **result}
-
-
-@router.get("/ml-counts", dependencies=[
-    Depends(require_page("Settings & Admin")),
-    Depends(require_action("Tab: Settings -> ML Training")),
-])
-def get_ml_counts():
-    """Return positive, negative, and total labels available for ML training."""
-    positive, negative, total = svc.get_ml_counts()
-    return {"positive": positive, "negative": negative, "total": total}
-
-
-@router.post("/ml-retrain", dependencies=[
-    Depends(require_page("Settings & Admin")),
-    Depends(require_action("Tab: Settings -> ML Training")),
-    Depends(require_action("Action: Train ML Model")),
-])
-def retrain_ml_model():
-    """Run synchronous manual model training and reload the scorer on success."""
-    from src.train_model import train
-    from src.services.logic import force_reload_scorer
-
-    try:
-        train()
-        force_reload_scorer()
-        return {"status": "ok", "message": "Model retrained and scorer reloaded."}
-    except Exception as exc:
-        logger.exception("Manual model retraining failed")
-        raise HTTPException(status_code=500, detail="Model retraining failed.") from exc

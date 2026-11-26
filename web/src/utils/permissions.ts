@@ -43,7 +43,6 @@ export const TAB_PERMISSION_MAP: Record<string, Record<string, string>> = {
     "Tab: Settings -> Facility Locations": "facilities",
     "Tab: Settings -> Internal Assets": "assets",
     "Tab: Settings -> RSS Sources": "rss",
-    "Tab: Settings -> ML Training": "ml",
     "Tab: Settings -> AI & SMTP": "ai-smtp",
     "Tab: Settings -> Application Settings": "application",
     "Tab: Settings -> Users & Roles": "users",

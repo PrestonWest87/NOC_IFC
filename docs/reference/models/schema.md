@@ -350,12 +350,12 @@ The admin-only site-contact API validates fields. Automatic escalation includes 
 | `summary` | `Text` | — | — | Article summary/description |
 | `published_date` | `DateTime` | `utcnow` | Y | Publication timestamp |
 | `source` | `String` | — | Y | Feed source name |
-| `score` | `Float` | `0.0` | Y | Hybrid relevance score (0-100) |
+| `score` | `Float` | `0.0` | Y | Keyword relevance score (0-100) |
 | `category` | `String` | `"General"` | Y | Classified category (nine current regex categories; see `src/services/categorizer.py`) |
 | `keywords_found` | `JSON` | — | — | List of matched keywords |
 | `is_bubbled` | `Boolean` | `False` | — | Whether article exceeds alert threshold (>=45) |
 | `story_group` | `String` | `nullable` | — | Story grouping identifier |
-| `human_feedback` | `Integer` | `0` | — | Training label: 1 dismiss/noise, 2 keep/important; 0 neutral |
+| `human_feedback` | `Integer` | `0` | — | Legacy stored value; retained for database compatibility and no longer read or written |
 | `ai_bluf` | `Text` | `nullable` | — | AI-generated bottom-line-up-front summary |
 | `is_pinned` | `Boolean` | `False` | Y | Whether article is pinned by analyst |
 | `full_content` | `Text` | `nullable` | — | Extracted article body |

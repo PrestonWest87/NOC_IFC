@@ -12,8 +12,6 @@ Prefix: `/api/v1/admin`. The entire router has `Depends(require_admin)`: a built
 | `DELETE /keywords/{keyword_id}` | Deletes a keyword record. |
 | `POST /feeds/bulk?raw_text=...` | Newline-separated `url, name`; duplicate URLs are skipped. |
 | `DELETE /feeds/{feed_id}` | Deletes a feed record. |
-| `GET /ml-counts` | Returns positive, negative, and total labeled-article counts. |
-| `POST /ml-retrain` | Synchronously calls `train()` and reloads the scorer; failures return an error result. The newer delegated route is `/application-settings/ml-retrain`. |
 | `POST /assets/software` | JSON body `{ "csv_body": "..." }`; requires a `name` column and replaces the software-asset table. |
 | `POST /assets/hardware` | JSON body `{ "csv_body": "..." }`; requires an `IP Address` column and replaces the hardware-asset table. |
 
@@ -59,7 +57,7 @@ All endpoints in this group are administrator-only. Configure `BACKUP_ENCRYPTION
 |---|---|
 | `GET /backups/status` | Returns encryption-configured flag, max bytes, and scheduled retention policy; never returns key material. |
 | `GET /backups` | Lists encrypted `.nocbackup` package metadata. |
-| `POST /backups` | Creates an authenticated encrypted SQLite online backup and includes the persistent model artifact when present. |
+| `POST /backups` | Creates an authenticated encrypted SQLite online backup. Legacy model payloads remain verifiable but are not restored. |
 | `GET /backups/{backup_id}/download` | Streams the encrypted package with `Cache-Control: no-store`; normal Bearer auth or a short-lived scoped cookie is accepted. |
 | `POST /backups/{backup_id}/download-link` | Verifies the package and returns a same-origin URL while setting a 60-second HttpOnly, path-scoped download cookie. |
 | `DELETE /backups/{backup_id}` | Deletes manual or pre-restore safety packages. Scheduled packages are retention-managed and cannot be deleted here. |

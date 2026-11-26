@@ -185,7 +185,6 @@ None (uses `useAuth` for user context).
 |----------|----------|----------|
 | `togglePinMut` | `POST /dashboard/articles/toggle-pin` | None |
 | `boostScoreMut` | `POST /dashboard/articles/boost-score?amount=15` | None |
-| `feedbackMut` | `POST /dashboard/articles/feedback` | None |
 | `blufMut` | `POST /dashboard/articles/generate-bluf` | None |
 | `syncFeedsMut` | `POST /threat/fetch-feeds` | 60s |
 | `syncKevMut` | `POST /threat/sync-cisa-kev` | 60s |

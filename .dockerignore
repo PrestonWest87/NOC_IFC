@@ -2,12 +2,14 @@ node_modules
 web/node_modules
 web/dist
 web/tsconfig.tsbuildinfo
+**/bin/
+**/obj/
+.vs/
 .git
 .gitignore
 __pycache__
 *.pyc
 .env
-src/ml_model.pkl
 *.md
 .DS_Store
 data/

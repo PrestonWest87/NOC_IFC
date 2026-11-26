@@ -24,7 +24,7 @@ Formats optional site contacts as a plain-text reference-only section for automa
 
 ### `_ensure_scorer()`
 
-Lazy-loads `src.services.logic.get_scorer()` into `_global_scorer`. ML retraining clears the global and reloads it after training.
+Lazy-loads `src.services.logic.get_scorer()` into `_global_scorer`. Keyword edits and database restores reload the scorer with current persisted weights.
 
 ## RSS Ingestion Functions
 
@@ -46,7 +46,7 @@ Uses the feed’s `published_parsed` or `updated_parsed` timestamp, converts it 
 
 ### `parse_and_score_feed(f_name, content, known_links)`
 
-Parses RSS/Atom content, skips empty links, links already in `known_links`, and duplicates within the current batch. It scores title plus summary with `HybridScorer`, categorizes with `categorize_text`, and extracts IOCs for articles scoring at least 50 and categorized as cyber. It returns article dictionaries with source, published date, score, category, keyword reasons, bubble state, and optional IOC data.
+Parses RSS/Atom content, skips empty links, links already in `known_links`, and duplicates within the current batch. It scores title plus summary with `KeywordScorer`, categorizes with `categorize_text`, and extracts IOCs for articles scoring at least 50 and categorized as cyber. It returns article dictionaries with source, published date, score, category, keyword reasons, bubble state, and optional IOC data.
 
 ### `bulk_save_to_db(db_session, arts_data)`
 
@@ -106,10 +106,6 @@ The 24/7 escalation loop:
 8. Marks site alerts ticketed only after ticket-email success and records page delivery separately.
 
 See `docs/ESCALATION.md` for the exact SLA dictionaries and destinations.
-
-## `job_retrain_ml()`
-
-Calls `src.train_model.train()`, clears the global scorer, then reloads it. The model artifact path is derived from the configured SQLite database directory (production default `/app/data/models/ml_model.pkl`); in-memory test databases use the repository-local fallback. Training requires at least 10 labeled articles.
 
 ## `run_threaded(job_func, *args, **kwargs) -> bool`
 

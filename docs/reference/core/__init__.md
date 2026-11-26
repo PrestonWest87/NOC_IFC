@@ -10,8 +10,8 @@ Contains foundational infrastructure modules for the NOC Fusion Center applicati
 - **`bootstrap.py`** — Idempotent role/admin/feed/keyword/default-data seeding after migrations.
 - **`permissions.py`** — Canonical page, action, and tab permission catalogs.
 - **`scheduler_registry.py`** — Scheduler job defaults, safe bounds, and schedule validation.
-- **`paths.py`** — SQLite-relative application-data and ML model artifact locations.
-- **`backup_manager.py`** — Authenticated encrypted full-database/model snapshots and validation.
+- **`paths.py`** — SQLite-relative application-data locations.
+- **`backup_manager.py`** — Authenticated encrypted full-database snapshots and validation; legacy classifier artifacts are ignored during restore.
 - **`restore_control.py` / `ui_restore.py`** — Cross-container writer quiescence, restore progress, and UI restore orchestration.
 
 See the adjacent module references and `docs/MIGRATION_COMPATIBILITY.md` for detailed behavior and operational boundaries.

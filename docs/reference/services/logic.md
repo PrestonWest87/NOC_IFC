@@ -1,77 +1,66 @@
-# Hybrid Scorer Documentation
+# Keyword Scorer Documentation
 
 **File:** `src/services/logic.py`
 
 ---
 
-## Class: `HybridScorer`
+## Class: `KeywordScorer`
 
-**Purpose:** Hybrid scoring engine that combines keyword-based scoring with an optional joblib/scikit-learn model to score articles on a 0-100 scale. The ML model can boost hidden threats, penalize noise, or provide synergy bonuses.
+**Purpose:** Scores article text from the configured keyword weights on a 0-100 scale.
 
-### `__init__(self, model_path=None)`
+### `__init__(self)`
 
-**Purpose:** Initializes the scorer by loading the ML model (if available) and keyword weights from the database.
-
-**Parameters:**
-- `model_path` (str | None) -- Optional model path override. When omitted, the path comes from `src.core.paths.ml_model_path()`: beside the configured SQLite file under `models/ml_model.pkl`, or the repository-local `src/ml_model.pkl` fallback for in-memory SQLite.
+**Purpose:** Loads a snapshot of configured keyword weights from the database.
 
 **Attributes:**
-- `model_path` (str) -- Path to ML model file
-- `model` (object | None) -- Loaded scikit-learn model, or None if file not found
 - `keywords` (dict[str, int]) -- Mapping of lowercase keyword to weight, loaded from Keyword table
 
-**Dependencies:** `os`, `joblib`, `SessionLocal`, `Keyword`
+**Dependencies:** `SessionLocal`, `Keyword`
 
 **Flow:**
-1. Checks if `model_path` exists on disk; if so, loads via `joblib.load()`.
-2. If the file is absent, continues with keyword-only scoring.
-3. Queries all Keyword records from the database and stores `{word.lower(): weight}`.
+1. Queries all Keyword records from the database.
+2. Stores `{word.lower(): weight}` for process-local scoring.
 
 ---
 
 ### `score(self, text: str) -> tuple`
 
-**Purpose:** Computes a 0-100 threat score for a given text using keyword matching and ML augmentation.
+**Purpose:** Computes a 0-100 threat score for a given text using keyword matching.
 
 **Parameters:**
 - `text` (str) -- Input text to score (typically title + summary of an article)
 
-**Returns:** `tuple[float, list[str]]` -- `(final_score, reason_list)` where:
-- `final_score` (float) -- Score from 0.0 to 100.0
-- `reason_list` (list[str]) -- List of matching keywords and AI decision reasons
+**Returns:** `tuple[float, list[str]]` -- `(score, reason_list)` where:
+- `score` (float) -- Sum of matched keyword weights, capped at 100.0
+- `reason_list` (list[str]) -- Matching keywords
 
 **Flow:**
-1. **Keyword Scoring:** Lowercases text. For each keyword, checks if it exists in text. Accumulates `kw_score += weight` and appends keyword to reasons list.
-2. **ML Augmentation (if model is loaded):**
-   - Calls `model.predict_proba([text_lower])` to get class probabilities
-    - Extracts probability of class 1 (keep/relevant) as `keep_prob`. For a one-class model, class `1` maps to probability `1.0`; another sole class maps to `0.0`.
-   - **AI Boost:** If `keep_prob >= 0.75` and `final_score < 50.0`, sets `final_score = max(final_score, 65.0)` -- catches hidden threats missed by keywords
-   - **AI Penalty:** If `keep_prob <= 0.25` and `final_score >= 50.0`, applies a 60% penalty -- reduces noise articles
-   - **AI Synergy:** If `keep_prob > 0.50` and `final_score > 0`, adds `keep_prob * 10.0` bonus
-3. Returns `min(final_score, 100.0)` and the reasons list
+1. Lowercases the text.
+2. For each configured keyword contained in the text, adds its weight and appends the keyword to the reasons list.
+3. Returns the score capped at 100 and the reasons list.
 
 ---
 
 ## Module-Level Functions
 
-### `get_scorer() -> HybridScorer`
+### `get_scorer() -> KeywordScorer`
 
-**Purpose:** Returns the global singleton HybridScorer instance, creating it if necessary.
+**Purpose:** Returns the global singleton KeywordScorer instance, creating it if necessary.
 
-**Returns:** `HybridScorer` -- Singleton instance stored in `_SCORER_INSTANCE`.
+**Returns:** `KeywordScorer` -- Singleton instance stored in `_SCORER_INSTANCE`.
 
 ---
 
 ### `force_reload_scorer()`
 
-**Purpose:** Forces a reload of the scorer (e.g., after keyword or model changes).
+**Purpose:** Forces a reload of the scorer after keyword changes or database restore.
 
-**Flow:** Creates a new `HybridScorer()` instance, overwriting the global singleton.
+**Flow:** Creates a new `KeywordScorer()` instance, overwriting the global singleton.
 
 ---
 
 ## Global Variable
 
-### `_SCORER_INSTANCE` (HybridScorer | None)
+### `_SCORER_INSTANCE` (KeywordScorer | None)
 
-Module-level singleton holder for the HybridScorer instance. Initialized as `None`; populated on first call to `get_scorer()`.
+Module-level singleton holder for the KeywordScorer instance. Initialized as `None`; populated on first call to `get_scorer()`.

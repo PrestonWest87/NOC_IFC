@@ -10,7 +10,7 @@ The frontend is a TypeScript/React single-page application in `web/`. It uses Vi
 
 ## Routes and page access
 
-Routes are hash-based (for example `/#/regional-grid`). The backend page permission strings are the values in `src/core/permissions.py` and `web/src/utils/routeConfig.ts`.
+Routes are hash-based (for example `/#/regional-grid`). Permission keys come from `contracts/permission_catalog.json`; `web/src/utils/routeConfig.ts` maps them to frontend routes and `web/src/utils/permissions.ts` maps tab grants to local tab identifiers.
 
 | Hash route | Page | Page grant |
 |---|---|---|
@@ -65,7 +65,7 @@ Global Risk displays the executive CIS score, 14-day score trend, evidence, and 
 
 ### Threat Telemetry
 
-Four tabs: RSS Triage, CISA KEV, Cloud Services, and Perimeter Crime. RSS triage has Pinned, Live, Low, and Search sub-tabs; the page supports pagination, category/search filters, and permission-gated pin/boost/feedback/BLUF actions. KEV, cloud, and crime sync actions require `Action: Manually Sync Data` plus their tab grant. The crime feed is Little Rock CAD data geocoded and measured from the Little Rock headquarters point.
+Four tabs: RSS Triage, CISA KEV, Cloud Services, and Perimeter Crime. RSS triage has Pinned, Live, Low, and Search sub-tabs; the page supports pagination, category/search filters, and permission-gated pin/boost/BLUF actions. KEV, cloud, and crime sync actions require `Action: Manually Sync Data` plus their tab grant. The crime feed is Little Rock CAD data geocoded and measured from the Little Rock headquarters point.
 
 The Threat Telemetry filter uses the current categorizer labels, including all nine non-General categories. `KeywordAnalysisPage` retains color mappings for the legacy `Physical Security` and `Severe Weather` labels so older stored articles remain recognizable.
 
@@ -112,7 +112,7 @@ Five tabs: Overview, Keyword Analysis, Category Breakdown, Timeline, and Cross-R
 
 ### Settings & Admin
 
-Thirteen UI sections: Profile, Theme, Facilities, Email Contacts, Network Orders & Circuits, Internal Assets, RSS Sources, ML Training, AI & SMTP, Application Settings, Users & Roles, Backup & Restore, and Danger Zone. The eleven operational Settings sections use tab grants; Profile/Theme are self-service views. Tab visibility does not imply mutation permission.
+Twelve UI sections: Profile, Theme, Facilities, Email Contacts, Network Orders & Circuits, Internal Assets, RSS Sources, AI & SMTP, Application Settings, Users & Roles, Backup & Restore, and Danger Zone. The ten operational Settings sections use tab grants; Profile/Theme are self-service views. Tab visibility does not imply mutation permission.
 
 `UsersRolesTab` handles searchable user directories, invitations, display accounts, roles, account status, session revocation, and reviewed recovery requests. `ApplicationSettingsTab` separates global defaults/failed-login alerting, notification destinations and Elastic configuration, risk scoring, and scheduler settings by action grant. `OperationalIntegrationSettings` shows whether values come from the environment or database, masks the Elastic key, and supports resetting overrides. The AI & SMTP panel selects OpenAI-compatible, Ollama OpenAI-compatible, Ollama native, or vLLM for connection testing; its SMTP Broadcast card retains existing SMTP and Gmail profiles side by side, saves the active sender selection, and can send a test email. Backup and destructive controls are shown only for built-in administrators; the legacy JSON and `.db` migration tools are labeled as partial operations.
 

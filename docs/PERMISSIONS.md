@@ -1,6 +1,6 @@
 # Permissions and Authorization
 
-This reference documents the permission contract implemented by `src/core/permissions.py` and enforced by FastAPI route dependencies. Permission names are exact, case-sensitive strings. The API is authoritative; frontend checks control visibility and provide feedback, not security.
+This reference documents the shared permission contract in `contracts/permission_catalog.json`, enforced by backend authorization. The Python adapter is `src/core/permissions.py`; the C# API reads the same catalog. Permission names are exact, case-sensitive strings. Backend enforcement is authoritative; frontend checks control visibility and provide feedback, not security.
 
 ## Permission layers
 
@@ -61,7 +61,6 @@ The built-in `admin` and `administrator` role names receive the administrator ov
 | | `Tab: Settings -> Network Orders & Circuits` | `network-orders` |
 | | `Tab: Settings -> Internal Assets` | `assets` |
 | | `Tab: Settings -> RSS Sources` | `rss` |
-| | `Tab: Settings -> ML Training` | `ml` |
 | | `Tab: Settings -> AI & SMTP` | `ai-smtp` |
 | | `Tab: Settings -> Application Settings` | `application` |
 | | `Tab: Settings -> Users & Roles` | `users` |
@@ -86,7 +85,6 @@ The built-in `admin` and `administrator` role names receive the administrator ov
 | `Action: Dispatch RCA Tickets` | Change investigation/dispatch workflow and generate or send RCA tickets |
 | `Action: Acknowledge RCA Alerts` | Acknowledge or resolve RCA alerts |
 | `Action: Manage Site Maintenance` | Change site maintenance state and ETR |
-| `Action: Train ML Model` | Run manual model retraining |
 | `Action: Adjust Risk Scoring Overrides` | Change risk mode, baselines, overrides, offsets, and countermeasures |
 | `Action: Manage Scheduler Settings` | Change validated scheduler timing |
 | `Action: Manage Application Settings` | Change global defaults, alert destinations, and external integration settings |
@@ -96,7 +94,7 @@ The built-in `admin` and `administrator` role names receive the administrator ov
 | `Action: Approve Recovery Email Changes` | Approve or deny recovery-email changes |
 | `Action: Trigger AI Functions` | **Legacy compatibility grant.** New operations use narrower action grants where available. |
 
-`Action: Trigger AI Functions` remains a recognized legacy key. Current routes still use it for article feedback/BLUF generation, SIEM triage, keyword recategorization, and scoring-rationale actions. It does not replace the narrower `Action: Generate Reports`, email, scheduler, risk, user, or recovery grants.
+`Action: Trigger AI Functions` remains a recognized legacy key. Current routes still use it for BLUF generation, SIEM triage, keyword recategorization, and scoring-rationale actions. It does not replace the narrower `Action: Generate Reports`, email, scheduler, risk, user, or recovery grants.
 
 ## Default role behavior
 

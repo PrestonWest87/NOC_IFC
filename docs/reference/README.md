@@ -5,8 +5,7 @@ This directory is the detailed source-oriented reference corpus. It is part of t
 ## Coverage
 
 - `api/`: FastAPI lifecycle, WebSocket manager, authentication, and route handlers.
-- `scheduler.md`: Scheduler functions, ingestion algorithms, retention, escalation, and ML retraining.
-- `train_model.md`: Feedback-to-model training pipeline and artifact behavior.
+- `scheduler.md`: Scheduler functions, ingestion algorithms, retention, and escalation.
 - `api/webhook_listener.md`: SolarWinds gateway validation, normalization, and background processing.
 - `core/`: application and operational settings, LLM provider protocols, Arkansas regional geometry/CAP filtering, site-contact validation, database sessions/migrations, bootstrap data, permission and scheduler registries, persistent paths, and encrypted backup/restore lifecycle.
 - [Migration compatibility](../MIGRATION_COMPATIBILITY.md): supported legacy SQLite upgrade shapes, additive changes, and fail-closed recovery behavior.
