@@ -162,6 +162,61 @@ public sealed class AiopsRcaReadController(
         };
     }
 
+    [HttpPost("rca/site-maintenance")]
+    [RequireAction("Tab: AIOps RCA -> Active Board")]
+    [RequireAction("Action: Manage Site Maintenance")]
+    public async Task<IActionResult> SetSiteMaintenance(
+        [FromBody] JsonObject? request,
+        CancellationToken cancellationToken)
+    {
+        var user = AuthenticatedUserContext.GetUser(HttpContext);
+        if (user is null)
+        {
+            return Unauthorized(new { detail = new { code = "unauthenticated", message = "Not authenticated" } });
+        }
+        var siteName = request?["site_name"] is JsonValue siteValue
+            && siteValue.TryGetValue<string>(out var site)
+                ? site.Trim()
+                : "";
+        if (siteName.Length == 0)
+        {
+            return UnprocessableEntity(new { detail = "site_name is required." });
+        }
+        if (request?["is_maint"] is not JsonValue maintenanceValue
+            || !maintenanceValue.TryGetValue<bool>(out var isMaintenance))
+        {
+            return UnprocessableEntity(new { detail = "is_maint must be a boolean." });
+        }
+
+        string? etr = null;
+        if (isMaintenance && request?["etr"] is { } etrNode)
+        {
+            etr = etrNode is JsonValue etrValue && etrValue.TryGetValue<string>(out var etrText)
+                ? etrText
+                : "Invalid";
+        }
+        var reason = request?["reason"] is JsonValue reasonValue
+            && reasonValue.TryGetValue<string>(out var reasonText)
+                ? reasonText
+                : null;
+        var result = await dashboard.SetSiteMaintenanceAsync(
+            user, siteName, isMaintenance, etr, reason, cancellationToken);
+        return result switch
+        {
+            AiopsSiteMaintenanceOutcome.SiteScopeDenied => StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                detail = new
+                {
+                    code = "site_scope_denied",
+                    message = "This site is outside your permitted site types.",
+                },
+            }),
+            AiopsSiteMaintenanceOutcome.InvalidEtr => UnprocessableEntity(new { detail = "etr must be an ISO date." }),
+            AiopsSiteMaintenanceOutcome.SiteNotFound => NotFound(new { detail = "Site not found." }),
+            _ => Ok(new { status = "ok" }),
+        };
+    }
+
     [HttpPost("rca/investigate")]
     [RequireAction("Tab: AIOps RCA -> Active Board")]
     [RequireAction("Action: Dispatch RCA Tickets")]

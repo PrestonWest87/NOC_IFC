@@ -35,4 +35,12 @@ public interface IAiopsDashboardStore
         DateTime modifiedAtUtc,
         IReadOnlySet<string>? allowedSiteNames,
         CancellationToken cancellationToken);
+    Task<bool> SetSiteMaintenanceAsync(
+        string siteName,
+        bool isMaintenance,
+        DateTime? maintenanceEtr,
+        string? maintenanceReason,
+        string username,
+        DateTime modifiedAtUtc,
+        CancellationToken cancellationToken);
 }

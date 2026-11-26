@@ -1,3 +1,4 @@
+using System.Globalization;
 using NocIfc.Application.Abstractions.AIOps;
 using NocIfc.Application.Features.Settings;
 using NocIfc.Domain.AIOps;
@@ -5,6 +6,14 @@ using NocIfc.Domain.Identity;
 using NocIfc.Domain.Settings;
 
 namespace NocIfc.Application.Features.AIOps;
+
+public enum AiopsSiteMaintenanceOutcome
+{
+    Updated,
+    SiteScopeDenied,
+    InvalidEtr,
+    SiteNotFound,
+}
 
 public sealed record AiopsScopedDashboardInputs(
     IReadOnlyList<AiopsAlertEntry> Alerts,
@@ -104,6 +113,36 @@ public sealed class AiopsDashboardQueries(
         var allowedSiteNames = await GetAllowedSiteNamesAsync(user, cancellationToken);
         return await dashboard.SetSiteNeedsDispatchAsync(
             siteName, needsDispatch, user.Username, DateTime.UtcNow, allowedSiteNames, cancellationToken);
+    }
+
+    public async Task<AiopsSiteMaintenanceOutcome> SetSiteMaintenanceAsync(
+        AuthenticatedUser user,
+        string siteName,
+        bool isMaintenance,
+        string? etr,
+        string? maintenanceReason,
+        CancellationToken cancellationToken)
+    {
+        var allowedSiteNames = await GetAllowedSiteNamesAsync(user, cancellationToken);
+        if (allowedSiteNames is not null && !allowedSiteNames.Contains(siteName))
+        {
+            return AiopsSiteMaintenanceOutcome.SiteScopeDenied;
+        }
+        DateTime? maintenanceEtr = null;
+        if (isMaintenance && !string.IsNullOrEmpty(etr))
+        {
+            if (!DateOnly.TryParseExact(etr, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            {
+                return AiopsSiteMaintenanceOutcome.InvalidEtr;
+            }
+            maintenanceEtr = parsed.ToDateTime(TimeOnly.MinValue);
+        }
+        var reason = isMaintenance && !string.IsNullOrWhiteSpace(maintenanceReason)
+            ? maintenanceReason.Trim()
+            : null;
+        var updated = await dashboard.SetSiteMaintenanceAsync(
+            siteName, isMaintenance, maintenanceEtr, reason, user.Username, DateTime.UtcNow, cancellationToken);
+        return updated ? AiopsSiteMaintenanceOutcome.Updated : AiopsSiteMaintenanceOutcome.SiteNotFound;
     }
 
     private async Task<IReadOnlySet<string>?> GetAllowedSiteNamesAsync(

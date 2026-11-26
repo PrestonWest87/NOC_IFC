@@ -319,6 +319,48 @@ public sealed class SqliteAiopsDashboardStore(SqliteConnectionFactory connection
         return new AiopsNeedsDispatchUpdate(AiopsNeedsDispatchOutcome.Updated, activeAlertCount);
     }
 
+    public async Task<bool> SetSiteMaintenanceAsync(
+        string siteName,
+        bool isMaintenance,
+        DateTime? maintenanceEtr,
+        string? maintenanceReason,
+        string username,
+        DateTime modifiedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        if (!isMaintenance)
+        {
+            maintenanceEtr = null;
+            maintenanceReason = null;
+        }
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
+        await using (var update = connection.CreateCommand())
+        {
+            update.Transaction = transaction;
+            update.CommandText = """
+                UPDATE monitored_locations
+                SET under_maintenance = $is_maintenance,
+                    maintenance_etr = $etr,
+                    maintenance_reason = $reason,
+                    status_modified_by = $username,
+                    status_modified_at = $now
+                WHERE id = (SELECT id FROM monitored_locations WHERE name = $site LIMIT 1)
+                """;
+            update.Parameters.AddWithValue("$is_maintenance", isMaintenance);
+            update.Parameters.AddWithValue("$etr", maintenanceEtr is { } etr ? FormatDate(etr) : DBNull.Value);
+            update.Parameters.AddWithValue("$reason", (object?)maintenanceReason ?? DBNull.Value);
+            update.Parameters.AddWithValue("$username", username);
+            update.Parameters.AddWithValue("$now", FormatDate(modifiedAtUtc));
+            update.Parameters.AddWithValue("$site", siteName);
+            var changed = await update.ExecuteNonQueryAsync(cancellationToken);
+            if (changed == 0) return false;
+        }
+        transaction.Commit();
+        return true;
+    }
+
     private static string AddSiteFilter(SqliteCommand command, IReadOnlySet<string>? allowedSiteNames, string column)
     {
         if (allowedSiteNames is null) return "";

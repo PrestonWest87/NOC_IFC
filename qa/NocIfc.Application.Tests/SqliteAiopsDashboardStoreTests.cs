@@ -39,7 +39,8 @@ public sealed class SqliteAiopsDashboardStoreTests
                         is_resolved INTEGER
                     );
                     CREATE TABLE monitored_locations (
-                        id INTEGER PRIMARY KEY, name TEXT, status_modified_by TEXT, status_modified_at DATETIME
+                        id INTEGER PRIMARY KEY, name TEXT, status_modified_by TEXT, status_modified_at DATETIME,
+                        under_maintenance INTEGER, maintenance_etr DATETIME, maintenance_reason TEXT
                     );
                     """;
                 await setup.ExecuteNonQueryAsync();
@@ -61,7 +62,7 @@ public sealed class SqliteAiopsDashboardStoreTests
                         (1,'Power','Utility','Loss','Central NOC region',34.7,-92.2,10,$now,0),
                         (2,'Power','Utility','Loss','Field Office region',35.0,-92.0,10,$now,0);
                     INSERT INTO monitored_locations VALUES
-                        (1,'Central NOC',NULL,NULL),(2,'Field Office',NULL,NULL);
+                        (1,'Central NOC',NULL,NULL,0,NULL,NULL),(2,'Field Office',NULL,NULL,0,NULL,NULL);
                     """;
                 insert.Parameters.AddWithValue("$now", Format(now));
                 insert.Parameters.AddWithValue("$old", Format(now.AddMinutes(-1)));
@@ -108,6 +109,29 @@ public sealed class SqliteAiopsDashboardStoreTests
             Assert.Equal(AiopsNeedsDispatchOutcome.SiteNotFound,
                 (await store.SetSiteNeedsDispatchAsync(
                     "Missing", false, "admin", now, null, CancellationToken.None)).Outcome);
+            var etr = new DateTime(2026, 11, 27);
+            Assert.True(await store.SetSiteMaintenanceAsync(
+                "Central NOC", true, etr, "planned work", "maintainer", now, CancellationToken.None));
+            Assert.False(await store.SetSiteMaintenanceAsync(
+                "Missing", true, etr, "planned work", "maintainer", now, CancellationToken.None));
+            Assert.True(await store.SetSiteMaintenanceAsync(
+                "Central NOC", false, etr, "stale client reason", "operator", now.AddMinutes(1), CancellationToken.None));
+            await using (var connection = connections.Create())
+            {
+                await connection.OpenAsync();
+                await using var verify = connection.CreateCommand();
+                verify.CommandText = """
+                    SELECT under_maintenance, maintenance_etr, maintenance_reason, status_modified_by, status_modified_at
+                    FROM monitored_locations WHERE name = 'Central NOC'
+                    """;
+                await using var reader = await verify.ExecuteReaderAsync();
+                Assert.True(await reader.ReadAsync());
+                Assert.False(reader.GetBoolean(0));
+                Assert.True(reader.IsDBNull(1));
+                Assert.True(reader.IsDBNull(2));
+                Assert.Equal("operator", reader.GetString(3));
+                Assert.Equal(Format(now.AddMinutes(1)), reader.GetString(4));
+            }
 
             Assert.False(await store.AcknowledgeAlertsAsync(
                 [1, 3], "operator", now, allowed, CancellationToken.None));

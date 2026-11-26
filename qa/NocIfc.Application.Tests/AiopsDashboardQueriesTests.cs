@@ -108,6 +108,15 @@ public sealed class AiopsDashboardQueriesTests
             IReadOnlySet<string>? allowedSiteNames,
             CancellationToken cancellationToken) => Task.FromResult(
                 new AiopsNeedsDispatchUpdate(AiopsNeedsDispatchOutcome.Updated, 0));
+
+        public Task<bool> SetSiteMaintenanceAsync(
+            string siteName,
+            bool isMaintenance,
+            DateTime? maintenanceEtr,
+            string? maintenanceReason,
+            string username,
+            DateTime modifiedAtUtc,
+            CancellationToken cancellationToken) => Task.FromResult(true);
     }
 
     private sealed class StubFacilityStore(IReadOnlyList<MonitoredLocationEntry> locations) : IFacilityDirectoryStore
