@@ -28,4 +28,11 @@ public interface IAiopsDashboardStore
         DateTime dispatchedAtUtc,
         IReadOnlySet<string>? allowedSiteNames,
         CancellationToken cancellationToken);
+    Task<AiopsNeedsDispatchUpdate> SetSiteNeedsDispatchAsync(
+        string siteName,
+        bool needsDispatch,
+        string username,
+        DateTime modifiedAtUtc,
+        IReadOnlySet<string>? allowedSiteNames,
+        CancellationToken cancellationToken);
 }

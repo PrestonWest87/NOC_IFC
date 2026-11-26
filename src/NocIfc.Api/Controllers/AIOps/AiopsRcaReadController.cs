@@ -4,6 +4,7 @@ using NocIfc.Api.Authentication;
 using NocIfc.Api.Authorization;
 using NocIfc.Api.Contracts;
 using NocIfc.Application.Features.AIOps;
+using NocIfc.Domain.AIOps;
 
 namespace NocIfc.Api.Controllers.AIOps;
 
@@ -117,6 +118,48 @@ public sealed class AiopsRcaReadController(
             });
         }
         return Ok(new { status = "ok" });
+    }
+
+    [HttpPost("rca/needs-dispatch")]
+    [RequireAction("Tab: AIOps RCA -> Active Board")]
+    [RequireAction("Action: Dispatch RCA Tickets")]
+    public async Task<IActionResult> SetNeedsDispatch(
+        [FromBody] JsonObject? request,
+        CancellationToken cancellationToken)
+    {
+        var user = AuthenticatedUserContext.GetUser(HttpContext);
+        if (user is null)
+        {
+            return Unauthorized(new { detail = new { code = "unauthenticated", message = "Not authenticated" } });
+        }
+        if (request?["needs_dispatch"] is not JsonValue dispatchValue
+            || !dispatchValue.TryGetValue<bool>(out var needsDispatch))
+        {
+            return UnprocessableEntity(new { detail = "needs_dispatch must be a boolean." });
+        }
+        var site = request?["site"] is JsonValue siteValue && siteValue.TryGetValue<string>(out var siteName)
+            ? siteName
+            : "";
+
+        var result = await dashboard.SetSiteNeedsDispatchAsync(
+            user, site, needsDispatch, cancellationToken);
+        return result.Outcome switch
+        {
+            AiopsNeedsDispatchOutcome.SiteScopeDenied => StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                detail = new
+                {
+                    code = "site_scope_denied",
+                    message = "This site is outside your permitted site types.",
+                },
+            }),
+            AiopsNeedsDispatchOutcome.SiteNotFound => NotFound(new { detail = "Site not found." }),
+            AiopsNeedsDispatchOutcome.ActiveAlertRequired => Conflict(new
+            {
+                detail = "Needs Dispatch requires at least one active site alert.",
+            }),
+            _ => Ok(new { status = "ok", updated_alerts = result.UpdatedAlerts }),
+        };
     }
 
     [HttpPost("rca/investigate")]

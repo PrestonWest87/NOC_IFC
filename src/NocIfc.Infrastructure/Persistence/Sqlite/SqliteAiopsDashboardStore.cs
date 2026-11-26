@@ -239,6 +239,86 @@ public sealed class SqliteAiopsDashboardStore(SqliteConnectionFactory connection
         return true;
     }
 
+    public async Task<AiopsNeedsDispatchUpdate> SetSiteNeedsDispatchAsync(
+        string siteName,
+        bool needsDispatch,
+        string username,
+        DateTime modifiedAtUtc,
+        IReadOnlySet<string>? allowedSiteNames,
+        CancellationToken cancellationToken)
+    {
+        if (allowedSiteNames is not null && !allowedSiteNames.Contains(siteName))
+        {
+            return new AiopsNeedsDispatchUpdate(AiopsNeedsDispatchOutcome.SiteScopeDenied, 0);
+        }
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
+        int locationId;
+        await using (var location = connection.CreateCommand())
+        {
+            location.Transaction = transaction;
+            location.CommandText = "SELECT id FROM monitored_locations WHERE name = $site LIMIT 1";
+            location.Parameters.AddWithValue("$site", siteName);
+            var value = await location.ExecuteScalarAsync(cancellationToken);
+            if (value is null)
+            {
+                return new AiopsNeedsDispatchUpdate(AiopsNeedsDispatchOutcome.SiteNotFound, 0);
+            }
+            locationId = Convert.ToInt32(value, CultureInfo.InvariantCulture);
+        }
+
+        int activeAlertCount;
+        await using (var count = connection.CreateCommand())
+        {
+            count.Transaction = transaction;
+            count.CommandText = """
+                SELECT COUNT(id) FROM solarwinds_alerts
+                WHERE mapped_location = $site AND status != 'Resolved' AND is_correlated = 0
+                """;
+            count.Parameters.AddWithValue("$site", siteName);
+            activeAlertCount = Convert.ToInt32(await count.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
+        }
+        if (needsDispatch && activeAlertCount == 0)
+        {
+            return new AiopsNeedsDispatchUpdate(AiopsNeedsDispatchOutcome.ActiveAlertRequired, 0);
+        }
+
+        var timestamp = FormatDate(modifiedAtUtc);
+        await using (var update = connection.CreateCommand())
+        {
+            update.Transaction = transaction;
+            update.CommandText = needsDispatch
+                ? """
+                  UPDATE solarwinds_alerts
+                  SET needs_dispatch = 1, is_dispatched = 0
+                  WHERE mapped_location = $site AND status != 'Resolved' AND is_correlated = 0
+                  """
+                : """
+                  UPDATE solarwinds_alerts
+                  SET needs_dispatch = 0
+                  WHERE mapped_location = $site AND status != 'Resolved' AND is_correlated = 0
+                  """;
+            update.Parameters.AddWithValue("$site", siteName);
+            await update.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using (var updateLocation = connection.CreateCommand())
+        {
+            updateLocation.Transaction = transaction;
+            updateLocation.CommandText = """
+                UPDATE monitored_locations
+                SET status_modified_by = $username, status_modified_at = $now
+                WHERE id = $id
+                """;
+            updateLocation.Parameters.AddWithValue("$username", username);
+            updateLocation.Parameters.AddWithValue("$now", timestamp);
+            updateLocation.Parameters.AddWithValue("$id", locationId);
+            await updateLocation.ExecuteNonQueryAsync(cancellationToken);
+        }
+        transaction.Commit();
+        return new AiopsNeedsDispatchUpdate(AiopsNeedsDispatchOutcome.Updated, activeAlertCount);
+    }
+
     private static string AddSiteFilter(SqliteCommand command, IReadOnlySet<string>? allowedSiteNames, string column)
     {
         if (allowedSiteNames is null) return "";

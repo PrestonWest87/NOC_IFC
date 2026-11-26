@@ -57,3 +57,13 @@ public sealed record AiopsBoardSnapshot(
     IReadOnlyList<MonitoredLocationEntry> Locations,
     IReadOnlyList<string> InvestigatingSites,
     bool IsAdministrator);
+
+public enum AiopsNeedsDispatchOutcome
+{
+    Updated,
+    SiteScopeDenied,
+    SiteNotFound,
+    ActiveAlertRequired,
+}
+
+public sealed record AiopsNeedsDispatchUpdate(AiopsNeedsDispatchOutcome Outcome, int UpdatedAlerts);

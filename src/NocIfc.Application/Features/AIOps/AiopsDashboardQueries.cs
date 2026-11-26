@@ -62,9 +62,7 @@ public sealed class AiopsDashboardQueries(
         var locations = await facilities.GetLocationsAsync(user, cancellationToken);
         IReadOnlySet<string>? allowedSiteNames = user.IsAdministrator
             ? null
-            : locations.Where(location => !string.IsNullOrEmpty(location.Name))
-                .Select(location => location.Name!)
-                .ToHashSet(StringComparer.Ordinal);
+            : GetSiteNames(locations);
         var alerts = await dashboard.GetUnresolvedAlertsAsync(allowedSiteNames, cancellationToken);
         var events = await dashboard.GetTimelineEventsAsync(allowedSiteNames, 50, cancellationToken);
         if (allowedSiteNames is not null)
@@ -81,12 +79,7 @@ public sealed class AiopsDashboardQueries(
         IReadOnlyList<int> alertIds,
         CancellationToken cancellationToken)
     {
-        IReadOnlySet<string>? allowedSiteNames = user.IsAdministrator
-            ? null
-            : (await facilities.GetLocationsAsync(user, cancellationToken))
-                .Where(location => !string.IsNullOrEmpty(location.Name))
-                .Select(location => location.Name!)
-                .ToHashSet(StringComparer.Ordinal);
+        var allowedSiteNames = await GetAllowedSiteNamesAsync(user, cancellationToken);
         return await dashboard.AcknowledgeAlertsAsync(
             alertIds, user.Username, DateTime.UtcNow, allowedSiteNames, cancellationToken);
     }
@@ -97,13 +90,31 @@ public sealed class AiopsDashboardQueries(
         bool isDispatched,
         CancellationToken cancellationToken)
     {
-        IReadOnlySet<string>? allowedSiteNames = user.IsAdministrator
-            ? null
-            : (await facilities.GetLocationsAsync(user, cancellationToken))
-                .Where(location => !string.IsNullOrEmpty(location.Name))
-                .Select(location => location.Name!)
-                .ToHashSet(StringComparer.Ordinal);
+        var allowedSiteNames = await GetAllowedSiteNamesAsync(user, cancellationToken);
         return await dashboard.SetClusterDispatchAsync(
             alertIds, isDispatched, user.Username, DateTime.UtcNow, allowedSiteNames, cancellationToken);
     }
+
+    public async Task<AiopsNeedsDispatchUpdate> SetSiteNeedsDispatchAsync(
+        AuthenticatedUser user,
+        string siteName,
+        bool needsDispatch,
+        CancellationToken cancellationToken)
+    {
+        var allowedSiteNames = await GetAllowedSiteNamesAsync(user, cancellationToken);
+        return await dashboard.SetSiteNeedsDispatchAsync(
+            siteName, needsDispatch, user.Username, DateTime.UtcNow, allowedSiteNames, cancellationToken);
+    }
+
+    private async Task<IReadOnlySet<string>?> GetAllowedSiteNamesAsync(
+        AuthenticatedUser user,
+        CancellationToken cancellationToken) =>
+        user.IsAdministrator
+            ? null
+            : GetSiteNames(await facilities.GetLocationsAsync(user, cancellationToken));
+
+    private static IReadOnlySet<string> GetSiteNames(IReadOnlyList<MonitoredLocationEntry> locations) =>
+        locations.Where(location => !string.IsNullOrEmpty(location.Name))
+            .Select(location => location.Name!)
+            .ToHashSet(StringComparer.Ordinal);
 }

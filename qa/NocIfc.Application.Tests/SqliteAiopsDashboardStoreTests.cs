@@ -1,4 +1,5 @@
 using System.Globalization;
+using NocIfc.Domain.AIOps;
 using NocIfc.Infrastructure.Persistence.Sqlite;
 using Xunit;
 
@@ -7,7 +8,7 @@ namespace NocIfc.Application.Tests;
 public sealed class SqliteAiopsDashboardStoreTests
 {
     [Fact]
-    public async Task AppliesSiteScopeBeforeTimelineLimitAndCountsAcknowledgedUnresolvedAlerts()
+    public async Task AppliesSiteScopesAndPersistsAlertWorkflowsAtomically()
     {
         var path = Path.Combine(Path.GetTempPath(), $"nocifc-aiops-board-{Guid.NewGuid():N}.sqlite");
         using (File.Create(path)) { }
@@ -48,7 +49,7 @@ public sealed class SqliteAiopsDashboardStoreTests
                         id,event_type,severity,node_name,ip_address,status,details,raw_payload,mapped_location,
                         received_at,is_dispatched,is_ticketed,is_correlated,needs_dispatch,event_category)
                     VALUES
-                        (1,'Down','Critical','router-1','192.0.2.1','Down','timeout','{"source":"test"}','Central NOC',$now,0,0,0,1,'network'),
+                        (1,'Down','Critical','router-1','192.0.2.1','Down','timeout','{"source":"test"}','Central NOC',$now,1,0,0,0,'network'),
                         (2,'Down','High','router-2','192.0.2.2','Acknowledged','link loss',NULL,'Central NOC',$now,0,0,1,0,'network'),
                         (3,'Down','Critical','server-1','192.0.2.3','Down','timeout',NULL,'Field Office',$now,0,0,0,0,'compute'),
                         (4,'Down','Critical','router-3','192.0.2.4','Resolved','fixed',NULL,'Central NOC',$now,0,0,0,0,'network');
@@ -82,6 +83,32 @@ public sealed class SqliteAiopsDashboardStoreTests
             Assert.Equal(2, counts["Central NOC"]);
             Assert.Equal(2, outages.Count);
 
+            var needsDispatch = await store.SetSiteNeedsDispatchAsync(
+                "Central NOC", true, "operator", now, allowed, CancellationToken.None);
+            Assert.Equal(AiopsNeedsDispatchOutcome.Updated, needsDispatch.Outcome);
+            Assert.Equal(1, needsDispatch.UpdatedAlerts);
+            await using (var connection = connections.Create())
+            {
+                await connection.OpenAsync();
+                await using var verify = connection.CreateCommand();
+                verify.CommandText = """
+                    SELECT a.is_dispatched, a.needs_dispatch, l.status_modified_by
+                    FROM solarwinds_alerts a JOIN monitored_locations l ON l.name = a.mapped_location
+                    WHERE a.id = 1
+                    """;
+                await using var reader = await verify.ExecuteReaderAsync();
+                Assert.True(await reader.ReadAsync());
+                Assert.False(reader.GetBoolean(0));
+                Assert.True(reader.GetBoolean(1));
+                Assert.Equal("operator", reader.GetString(2));
+            }
+            Assert.Equal(AiopsNeedsDispatchOutcome.SiteScopeDenied,
+                (await store.SetSiteNeedsDispatchAsync(
+                    "Field Office", true, "operator", now, allowed, CancellationToken.None)).Outcome);
+            Assert.Equal(AiopsNeedsDispatchOutcome.SiteNotFound,
+                (await store.SetSiteNeedsDispatchAsync(
+                    "Missing", false, "admin", now, null, CancellationToken.None)).Outcome);
+
             Assert.False(await store.AcknowledgeAlertsAsync(
                 [1, 3], "operator", now, allowed, CancellationToken.None));
             Assert.True(await store.AcknowledgeAlertsAsync(
@@ -90,6 +117,9 @@ public sealed class SqliteAiopsDashboardStoreTests
                 [999], "operator", now, allowed, CancellationToken.None));
             Assert.True(await store.AcknowledgeAlertsAsync(
                 [999], "admin", now, null, CancellationToken.None));
+            Assert.Equal(AiopsNeedsDispatchOutcome.ActiveAlertRequired,
+                (await store.SetSiteNeedsDispatchAsync(
+                    "Central NOC", true, "operator", now, allowed, CancellationToken.None)).Outcome);
             Assert.False(await store.SetClusterDispatchAsync(
                 [1, 3], true, "dispatcher", now, allowed, CancellationToken.None));
             Assert.True(await store.SetClusterDispatchAsync(

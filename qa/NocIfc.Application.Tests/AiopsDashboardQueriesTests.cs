@@ -99,6 +99,15 @@ public sealed class AiopsDashboardQueriesTests
             DateTime dispatchedAtUtc,
             IReadOnlySet<string>? allowedSiteNames,
             CancellationToken cancellationToken) => Task.FromResult(true);
+
+        public Task<AiopsNeedsDispatchUpdate> SetSiteNeedsDispatchAsync(
+            string siteName,
+            bool needsDispatch,
+            string username,
+            DateTime modifiedAtUtc,
+            IReadOnlySet<string>? allowedSiteNames,
+            CancellationToken cancellationToken) => Task.FromResult(
+                new AiopsNeedsDispatchUpdate(AiopsNeedsDispatchOutcome.Updated, 0));
     }
 
     private sealed class StubFacilityStore(IReadOnlyList<MonitoredLocationEntry> locations) : IFacilityDirectoryStore
