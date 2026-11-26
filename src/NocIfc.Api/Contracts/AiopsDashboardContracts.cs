@@ -131,3 +131,107 @@ public sealed record RcaDashboardResponse(
         snapshot.Locations.Select(MonitoredLocationResponse.From).ToArray(),
         snapshot.InvestigatingSites);
 }
+
+public sealed record AiopsRcaDependencyResponse(
+    [property: JsonPropertyName("alert")] AiopsAlertResponse Alert,
+    [property: JsonPropertyName("score")] double Score,
+    [property: JsonPropertyName("domain")] string Domain,
+    [property: JsonPropertyName("node_type")] string NodeType,
+    [property: JsonPropertyName("severity")] int Severity)
+{
+    public static AiopsRcaDependencyResponse From(AiopsRcaDependencyEntry entry) => new(
+        AiopsAlertResponse.From(entry.Alert), entry.Score, entry.Domain, entry.NodeType, entry.Severity);
+}
+
+public sealed record AiopsRcaSiteMetadataResponse(
+    [property: JsonPropertyName("primary_coms")] string PrimaryComms,
+    [property: JsonPropertyName("secondary_coms")] string SecondaryComms,
+    [property: JsonPropertyName("district")] string District)
+{
+    public static AiopsRcaSiteMetadataResponse From(AiopsRcaSiteMetadata metadata) => new(
+        metadata.PrimaryComms, metadata.SecondaryComms, metadata.District);
+}
+
+public sealed record AiopsRcaClusterResponse(
+    [property: JsonPropertyName("alerts")] IReadOnlyList<AiopsAlertResponse> Alerts,
+    [property: JsonPropertyName("site_metadata")] AiopsRcaSiteMetadataResponse SiteMetadata,
+    [property: JsonPropertyName("domains_affected")] IReadOnlyList<string> DomainsAffected,
+    [property: JsonPropertyName("dependency_chain")] IReadOnlyList<AiopsRcaDependencyResponse> DependencyChain,
+    [property: JsonPropertyName("avg_loss")] IReadOnlyList<double> AverageLoss,
+    [property: JsonPropertyName("avg_cpu")] IReadOnlyList<double> AverageCpu,
+    [property: JsonPropertyName("ips")] IReadOnlyList<string> Ips,
+    [property: JsonPropertyName("max_alert_level")] int MaximumAlertLevel,
+    [property: JsonPropertyName("latest_alert")] AiopsAlertResponse? LatestAlert,
+    [property: JsonPropertyName("patient_zero")] AiopsAlertResponse? PatientZero)
+{
+    public static AiopsRcaClusterResponse From(AiopsRcaCluster cluster) => new(
+        cluster.Alerts.Select(AiopsAlertResponse.From).ToArray(),
+        AiopsRcaSiteMetadataResponse.From(cluster.SiteMetadata),
+        cluster.DomainsAffected,
+        cluster.DependencyChain.Select(AiopsRcaDependencyResponse.From).ToArray(),
+        cluster.AverageLoss,
+        cluster.AverageCpu,
+        cluster.Ips,
+        cluster.MaximumAlertLevel,
+        cluster.LatestAlert is null ? null : AiopsAlertResponse.From(cluster.LatestAlert),
+        cluster.PatientZero is null ? null : AiopsAlertResponse.From(cluster.PatientZero));
+}
+
+public sealed record AiopsFleetEventResponse(
+    [property: JsonPropertyName("provider")] string Provider,
+    [property: JsonPropertyName("affected_sites")] IReadOnlyList<string> AffectedSites,
+    [property: JsonPropertyName("event_type")] string EventType,
+    [property: JsonPropertyName("severity")] string Severity)
+{
+    public static AiopsFleetEventResponse From(AiopsFleetEvent fleetEvent) => new(
+        fleetEvent.Provider, fleetEvent.AffectedSites, fleetEvent.EventType, fleetEvent.Severity);
+}
+
+public sealed record AiopsChronicNodeResponse(
+    [property: JsonPropertyName("Node Name")] string NodeName,
+    [property: JsonPropertyName("Total Incidents (60 Days)")] int IncidentCount,
+    [property: JsonPropertyName("Device Type")] string? DeviceType,
+    [property: JsonPropertyName("Site")] string Site)
+{
+    public static AiopsChronicNodeResponse From(AiopsChronicNodeSummary summary) => new(
+        summary.NodeName, summary.IncidentCount, summary.DeviceType, summary.Site);
+}
+
+public sealed record AiopsChronicSiteResponse(
+    [property: JsonPropertyName("Site")] string Site,
+    [property: JsonPropertyName("Total Incidents (60 Days)")] int IncidentCount)
+{
+    public static AiopsChronicSiteResponse From(AiopsChronicSiteSummary summary) => new(
+        summary.Site, summary.IncidentCount);
+}
+
+public sealed record AiopsRcaAnalysisResponse(
+    [property: JsonPropertyName("clustered")] IReadOnlyDictionary<string, AiopsRcaClusterResponse> Clustered,
+    [property: JsonPropertyName("fleet_outages")] IReadOnlyList<AiopsFleetEventResponse> FleetOutages,
+    [property: JsonPropertyName("root_cause")] IReadOnlyDictionary<string, object?[]> RootCause,
+    [property: JsonPropertyName("chronic_insights")] object?[] ChronicInsights,
+    [property: JsonPropertyName("events")] IReadOnlyList<AiopsTimelineEventResponse> Events)
+{
+    public static AiopsRcaAnalysisResponse From(AiopsRcaAnalysisResult result) => new(
+        result.Clustered.ToDictionary(pair => pair.Key, pair => AiopsRcaClusterResponse.From(pair.Value), StringComparer.Ordinal),
+        result.FleetOutages.Select(AiopsFleetEventResponse.From).ToArray(),
+        result.RootCause.ToDictionary(
+            pair => pair.Key,
+            pair => new object?[]
+            {
+                pair.Value.Cause, pair.Value.Score, pair.Value.Priority, pair.Value.Evidence,
+                pair.Value.BlastRadius, pair.Value.PatientZero, pair.Value.CascadeDelay,
+            },
+            StringComparer.Ordinal),
+        result.CanViewChronicInsights
+            ? result.ChronicInsights is null
+                ? [null, null, null]
+                :
+                [
+                    result.ChronicInsights.OffendingNodes.Select(AiopsChronicNodeResponse.From).ToArray(),
+                    result.ChronicInsights.Hotspots.Select(AiopsChronicSiteResponse.From).ToArray(),
+                    result.ChronicInsights.Forecast,
+                ]
+            : [],
+        result.Events.Select(AiopsTimelineEventResponse.From).ToArray());
+}

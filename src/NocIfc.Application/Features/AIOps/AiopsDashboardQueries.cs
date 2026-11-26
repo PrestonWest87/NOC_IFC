@@ -6,6 +6,13 @@ using NocIfc.Domain.Settings;
 
 namespace NocIfc.Application.Features.AIOps;
 
+public sealed record AiopsScopedDashboardInputs(
+    IReadOnlyList<AiopsAlertEntry> Alerts,
+    IReadOnlyList<AiopsTimelineEventEntry> Events,
+    IReadOnlyList<MonitoredLocationEntry> Locations,
+    IReadOnlySet<string>? AllowedSiteNames,
+    bool IsAdministrator);
+
 public sealed class AiopsDashboardQueries(
     IAiopsDashboardStore dashboard,
     FacilityDirectoryCommands facilities,
@@ -20,6 +27,38 @@ public sealed class AiopsDashboardQueries(
         AuthenticatedUser user,
         CancellationToken cancellationToken)
     {
+        var inputs = await GetScopedInputsAsync(user, cancellationToken);
+        var outages = await dashboard.GetUnresolvedOutagesAsync(cancellationToken);
+        var grid = inputs.AllowedSiteNames is null
+            ? outages
+            : outages.Where(outage => inputs.AllowedSiteNames.Any(site =>
+                (outage.AffectedArea ?? "").Contains(site, StringComparison.OrdinalIgnoreCase))).ToArray();
+        var activeIssueCounts = await dashboard.GetActiveIssueCountsAsync(inputs.AllowedSiteNames, cancellationToken);
+        if (inputs.AllowedSiteNames is not null)
+        {
+            activeIssueCounts = activeIssueCounts
+                .Where(pair => inputs.AllowedSiteNames.Contains(pair.Key))
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        }
+        var investigatingSites = investigating.GetSites();
+        if (inputs.AllowedSiteNames is not null)
+        {
+            investigatingSites = investigatingSites.Where(inputs.AllowedSiteNames.Contains).ToArray();
+        }
+        return new AiopsBoardSnapshot(
+            inputs.Alerts,
+            inputs.Events,
+            grid,
+            activeIssueCounts,
+            inputs.Locations,
+            investigatingSites,
+            inputs.IsAdministrator);
+    }
+
+    public async Task<AiopsScopedDashboardInputs> GetScopedInputsAsync(
+        AuthenticatedUser user,
+        CancellationToken cancellationToken)
+    {
         var locations = await facilities.GetLocationsAsync(user, cancellationToken);
         IReadOnlySet<string>? allowedSiteNames = user.IsAdministrator
             ? null
@@ -28,24 +67,12 @@ public sealed class AiopsDashboardQueries(
                 .ToHashSet(StringComparer.Ordinal);
         var alerts = await dashboard.GetUnresolvedAlertsAsync(allowedSiteNames, cancellationToken);
         var events = await dashboard.GetTimelineEventsAsync(allowedSiteNames, 50, cancellationToken);
-        var outages = await dashboard.GetUnresolvedOutagesAsync(cancellationToken);
-        var grid = allowedSiteNames is null
-            ? outages
-            : outages.Where(outage => allowedSiteNames.Any(site =>
-                (outage.AffectedArea ?? "").Contains(site, StringComparison.OrdinalIgnoreCase))).ToArray();
-        var activeIssueCounts = await dashboard.GetActiveIssueCountsAsync(allowedSiteNames, cancellationToken);
-        var investigatingSites = investigating.GetSites();
         if (allowedSiteNames is not null)
         {
             alerts = alerts.Where(alert => alert.MappedLocation is not null && allowedSiteNames.Contains(alert.MappedLocation)).ToArray();
             events = events.Where(timelineEvent => timelineEvent.SiteName is not null
                 && allowedSiteNames.Contains(timelineEvent.SiteName)).ToArray();
-            activeIssueCounts = activeIssueCounts
-                .Where(pair => allowedSiteNames.Contains(pair.Key))
-                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
-            investigatingSites = investigatingSites.Where(allowedSiteNames.Contains).ToArray();
         }
-        return new AiopsBoardSnapshot(
-            alerts, events, grid, activeIssueCounts, locations, investigatingSites, user.IsAdministrator);
+        return new AiopsScopedDashboardInputs(alerts, events, locations, allowedSiteNames, user.IsAdministrator);
     }
 }

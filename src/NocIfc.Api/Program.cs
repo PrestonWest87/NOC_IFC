@@ -100,8 +100,11 @@ builder.Services.AddScoped<RegionalHazardSyncCommands>();
 builder.Services.AddScoped<IShiftLogbookStore, SqliteShiftLogbookStore>();
 builder.Services.AddScoped<ShiftLogbookCommands>();
 builder.Services.AddScoped<IAiopsDashboardStore, SqliteAiopsDashboardStore>();
+builder.Services.AddScoped<IAiopsRcaAnalysisStore, SqliteAiopsRcaAnalysisStore>();
 builder.Services.AddSingleton<AiopsInvestigationState>();
 builder.Services.AddScoped<AiopsDashboardQueries>();
+builder.Services.AddScoped<AiopsRcaAnalysisEngine>();
+builder.Services.AddScoped<AiopsRcaAnalysisQueries>();
 builder.Services.AddSingleton(new NwsForecastConfiguration(
     builder.Configuration["nws_api_user_agent"] ?? "NOC-IFC/2.0 (https://test.weasts.net)",
     builder.Configuration["default_admin_email"] ?? ""));

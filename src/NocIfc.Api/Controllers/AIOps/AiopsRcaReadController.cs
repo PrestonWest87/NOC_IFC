@@ -12,6 +12,7 @@ namespace NocIfc.Api.Controllers.AIOps;
 [RequirePage("AIOps RCA")]
 public sealed class AiopsRcaReadController(
     AiopsDashboardQueries dashboard,
+    AiopsRcaAnalysisQueries analysis,
     AiopsInvestigationState investigating) : ControllerBase
 {
     [HttpGet("aiops/dashboard")]
@@ -49,6 +50,19 @@ public sealed class AiopsRcaReadController(
             return Unauthorized(new { detail = new { code = "unauthenticated", message = "Not authenticated" } });
         }
         return Ok(RcaDashboardResponse.From(await dashboard.GetBoardAsync(user, cancellationToken)));
+    }
+
+    [HttpPost("rca/analyze")]
+    [RequireAction("Tab: AIOps RCA -> Active Board")]
+    [RequireAction("Action: Run RCA Analysis")]
+    public async Task<IActionResult> Analyze(CancellationToken cancellationToken)
+    {
+        var user = AuthenticatedUserContext.GetUser(HttpContext);
+        if (user is null)
+        {
+            return Unauthorized(new { detail = new { code = "unauthenticated", message = "Not authenticated" } });
+        }
+        return Ok(AiopsRcaAnalysisResponse.From(await analysis.AnalyzeAsync(user, cancellationToken)));
     }
 
     [HttpPost("rca/investigate")]
