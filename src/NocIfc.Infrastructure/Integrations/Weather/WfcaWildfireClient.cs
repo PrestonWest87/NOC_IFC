@@ -17,6 +17,20 @@ public sealed class WfcaWildfireSnapshotCache
     internal string? LastGoodDataJson;
     internal string? LastSuccessAt;
     internal string? LastError;
+
+    public async Task InvalidateAsync(CancellationToken cancellationToken)
+    {
+        await RefreshGate.WaitAsync(cancellationToken);
+        try
+        {
+            CachedJson = null;
+            CachedUntilUtc = default;
+        }
+        finally
+        {
+            RefreshGate.Release();
+        }
+    }
 }
 
 public sealed class WfcaWildfireClient(

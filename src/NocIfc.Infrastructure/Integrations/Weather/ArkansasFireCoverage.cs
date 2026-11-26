@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using NocIfc.Application.Abstractions.Regional;
+using NocIfc.Application.Features.Regional;
 
 namespace NocIfc.Infrastructure.Integrations.Weather;
 
@@ -18,6 +19,14 @@ public sealed class ArkansasFireCoverage : IRegionalCountyGeometryProvider
     private readonly IReadOnlyDictionary<string, RegionalCountyGeometry> _regionalCounties;
     private readonly double _centerLongitude;
     private readonly double _centerLatitude;
+    private readonly double _minLongitude;
+    private readonly double _minLatitude;
+    private readonly double _maxLongitude;
+    private readonly double _maxLatitude;
+    private readonly double _bufferMinLongitude;
+    private readonly double _bufferMinLatitude;
+    private readonly double _bufferMaxLongitude;
+    private readonly double _bufferMaxLatitude;
 
     private ArkansasFireCoverage(
         Polygon[] arkansasCounties,
@@ -31,6 +40,10 @@ public sealed class ArkansasFireCoverage : IRegionalCountyGeometryProvider
         _regionalCounties = regionalCounties;
         _centerLongitude = (minLongitude + maxLongitude) / 2;
         _centerLatitude = (minLatitude + maxLatitude) / 2;
+        _minLongitude = minLongitude;
+        _minLatitude = minLatitude;
+        _maxLongitude = maxLongitude;
+        _maxLatitude = maxLatitude;
         foreach (var county in _arkansasCounties)
         {
             foreach (var ring in county.Rings)
@@ -42,6 +55,16 @@ public sealed class ArkansasFireCoverage : IRegionalCountyGeometryProvider
         var latitudeMargin = BufferMiles / 68.0;
         var maximumAbsoluteLatitude = Math.Max(Math.Abs(minLatitude - latitudeMargin), Math.Abs(maxLatitude + latitudeMargin));
         var longitudeMargin = BufferMiles / (68.0 * Math.Cos(maximumAbsoluteLatitude * DegreesToRadians));
+        _bufferMinLongitude = minLongitude - longitudeMargin;
+        _bufferMinLatitude = minLatitude - latitudeMargin;
+        _bufferMaxLongitude = maxLongitude + longitudeMargin;
+        _bufferMaxLatitude = maxLatitude + latitudeMargin;
+        ArkansasBounds = string.Join(',',
+            minLongitude.ToString("F5", CultureInfo.InvariantCulture),
+            minLatitude.ToString("F5", CultureInfo.InvariantCulture),
+            maxLongitude.ToString("F5", CultureInfo.InvariantCulture),
+            maxLatitude.ToString("F5", CultureInfo.InvariantCulture),
+            "EPSG:4326");
         WfsBounds = string.Join(',',
             (minLongitude - longitudeMargin).ToString("F5", CultureInfo.InvariantCulture),
             (minLatitude - latitudeMargin).ToString("F5", CultureInfo.InvariantCulture),
@@ -51,6 +74,7 @@ public sealed class ArkansasFireCoverage : IRegionalCountyGeometryProvider
     }
 
     public string WfsBounds { get; }
+    public string ArkansasBounds { get; }
 
     public static ArkansasFireCoverage Current => CachedCoverage.Value;
 
@@ -138,17 +162,34 @@ public sealed class ArkansasFireCoverage : IRegionalCountyGeometryProvider
 
     public bool IncludesPoint(double longitude, double latitude)
     {
-        if (!double.IsFinite(longitude) || !double.IsFinite(latitude)
-            || longitude is < -180 or > 180 || latitude is < -90 or > 90)
+        return IncludesArkansasPoint(longitude, latitude) || IncludesBorderPoint(longitude, latitude);
+    }
+
+    public bool IncludesArkansasPoint(double longitude, double latitude)
+    {
+        if (!IsValidCoordinate(longitude, latitude))
+        {
+            return false;
+        }
+        if (longitude < _minLongitude || longitude > _maxLongitude
+            || latitude < _minLatitude || latitude > _maxLatitude)
         {
             return false;
         }
         var point = new GeographicPoint(longitude, latitude);
-        if (_arkansasCounties.Any(county => Contains(county, point)))
-        {
-            return true;
-        }
+        return _arkansasCounties.Any(county => Contains(county, point));
+    }
 
+    public bool IncludesBorderPoint(double longitude, double latitude)
+    {
+        if (!IsValidCoordinate(longitude, latitude)
+            || longitude < _bufferMinLongitude || longitude > _bufferMaxLongitude
+            || latitude < _bufferMinLatitude || latitude > _bufferMaxLatitude
+            || IncludesArkansasPoint(longitude, latitude))
+        {
+            return false;
+        }
+        var point = new GeographicPoint(longitude, latitude);
         var projected = Project(point);
         var closest = double.PositiveInfinity;
         foreach (var county in _arkansasCounties)
@@ -169,7 +210,106 @@ public sealed class ArkansasFireCoverage : IRegionalCountyGeometryProvider
         return false;
     }
 
+    public bool TryGetAlertGeometryScope(JsonNode? geometry, out string? scope)
+    {
+        scope = null;
+        var lines = new List<GeometryLine>();
+        var points = new List<GeographicPoint>();
+        if (!CollectGeometry(geometry, lines, points) || points.Count == 0)
+        {
+            return false;
+        }
+        var minLongitude = points.Min(point => point.Longitude);
+        var maxLongitude = points.Max(point => point.Longitude);
+        var minLatitude = points.Min(point => point.Latitude);
+        var maxLatitude = points.Max(point => point.Latitude);
+        if (maxLongitude < _bufferMinLongitude || minLongitude > _bufferMaxLongitude
+            || maxLatitude < _bufferMinLatitude || minLatitude > _bufferMaxLatitude)
+        {
+            return true;
+        }
+        if (points.Any(point => IncludesArkansasPoint(point.Longitude, point.Latitude)))
+        {
+            scope = "arkansas";
+            return true;
+        }
+        var touchesBuffer = points.Any(point => IncludesBorderPoint(point.Longitude, point.Latitude));
+        foreach (var county in _arkansasCounties)
+        {
+            if (county.Rings.Length > 0 && county.Rings[0].Points.Length > 0
+                && RegionalGeoJsonViewportFilter.CoversPoint(
+                    geometry, county.Rings[0].Points[0].Longitude, county.Rings[0].Points[0].Latitude))
+            {
+                scope = "arkansas";
+                return true;
+            }
+        }
+
+        foreach (var line in lines)
+        {
+            var projected = line.Points.Select(Project).ToArray();
+            var segmentCount = projected.Length > 1 ? projected.Length - 1 : 0;
+            if (line.CloseRing && projected.Length > 2
+                && (line.Points[0].Longitude != line.Points[^1].Longitude
+                    || line.Points[0].Latitude != line.Points[^1].Latitude))
+            {
+                segmentCount++;
+            }
+            for (var alertIndex = 0; alertIndex < segmentCount; alertIndex++)
+            {
+                var alertStart = projected[alertIndex];
+                var alertEnd = projected[(alertIndex + 1) % projected.Length];
+                foreach (var county in _arkansasCounties)
+                {
+                    foreach (var ring in county.Rings)
+                    {
+                        var boundary = ring.Projected;
+                        for (var countyIndex = 1; countyIndex < boundary.Length; countyIndex++)
+                        {
+                            var stateStart = boundary[countyIndex - 1];
+                            var stateEnd = boundary[countyIndex];
+                            if (SegmentsIntersect(alertStart, alertEnd, stateStart, stateEnd))
+                            {
+                                scope = "arkansas";
+                                return true;
+                            }
+                            if (!touchesBuffer && DistanceBetweenSegments(alertStart, alertEnd, stateStart, stateEnd)
+                                <= BufferMiles * MilesToMeters)
+                            {
+                                touchesBuffer = true;
+                            }
+                        }
+                        if (boundary.Length > 2)
+                        {
+                            var stateStart = boundary[^1];
+                            var stateEnd = boundary[0];
+                            if (SegmentsIntersect(alertStart, alertEnd, stateStart, stateEnd))
+                            {
+                                scope = "arkansas";
+                                return true;
+                            }
+                            if (!touchesBuffer && DistanceBetweenSegments(alertStart, alertEnd, stateStart, stateEnd)
+                                <= BufferMiles * MilesToMeters)
+                            {
+                                touchesBuffer = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (touchesBuffer)
+        {
+            scope = "border";
+        }
+        return true;
+    }
+
     public IReadOnlyDictionary<string, RegionalCountyGeometry> GetRegionalCounties() => _regionalCounties;
+
+    private static bool IsValidCoordinate(double longitude, double latitude) =>
+        double.IsFinite(longitude) && double.IsFinite(latitude)
+        && longitude is >= -180 and <= 180 && latitude is >= -90 and <= 90;
 
     private static IEnumerable<JsonElement> ReadPolygons(JsonElement geometry)
     {
@@ -250,6 +390,150 @@ public sealed class ArkansasFireCoverage : IRegionalCountyGeometryProvider
             }
         }
         return true;
+    }
+
+    private static bool CollectGeometry(
+        JsonNode? geometry,
+        ICollection<GeometryLine> lines,
+        ICollection<GeographicPoint> points)
+    {
+        if (geometry is not JsonObject geometryObject
+            || geometryObject["type"] is not JsonValue typeValue
+            || !typeValue.TryGetValue<string>(out var type))
+        {
+            return false;
+        }
+        var before = points.Count;
+        var coordinates = geometryObject["coordinates"];
+        switch (type)
+        {
+            case "Point":
+                if (TryReadPosition(coordinates, out var point))
+                {
+                    points.Add(point);
+                }
+                break;
+            case "MultiPoint":
+                if (coordinates is JsonArray pointsArray)
+                    foreach (var position in pointsArray)
+                        if (TryReadPosition(position, out var multiPoint)) points.Add(multiPoint);
+                break;
+            case "LineString":
+                AddLine(coordinates, false, lines, points);
+                break;
+            case "MultiLineString":
+                if (coordinates is JsonArray multiLines)
+                    foreach (var line in multiLines) AddLine(line, false, lines, points);
+                break;
+            case "Polygon":
+                if (coordinates is JsonArray rings)
+                    foreach (var ring in rings) AddLine(ring, true, lines, points);
+                break;
+            case "MultiPolygon":
+                if (coordinates is JsonArray polygons)
+                    foreach (var polygon in polygons.OfType<JsonArray>())
+                        foreach (var ring in polygon) AddLine(ring, true, lines, points);
+                break;
+            case "GeometryCollection":
+                if (geometryObject["geometries"] is JsonArray geometries)
+                    foreach (var item in geometries) CollectGeometry(item, lines, points);
+                break;
+            default:
+                return false;
+        }
+        return points.Count > before;
+    }
+
+    private static void AddLine(
+        JsonNode? coordinates,
+        bool closeRing,
+        ICollection<GeometryLine> lines,
+        ICollection<GeographicPoint> points)
+    {
+        if (coordinates is not JsonArray positions) return;
+        var line = ReadGeometryLine(positions);
+        if (line.Length == 0) return;
+        lines.Add(new GeometryLine(line, closeRing));
+        foreach (var point in line) points.Add(point);
+    }
+
+    private static GeographicPoint[] ReadGeometryLine(JsonArray positions)
+    {
+        var line = new List<GeographicPoint>();
+        foreach (var position in positions)
+        {
+            if (TryReadPosition(position, out var point)) line.Add(point);
+        }
+        return line.ToArray();
+    }
+
+    private static bool TryReadPosition(JsonNode? position, out GeographicPoint point)
+    {
+        point = default;
+        if (position is not JsonArray coordinates || coordinates.Count < 2
+            || !TryReadNumber(coordinates[0], out var longitude)
+            || !TryReadNumber(coordinates[1], out var latitude))
+        {
+            return false;
+        }
+        point = new GeographicPoint(longitude, latitude);
+        return true;
+    }
+
+    private static bool TryReadNumber(JsonNode? value, out double number)
+    {
+        if (value is JsonValue jsonValue && jsonValue.TryGetValue<double>(out number))
+        {
+            return double.IsFinite(number);
+        }
+        number = 0;
+        return false;
+    }
+
+    private static bool SegmentsIntersect(
+        ProjectedPoint firstStart,
+        ProjectedPoint firstEnd,
+        ProjectedPoint secondStart,
+        ProjectedPoint secondEnd)
+    {
+        const double epsilon = 1e-4;
+        var firstOrientation = Orientation(firstStart, firstEnd, secondStart);
+        var secondOrientation = Orientation(firstStart, firstEnd, secondEnd);
+        var thirdOrientation = Orientation(secondStart, secondEnd, firstStart);
+        var fourthOrientation = Orientation(secondStart, secondEnd, firstEnd);
+        if (((firstOrientation > epsilon && secondOrientation < -epsilon)
+             || (firstOrientation < -epsilon && secondOrientation > epsilon))
+            && ((thirdOrientation > epsilon && fourthOrientation < -epsilon)
+                || (thirdOrientation < -epsilon && fourthOrientation > epsilon)))
+        {
+            return true;
+        }
+        return Math.Abs(firstOrientation) <= epsilon && OnSegment(firstStart, firstEnd, secondStart)
+            || Math.Abs(secondOrientation) <= epsilon && OnSegment(firstStart, firstEnd, secondEnd)
+            || Math.Abs(thirdOrientation) <= epsilon && OnSegment(secondStart, secondEnd, firstStart)
+            || Math.Abs(fourthOrientation) <= epsilon && OnSegment(secondStart, secondEnd, firstEnd);
+    }
+
+    private static double Orientation(ProjectedPoint start, ProjectedPoint end, ProjectedPoint point) =>
+        (end.X - start.X) * (point.Y - start.Y) - (end.Y - start.Y) * (point.X - start.X);
+
+    private static bool OnSegment(ProjectedPoint start, ProjectedPoint end, ProjectedPoint point)
+    {
+        const double epsilon = 1e-4;
+        return point.X >= Math.Min(start.X, end.X) - epsilon && point.X <= Math.Max(start.X, end.X) + epsilon
+            && point.Y >= Math.Min(start.Y, end.Y) - epsilon && point.Y <= Math.Max(start.Y, end.Y) + epsilon;
+    }
+
+    private static double DistanceBetweenSegments(
+        ProjectedPoint firstStart,
+        ProjectedPoint firstEnd,
+        ProjectedPoint secondStart,
+        ProjectedPoint secondEnd)
+    {
+        if (SegmentsIntersect(firstStart, firstEnd, secondStart, secondEnd)) return 0;
+        return Math.Min(
+            Math.Min(DistanceToSegment(firstStart, secondStart, secondEnd), DistanceToSegment(firstEnd, secondStart, secondEnd)),
+            Math.Min(DistanceToSegment(secondStart, firstStart, firstEnd), DistanceToSegment(secondEnd, firstStart, firstEnd)));
     }
 
     private static int PointInRing(GeographicPoint[] ring, GeographicPoint point)
@@ -376,6 +660,7 @@ public sealed class ArkansasFireCoverage : IRegionalCountyGeometryProvider
         Math.Sqrt(Math.Pow(first.X - second.X, 2) + Math.Pow(first.Y - second.Y, 2));
 
     private sealed record Polygon(Ring[] Rings);
+    private sealed record GeometryLine(GeographicPoint[] Points, bool CloseRing);
     private sealed class Ring(GeographicPoint[] points)
     {
         public GeographicPoint[] Points { get; } = points;

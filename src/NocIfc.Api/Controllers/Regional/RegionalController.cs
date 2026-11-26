@@ -20,7 +20,8 @@ public sealed class RegionalController(
     RegionalDataQueries regionalData,
     RegionalForecastQueries forecasts,
     RegionalWildfireQueries wildfireData,
-    RegionalMapQueries mapQueries) : ControllerBase
+    RegionalMapQueries mapQueries,
+    RegionalHazardSyncCommands hazardSync) : ControllerBase
 {
     [HttpGet("locations")]
     [RequireAnyAction(
@@ -126,6 +127,29 @@ public sealed class RegionalController(
         catch (ArgumentException exception)
         {
             return BadRequest(new { detail = exception.Message });
+        }
+    }
+
+    [HttpPost("sync-hazards")]
+    [RequireAnyAction(
+        "Tab: Regional Grid -> Geospatial Map",
+        "Tab: Regional Grid -> Executive Dash",
+        "Tab: Regional Grid -> Hazard Analytics")]
+    [RequireAction("Action: Manually Sync Data")]
+    public async Task<IActionResult> SyncHazards(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await hazardSync.ExecuteAsync(cancellationToken);
+            return result.Success ? Ok(result.Body) : StatusCode(StatusCodes.Status502BadGateway, result.Body);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, new { detail = "Regional hazard sync failed." });
         }
     }
 
