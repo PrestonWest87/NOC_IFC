@@ -84,6 +84,13 @@ public sealed class AiopsDashboardQueriesTests
         public Task<IReadOnlyDictionary<string, int>> GetActiveIssueCountsAsync(
             IReadOnlySet<string>? allowedSiteNames,
             CancellationToken cancellationToken) => Task.FromResult(Counts);
+
+        public Task<bool> AcknowledgeAlertsAsync(
+            IReadOnlyList<int> alertIds,
+            string username,
+            DateTime acknowledgedAtUtc,
+            IReadOnlySet<string>? allowedSiteNames,
+            CancellationToken cancellationToken) => Task.FromResult(true);
     }
 
     private sealed class StubFacilityStore(IReadOnlyList<MonitoredLocationEntry> locations) : IFacilityDirectoryStore

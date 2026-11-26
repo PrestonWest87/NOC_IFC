@@ -15,4 +15,10 @@ public interface IAiopsDashboardStore
     Task<IReadOnlyDictionary<string, int>> GetActiveIssueCountsAsync(
         IReadOnlySet<string>? allowedSiteNames,
         CancellationToken cancellationToken);
+    Task<bool> AcknowledgeAlertsAsync(
+        IReadOnlyList<int> alertIds,
+        string username,
+        DateTime acknowledgedAtUtc,
+        IReadOnlySet<string>? allowedSiteNames,
+        CancellationToken cancellationToken);
 }

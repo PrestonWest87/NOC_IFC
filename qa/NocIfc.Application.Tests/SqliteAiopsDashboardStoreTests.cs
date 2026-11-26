@@ -37,6 +37,9 @@ public sealed class SqliteAiopsDashboardStoreTests
                         affected_area TEXT, lat REAL, lon REAL, radius_km REAL, detected_at DATETIME,
                         is_resolved INTEGER
                     );
+                    CREATE TABLE monitored_locations (
+                        id INTEGER PRIMARY KEY, name TEXT, status_modified_by TEXT, status_modified_at DATETIME
+                    );
                     """;
                 await setup.ExecuteNonQueryAsync();
                 await using var insert = connection.CreateCommand();
@@ -56,6 +59,8 @@ public sealed class SqliteAiopsDashboardStoreTests
                     INSERT INTO regional_outages VALUES
                         (1,'Power','Utility','Loss','Central NOC region',34.7,-92.2,10,$now,0),
                         (2,'Power','Utility','Loss','Field Office region',35.0,-92.0,10,$now,0);
+                    INSERT INTO monitored_locations VALUES
+                        (1,'Central NOC',NULL,NULL),(2,'Field Office',NULL,NULL);
                     """;
                 insert.Parameters.AddWithValue("$now", Format(now));
                 insert.Parameters.AddWithValue("$old", Format(now.AddMinutes(-1)));
@@ -76,6 +81,35 @@ public sealed class SqliteAiopsDashboardStoreTests
             Assert.Equal("Warning", events[0].Message);
             Assert.Equal(2, counts["Central NOC"]);
             Assert.Equal(2, outages.Count);
+
+            Assert.False(await store.AcknowledgeAlertsAsync(
+                [1, 3], "operator", now, allowed, CancellationToken.None));
+            Assert.True(await store.AcknowledgeAlertsAsync(
+                [1, 1], "operator", now, allowed, CancellationToken.None));
+            Assert.False(await store.AcknowledgeAlertsAsync(
+                [999], "operator", now, allowed, CancellationToken.None));
+            Assert.True(await store.AcknowledgeAlertsAsync(
+                [999], "admin", now, null, CancellationToken.None));
+
+            await using (var connection = connections.Create())
+            {
+                await connection.OpenAsync();
+                await using var verify = connection.CreateCommand();
+                verify.CommandText = """
+                    SELECT a.is_correlated, a.needs_dispatch, a.acknowledged_by, a.acknowledged_at,
+                           l.status_modified_by, l.status_modified_at
+                    FROM solarwinds_alerts a JOIN monitored_locations l ON l.name = a.mapped_location
+                    WHERE a.id = 1
+                    """;
+                await using var reader = await verify.ExecuteReaderAsync();
+                Assert.True(await reader.ReadAsync());
+                Assert.True(reader.GetBoolean(0));
+                Assert.False(reader.GetBoolean(1));
+                Assert.Equal("operator", reader.GetString(2));
+                Assert.Equal(Format(now), reader.GetString(3));
+                Assert.Equal("operator", reader.GetString(4));
+                Assert.Equal(Format(now), reader.GetString(5));
+            }
         }
         finally
         {

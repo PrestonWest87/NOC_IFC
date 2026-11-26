@@ -120,6 +120,83 @@ public sealed class SqliteAiopsDashboardStore(SqliteConnectionFactory connection
         return result;
     }
 
+    public async Task<bool> AcknowledgeAlertsAsync(
+        IReadOnlyList<int> alertIds,
+        string username,
+        DateTime acknowledgedAtUtc,
+        IReadOnlySet<string>? allowedSiteNames,
+        CancellationToken cancellationToken)
+    {
+        var ids = alertIds.Where(id => id > 0).Distinct().ToArray();
+        if (ids.Length == 0) return true;
+
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
+        var existing = new List<(int Id, string? SiteName)>();
+        await using (var select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = "SELECT mapped_location FROM solarwinds_alerts WHERE id = $id";
+            var idParameter = select.Parameters.Add("$id", SqliteType.Integer);
+            foreach (var id in ids)
+            {
+                idParameter.Value = id;
+                var mappedLocation = await select.ExecuteScalarAsync(cancellationToken);
+                if (allowedSiteNames is not null
+                    && (mappedLocation is not string siteName || !allowedSiteNames.Contains(siteName)))
+                {
+                    transaction.Rollback();
+                    return false;
+                }
+                if (mappedLocation is not null)
+                {
+                    existing.Add((id, mappedLocation is string name ? name : null));
+                }
+            }
+        }
+
+        var timestamp = FormatDate(acknowledgedAtUtc);
+        await using (var update = connection.CreateCommand())
+        {
+            update.Transaction = transaction;
+            update.CommandText = """
+                UPDATE solarwinds_alerts
+                SET is_correlated = 1, needs_dispatch = 0, acknowledged_by = $username, acknowledged_at = $now
+                WHERE id = $id
+                """;
+            var idParameter = update.Parameters.Add("$id", SqliteType.Integer);
+            update.Parameters.AddWithValue("$username", username);
+            update.Parameters.AddWithValue("$now", timestamp);
+            foreach (var alert in existing)
+            {
+                idParameter.Value = alert.Id;
+                await update.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
+        await using (var updateLocation = connection.CreateCommand())
+        {
+            updateLocation.Transaction = transaction;
+            updateLocation.CommandText = """
+                UPDATE monitored_locations
+                SET status_modified_by = $username, status_modified_at = $now
+                WHERE id = (SELECT id FROM monitored_locations WHERE name = $site LIMIT 1)
+                """;
+            updateLocation.Parameters.AddWithValue("$username", username);
+            updateLocation.Parameters.AddWithValue("$now", timestamp);
+            var siteParameter = updateLocation.Parameters.Add("$site", SqliteType.Text);
+            foreach (var site in existing.Select(alert => alert.SiteName).Where(site => !string.IsNullOrEmpty(site)).Distinct(StringComparer.Ordinal))
+            {
+                siteParameter.Value = site!;
+                await updateLocation.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
+        transaction.Commit();
+        return true;
+    }
+
     private static string AddSiteFilter(SqliteCommand command, IReadOnlySet<string>? allowedSiteNames, string column)
     {
         if (allowedSiteNames is null) return "";
@@ -141,6 +218,9 @@ public sealed class SqliteAiopsDashboardStore(SqliteConnectionFactory connection
         }
         return result.ToString().Trim();
     }
+
+    private static string FormatDate(DateTime value) =>
+        value.ToString("yyyy-MM-dd HH:mm:ss.ffffff", CultureInfo.InvariantCulture);
 
     private static string? ReadString(SqliteDataReader reader, int ordinal) =>
         reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
