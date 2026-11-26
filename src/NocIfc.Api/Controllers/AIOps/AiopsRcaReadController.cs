@@ -301,6 +301,41 @@ public sealed class AiopsRcaReadController(
         });
     }
 
+    [HttpPost("rca/generate-ticket")]
+    [RequireAction("Tab: AIOps RCA -> Active Board")]
+    [RequireAction("Action: Dispatch RCA Tickets")]
+    public async Task<IActionResult> GenerateTicket(
+        [FromBody] RcaGenerateTicketRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var user = AuthenticatedUserContext.GetUser(HttpContext);
+        if (user is null)
+        {
+            return Unauthorized(new { detail = new { code = "unauthenticated", message = "Not authenticated" } });
+        }
+        if (request is null)
+        {
+            return UnprocessableEntity(new { detail = "A ticket request is required." });
+        }
+        var site = request.Site ?? "";
+        if (!user.IsAdministrator)
+        {
+            var sites = await dashboard.GetSitesAsync(user, cancellationToken);
+            if (!sites.Any(location => string.Equals(location.Name, site, StringComparison.Ordinal)))
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    detail = new
+                    {
+                        code = "site_scope_denied",
+                        message = "This site is outside your permitted site types.",
+                    },
+                });
+            }
+        }
+        return Ok(new { ticket = AiopsRcaTicketTextGenerator.Generate(request.ToInput()) });
+    }
+
     [HttpPost("rca/investigate")]
     [RequireAction("Tab: AIOps RCA -> Active Board")]
     [RequireAction("Action: Dispatch RCA Tickets")]

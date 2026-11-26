@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using NocIfc.Application.Features.AIOps;
 using NocIfc.Domain.AIOps;
 using NocIfc.Domain.Settings;
 
@@ -34,6 +35,60 @@ public sealed class RcaSendTicketRequest
 
     [JsonPropertyName("sla")]
     public string? Sla { get; init; } = "N/A (Manual Dispatch)";
+}
+
+public sealed class RcaGenerateTicketRequest
+{
+    [JsonPropertyName("site")]
+    public string? Site { get; init; }
+
+    [JsonPropertyName("priority")]
+    public string? Priority { get; init; } = "P3";
+
+    [JsonPropertyName("root_cause")]
+    public string? RootCause { get; init; } = "";
+
+    [JsonPropertyName("cluster")]
+    public JsonObject? Cluster { get; init; }
+
+    public AiopsTicketTextInput ToInput()
+    {
+        var metadata = Cluster?["site_metadata"] as JsonObject;
+        var patientZero = Cluster?["patient_zero"] as JsonObject;
+        var domains = Cluster?["domains_affected"] is JsonArray domainArray
+            ? domainArray.Select(value => ValueText(value) ?? "None").ToArray()
+            : [];
+        var alerts = Cluster?["alerts"] is JsonArray alertArray
+            ? alertArray.OfType<JsonObject>().Select(alert => new AiopsTicketTextAlert(
+                GetText(alert, "received_at"),
+                GetText(alert, "node_name", "Unknown")!,
+                GetText(alert, "ip_address", "Unknown")!,
+                GetText(alert, "status", "Unknown")!,
+                GetText(alert, "event_category", "Unknown")!)).ToArray()
+            : [];
+        return new AiopsTicketTextInput(
+            Site ?? "",
+            Priority ?? "P3",
+            RootCause ?? "",
+            GetText(patientZero, "received_at"),
+            GetText(metadata, "district", "Unknown")!,
+            domains,
+            alerts);
+    }
+
+    private static string? GetText(JsonObject? value, string property, string? fallback = null) =>
+        value is not null && value.TryGetPropertyValue(property, out var node)
+            ? ValueText(node) ?? "None"
+            : fallback;
+
+    private static string? ValueText(JsonNode? node)
+    {
+        if (node is null) return null;
+        if (node is not JsonValue value) return node.ToJsonString();
+        if (value.TryGetValue<string>(out var text)) return text;
+        if (value.TryGetValue<bool>(out var boolean)) return boolean ? "True" : "False";
+        return node.ToJsonString();
+    }
 }
 
 public sealed record AiopsAlertResponse(
