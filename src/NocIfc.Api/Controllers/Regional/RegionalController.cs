@@ -15,7 +15,8 @@ public sealed class RegionalController(
     FacilityDirectoryCommands facilities,
     SiteTypeQueries siteTypes,
     RegionalWeatherPreferenceCommands weatherPreferences,
-    RegionalDataQueries regionalData) : ControllerBase
+    RegionalDataQueries regionalData,
+    RegionalForecastQueries forecasts) : ControllerBase
 {
     [HttpGet("locations")]
     [RequireAnyAction(
@@ -62,6 +63,23 @@ public sealed class RegionalController(
     [RequireAction("Tab: Regional Grid -> Weather Alerts Log")]
     public async Task<IActionResult> GetWeatherAlertsLog(CancellationToken cancellationToken) =>
         Ok(await regionalData.GetWeatherAlertsLogAsync(cancellationToken));
+
+    [HttpGet("forecast")]
+    [RequireAction("Tab: Regional Grid -> Atmos Weather")]
+    public async Task<IActionResult> GetForecast(
+        [FromQuery] double lat = 34.8,
+        [FromQuery] double lon = -92.2,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return Ok(await forecasts.GetAsync(lat, lon, cancellationToken));
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            return UnprocessableEntity(new { detail = exception.Message });
+        }
+    }
 
     [HttpGet("site-types")]
     public async Task<IActionResult> GetSiteTypes(CancellationToken cancellationToken) =>

@@ -16,6 +16,7 @@ using NocIfc.Application.Features.Regional;
 using NocIfc.Infrastructure.Email;
 using NocIfc.Infrastructure.Integrations.Elastic;
 using NocIfc.Infrastructure.Integrations.Llm;
+using NocIfc.Infrastructure.Integrations.Weather;
 using NocIfc.Infrastructure.Persistence.Sqlite;
 using NocIfc.Infrastructure.Security;
 
@@ -90,6 +91,13 @@ builder.Services.AddScoped<IRegionalPreferenceStore, SqliteRegionalPreferenceSto
 builder.Services.AddScoped<RegionalWeatherPreferenceCommands>();
 builder.Services.AddScoped<IRegionalDataStore, SqliteRegionalDataStore>();
 builder.Services.AddScoped<RegionalDataQueries>();
+builder.Services.AddSingleton(new NwsForecastConfiguration(
+    builder.Configuration["nws_api_user_agent"] ?? "NOC-IFC/2.0 (https://test.weasts.net)",
+    builder.Configuration["default_admin_email"] ?? ""));
+builder.Services.AddHttpClient<NwsForecastClient>(client => client.Timeout = TimeSpan.FromSeconds(10))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+builder.Services.AddScoped<INwsForecastProvider>(services => services.GetRequiredService<NwsForecastClient>());
+builder.Services.AddScoped<RegionalForecastQueries>();
 builder.Services.AddScoped<IElasticEventSource>(_ => new ElasticSearchClient());
 builder.Services.AddScoped<IFailedLoginAlertStore, SqliteFailedLoginAlertStore>();
 builder.Services.AddHttpClient<GmailOAuthTokenProvider>(client => client.Timeout = TimeSpan.FromSeconds(10));
