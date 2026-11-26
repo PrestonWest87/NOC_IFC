@@ -127,6 +127,8 @@ NOC_IFC/
 │   │   │   ├── InternalRiskData.cs
 │   │   │   └── OperationalDashboard.cs
 │   │   ├── AIOps/
+│   │   ├── Logbook/
+│   │   │   └── ShiftLogEntry.cs
 │   │   ├── Regional/
 │   │   │   └── GeoJsonFeedStatus.cs
 │   │   ├── Reporting/
@@ -174,6 +176,8 @@ NOC_IFC/
 │   │   │   │   └── IOperationalDashboardStore.cs
 │   │   │   ├── Email/
 │   │   │   │   └── IEmailSender.cs
+│   │   │   ├── Logbook/
+│   │   │   │   └── IShiftLogbookStore.cs
 │   │   │   ├── Regional/
 │   │   │   │   ├── IRegionalPreferenceStore.cs
 │   │   │   │   ├── IRegionalDataStore.cs
@@ -211,6 +215,8 @@ NOC_IFC/
 │   │       │   ├── RegionalWildfireQueries.cs
 │   │       │   ├── RegionalDataQueries.cs
 │   │       │   └── RegionalGeoJsonViewportFilter.cs
+│   │       ├── Logbook/
+│   │       │   └── ShiftLogbookCommands.cs
 │   │       ├── Threat/
 │   │       │   ├── CisaKevQueries.cs
 │   │       │   ├── KeywordScorer.cs
@@ -256,6 +262,7 @@ NOC_IFC/
 │   │   │   │   ├── SqliteRegionalPreferenceStore.cs
 │   │   │   │   ├── SqliteRegionalDataStore.cs
 │   │   │   │   ├── SqliteRegionalHazardSyncStore.cs
+│   │   │   │   ├── SqliteShiftLogbookStore.cs
 │   │   │   │   ├── SqliteOperationalDashboardStore.cs
 │   │   │   │   ├── SqliteAuthenticationStore.cs
 │   │   │   │   ├── SqliteAccountRecoveryStore.cs
@@ -321,6 +328,7 @@ NOC_IFC/
 │   │   │   ├── AIOps/
 │   │   │   ├── Regional/
 │   │   │   ├── Settings/
+│   │   │   ├── Logbook/ShiftLogbookController.cs
 │   │   │   └── OperationalEmail/
 │   │   ├── Authentication/AuthenticatedUserContext.cs
 │   │   ├── Authorization/PermissionFilters.cs
@@ -344,6 +352,7 @@ NOC_IFC/
 │   │   ├── Contracts/ThreatHuntingContracts.cs
 │   │   ├── Contracts/IntegrationSettingsContracts.cs
 │   │   ├── Contracts/SchedulerSettingsContracts.cs
+│   │   ├── Contracts/ShiftLogbookContracts.cs
 │   │   ├── Contracts/SettingsReferenceDirectoryContracts.cs
 │   │   ├── Contracts/RecoveryEmailRequestResponse.cs
 │   │   ├── Contracts/UserAdminRequests.cs
@@ -383,6 +392,8 @@ NOC_IFC/
 │   │   ├── RegionalDataQueriesTests.cs
 │   │   ├── SqliteRegionalDataStoreTests.cs
 │   │   ├── SqliteRegionalHazardSyncStoreTests.cs
+│   │   ├── ShiftLogbookCommandsTests.cs
+│   │   ├── SqliteShiftLogbookStoreTests.cs
 │   │   ├── ThreatHuntingQueriesTests.cs
 │   │   ├── ThreatHuntingCommandsTests.cs
 │   │   ├── ElasticSearchClientTests.cs
@@ -542,7 +553,8 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Ported Facilities site-type-scoped reads, admin location edit/import, site-contact validation/replace, and contact preservation for same-name sites on replace imports. Added administrator-only software and hardware asset CSV replacement endpoints for the existing Internal Assets tab.
 - Ported Global Risk executive intelligence using persisted OSINT, CISA, crime, hazard, history, and scoring settings, including CIS thresholds, manual/hybrid overrides, output annotations, and daily score persistence.
 - Ported Regional Grid site-scoped location reads, site-type catalog, per-user weather preferences, cached GeoJSON layer selection/summary, current-alert filtering, WGS84 viewport filtering, feed freshness and active-event metadata, weather-alert logs, cached NWS forecasts, and six-position map compilation with NWS overlays, county-code fallback, site/hazard intersections, viewport filtering, analytics, and a 120-second versioned result cache. Map compilation rebuilds submitted rows from the caller's authorized database locations. Added permissioned manual hazard sync for combined NWS alerts, SPC outlooks, and filtered USGS feeds, including the shared 60-second NWS lease, conditional requests, CAP lifecycle reconciliation, last-good cache retention, and earthquake/wildfire proximity email delivery through the active sender. NWS alert geometry is intersected against the projected Arkansas county boundary and its 50-mile buffer; missing/invalid geometries retain county/state fallback precision. Also ported WFCA wildfire incidents/perimeters/FIRMS footprints with 50-mile Arkansas coverage, small-fire site proximity, viewport filtering, five-minute caching, and last-good fallback. WFCA perimeter shards are grouped as MultiPolygon rather than topologically dissolved.
+- Ported Shift Logbook reads, role/date filtering, roles list, authenticated-author entry creation, and ownership/manager-checked soft delete and restore. The LLM handoff-summary route remains for a later slice.
 - Ported Threat Hunting IOC listing and repeated-CVE grouping, validated OSINT pivots, bounded quoted-term article search, paginated Elastic-cache reads, manual Elastic sync, and bounded SIEM triage across both `/api/v1/hunting` and the legacy `/api/v1/threat` aliases. Manual sync and triage retain their page/tab/action authorization and compatible skip/error/payload-size responses.
-- The no-cache C# Docker build and all 142 C# tests pass (118 application, 24 API). Isolated HTTP smoke checks covered authentication, settings, read-only Threat Telemetry GETs, Regional Grid locations, site types, weather preferences, GeoJSON layer/viewport/lifecycle filtering, weather-alert log, six-position map compilation/site scoping/permission checks, wildfire bounds/permissions, manual hazard-sync action authorization, and tab/site scoping; RSS management, Facilities edits/import/site contacts, Internal Assets imports, operational dashboard reads and article actions, Internal Risk history, Global Risk scoring, Threat Hunting and both sync/triage route prefixes, payload bounds, and page/tab/action permissions. NWS, SPC, USGS, WFCA, and SMTP integrations use test doubles; no live provider credentials were used and no SMTP delivery was attempted. The C# API is not yet wired into Compose, and the existing Python API/worker/webhook continue serving scheduled operations. Remaining work includes Backup & Restore and Danger Zone settings; dashboard/internal risk and brief generation; other manual syncs; full LLM/email/Operational Email workflows; WebSockets, scheduled C# worker jobs, webhook, and Compose cutover.
+- The no-cache C# Docker build and all 146 C# tests pass (122 application, 24 API). Isolated HTTP smoke checks covered authentication, settings, read-only Threat Telemetry GETs, Regional Grid locations, site types, weather preferences, GeoJSON layer/viewport/lifecycle filtering, weather-alert log, six-position map compilation/site scoping/permission checks, wildfire bounds/permissions, manual hazard-sync action authorization, Shift Logbook read/create/soft-delete/restore/ownership checks, and tab/site scoping; RSS management, Facilities edits/import/site contacts, Internal Assets imports, operational dashboard reads and article actions, Internal Risk history, Global Risk scoring, Threat Hunting and both sync/triage route prefixes, payload bounds, and page/tab/action permissions. NWS, SPC, USGS, WFCA, and SMTP integrations use test doubles; no live provider credentials were used and no SMTP delivery was attempted. The C# API is not yet wired into Compose, and the existing Python API/worker/webhook continue serving scheduled operations. Remaining work includes AIOps/RCA; Shift Logbook handoff-summary generation; Backup & Restore and Danger Zone settings; dashboard/internal risk and brief generation; other manual syncs; full LLM/email/Operational Email workflows; WebSockets, scheduled C# worker jobs, webhook, and Compose cutover.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.
