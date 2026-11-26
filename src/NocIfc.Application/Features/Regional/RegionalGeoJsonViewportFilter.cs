@@ -10,6 +10,11 @@ public static class RegionalGeoJsonViewportFilter
     public static bool IntersectsViewport(JsonNode? geometry, Wgs84Box viewport) =>
         geometry is not JsonObject geometryObject || GeometryIntersects(geometryObject, viewport) is not false;
 
+    public static bool CoversPoint(JsonNode? geometry, double longitude, double latitude) =>
+        double.IsFinite(longitude) && double.IsFinite(latitude)
+        && geometry is JsonObject geometryObject
+        && GeometryCoversPoint(geometryObject, new Point(longitude, latitude));
+
     public static JsonNode FilterCurrentAlerts(JsonNode? collection, DateTime nowUtc)
     {
         var result = new JsonObject { ["type"] = "FeatureCollection" };
@@ -81,6 +86,99 @@ public static class RegionalGeoJsonViewportFilter
             _ => null,
         };
     }
+
+    private static bool GeometryCoversPoint(JsonObject geometry, Point point)
+    {
+        var coordinates = geometry["coordinates"];
+        return ReadString(geometry["type"]) switch
+        {
+            "Point" => PointMatches(coordinates, point),
+            "MultiPoint" => MultiPointCoversPoint(coordinates, point),
+            "LineString" => LineCoversPoint(coordinates, point),
+            "MultiLineString" => MultiLineCoversPoint(coordinates, point),
+            "Polygon" => PolygonCoversPoint(coordinates, point),
+            "MultiPolygon" => MultiPolygonCoversPoint(coordinates, point),
+            "GeometryCollection" => GeometryCollectionCoversPoint(geometry["geometries"], point),
+            _ => false,
+        };
+    }
+
+    private static bool PointMatches(JsonNode? coordinate, Point point) =>
+        TryPoint(coordinate, out var candidate)
+        && Math.Abs(candidate.X - point.X) <= 1e-10
+        && Math.Abs(candidate.Y - point.Y) <= 1e-10;
+
+    private static bool MultiPointCoversPoint(JsonNode? coordinates, Point point) =>
+        coordinates is JsonArray points && points.Any(coordinate => PointMatches(coordinate, point));
+
+    private static bool LineCoversPoint(JsonNode? coordinates, Point point)
+    {
+        if (coordinates is not JsonArray values || values.Count == 0)
+        {
+            return false;
+        }
+        if (values.Count == 1)
+        {
+            return PointMatches(values[0], point);
+        }
+        var points = new List<Point>(values.Count);
+        foreach (var value in values)
+        {
+            if (!TryPoint(value, out var candidate))
+            {
+                return false;
+            }
+            points.Add(candidate);
+        }
+        for (var index = 1; index < points.Count; index++)
+        {
+            if (OnSegment(points[index - 1], points[index], point))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool MultiLineCoversPoint(JsonNode? coordinates, Point point) =>
+        coordinates is JsonArray lines && lines.Any(line => LineCoversPoint(line, point));
+
+    private static bool PolygonCoversPoint(JsonNode? coordinates, Point point)
+    {
+        if (coordinates is not JsonArray rings || rings.Count == 0)
+        {
+            return false;
+        }
+        var outer = PointInRing(rings[0], point);
+        if (outer is null or < 0)
+        {
+            return false;
+        }
+        if (outer == 0)
+        {
+            return true;
+        }
+        for (var index = 1; index < rings.Count; index++)
+        {
+            var hole = PointInRing(rings[index], point);
+            if (hole is null || hole > 0)
+            {
+                return false;
+            }
+            if (hole == 0)
+            {
+                return true;
+            }
+        }
+        return true;
+    }
+
+    private static bool MultiPolygonCoversPoint(JsonNode? coordinates, Point point) =>
+        coordinates is JsonArray polygons && polygons.Any(polygon => PolygonCoversPoint(polygon, point));
+
+    private static bool GeometryCollectionCoversPoint(JsonNode? geometries, Point point) =>
+        geometries is JsonArray items
+        && items.OfType<JsonObject>().Any(geometry => GeometryCoversPoint(geometry, point));
 
     private static bool? PointIntersects(JsonNode? coordinate, Wgs84Box viewport)
     {

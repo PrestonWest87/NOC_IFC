@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
+using System.Text.Json.Nodes;
 using NocIfc.Api.Authentication;
 using NocIfc.Api.Authorization;
 using NocIfc.Api.Contracts;
@@ -17,7 +19,8 @@ public sealed class RegionalController(
     RegionalWeatherPreferenceCommands weatherPreferences,
     RegionalDataQueries regionalData,
     RegionalForecastQueries forecasts,
-    RegionalWildfireQueries wildfireData) : ControllerBase
+    RegionalWildfireQueries wildfireData,
+    RegionalMapQueries mapQueries) : ControllerBase
 {
     [HttpGet("locations")]
     [RequireAnyAction(
@@ -91,6 +94,34 @@ public sealed class RegionalController(
         try
         {
             return Ok(await wildfireData.GetAsync(bbox, cancellationToken));
+        }
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new { detail = exception.Message });
+        }
+    }
+
+    [HttpPost("compile-map")]
+    [RequireAnyAction(
+        "Tab: Regional Grid -> Geospatial Map",
+        "Tab: Regional Grid -> Executive Dash",
+        "Tab: Regional Grid -> Hazard Analytics",
+        "Tab: Regional Grid -> Location Matrix",
+        "Tab: Regional Grid -> Weather Alerts Log",
+        "Tab: Regional Grid -> Atmos Weather")]
+    public async Task<IActionResult> CompileMap(
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] JsonObject? data,
+        CancellationToken cancellationToken)
+    {
+        var user = AuthenticatedUserContext.GetUser(HttpContext);
+        if (user is null)
+        {
+            return Unauthorized(new { detail = new { code = "unauthenticated", message = "Not authenticated" } });
+        }
+        var authorizedLocations = await facilities.GetLocationsAsync(user, cancellationToken);
+        try
+        {
+            return Ok(await mapQueries.CompileAsync(data, authorizedLocations, cancellationToken));
         }
         catch (ArgumentException exception)
         {

@@ -91,6 +91,7 @@ builder.Services.AddScoped<IRegionalPreferenceStore, SqliteRegionalPreferenceSto
 builder.Services.AddScoped<RegionalWeatherPreferenceCommands>();
 builder.Services.AddScoped<IRegionalDataStore, SqliteRegionalDataStore>();
 builder.Services.AddScoped<RegionalDataQueries>();
+builder.Services.AddScoped<RegionalMapQueries>();
 builder.Services.AddSingleton(new NwsForecastConfiguration(
     builder.Configuration["nws_api_user_agent"] ?? "NOC-IFC/2.0 (https://test.weasts.net)",
     builder.Configuration["default_admin_email"] ?? ""));
@@ -98,7 +99,9 @@ builder.Services.AddHttpClient<NwsForecastClient>(client => client.Timeout = Tim
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddScoped<INwsForecastProvider>(services => services.GetRequiredService<NwsForecastClient>());
 builder.Services.AddScoped<RegionalForecastQueries>();
-builder.Services.AddSingleton(ArkansasFireCoverage.LoadBundled());
+var arkansasFireCoverage = ArkansasFireCoverage.LoadBundled();
+builder.Services.AddSingleton(arkansasFireCoverage);
+builder.Services.AddSingleton<IRegionalCountyGeometryProvider>(arkansasFireCoverage);
 builder.Services.AddSingleton<WfcaWildfireSnapshotCache>();
 builder.Services.AddHttpClient<WfcaWildfireClient>(client => client.Timeout = TimeSpan.FromSeconds(20))
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });

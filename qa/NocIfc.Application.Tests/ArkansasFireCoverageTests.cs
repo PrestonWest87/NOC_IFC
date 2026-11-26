@@ -15,5 +15,6 @@ public sealed class ArkansasFireCoverageTests
         Assert.False(coverage.IncludesPoint(-93.75, 31.5));
         Assert.False(coverage.IncludesPoint(-80, 40));
         Assert.Contains("EPSG:4326", coverage.WfsBounds, StringComparison.Ordinal);
+        Assert.Contains("05001", coverage.GetRegionalCounties().Keys);
     }
 }

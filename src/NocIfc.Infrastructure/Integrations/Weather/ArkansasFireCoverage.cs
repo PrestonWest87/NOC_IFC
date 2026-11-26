@@ -1,10 +1,12 @@
 using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using NocIfc.Application.Abstractions.Regional;
 
 namespace NocIfc.Infrastructure.Integrations.Weather;
 
-public sealed class ArkansasFireCoverage
+public sealed class ArkansasFireCoverage : IRegionalCountyGeometryProvider
 {
     private const double BufferMiles = 50.0;
     private const double MilesToMeters = 1609.344;
@@ -13,12 +15,20 @@ public sealed class ArkansasFireCoverage
     private const double DegreesToRadians = Math.PI / 180.0;
     private static readonly Lazy<ArkansasFireCoverage> CachedCoverage = new(LoadBundled);
     private readonly Polygon[] _arkansasCounties;
+    private readonly IReadOnlyDictionary<string, RegionalCountyGeometry> _regionalCounties;
     private readonly double _centerLongitude;
     private readonly double _centerLatitude;
 
-    private ArkansasFireCoverage(Polygon[] arkansasCounties, double minLongitude, double minLatitude, double maxLongitude, double maxLatitude)
+    private ArkansasFireCoverage(
+        Polygon[] arkansasCounties,
+        IReadOnlyDictionary<string, RegionalCountyGeometry> regionalCounties,
+        double minLongitude,
+        double minLatitude,
+        double maxLongitude,
+        double maxLatitude)
     {
         _arkansasCounties = arkansasCounties;
+        _regionalCounties = regionalCounties;
         _centerLongitude = (minLongitude + maxLongitude) / 2;
         _centerLatitude = (minLatitude + maxLatitude) / 2;
         foreach (var county in _arkansasCounties)
@@ -51,6 +61,7 @@ public sealed class ArkansasFireCoverage
             ?? throw new InvalidOperationException("Bundled Arkansas county geometry is missing.");
         using var document = JsonDocument.Parse(stream);
         var polygons = new List<Polygon>();
+        var regionalCounties = new Dictionary<string, RegionalCountyGeometry>(StringComparer.Ordinal);
         var minLongitude = double.PositiveInfinity;
         var minLatitude = double.PositiveInfinity;
         var maxLongitude = double.NegativeInfinity;
@@ -73,6 +84,15 @@ public sealed class ArkansasFireCoverage
             if (stateFips is null && geoid is not null && geoid.Length >= 2)
             {
                 stateFips = geoid[..2];
+            }
+            if (geoid is not null && geoid.Length > 0 && stateFips is not null
+                && geometry.ValueKind == JsonValueKind.Object)
+            {
+                var fips = geoid.PadLeft(5, '0');
+                regionalCounties[fips] = new RegionalCountyGeometry(
+                    fips,
+                    stateFips.PadLeft(2, '0'),
+                    JsonNode.Parse(geometry.GetRawText())!);
             }
             if (!string.Equals(stateFips?.PadLeft(2, '0'), "05", StringComparison.Ordinal))
             {
@@ -107,7 +127,13 @@ public sealed class ArkansasFireCoverage
         {
             throw new InvalidDataException("Bundled Arkansas county geometry contains no Arkansas polygons.");
         }
-        return new ArkansasFireCoverage(polygons.ToArray(), minLongitude, minLatitude, maxLongitude, maxLatitude);
+        return new ArkansasFireCoverage(
+            polygons.ToArray(),
+            regionalCounties,
+            minLongitude,
+            minLatitude,
+            maxLongitude,
+            maxLatitude);
     }
 
     public bool IncludesPoint(double longitude, double latitude)
@@ -142,6 +168,8 @@ public sealed class ArkansasFireCoverage
         }
         return false;
     }
+
+    public IReadOnlyDictionary<string, RegionalCountyGeometry> GetRegionalCounties() => _regionalCounties;
 
     private static IEnumerable<JsonElement> ReadPolygons(JsonElement geometry)
     {

@@ -178,6 +178,7 @@ NOC_IFC/
 │   │   │   │   ├── IRegionalPreferenceStore.cs
 │   │   │   │   ├── IRegionalDataStore.cs
 │   │   │   │   ├── INwsForecastProvider.cs
+│   │   │   │   ├── IRegionalCountyGeometryProvider.cs
 │   │   │   │   └── IRegionalWildfireProvider.cs
 │   │   │   ├── Elastic/
 │   │   │   │   └── IElasticEventSource.cs
@@ -204,6 +205,7 @@ NOC_IFC/
 │   │       ├── Regional/
 │   │       │   ├── RegionalWeatherPreferenceCommands.cs
 │   │       │   ├── RegionalForecastQueries.cs
+│   │       │   ├── RegionalMapQueries.cs
 │   │       │   ├── RegionalWildfireQueries.cs
 │   │       │   ├── RegionalDataQueries.cs
 │   │       │   └── RegionalGeoJsonViewportFilter.cs
@@ -368,6 +370,7 @@ NOC_IFC/
 │   │   ├── SqliteRegionalPreferenceStoreTests.cs
 │   │   ├── RegionalForecastQueriesTests.cs
 │   │   ├── NwsForecastClientTests.cs
+│   │   ├── RegionalMapQueriesTests.cs
 │   │   ├── ArkansasFireCoverageTests.cs
 │   │   ├── WfcaWildfireClientTests.cs
 │   │   ├── RegionalWildfireQueriesTests.cs
@@ -531,8 +534,8 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Ported the Settings AI/SMTP tab read/write path with write-only secret handling, provider-change key clearing, test email through the saved active profile, and provider-aware LLM connection testing with private-endpoint policy.
 - Ported Facilities site-type-scoped reads, admin location edit/import, site-contact validation/replace, and contact preservation for same-name sites on replace imports. Added administrator-only software and hardware asset CSV replacement endpoints for the existing Internal Assets tab.
 - Ported Global Risk executive intelligence using persisted OSINT, CISA, crime, hazard, history, and scoring settings, including CIS thresholds, manual/hybrid overrides, output annotations, and daily score persistence.
-- Ported Regional Grid site-scoped location reads, site-type catalog, per-user weather preferences, cached GeoJSON layer selection/summary, current-alert filtering, WGS84 viewport filtering, feed freshness and active-event metadata, weather-alert logs, cached NWS forecasts, and WFCA wildfire incidents/perimeters/FIRMS footprints with 50-mile Arkansas coverage, small-fire site proximity, viewport filtering, five-minute caching, and last-good fallback. WFCA perimeter shards are grouped as MultiPolygon rather than topologically dissolved.
+- Ported Regional Grid site-scoped location reads, site-type catalog, per-user weather preferences, cached GeoJSON layer selection/summary, current-alert filtering, WGS84 viewport filtering, feed freshness and active-event metadata, weather-alert logs, cached NWS forecasts, and six-position map compilation with NWS overlays, county-code fallback, site/hazard intersections, viewport filtering, analytics, and a 120-second versioned result cache. Map compilation rebuilds submitted rows from the caller's authorized database locations. Also ported WFCA wildfire incidents/perimeters/FIRMS footprints with 50-mile Arkansas coverage, small-fire site proximity, viewport filtering, five-minute caching, and last-good fallback. WFCA perimeter shards are grouped as MultiPolygon rather than topologically dissolved.
 - Ported Threat Hunting IOC listing and repeated-CVE grouping, validated OSINT pivots, bounded quoted-term article search, paginated Elastic-cache reads, manual Elastic sync, and bounded SIEM triage across both `/api/v1/hunting` and the legacy `/api/v1/threat` aliases. Manual sync and triage retain their page/tab/action authorization and compatible skip/error/payload-size responses.
-- The no-cache C# Docker build and all 127 C# tests pass (103 application, 24 API). Isolated HTTP smoke checks covered authentication, settings, read-only Threat Telemetry GETs, Regional Grid locations, site types, weather preferences, GeoJSON layer/viewport/lifecycle filtering, weather-alert log, wildfire bounds/permissions, and tab/site scoping, RSS management, Facilities edits/import/site contacts, Internal Assets imports, operational dashboard reads and article actions, Internal Risk history, Global Risk scoring, Threat Hunting and both sync/triage route prefixes, payload bounds, and page/tab/action permissions. Elastic scroll, WFCA WFS, SIEM completion, NWS forecast requests, and Ollama-compatible connection tests use mocks; no live provider credentials were used and no SMTP delivery was attempted. WFCA perimeters are grouped into GeoJSON MultiPolygons without a topological dissolve. The C# API is not yet wired into Compose, and the existing Python API/worker/webhook continue serving the rest of the application. Remaining work includes Regional map compilation and hazard sync; Backup & Restore and Danger Zone settings; dashboard/internal risk and brief generation; other manual syncs; full LLM/email/Operational Email workflows; WebSockets, worker, webhook, and Compose cutover.
+- The no-cache C# Docker build and all 132 C# tests pass (108 application, 24 API). Isolated HTTP smoke checks covered authentication, settings, read-only Threat Telemetry GETs, Regional Grid locations, site types, weather preferences, GeoJSON layer/viewport/lifecycle filtering, weather-alert log, six-position map compilation/site scoping/permission checks, wildfire bounds/permissions, and tab/site scoping; RSS management, Facilities edits/import/site contacts, Internal Assets imports, operational dashboard reads and article actions, Internal Risk history, Global Risk scoring, Threat Hunting and both sync/triage route prefixes, payload bounds, and page/tab/action permissions. Elastic scroll, WFCA WFS, SIEM completion, NWS forecast requests, and Ollama-compatible connection tests use mocks; no live provider credentials were used and no SMTP delivery was attempted. WFCA perimeters are grouped into GeoJSON MultiPolygons without a topological dissolve. The C# API is not yet wired into Compose, and the existing Python API/worker/webhook continue serving the rest of the application. Remaining work includes Regional hazard sync; Backup & Restore and Danger Zone settings; dashboard/internal risk and brief generation; other manual syncs; full LLM/email/Operational Email workflows; WebSockets, worker, webhook, and Compose cutover.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.
