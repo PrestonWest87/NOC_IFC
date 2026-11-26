@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using NocIfc.Domain.Dashboard;
 using NocIfc.Domain.Threat;
 
 namespace NocIfc.Api.Contracts;
@@ -42,7 +43,10 @@ public sealed record ThreatArticleResponse(
     [property: JsonPropertyName("last_enriched_at")] DateTime? LastEnrichedAt,
     [property: JsonPropertyName("keywords_with_weights"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<ThreatArticleKeywordResponse>? KeywordsWithWeights,
     [property: JsonPropertyName("total_keyword_score"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? TotalKeywordScore,
-    [property: JsonPropertyName("iocs"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<ThreatArticleIocResponse>? Iocs)
+    [property: JsonPropertyName("iocs"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<ThreatArticleIocResponse>? Iocs,
+    [property: JsonPropertyName("is_utility_related"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? IsUtilityRelated,
+    [property: JsonPropertyName("is_apt_related"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? IsAptRelated,
+    [property: JsonPropertyName("is_ransomware"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? IsRansomware)
 {
     public static ThreatArticleResponse From(ThreatArticle article) => new(
         article.Id,
@@ -66,6 +70,9 @@ public sealed record ThreatArticleResponse(
         article.LastEnrichedAt,
         null,
         null,
+        null,
+        null,
+        null,
         null);
 
     public static ThreatArticleResponse From(ThreatArticleDetail detail) =>
@@ -74,6 +81,14 @@ public sealed record ThreatArticleResponse(
             KeywordsWithWeights = detail.KeywordsWithWeights.Select(ThreatArticleKeywordResponse.From).ToArray(),
             TotalKeywordScore = detail.TotalKeywordScore,
             Iocs = detail.Iocs.Select(ThreatArticleIocResponse.From).ToArray(),
+        };
+
+    public static ThreatArticleResponse FromExecutive(ExecutiveIntelArticle article) =>
+        From(article.Article) with
+        {
+            IsUtilityRelated = article.IsUtilityRelated,
+            IsAptRelated = article.IsAptRelated,
+            IsRansomware = article.IsRansomware,
         };
 }
 

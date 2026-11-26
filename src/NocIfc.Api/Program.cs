@@ -71,6 +71,8 @@ builder.Services.AddScoped<IRssSettingsStore, SqliteRssSettingsStore>();
 builder.Services.AddScoped<RssSettingsCommands>();
 builder.Services.AddScoped<IOperationalDashboardStore, SqliteOperationalDashboardStore>();
 builder.Services.AddScoped<DashboardQueries>();
+builder.Services.AddScoped<IExecutiveIntelStore, SqliteExecutiveIntelStore>();
+builder.Services.AddScoped<ExecutiveIntelQueries>();
 builder.Services.AddScoped<IInternalRiskStore, SqliteInternalRiskStore>();
 builder.Services.AddScoped<InternalRiskQueries>();
 builder.Services.AddScoped<IInternalRiskStore, SqliteInternalRiskStore>();

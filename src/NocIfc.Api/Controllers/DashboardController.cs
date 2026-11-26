@@ -12,6 +12,7 @@ namespace NocIfc.Api.Controllers;
 [RequirePage("Global Dashboards")]
 public sealed class DashboardController(
     DashboardQueries dashboard,
+    ExecutiveIntelQueries executiveIntel,
     InternalRiskQueries internalRisk,
     ThreatArticleQueries articles) : ControllerBase
 {
@@ -75,6 +76,11 @@ public sealed class DashboardController(
             return UnprocessableEntity(new { detail = exception.Message });
         }
     }
+
+    [HttpGet("executive-intel")]
+    [RequireAction("Tab: Dashboards -> Global Risk")]
+    public async Task<IActionResult> GetExecutiveIntel(CancellationToken cancellationToken) =>
+        Ok(ExecutiveIntelResponse.From(await executiveIntel.GetAsync(cancellationToken)));
 
     [HttpGet("internal-risk")]
     [RequireAction("Tab: Dashboards -> Internal Risk")]

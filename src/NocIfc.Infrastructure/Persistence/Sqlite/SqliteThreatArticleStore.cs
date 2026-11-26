@@ -8,7 +8,7 @@ namespace NocIfc.Infrastructure.Persistence.Sqlite;
 
 public sealed class SqliteThreatArticleStore(SqliteConnectionFactory connections) : IThreatArticleStore
 {
-    private const string ArticleColumns = """
+    internal const string ArticleColumns = """
         id, title, link, summary, published_date, source, score, category, keywords_found,
         is_bubbled, story_group, full_content, ai_bluf, is_pinned, ingested_at,
         enrichment_status, enrichment_attempts, last_enrichment_error, last_enriched_at
@@ -208,7 +208,7 @@ public sealed class SqliteThreatArticleStore(SqliteConnectionFactory connections
         return articles;
     }
 
-    private static ThreatArticle ReadArticle(SqliteDataReader reader) => new(
+    internal static ThreatArticle ReadArticle(SqliteDataReader reader) => new(
         reader.GetInt32(0),
         ReadString(reader, 1),
         ReadString(reader, 2),

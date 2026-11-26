@@ -122,6 +122,7 @@ NOC_IFC/
 │   │   │   ├── RssCatalog.cs
 │   │   │   └── ThreatStatus.cs
 │   │   ├── Dashboard/
+│   │   │   ├── ExecutiveIntel.cs
 │   │   │   ├── InternalRiskData.cs
 │   │   │   └── OperationalDashboard.cs
 │   │   ├── AIOps/
@@ -165,6 +166,7 @@ NOC_IFC/
 │   │   │   │   ├── IThreatArticleStore.cs
 │   │   │   │   └── IThreatStatusStore.cs
 │   │   │   ├── Dashboard/
+│   │   │   │   ├── IExecutiveIntelStore.cs
 │   │   │   │   ├── IInternalRiskStore.cs
 │   │   │   │   └── IOperationalDashboardStore.cs
 │   │   │   ├── Email/
@@ -196,6 +198,7 @@ NOC_IFC/
 │   │       │   └── ThreatStatusQueries.cs
 │   │       ├── Dashboard/
 │   │       │   ├── DashboardQueries.cs
+│   │       │   ├── ExecutiveIntelQueries.cs
 │   │       │   └── InternalRiskQueries.cs
 │   │       ├── AIOps/
 │   │       ├── Regional/
@@ -223,6 +226,7 @@ NOC_IFC/
 │   │   │   │   ├── SqliteCisaKevStore.cs
 │   │   │   │   ├── SqliteRssSettingsStore.cs
 │   │   │   │   ├── SqliteInternalRiskStore.cs
+│   │   │   │   ├── SqliteExecutiveIntelStore.cs
 │   │   │   │   ├── SqliteThreatArticleStore.cs
 │   │   │   │   ├── SqliteThreatStatusStore.cs
 │   │   │   │   ├── SqliteOperationalDashboardStore.cs
@@ -297,6 +301,7 @@ NOC_IFC/
 │   │   ├── Contracts/AiSmtpSettingsContracts.cs
 │   │   ├── Contracts/AssetInventoryContracts.cs
 │   │   ├── Contracts/DashboardContracts.cs
+│   │   ├── Contracts/ExecutiveIntelResponse.cs
 │   │   ├── Contracts/CisaKevResponse.cs
 │   │   ├── Contracts/FacilityDirectoryContracts.cs
 │   │   ├── Contracts/RssSettingsContracts.cs
@@ -484,6 +489,7 @@ The first conversion slice is implemented locally on `dev-c`:
 - Added permissioned Internal Risk snapshot/history reads with legacy JSON payloads and failure-notice-safe saved briefs.
 - Ported the Settings AI/SMTP tab read/write path with write-only secret handling, provider-change key clearing, test email through the saved active profile, and provider-aware LLM connection testing with private-endpoint policy.
 - Ported Facilities site-type-scoped reads, admin location edit/import, site-contact validation/replace, and contact preservation for same-name sites on replace imports. Added administrator-only software and hardware asset CSV replacement endpoints for the existing Internal Assets tab.
-- The no-cache C# Docker build and all one hundred one C# tests pass (78 application, 23 API). Isolated HTTP smoke checks covered authentication, settings, reference directories, all read-only Threat Telemetry GETs, RSS management, Facilities scoping/edit/import/site contacts, Internal Assets imports, operational dashboard reads and article actions, Internal Risk snapshot/history, AI/SMTP secret-safe settings, and a successful mocked Ollama-compatible connection test. Gmail OAuth and LLM provider tests use no live credentials; no SMTP delivery was attempted. The C# API is not yet wired into Compose, and the existing Python API/worker/webhook continue serving the rest of the application. Remaining work includes Backup & Restore and Danger Zone settings, dashboard Global Risk/executive and report generation, manual syncs, full LLM/email/Operational Email workflows, WebSockets, worker, webhook, and Compose cutover.
+- Ported Global Risk executive intelligence using persisted OSINT, CISA, crime, hazard, history, and scoring settings, including CIS thresholds, manual/hybrid overrides, output annotations, and daily score persistence.
+- The no-cache C# Docker build and all one hundred four C# tests pass (81 application, 23 API). Isolated HTTP smoke checks covered authentication, settings, reference directories, all read-only Threat Telemetry GETs, RSS management, Facilities scoping/edit/import/site contacts, Internal Assets imports, operational dashboard reads and article actions, Internal Risk snapshot/history, Global Risk executive scoring, AI/SMTP secret-safe settings, and a successful mocked Ollama-compatible connection test. Gmail OAuth and LLM provider tests use no live credentials; no SMTP delivery was attempted. The C# API is not yet wired into Compose, and the existing Python API/worker/webhook continue serving the rest of the application. Remaining work includes Backup & Restore and Danger Zone settings, dashboard/internal risk and brief generation, manual syncs, full LLM/email/Operational Email workflows, WebSockets, worker, webhook, and Compose cutover.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.
