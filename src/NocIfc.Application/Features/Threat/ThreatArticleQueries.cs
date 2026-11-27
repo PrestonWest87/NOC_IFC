@@ -51,6 +51,17 @@ public sealed class ThreatArticleQueries(IThreatArticleStore articles)
     public Task<ThreatArticleDetail?> GetDetailAsync(int articleId, CancellationToken cancellationToken) =>
         articles.GetDetailAsync(articleId, cancellationToken);
 
+    public Task<IReadOnlyList<ThreatArticle>> GetByIdsAsync(
+        IReadOnlyList<int> articleIds,
+        CancellationToken cancellationToken)
+    {
+        if (articleIds.Count > 100 || articleIds.Any(id => id <= 0))
+        {
+            throw new ArgumentException("article_ids must contain at most 100 positive integers.", nameof(articleIds));
+        }
+        return articles.GetByIdsAsync(articleIds.Distinct().ToArray(), cancellationToken);
+    }
+
     public Task TogglePinAsync(int articleId, CancellationToken cancellationToken) =>
         articles.TogglePinAsync(articleId, cancellationToken);
 

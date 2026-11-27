@@ -66,6 +66,11 @@ public sealed class ThreatArticleQueriesTests
         public Task<ThreatArticleDetail?> GetDetailAsync(int articleId, CancellationToken cancellationToken) =>
             Task.FromResult<ThreatArticleDetail?>(null);
 
+        public Task<IReadOnlyList<ThreatArticle>> GetByIdsAsync(
+            IReadOnlyList<int> articleIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ThreatArticle>>([]);
+
         public Task TogglePinAsync(int articleId, CancellationToken cancellationToken) => Task.CompletedTask;
 
         public Task BoostScoreAsync(int articleId, int amount, CancellationToken cancellationToken) => Task.CompletedTask;

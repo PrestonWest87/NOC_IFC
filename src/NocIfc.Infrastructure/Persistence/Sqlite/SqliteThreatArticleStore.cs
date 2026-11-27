@@ -125,6 +125,39 @@ public sealed class SqliteThreatArticleStore(SqliteConnectionFactory connections
         return new ThreatArticleDetail(article, matchedKeywords, totalKeywordScore, iocs);
     }
 
+    public async Task<IReadOnlyList<ThreatArticle>> GetByIdsAsync(
+        IReadOnlyList<int> articleIds,
+        CancellationToken cancellationToken)
+    {
+        if (articleIds.Count == 0)
+        {
+            return [];
+        }
+        if (articleIds.Count > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(articleIds), "At most 100 article IDs are allowed.");
+        }
+
+        var ids = articleIds.Distinct().ToArray();
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        var parameters = ids.Select((id, index) =>
+        {
+            var name = $"$id{index}";
+            command.Parameters.AddWithValue(name, id);
+            return name;
+        });
+        command.CommandText = $"SELECT {ArticleColumns} FROM articles WHERE id IN ({string.Join(", ", parameters)}) ORDER BY id";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var articles = new List<ThreatArticle>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            articles.Add(ReadArticle(reader));
+        }
+        return articles;
+    }
+
     public async Task TogglePinAsync(int articleId, CancellationToken cancellationToken)
     {
         await using var connection = connections.Create();

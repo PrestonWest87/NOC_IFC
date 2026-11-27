@@ -15,6 +15,7 @@ public interface IThreatArticleStore
         int minimumScore,
         CancellationToken cancellationToken);
     Task<ThreatArticleDetail?> GetDetailAsync(int articleId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ThreatArticle>> GetByIdsAsync(IReadOnlyList<int> articleIds, CancellationToken cancellationToken);
     Task TogglePinAsync(int articleId, CancellationToken cancellationToken);
     Task BoostScoreAsync(int articleId, int amount, CancellationToken cancellationToken);
 }

@@ -78,6 +78,10 @@ public sealed class SqliteThreatArticleStoreTests
             Assert.Equal("CVE-2026-0001", ioc.IndicatorValue);
             Assert.Null(await store.GetDetailAsync(999, CancellationToken.None));
 
+            var selected = await store.GetByIdsAsync([4, 1, 999, 4], CancellationToken.None);
+            Assert.Equal(new[] { 1, 4 }, selected.Select(article => article.Id));
+            Assert.Empty(await store.GetByIdsAsync([], CancellationToken.None));
+
             await store.TogglePinAsync(4, CancellationToken.None);
             await store.BoostScoreAsync(1, 20, CancellationToken.None);
             var pinned = await store.GetPinnedAsync(CancellationToken.None);

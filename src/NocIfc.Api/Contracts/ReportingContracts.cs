@@ -36,6 +36,24 @@ public sealed class ReportingArticleSearchRequest
     public int DaysBack { get; init; } = 7;
 }
 
+public sealed class CustomReportGenerationRequest
+{
+    [JsonPropertyName("target")]
+    public string? Target { get; init; } = "";
+
+    [JsonPropertyName("days_back")]
+    public int DaysBack { get; init; } = 7;
+
+    [JsonPropertyName("article_ids")]
+    public IReadOnlyList<int>? ArticleIds { get; init; } = [];
+
+    [JsonPropertyName("objective")]
+    public string? Objective { get; init; } = "";
+
+    [JsonPropertyName("analyst")]
+    public string? Analyst { get; init; } = "Unknown";
+}
+
 public sealed record ReportingArticleSearchItem(
     [property: JsonPropertyName("id")] int Id,
     [property: JsonPropertyName("title")] string Title,

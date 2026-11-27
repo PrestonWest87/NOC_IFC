@@ -583,7 +583,7 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Latest no-cache C# Docker build passes all 173 tests (149 application, 24 API). HTTP smoke checks cover dispatch permission, missing/invalid recipients, and SMTP-disabled delivery without network activity.
 - Ported Custom Report broadcast with its title/time email layout, safe HTML conversion, recipient validation, and active-sender delivery.
 - Latest no-cache C# Docker build passes all 174 tests (150 application, 24 API). Isolated checks cover custom title/content formatting and rejection of missing or invalid recipients without SMTP calls.
-- Ported Custom Report broadcast with validated recipients, Central-time generation metadata, safe HTML output, and active-sender delivery.
-- Latest no-cache C# Docker build passes all 174 tests (150 application, 24 API). Isolated checks cover custom title/content and recipient failures without attempting SMTP delivery.
+- Ported Custom Report Builder's asynchronous generation/status flow with selected-article or bounded search inputs, provider-aware source-grounded map/reduce, Central-time metadata, process-local progress/results, and separate Report Builder/Generate Reports grants.
+- Latest no-cache C# Docker build passes all 177 tests (153 application, 24 API). Isolated checks cover map/reduce generation, selected-article loading, search fallback, disabled-AI/map-failure handling, and HTTP input bounds, permission denial, background status/result polling and result consumption; no live LLM or SMTP requests were made.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.
