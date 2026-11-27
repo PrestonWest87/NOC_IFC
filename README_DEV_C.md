@@ -596,6 +596,7 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Ported Dashboard article BLUF generation with the source-length bounds, provider-aware LLM calls, persistent `ai_bluf` updates, and Operational-tab/AI-function grants; failed LLM output is not saved as a successful BLUF.
 - Latest no-cache C# Docker build passes all 188 tests (163 application, 25 API). HTTP smoke checks cover trigger-action denial, missing articles, and disabled-AI behavior; no live LLM or SMTP call was made.
 - Ported `POST /dashboard/generate-rolling-summary` through the shared SITREP rolling-summary use case, preserving saved-summary behavior and Operational-tab/Generate Reports grants.
-- Latest no-cache C# Docker build passes all 188 tests (163 application, 25 API). HTTP smoke checks cover Generate Reports denial and the disabled-AI response.
+- Ported `POST /dashboard/generate-scoring-rationale` through the shared typed SITREP rationale use case with Global Risk/Trigger AI permissions.
+- Latest no-cache C# Docker build passes all 188 tests (163 application, 25 API). HTTP smoke checks cover both Dashboard generation grants and their disabled-AI responses.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.

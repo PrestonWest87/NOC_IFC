@@ -180,4 +180,19 @@ public sealed class DashboardController(
             ? Ok(new { status = "ok", summary = result.Content })
             : Ok(new { status = "error", message = result.Content });
     }
+
+    [HttpPost("generate-scoring-rationale")]
+    [RequireAction("Tab: Dashboards -> Global Risk")]
+    [RequireAction("Action: Trigger AI Functions")]
+    public async Task<IActionResult> GenerateScoringRationale(
+        [FromBody] RcaSitrepActionRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var result = await sitrepActions.GenerateScoringRationaleAsync(
+            request?.ToIntelInput() ?? new AiopsScoringRationaleInput("UNKNOWN", [], [], []),
+            cancellationToken);
+        return result.Success
+            ? Ok(new { status = "ok", report = result.Content })
+            : Ok(new { status = "error", message = result.Content });
+    }
 }
