@@ -1,4 +1,5 @@
 using System.Globalization;
+using NocIfc.Domain.Threat;
 using NocIfc.Infrastructure.Persistence.Sqlite;
 using Xunit;
 
@@ -21,7 +22,7 @@ public sealed class SqliteCisaKevStoreTests
                 await using var setup = connection.CreateCommand();
                 setup.CommandText = """
                     CREATE TABLE cve_items (
-                        id INTEGER PRIMARY KEY, cve_id TEXT, vendor TEXT, product TEXT,
+                        id INTEGER PRIMARY KEY, cve_id TEXT UNIQUE, vendor TEXT, product TEXT,
                         vulnerability_name TEXT, date_added DATETIME, description TEXT,
                         required_action TEXT, due_date TEXT
                     );
@@ -43,6 +44,17 @@ public sealed class SqliteCisaKevStoreTests
             Assert.Equal("CVE-2026-0002", entry.CveId);
             Assert.Equal("Newer", entry.VulnerabilityName);
             Assert.Equal("2026-12-02", entry.DueDate);
+
+            var inserted = await store.InsertMissingAsync(
+            [
+                new CisaKevEntry(0, "CVE-2026-0002", "Vendor", "Product", "Duplicate", now, "", "", ""),
+                new CisaKevEntry(0, "CVE-2026-0003", "Vendor B", "Product B", "New entry", now, "Details", "Action", "2026-12-03"),
+                new CisaKevEntry(0, "CVE-2026-0003", "Vendor B", "Product B", "Duplicate input", now, "Details", "Action", "2026-12-03"),
+            ], CancellationToken.None);
+            Assert.Equal(1, inserted);
+            var all = await store.GetRecentAsync(10, DateTime.MinValue, CancellationToken.None);
+            Assert.Equal(4, all.Count);
+            Assert.Equal("New entry", all.Single(item => item.CveId == "CVE-2026-0003").VulnerabilityName);
         }
         finally
         {

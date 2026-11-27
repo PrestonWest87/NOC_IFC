@@ -112,6 +112,9 @@ public sealed class AiopsSitrepActionCommandsTests
         public IReadOnlyList<CisaKevEntry> Cves { get; init; } = [];
         public string? SavedSummary { get; private set; }
 
+        public Task<int> InsertMissingAsync(IReadOnlyList<CisaKevEntry> entries, CancellationToken cancellationToken) =>
+            Task.FromResult(0);
+
         public Task<AiopsRollingBriefInputs> GetRollingBriefInputsAsync(DateTime sinceUtc, DateTime nowUtc, CancellationToken cancellationToken) =>
             Task.FromResult(RollingInputs);
         public Task SaveRollingSummaryAsync(string summary, DateTime savedAtUtc, CancellationToken cancellationToken)

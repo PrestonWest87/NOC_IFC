@@ -24,6 +24,7 @@ using NocIfc.Application.Features.Logbook;
 using NocIfc.Infrastructure.Email;
 using NocIfc.Infrastructure.Integrations.Elastic;
 using NocIfc.Infrastructure.Integrations.Llm;
+using NocIfc.Infrastructure.Integrations.Threat;
 using NocIfc.Infrastructure.Integrations.Weather;
 using NocIfc.Infrastructure.Persistence.Sqlite;
 using NocIfc.Infrastructure.Security;
@@ -80,6 +81,10 @@ builder.Services.AddScoped<IFacilityDirectoryStore, SqliteFacilityDirectoryStore
 builder.Services.AddScoped<FacilityDirectoryCommands>();
 builder.Services.AddScoped<ICisaKevStore, SqliteCisaKevStore>();
 builder.Services.AddScoped<CisaKevQueries>();
+builder.Services.AddScoped<CisaKevSyncCommands>();
+builder.Services.AddHttpClient<CisaKevCatalogClient>(client => client.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddScoped<ICisaKevCatalogProvider>(services =>
+    services.GetRequiredService<CisaKevCatalogClient>());
 builder.Services.AddScoped<IRssSettingsStore, SqliteRssSettingsStore>();
 builder.Services.AddScoped<RssSettingsCommands>();
 builder.Services.AddScoped<IOperationalDashboardStore, SqliteOperationalDashboardStore>();

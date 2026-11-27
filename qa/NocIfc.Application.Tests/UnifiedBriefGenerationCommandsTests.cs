@@ -179,6 +179,8 @@ public sealed class UnifiedBriefGenerationCommandsTests
 
     private sealed class StubCisaKevStore : ICisaKevStore
     {
+        public Task<int> InsertMissingAsync(IReadOnlyList<CisaKevEntry> entries, CancellationToken cancellationToken) =>
+            Task.FromResult(0);
         public Task<IReadOnlyList<CisaKevEntry>> GetRecentAsync(int limit, DateTime addedAfterUtc, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<CisaKevEntry>>(
                 [new CisaKevEntry(1, "CVE-2026-1234", "Vendor", "Router", "Command injection", DateTime.UtcNow, null, null, null)]);

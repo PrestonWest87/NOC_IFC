@@ -10,9 +10,11 @@ namespace NocIfc.Api.Controllers;
 [RequirePage("Threat Telemetry")]
 public sealed class ThreatController(
     CisaKevQueries kev,
+    CisaKevSyncCommands kevSync,
     ThreatArticleQueries articles,
     ThreatStatusQueries threatStatus,
-    ThreatHuntingCommands huntingCommands) : ControllerBase
+    ThreatHuntingCommands huntingCommands,
+    ILogger<ThreatController> logger) : ControllerBase
 {
     [HttpGet("cloud-outages")]
     [RequireAction("Tab: Threat Telemetry -> Cloud Services")]
@@ -106,6 +108,27 @@ public sealed class ThreatController(
 
         var entries = await kev.GetRecentAsync(limit, daysBack, cancellationToken);
         return Ok(entries.Select(CisaKevResponse.From).ToArray());
+    }
+
+    [HttpPost("sync-cisa-kev")]
+    [RequireAction("Tab: Threat Telemetry -> CISA KEV")]
+    [RequireAction("Action: Manually Sync Data")]
+    public async Task<IActionResult> SyncCisaKev(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await kevSync.ExecuteAsync(cancellationToken);
+            return Ok(new { status = "ok", message = "CISA KEV synced." });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Manual CISA KEV synchronization failed.");
+            return Ok(new { status = "error", message = exception.Message });
+        }
     }
 
     [HttpPost("sync-elastic-cache")]

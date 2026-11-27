@@ -31,6 +31,9 @@ public sealed class CisaKevQueriesTests
         public int Limit { get; private set; }
         public DateTime AddedAfterUtc { get; private set; }
 
+        public Task<int> InsertMissingAsync(IReadOnlyList<CisaKevEntry> entries, CancellationToken cancellationToken) =>
+            Task.FromResult(0);
+
         public Task<IReadOnlyList<CisaKevEntry>> GetRecentAsync(
             int limit,
             DateTime addedAfterUtc,

@@ -139,6 +139,8 @@ public sealed class InternalRiskScoringCommandsTests
     {
         public int RequestedLimit { get; private set; }
         public DateTime AddedAfterUtc { get; private set; }
+        public Task<int> InsertMissingAsync(IReadOnlyList<CisaKevEntry> entries, CancellationToken cancellationToken) =>
+            Task.FromResult(0);
         public Task<IReadOnlyList<CisaKevEntry>> GetRecentAsync(int limit, DateTime addedAfterUtc, CancellationToken cancellationToken)
         {
             RequestedLimit = limit;
