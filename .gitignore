@@ -8,6 +8,7 @@ docker-compose.yml
 data/
 data-dev/
 data-dev-c/
+tools/offline-python/.venv/
 
 # Python bytecode
 src/__pycache__/

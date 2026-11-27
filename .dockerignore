@@ -15,5 +15,6 @@ __pycache__
 data/
 data-dev/
 data-dev-c/
+tools/offline-python/
 Documentation
 docs

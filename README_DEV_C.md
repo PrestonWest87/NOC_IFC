@@ -457,11 +457,11 @@ The `native/` project and `NocIfc.Infrastructure/NativeCompute/` adapter remain 
 
 `compose.dev-c.yaml` is opt-in and does not replace the ignored local `docker-compose.yml`. It uses Docker's built-in `bridge` network and publishes the API, webhook, and UI on localhost ports 8112, 8109, and 8512. Nginx reaches the API through the Docker host-gateway alias; the API port is also bound to the bridge gateway IP for that proxy. Backend containers run as the host UID/GID so their shared `./data-dev-c` bind mount remains writable by the host migration tool. Set `DEV_C_UID`/`DEV_C_GID` if the host account is not 1000:1000, and `DEV_C_DOCKER_GATEWAY` if the bridge gateway is not `172.17.0.1`.
 
-Before starting C# writers, create a separate dev-c database and run the existing migration/bootstrap from a pinned host Python environment. The C# images intentionally have no Python and only report ready at Alembic head `20261125_0025`.
+Before starting C# writers, prepare the separate dev-c database with the pinned Python 3.11 tool environment in `tools/offline-python/`. Its lockfile contains only Alembic/bootstrap dependencies; `.venv` is ignored and the tooling directory is excluded from application images. The fresh-database command refuses to overwrite an existing database, requires `DEFAULT_ADMIN_PASSWORD`, runs the existing migration/bootstrap, and verifies head `20261125_0025` plus the admin account.
 
 ```bash
-mkdir -p data-dev-c
-DATABASE_URL="sqlite:///$PWD/data-dev-c/noc_fusion.db" /path/to/pinned-venv/bin/python -c 'from src.core.db import init_db; init_db()'
+uv sync --project tools/offline-python --locked --python 3.11
+uv run --project tools/offline-python --locked python tools/offline-python/prepare_dev_c_database.py
 DEV_C_UID="$(id -u)" DEV_C_GID="$(id -g)" docker compose -f compose.dev-c.yaml up --build -d
 ```
 
@@ -646,7 +646,7 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Ported the standalone SolarWinds webhook host with bounded payload reads/queueing, HMAC timestamp/replay validation, normalization, SQLite alert/timeline persistence, readiness gating, and restore-aware writer status. Resolutions use the mapped site when known and preserve same-node fallback for unknown sites.
 - The no-cache C# Webhook Docker build passes 269 tests (229 application, 40 API). Runtime smoke checks confirmed liveness, 503 submission while the database is not ready, then successful queueing and SQLite alert/timeline persistence against a temporary minimal SQLite fixture with the current revision marker. No SMTP or external integrations were used.
 - Added isolated `compose.dev-c.yaml`: project `noc-ifc-dev-c`, C# API/Worker/Webhook, the unchanged React frontend, host ports 8112/8109/8512, and only `./data-dev-c` storage. A dev-c Nginx config uses the host-gateway proxy so this stack works with Docker's built-in bridge and does not consume another address-pool subnet. The ignored local `docker-compose.yml` and its Python services remain untouched.
-- `docker compose -f compose.dev-c.yaml config --quiet` and no-cache builds of all four images pass; the .NET suite remains 269/269 and no runtime image contains Python. Runtime smoke checks covered API liveness/readiness, Worker wait-for-database behavior, Web UI/health and host-gateway proxying, and Webhook persistence. Full Compose startup remains pending a separately prepared/migrated database. `data-dev-c` did not exist at verification time and the host has no Alembic/Python migration environment; no existing data directory was copied or changed.
+- `docker compose -f compose.dev-c.yaml config --quiet` and no-cache builds of all four images pass; the .NET suite remains 269/269 and no runtime image contains Python. Runtime smoke checks covered API liveness/readiness, Worker wait-for-database behavior, Web UI/health and host-gateway proxying, and Webhook persistence. Added the locked Python 3.11 host migration environment under `tools/offline-python/`; Alembic reports head `20261125_0025`, and an isolated temporary database migrated and bootstrapped successfully. Full Compose startup is waiting on local `DEFAULT_ADMIN_PASSWORD` configuration; the setup command failed closed before creating `data-dev-c`, and no existing data directory was copied or changed.
 - The default-service switch, full-stack workflow/rollback validation, and Python runtime retirement remain the final cutover gate.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.
