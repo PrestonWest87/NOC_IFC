@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using NocIfc.Api.Authorization;
 using NocIfc.Api.Contracts;
 using NocIfc.Api.Services;
+using NocIfc.Application.Features.Dashboard;
 using NocIfc.Application.Features.Reporting;
 using NocIfc.Application.Features.Threat;
 
@@ -16,8 +17,14 @@ public sealed class ReportingController(
     DailyFusionCommands dailyFusion,
     ReportingBroadcastCommands broadcasts,
     ThreatHuntingQueries threatHunting,
-    CustomReportGenerationState reportGeneration) : ControllerBase
+    CustomReportGenerationState reportGeneration,
+    ExecutiveIntelQueries executiveIntel) : ControllerBase
 {
+    [HttpGet("executive-intel")]
+    [RequireAction("Tab: Reporting -> Daily Fusion")]
+    public async Task<IActionResult> GetExecutiveIntel(CancellationToken cancellationToken) =>
+        Ok(ExecutiveIntelResponse.From(await executiveIntel.GetForReportingAsync(cancellationToken)));
+
     [HttpGet("daily-briefings")]
     [RequireAction("Tab: Reporting -> Daily Fusion")]
     public async Task<IActionResult> GetDailyBriefings(CancellationToken cancellationToken) =>

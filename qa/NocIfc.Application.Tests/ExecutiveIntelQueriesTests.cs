@@ -47,6 +47,25 @@ public sealed class ExecutiveIntelQueriesTests
     }
 
     [Fact]
+    public async Task ReportingAliasUsesNoCrimeOrWeatherInputs()
+    {
+        var store = new StubStore
+        {
+            Inputs = EmptyInputs(new RiskScoringSettings("auto", null, null, null, null, null, null, null, null, 0, 0, 3, 3)) with
+            {
+                RecentCrimes = [new CrimeIncidentEntry("crime-1", "Violent Proximity Threat", "Assault", DateTime.UtcNow, 0.5, "High", 34.7, -92.3)],
+                ActiveWarningCount = 8,
+            },
+        };
+
+        var report = await new ExecutiveIntelQueries(store).GetForReportingAsync(CancellationToken.None);
+
+        Assert.Empty(report.RecentCrimes);
+        Assert.Equal(-3, report.CurrentPhysicalPoints);
+        Assert.Contains("0 alerts", report.PhysicalBrief, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ManualAndHybridScoringApplyOverridesAndOffsets()
     {
         var manualStore = new StubStore

@@ -585,5 +585,7 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Latest no-cache C# Docker build passes all 174 tests (150 application, 24 API). Isolated checks cover custom title/content formatting and rejection of missing or invalid recipients without SMTP calls.
 - Ported Custom Report Builder's asynchronous generation/status flow with selected-article or bounded search inputs, provider-aware source-grounded map/reduce, Central-time metadata, process-local progress/results, and separate Report Builder/Generate Reports grants.
 - Latest no-cache C# Docker build passes all 177 tests (153 application, 24 API). Isolated checks cover map/reduce generation, selected-article loading, search fallback, disabled-AI/map-failure handling, and HTTP input bounds, permission denial, background status/result polling and result consumption; no live LLM or SMTP requests were made.
+- Ported `GET /reporting/executive-intel` as the Daily Fusion compatibility alias, reusing CIS scoring with the source route's zero-weather/no-crime inputs and Daily Fusion tab permission.
+- Latest no-cache C# Docker build passes all 178 tests (154 application, 24 API). Smoke checks cover the Reporting alias's Daily Fusion grant and zero-weather/no-crime response; no live provider calls were made.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.

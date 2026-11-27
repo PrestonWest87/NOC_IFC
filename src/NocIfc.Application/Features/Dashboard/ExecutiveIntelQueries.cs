@@ -35,10 +35,27 @@ public sealed class ExecutiveIntelQueries(IExecutiveIntelStore intel)
     private static readonly string[] PropertyCrimeTerms =
         ["vandalism", "theft", "burglary", "arson", "property", "copper", "breach", "damage", "stolen"];
 
-    public async Task<ExecutiveIntelReport> GetAsync(CancellationToken cancellationToken)
+    public Task<ExecutiveIntelReport> GetAsync(CancellationToken cancellationToken) =>
+        GetAsync(null, null, cancellationToken);
+
+    public Task<ExecutiveIntelReport> GetForReportingAsync(CancellationToken cancellationToken) =>
+        GetAsync(0, [], cancellationToken);
+
+    private async Task<ExecutiveIntelReport> GetAsync(
+        int? activeWarningCount,
+        IReadOnlyList<CrimeIncidentEntry>? recentCrimes,
+        CancellationToken cancellationToken)
     {
         var now = DateTime.UtcNow;
         var inputs = await intel.GetInputsAsync(now.AddHours(-24), now, cancellationToken);
+        if (activeWarningCount is not null || recentCrimes is not null)
+        {
+            inputs = inputs with
+            {
+                ActiveWarningCount = activeWarningCount ?? inputs.ActiveWarningCount,
+                RecentCrimes = recentCrimes ?? inputs.RecentCrimes,
+            };
+        }
         var history = inputs.ScoreHistory;
         var averageCyber = history.Count == 0 ? 0 : history.Average(point => point.CyberPoints ?? 0);
         var averagePhysical = history.Count == 0 ? 0 : history.Average(point => point.PhysicalPoints ?? 0);
