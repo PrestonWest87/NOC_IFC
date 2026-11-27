@@ -15,3 +15,17 @@ public sealed record InternalRiskSnapshotEntry(
     string ScoringMode);
 
 public sealed record InternalRiskHistoryPoint(DateTime? Timestamp, double? Score, string? RiskLevel);
+
+public sealed record InternalRiskHardwareAsset(
+    string? IpAddress,
+    string? AssetName,
+    string? OperatingSystem,
+    string? OsProduct,
+    string? OsVendor,
+    string? OsVersion);
+
+public sealed record InternalRiskSoftwareAsset(string? Name);
+
+public sealed record InternalRiskAssetInventory(
+    IReadOnlyList<InternalRiskHardwareAsset> HardwareAssets,
+    IReadOnlyList<InternalRiskSoftwareAsset> SoftwareAssets);

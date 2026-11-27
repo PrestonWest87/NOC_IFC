@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using NocIfc.Application.Features.Dashboard;
 using NocIfc.Domain.Dashboard;
 
 namespace NocIfc.Api.Contracts;
@@ -112,4 +113,41 @@ public sealed record InternalRiskResponse(
             criticality = new { auto = "stored", used = "stored" },
             lethality = new { auto = "stored", used = "stored" },
         });
+}
+
+public sealed record InternalRiskAppliedOverrideResponse(
+    [property: JsonPropertyName("auto")] int Auto,
+    [property: JsonPropertyName("used")] int Used);
+
+public sealed record InternalRiskAppliedOverridesResponse(
+    [property: JsonPropertyName("criticality")] InternalRiskAppliedOverrideResponse Criticality,
+    [property: JsonPropertyName("lethality")] InternalRiskAppliedOverrideResponse Lethality);
+
+public sealed record InternalRiskGenerationResponse(
+    [property: JsonPropertyName("score")] int Score,
+    [property: JsonPropertyName("risk_level")] string RiskLevel,
+    [property: JsonPropertyName("total_assets")] int TotalAssets,
+    [property: JsonPropertyName("total_hw_loaded")] int TotalHardwareLoaded,
+    [property: JsonPropertyName("total_sw_loaded")] int TotalSoftwareLoaded,
+    [property: JsonPropertyName("total_osint_hits")] int TotalOsintHits,
+    [property: JsonPropertyName("critical_osint_hits")] int CriticalOsintHits,
+    [property: JsonPropertyName("hw_data")] JsonElement HardwareData,
+    [property: JsonPropertyName("sw_data")] JsonElement SoftwareData,
+    [property: JsonPropertyName("scoring_mode")] string ScoringMode,
+    [property: JsonPropertyName("applied_overrides")] InternalRiskAppliedOverridesResponse AppliedOverrides)
+{
+    public static InternalRiskGenerationResponse From(InternalRiskScoringResult result) => new(
+        result.Score,
+        result.RiskLevel,
+        result.TotalAssets,
+        result.TotalHardwareLoaded,
+        result.TotalSoftwareLoaded,
+        result.TotalOsintHits,
+        result.CriticalOsintHits,
+        result.HardwareData,
+        result.SoftwareData,
+        result.ScoringMode,
+        new InternalRiskAppliedOverridesResponse(
+            new InternalRiskAppliedOverrideResponse(result.AutoCriticality, result.Criticality),
+            new InternalRiskAppliedOverrideResponse(result.AutoLethality, result.Lethality)));
 }

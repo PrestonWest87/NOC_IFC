@@ -92,6 +92,8 @@ public sealed class SqliteThreatArticleStoreTests
             var liveArticles = await store.GetLiveAsync(15, now.AddDays(-1), CancellationToken.None);
             Assert.Equal(new[] { 1, 4 }, liveArticles.Select(article => article.Id));
             Assert.Equal(100d, liveArticles[0].Score);
+            var internalRiskArticles = await store.GetRecentForInternalRiskAsync(10, now.AddHours(-2.5), CancellationToken.None);
+            Assert.Equal(new[] { 1, 2 }, internalRiskArticles.Select(article => article.Id));
         }
         finally
         {

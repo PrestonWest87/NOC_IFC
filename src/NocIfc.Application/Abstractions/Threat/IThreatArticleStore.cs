@@ -6,6 +6,10 @@ public interface IThreatArticleStore
 {
     Task<IReadOnlyList<ThreatArticle>> GetPinnedAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<ThreatArticle>> GetLiveAsync(int limit, DateTime publishedAfterUtc, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ThreatArticle>> GetRecentForInternalRiskAsync(
+        int limit,
+        DateTime publishedAfterUtc,
+        CancellationToken cancellationToken);
     Task<ThreatArticlePage> GetPageAsync(
         string category,
         string categoryFilter,

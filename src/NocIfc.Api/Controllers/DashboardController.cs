@@ -16,6 +16,7 @@ public sealed class DashboardController(
     DashboardQueries dashboard,
     ExecutiveIntelQueries executiveIntel,
     InternalRiskQueries internalRisk,
+    InternalRiskScoringCommands internalRiskScoring,
     ThreatArticleQueries articles,
     GenerateArticleBlufCommands blufCommands,
     AiopsSitrepActionCommands sitrepActions,
@@ -113,6 +114,13 @@ public sealed class DashboardController(
             return UnprocessableEntity(new { detail = exception.Message });
         }
     }
+
+    [HttpPost("generate-internal-risk")]
+    [RequireAction("Tab: Dashboards -> Internal Risk")]
+    [RequireAction("Action: Generate Risk Snapshot")]
+    public async Task<IActionResult> GenerateInternalRisk(CancellationToken cancellationToken) =>
+        Ok(InternalRiskGenerationResponse.From(
+            await internalRiskScoring.GenerateAndSaveAsync(cancellationToken)));
 
     [HttpGet("briefs")]
     public async Task<IActionResult> GetBriefs(CancellationToken cancellationToken)

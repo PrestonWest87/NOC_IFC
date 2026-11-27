@@ -26,8 +26,15 @@ public sealed class SqliteInternalRiskStoreTests
                         total_assets INTEGER, total_osint_hits INTEGER, critical_osint_hits INTEGER,
                         hw_data_json TEXT, sw_data_json TEXT
                     );
-                    CREATE TABLE system_config (id INTEGER PRIMARY KEY, scoring_mode TEXT);
-                    INSERT INTO system_config VALUES (1, 'hybrid');
+                    CREATE TABLE system_config (id INTEGER PRIMARY KEY, scoring_mode TEXT, last_internal_risk TEXT);
+                    INSERT INTO system_config VALUES (1, 'hybrid', NULL);
+                    CREATE TABLE hardware_assets (
+                        id INTEGER PRIMARY KEY, ip_address TEXT, asset_name TEXT, operating_system TEXT,
+                        os_product TEXT, os_vendor TEXT, os_version TEXT
+                    );
+                    CREATE TABLE software_assets (id INTEGER PRIMARY KEY, name TEXT);
+                    INSERT INTO hardware_assets VALUES (1, '192.0.2.1', 'Firewall-1', 'PAN-OS', 'PAN-OS', 'Palo Alto', '11.0');
+                    INSERT INTO software_assets VALUES (1, 'Windows Server 2022');
                     INSERT INTO internal_risk_snapshots VALUES
                         (1, $old, 20, 'BLUE', 10, 3, 1, '[]', '[]'),
                         (2, $new, 70, 'ORANGE', 12, 8, 3,
@@ -50,6 +57,26 @@ public sealed class SqliteInternalRiskStoreTests
             Assert.Single(history);
             Assert.Equal((double?)70, history[0].Score);
             Assert.Equal("ORANGE", history[0].RiskLevel);
+
+            var inventory = await store.GetAssetInventoryAsync(CancellationToken.None);
+            Assert.Equal("192.0.2.1", Assert.Single(inventory.HardwareAssets).IpAddress);
+            Assert.Equal("Windows Server 2022", Assert.Single(inventory.SoftwareAssets).Name);
+
+            using var hardwareData = JsonDocument.Parse("[{\"Identifier\":\"Firewall-1\"}]");
+            using var softwareData = JsonDocument.Parse("[]");
+            await store.SaveSnapshotAsync(new NocIfc.Domain.Dashboard.InternalRiskSnapshotEntry(
+                0, now, 2, "YELLOW", 2, 3, 1, hardwareData.RootElement.Clone(), softwareData.RootElement.Clone(), "auto"),
+                CancellationToken.None);
+            var saved = await store.GetLatestAsync(CancellationToken.None);
+            Assert.Equal(3, saved?.Id);
+            Assert.Equal("YELLOW", saved?.RiskLevel);
+            await using (var connection = connections.Create())
+            {
+                await connection.OpenAsync();
+                await using var mirror = connection.CreateCommand();
+                mirror.CommandText = "SELECT last_internal_risk FROM system_config WHERE id=1";
+                Assert.Equal("YELLOW", await mirror.ExecuteScalarAsync());
+            }
         }
         finally
         {

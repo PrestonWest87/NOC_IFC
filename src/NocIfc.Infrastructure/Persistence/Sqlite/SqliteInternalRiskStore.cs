@@ -8,6 +8,36 @@ namespace NocIfc.Infrastructure.Persistence.Sqlite;
 
 public sealed class SqliteInternalRiskStore(SqliteConnectionFactory connections) : IInternalRiskStore
 {
+    public async Task<InternalRiskAssetInventory> GetAssetInventoryAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        var hardware = new List<InternalRiskHardwareAsset>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT ip_address, asset_name, operating_system, os_product, os_vendor, os_version FROM hardware_assets ORDER BY id";
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                hardware.Add(new InternalRiskHardwareAsset(
+                    ReadString(reader, 0), ReadString(reader, 1), ReadString(reader, 2),
+                    ReadString(reader, 3), ReadString(reader, 4), ReadString(reader, 5)));
+            }
+        }
+
+        var software = new List<InternalRiskSoftwareAsset>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT name FROM software_assets ORDER BY id";
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                software.Add(new InternalRiskSoftwareAsset(ReadString(reader, 0)));
+            }
+        }
+        return new InternalRiskAssetInventory(hardware, software);
+    }
+
     public async Task<InternalRiskSnapshotEntry?> GetLatestAsync(CancellationToken cancellationToken)
     {
         await using var connection = connections.Create();
@@ -81,6 +111,43 @@ public sealed class SqliteInternalRiskStore(SqliteConnectionFactory connections)
         return snapshots;
     }
 
+    public async Task SaveSnapshotAsync(InternalRiskSnapshotEntry snapshot, CancellationToken cancellationToken)
+    {
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
+        await using (var insert = connection.CreateCommand())
+        {
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                INSERT INTO internal_risk_snapshots (
+                    timestamp, score, risk_level, total_assets, total_osint_hits,
+                    critical_osint_hits, hw_data_json, sw_data_json
+                ) VALUES (
+                    $timestamp, $score, $risk_level, $total_assets, $total_osint_hits,
+                    $critical_osint_hits, $hw_data, $sw_data
+                )
+                """;
+            insert.Parameters.AddWithValue("$timestamp", FormatDate(snapshot.Timestamp ?? DateTime.UtcNow));
+            insert.Parameters.AddWithValue("$score", (object?)snapshot.Score ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$risk_level", (object?)snapshot.RiskLevel ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$total_assets", (object?)snapshot.TotalAssets ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$total_osint_hits", (object?)snapshot.TotalOsintHits ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$critical_osint_hits", (object?)snapshot.CriticalOsintHits ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$hw_data", snapshot.HardwareData.GetRawText());
+            insert.Parameters.AddWithValue("$sw_data", snapshot.SoftwareData.GetRawText());
+            await insert.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using (var mirror = connection.CreateCommand())
+        {
+            mirror.Transaction = transaction;
+            mirror.CommandText = "UPDATE system_config SET last_internal_risk = $risk WHERE id = (SELECT id FROM system_config ORDER BY id LIMIT 1)";
+            mirror.Parameters.AddWithValue("$risk", (object?)snapshot.RiskLevel ?? DBNull.Value);
+            await mirror.ExecuteNonQueryAsync(cancellationToken);
+        }
+        transaction.Commit();
+    }
+
     private static JsonElement ReadJsonArray(SqliteDataReader reader, int ordinal)
     {
         if (reader.IsDBNull(ordinal))
@@ -94,6 +161,9 @@ public sealed class SqliteInternalRiskStore(SqliteConnectionFactory connections)
 
     private static string? ReadString(SqliteDataReader reader, int ordinal) =>
         reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
+
+    private static string FormatDate(DateTime value) =>
+        value.ToString("yyyy-MM-dd HH:mm:ss.ffffff", CultureInfo.InvariantCulture);
 
     private static DateTime? ReadDateTime(SqliteDataReader reader, int ordinal)
     {

@@ -78,6 +78,9 @@ public sealed class GenerateArticleBlufCommandsTests
             Task.FromResult<IReadOnlyList<ThreatArticle>>([]);
         public Task<IReadOnlyList<ThreatArticle>> GetLiveAsync(int limit, DateTime publishedAfterUtc, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<ThreatArticle>>([]);
+        public Task<IReadOnlyList<ThreatArticle>> GetRecentForInternalRiskAsync(
+            int limit, DateTime publishedAfterUtc, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ThreatArticle>>([]);
         public Task<ThreatArticlePage> GetPageAsync(
             string category, string categoryFilter, int page, int pageSize, string? searchTerm, int minimumScore,
             CancellationToken cancellationToken) =>

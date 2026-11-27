@@ -89,6 +89,7 @@ builder.Services.AddScoped<ExecutiveIntelQueries>();
 builder.Services.AddScoped<UnifiedBriefGenerationCommands>();
 builder.Services.AddScoped<GlobalBriefGenerationCommands>();
 builder.Services.AddScoped<InternalBriefGenerationCommands>();
+builder.Services.AddScoped<InternalRiskScoringCommands>();
 builder.Services.AddSingleton<DashboardBriefGenerationState>();
 builder.Services.AddScoped<IInternalRiskStore, SqliteInternalRiskStore>();
 builder.Services.AddScoped<InternalRiskQueries>();

@@ -63,6 +63,10 @@ public sealed class ThreatArticleQueriesTests
         public Task<IReadOnlyList<ThreatArticle>> GetLiveAsync(int limit, DateTime publishedAfterUtc, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<ThreatArticle>>([]);
 
+        public Task<IReadOnlyList<ThreatArticle>> GetRecentForInternalRiskAsync(
+            int limit, DateTime publishedAfterUtc, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ThreatArticle>>([]);
+
         public Task<ThreatArticleDetail?> GetDetailAsync(int articleId, CancellationToken cancellationToken) =>
             Task.FromResult<ThreatArticleDetail?>(null);
 

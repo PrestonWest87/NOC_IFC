@@ -115,9 +115,12 @@ public sealed class BriefBroadcastCommandsTests
 
     private sealed class StubInternalRiskStore(InternalRiskSnapshotEntry? snapshot) : IInternalRiskStore
     {
+        public Task<InternalRiskAssetInventory> GetAssetInventoryAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new InternalRiskAssetInventory([], []));
         public Task<InternalRiskSnapshotEntry?> GetLatestAsync(CancellationToken cancellationToken) => Task.FromResult(snapshot);
         public Task<IReadOnlyList<InternalRiskHistoryPoint>> GetHistoryAsync(DateTime sinceUtc, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<InternalRiskHistoryPoint>>([]);
+        public Task SaveSnapshotAsync(InternalRiskSnapshotEntry snapshot, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private sealed class StubEmailSender : IEmailSender

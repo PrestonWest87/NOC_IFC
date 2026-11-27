@@ -32,6 +32,18 @@ public sealed class SqliteThreatArticleStore(SqliteConnectionFactory connections
             ],
             cancellationToken);
 
+    public Task<IReadOnlyList<ThreatArticle>> GetRecentForInternalRiskAsync(
+        int limit,
+        DateTime publishedAfterUtc,
+        CancellationToken cancellationToken) =>
+        GetArticleListAsync(
+            "WHERE published_date >= $published_after ORDER BY published_date DESC LIMIT $limit",
+            [
+                ("$published_after", FormatDate(publishedAfterUtc)),
+                ("$limit", limit),
+            ],
+            cancellationToken);
+
     public async Task<ThreatArticlePage> GetPageAsync(
         string category,
         string categoryFilter,

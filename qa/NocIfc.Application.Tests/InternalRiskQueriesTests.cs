@@ -26,6 +26,9 @@ public sealed class InternalRiskQueriesTests
         public int HistoryCalls { get; private set; }
         public DateTime SinceUtc { get; private set; }
 
+        public Task<InternalRiskAssetInventory> GetAssetInventoryAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new InternalRiskAssetInventory([], []));
+
         public Task<InternalRiskSnapshotEntry?> GetLatestAsync(CancellationToken cancellationToken) =>
             Task.FromResult<InternalRiskSnapshotEntry?>(null);
 
@@ -35,5 +38,7 @@ public sealed class InternalRiskQueriesTests
             SinceUtc = sinceUtc;
             return Task.FromResult<IReadOnlyList<InternalRiskHistoryPoint>>([]);
         }
+
+        public Task SaveSnapshotAsync(InternalRiskSnapshotEntry snapshot, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }
