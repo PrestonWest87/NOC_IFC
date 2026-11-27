@@ -31,6 +31,50 @@ public sealed class EmailController(SendEmailCommands email, BriefBroadcastComma
         }
     }
 
+    [HttpPost("broadcast-global-brief")]
+    [RequireAnyPage("Global Dashboards", "Reporting & Briefings")]
+    [RequireAction("Action: Dispatch Exec Report")]
+    public async Task<IActionResult> BroadcastGlobalBrief(
+        [FromBody] BriefBroadcastRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (request is null || request.Email is null)
+        {
+            return UnprocessableEntity(new { detail = "A brief broadcast request is required." });
+        }
+        try
+        {
+            var result = await briefs.BroadcastGlobalAsync(request.Email, cancellationToken);
+            return Ok(new { status = result.Success ? "ok" : "error", message = result.Message });
+        }
+        catch (ArgumentException exception)
+        {
+            return UnprocessableEntity(new { detail = exception.Message });
+        }
+    }
+
+    [HttpPost("broadcast-internal-brief")]
+    [RequireAnyPage("Global Dashboards", "Reporting & Briefings")]
+    [RequireAction("Action: Dispatch Exec Report")]
+    public async Task<IActionResult> BroadcastInternalBrief(
+        [FromBody] BriefBroadcastRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (request is null || request.Email is null)
+        {
+            return UnprocessableEntity(new { detail = "A brief broadcast request is required." });
+        }
+        try
+        {
+            var result = await briefs.BroadcastInternalAsync(request.Email, cancellationToken);
+            return Ok(new { status = result.Success ? "ok" : "error", message = result.Message });
+        }
+        catch (ArgumentException exception)
+        {
+            return UnprocessableEntity(new { detail = exception.Message });
+        }
+    }
+
     [HttpPost("send")]
     [RequireAction("Action: Send Email")]
     public async Task<IActionResult> Send(

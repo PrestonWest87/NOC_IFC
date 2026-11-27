@@ -49,8 +49,44 @@ public sealed class BriefBroadcastCommandsTests
         Assert.Null(sender.Recipient);
     }
 
-    private static DashboardBriefSnapshot Snapshot(string? unified, string globalRisk, string internalRisk) => new(
-        null, null, null, null, null, null, unified, null, globalRisk, internalRisk);
+    [Fact]
+    public async Task BroadcastsGlobalAndCompleteInternalBriefsButRejectsFailureNotices()
+    {
+        var dashboard = new StubDashboardStore(Snapshot(
+            "## Unified",
+            "BLUE",
+            "YELLOW",
+            globalBrief: "## US CI Assessment\nExternal threat reporting.",
+            internalBrief: "## Asset Exposure\nCurrent internal findings."));
+        var sender = new StubEmailSender();
+        var command = new BriefBroadcastCommands(dashboard, new StubInternalRiskStore(Risk("RED")), sender);
+
+        var global = await command.BroadcastGlobalAsync("ops@example.test", CancellationToken.None);
+        var internalBrief = await command.BroadcastInternalAsync("ops@example.test", CancellationToken.None);
+        var failedInternal = await new BriefBroadcastCommands(
+                new StubDashboardStore(Snapshot("", "BLUE", "RED", internalBrief: "AI failed to process batch.")),
+                new StubInternalRiskStore(null),
+                sender)
+            .BroadcastInternalAsync("ops@example.test", CancellationToken.None);
+
+        Assert.True(global.Success);
+        Assert.True(internalBrief.Success);
+        Assert.Contains("Global Threat Posture", sender.HtmlCalls[0].Body);
+        Assert.Contains("Global Threat Brief — US CI &amp; International", sender.HtmlCalls[0].Body);
+        Assert.Equal("Global Threat Brief - US Critical Infrastructure", sender.HtmlCalls[0].Subject);
+        Assert.Contains("Internal Asset Risk Brief", sender.HtmlCalls[1].Body);
+        Assert.Equal("Internal Asset Risk Brief", sender.HtmlCalls[1].Subject);
+        Assert.Equal("No complete internal brief is available. Generate one first.", failedInternal.Message);
+        Assert.Equal(2, sender.HtmlCalls.Count);
+    }
+
+    private static DashboardBriefSnapshot Snapshot(
+        string? unified,
+        string globalRisk,
+        string internalRisk,
+        string? globalBrief = null,
+        string? internalBrief = null) => new(
+        null, null, globalBrief, null, internalBrief, null, unified, null, globalRisk, internalRisk);
 
     private static InternalRiskSnapshotEntry Risk(string riskLevel)
     {
@@ -83,6 +119,7 @@ public sealed class BriefBroadcastCommandsTests
         public string? Recipient { get; private set; }
         public string? Subject { get; private set; }
         public string? Body { get; private set; }
+        public List<(string Subject, string Body)> HtmlCalls { get; } = [];
         public Task<EmailSendResult> SendPlainTextAsync(string recipientOverride, string subject, string body, CancellationToken cancellationToken) =>
             Task.FromResult(new EmailSendResult(true, "sent"));
         public Task<EmailSendResult> SendHtmlAsync(string recipientOverride, string subject, string body, CancellationToken cancellationToken)
@@ -90,6 +127,7 @@ public sealed class BriefBroadcastCommandsTests
             Recipient = recipientOverride;
             Subject = subject;
             Body = body;
+            HtmlCalls.Add((subject, body));
             return Task.FromResult(new EmailSendResult(true, "sent"));
         }
         public Task<EmailSendResult> SendHtmlWithAttachmentsAsync(

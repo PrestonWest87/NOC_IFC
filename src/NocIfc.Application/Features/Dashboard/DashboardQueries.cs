@@ -83,7 +83,7 @@ public sealed class DashboardQueries(IOperationalDashboardStore dashboard)
         }
     }
 
-    private static bool IsInternalRiskBriefFailureNotice(string? content)
+    internal static bool IsInternalRiskBriefFailureNotice(string? content)
     {
         if (string.IsNullOrWhiteSpace(content))
         {

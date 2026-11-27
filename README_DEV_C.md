@@ -589,7 +589,7 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Latest no-cache C# Docker build passes all 178 tests (154 application, 24 API). Smoke checks cover the Reporting alias's Daily Fusion grant and zero-weather/no-crime response; no live provider calls were made.
 - Ported `POST /email/send` used by Regional Grid HTML situation reports, with the active sender, bounded base64 attachments, basename handling, and `Action: Send Email` authorization.
 - Latest no-cache C# Docker build passes all 180 tests (156 application, 24 API). Isolated HTTP checks cover permission denial, attachment decoding/rejection, bounds, and disabled-SMTP behavior without network delivery.
-- Ported the Unified Brief `/email/broadcast-brief` path with saved-brief reads, current risk badges, safe Markdown rendering, either-page access, and Dispatch Exec Report authorization.
-- Latest no-cache C# Docker build passes all 183 tests (158 application, 25 API). HTTP smoke checks cover either-page permission behavior, dispatch denial, missing recipients, and disabled-SMTP delivery without network activity.
+- Ported saved Unified, Global, and Internal brief broadcast routes using persisted briefs, current risk badges, safe Markdown rendering, either-page access, and Dispatch Exec Report authorization; internal failure notices are not sent.
+- Latest no-cache C# Docker build passes all 184 tests (159 application, 25 API). HTTP smoke checks cover broadcast permissions, missing recipients, and disabled-SMTP delivery without network activity.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.
