@@ -8,8 +8,13 @@ namespace NocIfc.Api.Controllers;
 [ApiController]
 [Route("api/v1/reporting")]
 [RequirePage("Reporting & Briefings")]
-public sealed class ReportingController(SavedReportCommands reports) : ControllerBase
+public sealed class ReportingController(SavedReportCommands reports, DailyBriefingQueries briefings) : ControllerBase
 {
+    [HttpGet("daily-briefings")]
+    [RequireAction("Tab: Reporting -> Daily Fusion")]
+    public async Task<IActionResult> GetDailyBriefings(CancellationToken cancellationToken) =>
+        Ok((await briefings.GetAllAsync(cancellationToken)).Select(DailyBriefingResponse.From).ToArray());
+
     [HttpGet("saved-reports")]
     [RequireAction("Tab: Reporting -> Shared Library")]
     public async Task<IActionResult> GetSavedReports(CancellationToken cancellationToken) =>

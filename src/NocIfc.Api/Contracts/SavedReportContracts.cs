@@ -25,3 +25,13 @@ public sealed record SavedReportResponse(
     public static SavedReportResponse From(SavedReportEntry report) => new(
         report.Id, report.Title, report.Author, report.Content, report.CreatedAt);
 }
+
+public sealed record DailyBriefingResponse(
+    [property: JsonPropertyName("id")] int Id,
+    [property: JsonPropertyName("report_date")] DateTime? ReportDate,
+    [property: JsonPropertyName("content")] string? Content,
+    [property: JsonPropertyName("created_at")] DateTime? CreatedAt)
+{
+    public static DailyBriefingResponse From(DailyBriefingEntry briefing) => new(
+        briefing.Id, briefing.ReportDate, briefing.Content, briefing.CreatedAt);
+}

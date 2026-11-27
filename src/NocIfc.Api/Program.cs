@@ -113,6 +113,8 @@ builder.Services.AddScoped<IAiopsSitrepActionStore, SqliteAiopsSitrepActionStore
 builder.Services.AddScoped<AiopsSitrepActionCommands>();
 builder.Services.AddScoped<ISavedReportStore, SqliteSavedReportStore>();
 builder.Services.AddScoped<SavedReportCommands>();
+builder.Services.AddScoped<IDailyBriefingStore, SqliteDailyBriefingStore>();
+builder.Services.AddScoped<DailyBriefingQueries>();
 builder.Services.AddSingleton(new NwsForecastConfiguration(
     builder.Configuration["nws_api_user_agent"] ?? "NOC-IFC/2.0 (https://test.weasts.net)",
     builder.Configuration["default_admin_email"] ?? ""));
