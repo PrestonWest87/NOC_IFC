@@ -591,5 +591,7 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Latest no-cache C# Docker build passes all 180 tests (156 application, 24 API). Isolated HTTP checks cover permission denial, attachment decoding/rejection, bounds, and disabled-SMTP behavior without network delivery.
 - Ported saved Unified, Global, and Internal brief broadcast routes using persisted briefs, current risk badges, safe Markdown rendering, either-page access, and Dispatch Exec Report authorization; internal failure notices are not sent.
 - Latest no-cache C# Docker build passes all 184 tests (159 application, 25 API). HTTP smoke checks cover broadcast permissions, missing recipients, and disabled-SMTP delivery without network activity.
+- Ported `POST /llm/executive-weather-brief` for Regional Grid using the selected LLM provider and bounded site-risk analytics, with the existing page/tab/action grants.
+- Latest no-cache C# Docker build passes all 186 tests (161 application, 25 API). HTTP smoke checks cover page/tab/action authorization and the disabled-AI response; no live LLM or SMTP call was made.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.
