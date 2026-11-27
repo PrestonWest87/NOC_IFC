@@ -8,6 +8,7 @@ using NocIfc.Application.Abstractions.Identity;
 using NocIfc.Application.Abstractions.Llm;
 using NocIfc.Application.Abstractions.Logbook;
 using NocIfc.Application.Abstractions.Regional;
+using NocIfc.Application.Abstractions.Reporting;
 using NocIfc.Application.Abstractions.Settings;
 using NocIfc.Application.Abstractions.Threat;
 using NocIfc.Application.Features.Identity;
@@ -15,6 +16,7 @@ using NocIfc.Application.Features.Dashboard;
 using NocIfc.Application.Features.Settings;
 using NocIfc.Application.Features.Threat;
 using NocIfc.Application.Features.Regional;
+using NocIfc.Application.Features.Reporting;
 using NocIfc.Application.Features.AIOps;
 using NocIfc.Application.Features.Logbook;
 using NocIfc.Infrastructure.Email;
@@ -109,6 +111,8 @@ builder.Services.AddScoped<AiopsTicketCommands>();
 builder.Services.AddScoped<AiopsSitrepQueries>();
 builder.Services.AddScoped<IAiopsSitrepActionStore, SqliteAiopsSitrepActionStore>();
 builder.Services.AddScoped<AiopsSitrepActionCommands>();
+builder.Services.AddScoped<ISavedReportStore, SqliteSavedReportStore>();
+builder.Services.AddScoped<SavedReportCommands>();
 builder.Services.AddSingleton(new NwsForecastConfiguration(
     builder.Configuration["nws_api_user_agent"] ?? "NOC-IFC/2.0 (https://test.weasts.net)",
     builder.Configuration["default_admin_email"] ?? ""));

@@ -571,5 +571,7 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 
 - Added the POST `/api/v1/rca/sitrep` action dispatcher. `refresh_briefing`, `scoring_rationale`, and `security_audit` each enforce their own action grant; scoring rationale and security audit also require access to every site type. Rolling summaries are persisted only after successful LLM output, and the KEV audit uses configured tech-stack context.
 - Latest no-cache C# Docker build passes all 164 tests (140 application, 24 API). Isolated smoke checks cover the three POST SITREP actions, including full-site denial and deterministic disabled-AI results; no live LLM or SMTP credentials were used.
+- Ported Reporting Shared Library list/save/delete with the existing payload bounds, display ordering, and Report Builder/Shared Library permissions.
+- Latest no-cache C# Docker build passes all 166 tests (142 application, 24 API). Isolated smoke checks cover Shared Library empty/read/save/delete workflows and denial of report saves without the dispatch grant.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.
