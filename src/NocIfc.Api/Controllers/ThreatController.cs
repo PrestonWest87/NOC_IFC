@@ -12,6 +12,7 @@ public sealed class ThreatController(
     CisaKevQueries kev,
     CisaKevSyncCommands kevSync,
     CloudStatusSyncCommands cloudStatusSync,
+    CrimeDataSyncCommands crimeSync,
     ThreatArticleQueries articles,
     ThreatStatusQueries threatStatus,
     ThreatHuntingCommands huntingCommands,
@@ -153,6 +154,30 @@ public sealed class ThreatController(
         {
             logger.LogError(exception, "Manual cloud status synchronization failed.");
             return Ok(new { status = "error", message = exception.Message });
+        }
+    }
+
+    [HttpPost("fetch-crime-data")]
+    [RequireAction("Tab: Threat Telemetry -> Perimeter Crime")]
+    [RequireAction("Action: Manually Sync Data")]
+    public async Task<IActionResult> FetchCrimeData(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await crimeSync.ExecuteAsync(cancellationToken);
+            logger.LogInformation(
+                "Crime data sync added {Added} incidents and dispatched {Alerts} perimeter alerts.",
+                result.AddedCount, result.AlertsDispatched);
+            return Ok(new { status = "ok", message = "Crime data fetched." });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Manual crime data fetch failed.");
+            return Ok(new { status = "error", message = "Crime fetch failed." });
         }
     }
 

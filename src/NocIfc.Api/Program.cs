@@ -90,6 +90,11 @@ builder.Services.AddScoped<SqliteCloudStatusSyncStore>();
 builder.Services.AddHttpClient<CloudStatusSyncClient>(client => client.Timeout = TimeSpan.FromSeconds(10));
 builder.Services.AddScoped<ICloudStatusSyncProvider>(services =>
     services.GetRequiredService<CloudStatusSyncClient>());
+builder.Services.AddScoped<CrimeDataSyncCommands>();
+builder.Services.AddScoped<SqliteCrimeDataSyncStore>();
+builder.Services.AddHttpClient<CrimeDataSyncClient>(client => client.Timeout = TimeSpan.FromSeconds(15));
+builder.Services.AddScoped<ICrimeDataSyncProvider>(services =>
+    services.GetRequiredService<CrimeDataSyncClient>());
 builder.Services.AddScoped<IRssSettingsStore, SqliteRssSettingsStore>();
 builder.Services.AddScoped<RssSettingsCommands>();
 builder.Services.AddScoped<IOperationalDashboardStore, SqliteOperationalDashboardStore>();

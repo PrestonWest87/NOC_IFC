@@ -71,3 +71,5 @@ public sealed record CloudStatusSyncOutcome(
     int ResolvedCount,
     int FilteredCount,
     IReadOnlyList<string> FailedProviders);
+
+public sealed record CrimeDataSyncOutcome(int AddedCount, int AlertsDispatched);
