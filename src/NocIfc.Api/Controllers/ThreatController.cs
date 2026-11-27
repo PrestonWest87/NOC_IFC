@@ -11,6 +11,7 @@ namespace NocIfc.Api.Controllers;
 public sealed class ThreatController(
     CisaKevQueries kev,
     CisaKevSyncCommands kevSync,
+    CloudStatusSyncCommands cloudStatusSync,
     ThreatArticleQueries articles,
     ThreatStatusQueries threatStatus,
     ThreatHuntingCommands huntingCommands,
@@ -127,6 +128,30 @@ public sealed class ThreatController(
         catch (Exception exception)
         {
             logger.LogError(exception, "Manual CISA KEV synchronization failed.");
+            return Ok(new { status = "error", message = exception.Message });
+        }
+    }
+
+    [HttpPost("sync-cloud-status")]
+    [RequireAction("Tab: Threat Telemetry -> Cloud Services")]
+    [RequireAction("Action: Manually Sync Data")]
+    public async Task<IActionResult> SyncCloudStatus(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await cloudStatusSync.ExecuteAsync(cancellationToken);
+            logger.LogInformation(
+                "Cloud status sync added {Added}, resolved {Resolved}, filtered {Filtered}; failed providers: {FailedProviders}.",
+                result.AddedCount, result.ResolvedCount, result.FilteredCount, string.Join(", ", result.FailedProviders));
+            return Ok(new { status = "ok", message = "Cloud status synced." });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Manual cloud status synchronization failed.");
             return Ok(new { status = "error", message = exception.Message });
         }
     }

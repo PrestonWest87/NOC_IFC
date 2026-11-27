@@ -65,3 +65,9 @@ public sealed record Microsoft365StatusReport(
     int StaleAfterMinutes,
     IReadOnlyList<Microsoft365ServiceStatus> Services,
     IReadOnlyList<Microsoft365ActiveIncident> ActiveIncidents);
+
+public sealed record CloudStatusSyncOutcome(
+    int AddedCount,
+    int ResolvedCount,
+    int FilteredCount,
+    IReadOnlyList<string> FailedProviders);

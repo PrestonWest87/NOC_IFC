@@ -85,6 +85,11 @@ builder.Services.AddScoped<CisaKevSyncCommands>();
 builder.Services.AddHttpClient<CisaKevCatalogClient>(client => client.Timeout = TimeSpan.FromSeconds(30));
 builder.Services.AddScoped<ICisaKevCatalogProvider>(services =>
     services.GetRequiredService<CisaKevCatalogClient>());
+builder.Services.AddScoped<CloudStatusSyncCommands>();
+builder.Services.AddScoped<SqliteCloudStatusSyncStore>();
+builder.Services.AddHttpClient<CloudStatusSyncClient>(client => client.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.AddScoped<ICloudStatusSyncProvider>(services =>
+    services.GetRequiredService<CloudStatusSyncClient>());
 builder.Services.AddScoped<IRssSettingsStore, SqliteRssSettingsStore>();
 builder.Services.AddScoped<RssSettingsCommands>();
 builder.Services.AddScoped<IOperationalDashboardStore, SqliteOperationalDashboardStore>();
