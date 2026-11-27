@@ -13,6 +13,7 @@ using NocIfc.Application.Abstractions.Reporting;
 using NocIfc.Application.Abstractions.Settings;
 using NocIfc.Application.Abstractions.Threat;
 using NocIfc.Application.Features.Identity;
+using NocIfc.Application.Features.Email;
 using NocIfc.Application.Features.Dashboard;
 using NocIfc.Application.Features.Settings;
 using NocIfc.Application.Features.Threat;
@@ -119,6 +120,7 @@ builder.Services.AddScoped<DailyBriefingQueries>();
 builder.Services.AddScoped<DailyFusionCommands>();
 builder.Services.AddScoped<ReportingBroadcastCommands>();
 builder.Services.AddScoped<CustomReportCommands>();
+builder.Services.AddScoped<SendEmailCommands>();
 builder.Services.AddSingleton<CustomReportGenerationState>();
 builder.Services.AddSingleton(new NwsForecastConfiguration(
     builder.Configuration["nws_api_user_agent"] ?? "NOC-IFC/2.0 (https://test.weasts.net)",

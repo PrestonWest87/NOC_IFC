@@ -17,20 +17,29 @@ public sealed class SqliteEmailSender(
         string subject,
         string body,
         CancellationToken cancellationToken) =>
-        SendAsync(recipientOverride, subject, body, false, cancellationToken);
+        SendAsync(recipientOverride, subject, body, false, [], cancellationToken);
 
     public Task<EmailSendResult> SendHtmlAsync(
         string recipientOverride,
         string subject,
         string body,
         CancellationToken cancellationToken) =>
-        SendAsync(recipientOverride, subject, body, true, cancellationToken);
+        SendAsync(recipientOverride, subject, body, true, [], cancellationToken);
+
+    public Task<EmailSendResult> SendHtmlWithAttachmentsAsync(
+        string recipientOverride,
+        string subject,
+        string body,
+        IReadOnlyList<EmailAttachment> attachments,
+        CancellationToken cancellationToken) =>
+        SendAsync(recipientOverride, subject, body, true, attachments, cancellationToken);
 
     private async Task<EmailSendResult> SendAsync(
         string recipientOverride,
         string subject,
         string body,
         bool isHtml,
+        IReadOnlyList<EmailAttachment> attachments,
         CancellationToken cancellationToken)
     {
         var profile = await ReadProfileAsync(cancellationToken);
@@ -67,7 +76,22 @@ public sealed class SqliteEmailSender(
             message.From.AddRange(InternetAddressList.Parse(profile.Sender));
             message.To.AddRange(InternetAddressList.Parse(recipient));
             message.Subject = $"[NOC FUSION] {subject}";
-            message.Body = new TextPart(isHtml ? "html" : "plain") { Text = body };
+            if (attachments.Count == 0)
+            {
+                message.Body = new TextPart(isHtml ? "html" : "plain") { Text = body };
+            }
+            else
+            {
+                var builder = new BodyBuilder { HtmlBody = body };
+                foreach (var attachment in attachments)
+                {
+                    builder.Attachments.Add(
+                        attachment.FileName,
+                        attachment.Content,
+                        ContentType.Parse(attachment.ContentType));
+                }
+                message.Body = builder.ToMessageBody();
+            }
 
             using var client = new SmtpClient { Timeout = 10_000 };
             await client.ConnectAsync(profile.Server, profile.Port, SecureSocketOptions.StartTls, timeout.Token);

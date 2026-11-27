@@ -87,6 +87,14 @@ public sealed class AiopsTicketCommandsTests
             string body,
             CancellationToken cancellationToken) =>
             SendPlainTextAsync(recipientOverride, subject, body, cancellationToken);
+
+        public Task<EmailSendResult> SendHtmlWithAttachmentsAsync(
+            string recipientOverride,
+            string subject,
+            string body,
+            IReadOnlyList<EmailAttachment> attachments,
+            CancellationToken cancellationToken) =>
+            SendHtmlAsync(recipientOverride, subject, body, cancellationToken);
     }
 
     private sealed class StubDashboardStore : IAiopsDashboardStore

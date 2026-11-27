@@ -587,5 +587,7 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Latest no-cache C# Docker build passes all 177 tests (153 application, 24 API). Isolated checks cover map/reduce generation, selected-article loading, search fallback, disabled-AI/map-failure handling, and HTTP input bounds, permission denial, background status/result polling and result consumption; no live LLM or SMTP requests were made.
 - Ported `GET /reporting/executive-intel` as the Daily Fusion compatibility alias, reusing CIS scoring with the source route's zero-weather/no-crime inputs and Daily Fusion tab permission.
 - Latest no-cache C# Docker build passes all 178 tests (154 application, 24 API). Smoke checks cover the Reporting alias's Daily Fusion grant and zero-weather/no-crime response; no live provider calls were made.
+- Ported `POST /email/send` used by Regional Grid HTML situation reports, with the active sender, bounded base64 attachments, basename handling, and `Action: Send Email` authorization.
+- Latest no-cache C# Docker build passes all 180 tests (156 application, 24 API). Isolated HTTP checks cover permission denial, attachment decoding/rejection, bounds, and disabled-SMTP behavior without network delivery.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.

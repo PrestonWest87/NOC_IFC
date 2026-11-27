@@ -333,6 +333,14 @@ public sealed class RegionalHazardSyncClientTests
 
         public Task<EmailSendResult> SendHtmlAsync(string recipientOverride, string subject, string body, CancellationToken cancellationToken) =>
             SendPlainTextAsync(recipientOverride, subject, body, cancellationToken);
+
+        public Task<EmailSendResult> SendHtmlWithAttachmentsAsync(
+            string recipientOverride,
+            string subject,
+            string body,
+            IReadOnlyList<EmailAttachment> attachments,
+            CancellationToken cancellationToken) =>
+            SendHtmlAsync(recipientOverride, subject, body, cancellationToken);
     }
 
     private sealed record EmailMessage(string Recipient, string Subject, string Body);

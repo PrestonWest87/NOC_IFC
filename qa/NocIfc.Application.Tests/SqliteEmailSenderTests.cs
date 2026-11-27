@@ -40,11 +40,17 @@ public sealed class SqliteEmailSenderTests
                 "security@example.com", "Test alert", "body", CancellationToken.None);
             var htmlResult = await sender.SendHtmlAsync(
                 "security@example.com", "Test report", "<p>body</p>", CancellationToken.None);
+            var attachmentResult = await sender.SendHtmlWithAttachmentsAsync(
+                "security@example.com", "Test report", "<p>body</p>",
+                [new NocIfc.Application.Abstractions.Email.EmailAttachment("weather.svg", "image/svg+xml", [1, 2, 3])],
+                CancellationToken.None);
 
             Assert.False(result.Success);
             Assert.Equal("SMTP is disabled in Settings.", result.Message);
             Assert.False(htmlResult.Success);
             Assert.Equal("SMTP is disabled in Settings.", htmlResult.Message);
+            Assert.False(attachmentResult.Success);
+            Assert.Equal("SMTP is disabled in Settings.", attachmentResult.Message);
         }
         finally
         {

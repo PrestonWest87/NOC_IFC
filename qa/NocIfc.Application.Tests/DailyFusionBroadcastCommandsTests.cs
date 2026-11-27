@@ -91,5 +91,13 @@ public sealed class DailyFusionBroadcastCommandsTests
             HtmlCalls.Add((recipientOverride, subject, body));
             return Task.FromResult(new EmailSendResult(true, "HTML sent."));
         }
+
+        public Task<EmailSendResult> SendHtmlWithAttachmentsAsync(
+            string recipientOverride,
+            string subject,
+            string body,
+            IReadOnlyList<EmailAttachment> attachments,
+            CancellationToken cancellationToken) =>
+            SendHtmlAsync(recipientOverride, subject, body, cancellationToken);
     }
 }
