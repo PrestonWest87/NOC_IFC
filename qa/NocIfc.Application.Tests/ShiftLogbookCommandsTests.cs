@@ -38,7 +38,9 @@ public sealed class ShiftLogbookCommandsTests
         Assert.Equal("analyst", store.AuthorRole);
         Assert.Equal("No Shift", store.ShiftPeriod);
         Assert.Equal("Completed network maintenance.", store.Content);
-        Assert.Equal(new DateTime(2026, 11, 25), store.CreatedAtUtc!.Value.Date);
+        var createdCentral = TimeZoneInfo.ConvertTimeFromUtc(
+            store.CreatedAtUtc!.Value, TimeZoneInfo.FindSystemTimeZoneById("America/Chicago"));
+        Assert.Equal(new DateTime(2026, 11, 25), createdCentral.Date);
         await Assert.ThrowsAsync<ArgumentException>(() => commands.CreateAsync(
             User("jane", "analyst"), "analyst", "Night", "Invalid period", null, CancellationToken.None));
     }
