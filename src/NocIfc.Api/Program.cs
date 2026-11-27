@@ -95,6 +95,11 @@ builder.Services.AddScoped<SqliteCrimeDataSyncStore>();
 builder.Services.AddHttpClient<CrimeDataSyncClient>(client => client.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddScoped<ICrimeDataSyncProvider>(services =>
     services.GetRequiredService<CrimeDataSyncClient>());
+builder.Services.AddScoped<RssFeedFetchCommands>();
+builder.Services.AddScoped<IRssIngestionStore, SqliteRssIngestionStore>();
+builder.Services.AddHttpClient<RssFeedClient>(client => client.Timeout = TimeSpan.FromSeconds(15));
+builder.Services.AddScoped<IRssFeedClient>(services =>
+    services.GetRequiredService<RssFeedClient>());
 builder.Services.AddScoped<IRssSettingsStore, SqliteRssSettingsStore>();
 builder.Services.AddScoped<RssSettingsCommands>();
 builder.Services.AddScoped<IOperationalDashboardStore, SqliteOperationalDashboardStore>();

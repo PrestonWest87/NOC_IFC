@@ -13,6 +13,7 @@ public sealed class ThreatController(
     CisaKevSyncCommands kevSync,
     CloudStatusSyncCommands cloudStatusSync,
     CrimeDataSyncCommands crimeSync,
+    RssFeedFetchCommands rssSync,
     ThreatArticleQueries articles,
     ThreatStatusQueries threatStatus,
     ThreatHuntingCommands huntingCommands,
@@ -178,6 +179,30 @@ public sealed class ThreatController(
         {
             logger.LogError(exception, "Manual crime data fetch failed.");
             return Ok(new { status = "error", message = "Crime fetch failed." });
+        }
+    }
+
+    [HttpPost("fetch-feeds")]
+    [RequireAction("Tab: Threat Telemetry -> RSS Triage")]
+    [RequireAction("Action: Manually Sync Data")]
+    public async Task<IActionResult> FetchFeeds(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await rssSync.ExecuteAsync(cancellationToken);
+            logger.LogInformation(
+                "Manual RSS fetch added {Added} articles, failed feeds {Failed}, removed duplicates {Duplicates}.",
+                result.AddedCount, result.FailedFeeds, result.RemovedDuplicates);
+            return Ok(new { status = "ok", message = "Feeds fetched successfully." });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Manual RSS fetch failed.");
+            return Ok(new { status = "error", message = exception.Message });
         }
     }
 
