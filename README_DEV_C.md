@@ -575,5 +575,7 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Latest no-cache C# Docker build passes all 166 tests (142 application, 24 API). Isolated smoke checks cover Shared Library empty/read/save/delete workflows and denial of report saves without the dispatch grant.
 - Ported the Daily Fusion archive read with newest-report-date-first ordering and its dedicated tab grant.
 - Latest no-cache C# Docker build passes all 167 tests (143 application, 24 API). HTTP smoke checks confirm the Daily Fusion tab grant and archive ordering.
+- Ported Reporting Builder article search through the shared bounded quoted-term parser, preserving the compact article result shape.
+- Latest C# tests remain 167 (143 application, 24 API); HTTP smoke checks cover quoted-term OR search, results, malformed phrase responses, and lookback bounds.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.

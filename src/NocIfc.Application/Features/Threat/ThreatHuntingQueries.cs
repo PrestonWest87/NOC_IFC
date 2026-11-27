@@ -146,7 +146,7 @@ public sealed class ThreatHuntingQueries(IThreatHuntingStore hunting)
             DateTime.UtcNow.AddHours(-hoursBack), page, pageSize, hoursBack, cancellationToken);
     }
 
-    private static IReadOnlyList<string> ParseSearchTerms(string? target)
+    public static IReadOnlyList<string> ParseSearchTerms(string? target)
     {
         var value = (target ?? "").Trim();
         if (value.Length == 0)

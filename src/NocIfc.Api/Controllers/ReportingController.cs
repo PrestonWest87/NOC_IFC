@@ -2,18 +2,61 @@ using Microsoft.AspNetCore.Mvc;
 using NocIfc.Api.Authorization;
 using NocIfc.Api.Contracts;
 using NocIfc.Application.Features.Reporting;
+using NocIfc.Application.Features.Threat;
 
 namespace NocIfc.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/reporting")]
 [RequirePage("Reporting & Briefings")]
-public sealed class ReportingController(SavedReportCommands reports, DailyBriefingQueries briefings) : ControllerBase
+public sealed class ReportingController(
+    SavedReportCommands reports,
+    DailyBriefingQueries briefings,
+    ThreatHuntingQueries threatHunting) : ControllerBase
 {
     [HttpGet("daily-briefings")]
     [RequireAction("Tab: Reporting -> Daily Fusion")]
     public async Task<IActionResult> GetDailyBriefings(CancellationToken cancellationToken) =>
         Ok((await briefings.GetAllAsync(cancellationToken)).Select(DailyBriefingResponse.From).ToArray());
+
+    [HttpPost("search-articles")]
+    [RequireAction("Tab: Reporting -> Report Builder")]
+    public async Task<IActionResult> SearchArticles(
+        [FromBody] ReportingArticleSearchRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (request is null)
+        {
+            return UnprocessableEntity(new { detail = "A search request is required." });
+        }
+        if (request.Target.Length > 500)
+        {
+            return UnprocessableEntity(new { detail = "target must be 500 characters or fewer." });
+        }
+        if (request.DaysBack is < 1 or > 30)
+        {
+            return UnprocessableEntity(new { detail = "days_back must be between 1 and 30." });
+        }
+        if (string.IsNullOrWhiteSpace(request.Target))
+        {
+            return Ok(new { status = "error", message = "Please enter a search target.", articles = Array.Empty<ReportingArticleSearchItem>() });
+        }
+        try
+        {
+            var terms = ThreatHuntingQueries.ParseSearchTerms(request.Target);
+            var articles = await threatHunting.SearchArticlesAsync(request.Target.Trim(), request.DaysBack, cancellationToken);
+            return Ok(new
+            {
+                status = "ok",
+                terms,
+                articles = articles.Select(ReportingArticleSearchItem.From).ToArray(),
+            });
+        }
+        catch (ArgumentException exception)
+        {
+            return Ok(new { status = "error", message = exception.Message, articles = Array.Empty<ReportingArticleSearchItem>() });
+        }
+    }
 
     [HttpGet("saved-reports")]
     [RequireAction("Tab: Reporting -> Shared Library")]
