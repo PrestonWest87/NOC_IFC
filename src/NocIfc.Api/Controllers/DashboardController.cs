@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using NocIfc.Api.Authentication;
 using NocIfc.Api.Authorization;
 using NocIfc.Api.Contracts;
+using NocIfc.Application.Features.AIOps;
 using NocIfc.Application.Features.Dashboard;
 using NocIfc.Application.Features.Threat;
 
@@ -15,7 +16,8 @@ public sealed class DashboardController(
     ExecutiveIntelQueries executiveIntel,
     InternalRiskQueries internalRisk,
     ThreatArticleQueries articles,
-    GenerateArticleBlufCommands blufCommands) : ControllerBase
+    GenerateArticleBlufCommands blufCommands,
+    AiopsSitrepActionCommands sitrepActions) : ControllerBase
 {
     [HttpGet("metrics")]
     [RequireAction("Tab: Dashboards -> Operational")]
@@ -166,5 +168,16 @@ public sealed class DashboardController(
         return result.Success
             ? Ok(new { status = "ok", bluf = result.Bluf })
             : Ok(new { status = "error", message = result.Message });
+    }
+
+    [HttpPost("generate-rolling-summary")]
+    [RequireAction("Tab: Dashboards -> Operational")]
+    [RequireAction("Action: Generate Reports")]
+    public async Task<IActionResult> GenerateRollingSummary(CancellationToken cancellationToken)
+    {
+        var result = await sitrepActions.RefreshBriefingAsync(cancellationToken);
+        return result.Success
+            ? Ok(new { status = "ok", summary = result.Content })
+            : Ok(new { status = "error", message = result.Content });
     }
 }
