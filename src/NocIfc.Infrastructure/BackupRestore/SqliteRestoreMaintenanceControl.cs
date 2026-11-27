@@ -132,18 +132,25 @@ public sealed class SqliteRestoreMaintenanceControl(SqliteConnectionFactory conn
         return status;
     }
 
-    public void PublishWorkerStatus(string state, int active, IReadOnlyList<string>? jobs = null)
+    public void PublishWorkerStatus(string state, int active, IReadOnlyList<string>? jobs = null) =>
+        PublishProcessStatus("worker", state, active, jobs);
+
+    public void PublishProcessStatus(string process, string state, int active, IReadOnlyList<string>? jobs = null)
     {
+        if (process is not ("worker" or "webhook"))
+        {
+            throw new ArgumentException("Unknown restore-coordination process.", nameof(process));
+        }
         EnsureControlDirectories();
         var restoreId = GetActiveRestore()?.RestoreId;
         var status = new RestoreProcessStatus(
-            "worker", restoreId, state, Math.Max(0, active), jobs?.Take(32).ToArray() ?? [], DateTimeOffset.UtcNow);
-        AtomicWrite(Path.Combine(ProcessStatusDirectory, "worker.json"), status, overwrite: true);
+            process, restoreId, state, Math.Max(0, active), jobs?.Take(32).ToArray() ?? [], DateTimeOffset.UtcNow);
+        AtomicWrite(Path.Combine(ProcessStatusDirectory, $"{process}.json"), status, overwrite: true);
     }
 
     public RestoreProcessStatus? GetProcessStatus(string process, string restoreId)
     {
-        if (process != "worker" || !Guid.TryParseExact(restoreId, "N", out _)) return null;
+        if (process is not ("worker" or "webhook") || !Guid.TryParseExact(restoreId, "N", out _)) return null;
         var status = ReadJson<RestoreProcessStatus>(Path.Combine(ProcessStatusDirectory, $"{process}.json"));
         if (status?.RestoreId != restoreId || DateTimeOffset.UtcNow - status.UpdatedAt > TimeSpan.FromSeconds(10))
         {

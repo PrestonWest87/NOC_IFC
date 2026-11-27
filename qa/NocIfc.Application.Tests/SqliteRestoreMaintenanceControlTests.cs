@@ -23,6 +23,8 @@ public sealed class SqliteRestoreMaintenanceControlTests
             Assert.False(control.TryBeginApiRequest());
             control.PublishWorkerStatus("paused", 0);
             Assert.Equal("paused", control.GetProcessStatus("worker", request.RestoreId)?.State);
+            control.PublishProcessStatus("webhook", "draining", 2, ["solarwinds_webhook"]);
+            Assert.Equal(2, control.GetProcessStatus("webhook", request.RestoreId)?.Active);
             control.UpdateRestore(request.RestoreId, "restoring", "Installing database.", percent: 50);
             Assert.Equal("restoring", control.GetRestoreStatus(request.RestoreId)?.State);
             control.FinishRestore(request.RestoreId, "complete", "Restored.");

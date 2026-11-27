@@ -1,6 +1,6 @@
 # SolarWinds Webhook Gateway
 
-The standalone FastAPI gateway in `src/webhook_listener.py` listens on container port 8100. This dev branch publishes it on host port 8099, one below the main instance's webhook port, so both can run together. It validates and normalizes incoming SolarWinds-style events, then writes alert and timeline records through a FastAPI background task. The one-minute escalation job and AIOps routes process persisted alerts afterward; the webhook handler itself does not run root-cause analysis.
+The standalone FastAPI gateway in `src/webhook_listener.py` listens on container port 8100. This dev branch publishes it on host port 8099, one below the main instance's webhook port, so both can run together. It validates and normalizes incoming SolarWinds-style events, then writes alert and timeline records through a FastAPI background task. The one-minute escalation job and AIOps routes process persisted alerts afterward; the webhook handler itself does not run root-cause analysis. The current Compose configuration still runs this Python listener; the separate .NET dev-c port is not wired into Compose yet.
 
 ## Endpoint and successful response
 
@@ -62,3 +62,12 @@ The classifier first passes an explicit device hint through `EnterpriseAIOpsEngi
 | Unhandled gateway failure before acceptance | 500 |
 
 `GET /health` is an unauthenticated liveness response. Restrict the published webhook host port (8099 on this branch) to approved sender networks and use signed requests in production.
+
+## C# dev-c port
+
+`src/NocIfc.Webhook/` implements the same endpoint and signing settings as a separate ASP.NET Core host, built by the `webhook` target in `deploy/Dockerfile.backend`. It is not yet the service selected by Compose.
+
+- `GET /health` reports liveness. The host probes SQLite readiness against Alembic revision `20261125_0025`; POST requests return 503 until the database is ready and while restore maintenance is active.
+- Accepted requests use a bounded process-local queue. HTTP 200 means queued, not committed; a process restart can lose queued bodies. The Python background-task path has the same accepted-versus-persisted distinction.
+- A resolution with a known `Site`/`City` only resolves same-node alerts at that mapped location. If the resolution site is missing or `Unknown`, it retains the legacy same-node fallback because there is no site to disambiguate.
+- The .NET configuration validates `WEBHOOK_MAX_BODY_BYTES` from 1 byte through 16 MiB; the other signing and replay settings use the environment names above.

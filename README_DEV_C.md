@@ -540,7 +540,7 @@ Use issue #1 as the master checklist. Update it at phase gates with completed fe
 - [ ] Add C# solution, layered modules, feature-scoped MVC controllers, isolated dev-c Compose, and image build.
 - [ ] Port SQLite access and schema readiness; validate host-side migrations.
 - [ ] Port identity/permissions and REST/WebSocket feature groups.
-- [ ] Port worker jobs and SolarWinds webhook.
+- [x] Port worker jobs and SolarWinds webhook.
 - [ ] Port LLM, email, backup, and restore workflows.
 - [ ] Evaluate C++ candidate(s); document benchmark decision (including “not needed”).
 - [ ] Verify unchanged frontend, rollback, and Python-free runtime images.
@@ -629,6 +629,8 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Ported the authenticated `/ws` endpoint with AIOps page/Active Board authorization, 30-second and per-message session revalidation, site-filtered dashboard pushes/commands, bounded messages, and restore-aware disconnects. AIOps mutations now publish immediate board refresh events.
 - Added the C# scheduler for all 21 persisted jobs, with runtime revision reload, single-flight job execution, ordered startup runs, Central-time daily/weekly schedules, and Worker restore-drain status. This includes the weekly encrypted backup, NWS/telemetry, article enrichment, maintenance expiry, and tiered alert escalation handlers.
 - Latest no-cache C# Worker Docker build passes 262 tests (228 application, 34 API), including scheduler DST/revision behavior, telemetry fixtures, article URL safety, tiered ticket/page decisions, backup restore, and WebSocket authorization/restore closure. Tests use fake SMTP and HTTP providers.
-- Remaining before cutover: the SolarWinds webhook and final verification. Complete these, then pause for Compose cutover.
+- Ported the standalone SolarWinds webhook host with bounded payload reads/queueing, HMAC timestamp/replay validation, normalization, SQLite alert/timeline persistence, readiness gating, and restore-aware writer status. Resolutions use the mapped site when known and preserve same-node fallback for unknown sites.
+- The no-cache C# Webhook Docker build passes 269 tests (229 application, 40 API). Runtime smoke checks confirmed liveness, 503 submission while the database is not ready, then successful queueing and SQLite alert/timeline persistence against a temporary minimal SQLite fixture with the current revision marker. No SMTP or external integrations were used.
+- The remaining cutover work is Compose integration and full-stack verification. Current Compose still selects the Python webhook; this slice stops before that service switch.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.

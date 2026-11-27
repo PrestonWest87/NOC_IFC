@@ -44,5 +44,6 @@ public interface IRestoreMaintenanceControl
     void FinishRestore(string restoreId, string state, string message, BackupRestoreResult? result = null);
     RestoreProgressState? GetRestoreStatus(string restoreId);
     void PublishWorkerStatus(string state, int active, IReadOnlyList<string>? jobs = null);
+    void PublishProcessStatus(string process, string state, int active, IReadOnlyList<string>? jobs = null);
     RestoreProcessStatus? GetProcessStatus(string process, string restoreId);
 }

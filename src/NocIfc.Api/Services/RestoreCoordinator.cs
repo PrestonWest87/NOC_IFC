@@ -83,12 +83,14 @@ public sealed class RestoreCoordinator(
                 throw new InvalidOperationException("Restore maintenance mode was cleared before writers quiesced.");
             }
             var worker = control.GetProcessStatus("worker", restoreId);
+            var webhook = control.GetProcessStatus("webhook", restoreId);
             var pending = new List<string>();
             if (control.ActiveApiRequests > 0 || control.ActiveApiBackgroundWriters > 0)
             {
                 pending.Add("API requests/background tasks");
             }
             if (worker is null || worker.State != "paused" || worker.Active > 0) pending.Add("scheduler worker");
+            if (webhook is null || webhook.State != "paused" || webhook.Active > 0) pending.Add("webhook gateway");
             if (pending.Count == 0) return;
             var message = $"Waiting for {string.Join(" and ", pending)} to finish active writes.";
             if (!string.Equals(message, lastMessage, StringComparison.Ordinal))

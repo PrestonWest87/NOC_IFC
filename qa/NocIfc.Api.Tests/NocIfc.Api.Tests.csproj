@@ -10,5 +10,6 @@
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <ProjectReference Include="../../src/NocIfc.Api/NocIfc.Api.csproj" />
     <ProjectReference Include="../../src/NocIfc.Infrastructure/NocIfc.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/NocIfc.Webhook/NocIfc.Webhook.csproj" />
   </ItemGroup>
 </Project>
