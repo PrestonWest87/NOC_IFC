@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="../NocIfc.Application/NocIfc.Application.csproj" />
+    <ProjectReference Include="../NocIfc.Infrastructure/NocIfc.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

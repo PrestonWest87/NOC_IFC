@@ -119,8 +119,8 @@ public sealed class SqliteOperationalEmailStoreTests
                 CancellationToken.None);
             var deliveryId = await store.CreateDeliverySnapshotAsync(
                 emailId, "smtp", "noc@example.com", DateTime.UtcNow, CancellationToken.None);
-            await store.CompleteImmediateDeliveryAsync(
-                emailId, deliveryId, true, "Email sent successfully.", DateTime.UtcNow, CancellationToken.None);
+            await store.CompleteDeliveryAsync(
+                emailId, deliveryId, true, "Email sent successfully.", DateTime.UtcNow, null, CancellationToken.None);
 
             var source = Assert.Single(await store.GetSuccessfulSourceMessagesAsync(
                 emailId, ["maintenance_notice"], false, CancellationToken.None));
@@ -158,8 +158,8 @@ public sealed class SqliteOperationalEmailStoreTests
                 CancellationToken.None);
             var ungroupedDeliveryId = await store.CreateDeliverySnapshotAsync(
                 ungroupedId, "smtp", "noc@example.com", DateTime.UtcNow, CancellationToken.None);
-            await store.CompleteImmediateDeliveryAsync(
-                ungroupedId, ungroupedDeliveryId, true, "sent", DateTime.UtcNow, CancellationToken.None);
+            await store.CompleteDeliveryAsync(
+                ungroupedId, ungroupedDeliveryId, true, "sent", DateTime.UtcNow, null, CancellationToken.None);
             var ungroupedSource = Assert.Single(await store.GetSuccessfulSourceMessagesAsync(
                 ungroupedId, ["maintenance_notice"], false, CancellationToken.None));
             Assert.Null(ungroupedSource.GroupId);
@@ -205,6 +205,53 @@ public sealed class SqliteOperationalEmailStoreTests
             }
             Assert.Equal(OperationalEmailCancellationResult.InProgress,
                 await store.CancelScheduledEmailAsync(recurringId, 7, DateTime.UtcNow, CancellationToken.None));
+
+            var now = DateTime.UtcNow;
+            var dueAt = now.AddMinutes(-1);
+            var onceDueId = await store.CreateEmailAsync(new OperationalEmailMessageSnapshot(
+                "morning_report", 7, null, null, null, null, null, null, false,
+                "Due once", "", new Dictionary<string, string> { ["shift_analysis"] = "" }, ["ops@example.com"], [], [],
+                "once", "America/Chicago", dueAt, null, null, dueAt, []), CancellationToken.None);
+            var staleRecurringId = await store.CreateEmailAsync(new OperationalEmailMessageSnapshot(
+                "maintenance_notice", 7, null, null, null, null, null, null, false,
+                "Recurring", "Body", new Dictionary<string, string>(), ["ops@example.com"], [], [],
+                "daily", "America/Chicago", null, "08:30", null, dueAt, []), CancellationToken.None);
+            await using (var connection = connections.Create())
+            {
+                await connection.OpenAsync();
+                await using var stale = connection.CreateCommand();
+                stale.CommandText = "UPDATE operational_emails SET status = 'processing', processing_started_at = $started WHERE id = $id";
+                stale.Parameters.AddWithValue("$started", now.AddMinutes(-30));
+                stale.Parameters.AddWithValue("$id", staleRecurringId);
+                await stale.ExecuteNonQueryAsync();
+            }
+            var staleDeliveryId = await store.CreateDeliverySnapshotAsync(
+                staleRecurringId, "smtp", "noc@example.com", now.AddMinutes(-30), CancellationToken.None);
+
+            var claimed = await store.ClaimDueEmailsAsync(now, TimeSpan.FromMinutes(20), 25, CancellationToken.None);
+
+            Assert.Equal([onceDueId], claimed);
+            var queued = Assert.IsType<OperationalEmailQueuedMessage>(
+                await store.GetProcessingEmailAsync(onceDueId, CancellationToken.None));
+            Assert.Equal("morning_report", queued.TemplateKey);
+            await store.UpdateProcessingEmailContentAsync(
+                onceDueId, "Fresh shift analysis", new Dictionary<string, string> { ["shift_analysis"] = "Fresh shift analysis" },
+                DateTime.UtcNow, CancellationToken.None);
+            var dueDeliveryId = await store.CreateDeliverySnapshotAsync(
+                onceDueId, "smtp", "noc@example.com", DateTime.UtcNow, CancellationToken.None);
+            var dueDetail = await store.GetDeliveryDetailAsync(dueDeliveryId, CancellationToken.None);
+            Assert.Equal("Fresh shift analysis", dueDetail?.Body);
+            Assert.Equal("Fresh shift analysis", dueDetail?.Fields["shift_analysis"]);
+            await store.CompleteDeliveryAsync(
+                onceDueId, dueDeliveryId, true, "sent", DateTime.UtcNow, null, CancellationToken.None);
+            Assert.DoesNotContain(await store.ClaimDueEmailsAsync(now, TimeSpan.FromMinutes(20), 25, CancellationToken.None),
+                item => item == onceDueId);
+            var staleHistory = await store.GetDeliveryDetailAsync(staleDeliveryId, CancellationToken.None);
+            Assert.Equal("failed", staleHistory?.Status);
+            var recurringAfterRecovery = Assert.Single(await store.GetScheduledEmailsByIdsAsync(
+                [staleRecurringId], CancellationToken.None));
+            Assert.Equal("active", recurringAfterRecovery.Status);
+            Assert.True(recurringAfterRecovery.NextRunAt > now);
         }
         finally
         {

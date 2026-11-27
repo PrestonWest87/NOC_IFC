@@ -620,6 +620,8 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Added command, SQLite snapshot/source-history, sender, and controller response/request tests. The latest no-cache C# Docker build passes 217 tests (190 application, 27 API); SMTP delivery uses fakes/disabled settings and no live messages were sent.
 - Ported persistent Operational Email scheduling, listing/cancellation, delivery history/detail, and grouped sent-source selectors. Recurrences use America/Chicago wall time with DST gap/overlap handling; scheduled messages retain signatures and attachments in SQLite.
 - Latest no-cache C# Docker build passes 221 tests (193 application, 28 API). Tests cover recurrence DST behavior, schedule/history/source persistence and cancellation, and API request/response contracts; no live SMTP was used.
-- Remaining before cutover: Operational Email due-send worker processing; Danger Zone and Backup & Restore; WebSockets; scheduled C# worker jobs; and the SolarWinds webhook. Complete these slices, then pause for final verification before Compose cutover.
+- Ported the due Operational Email queue processor and added a C# Worker host/image. It atomically claims due rows, recovers sends stuck over 20 minutes, refreshes Morning Report text at delivery time, and records each recurring result before advancing its Central-time run.
+- Latest no-cache Worker Docker build passes 222 tests (194 application, 28 API) and publishes the API and Worker targets. Queue tests use a fake sender; no live SMTP was used.
+- Remaining before cutover: Danger Zone and Backup & Restore; WebSockets; the remaining C# scheduled jobs; and the SolarWinds webhook. Complete these slices, then pause for final verification before Compose cutover.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.

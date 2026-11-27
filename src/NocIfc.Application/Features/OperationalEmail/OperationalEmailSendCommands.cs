@@ -144,8 +144,8 @@ public sealed class OperationalEmailSendCommands(
             }
 
             var completedAt = DateTime.UtcNow;
-            await emailStore.CompleteImmediateDeliveryAsync(
-                record.EmailId, deliveryId, delivery.Success, delivery.Message, completedAt, CancellationToken.None);
+            await emailStore.CompleteDeliveryAsync(
+                record.EmailId, deliveryId, delivery.Success, delivery.Message, completedAt, null, CancellationToken.None);
             outcomes.Add(new OperationalEmailSendDelivery(
                 record.EmailId,
                 deliveryId,
@@ -1180,7 +1180,7 @@ public sealed class OperationalEmailSendCommands(
         return UniqueStrings(identifiers);
     }
 
-    private static string RenderHtmlAlternative(string body, IReadOnlyDictionary<string, string> fields)
+    public static string RenderHtmlAlternative(string body, IReadOnlyDictionary<string, string> fields)
     {
         var identifiers = NetworkOrderIdentifiers(fields).OrderByDescending(value => value.Length).ToArray();
         var encoded = WebUtility.HtmlEncode(body);
@@ -1580,7 +1580,7 @@ public sealed class OperationalEmailSendCommands(
 
     private static string NormalizeLines(string value) => value.Replace("\r\n", "\n").Replace('\r', '\n');
 
-    private static string AppendSignature(string body, string? signature)
+    public static string AppendSignature(string body, string? signature)
     {
         if (string.IsNullOrEmpty(signature) || body.Length == 0) return body;
         var separator = body.EndsWith('\n') || body.EndsWith('\r') ? "" : "\n\n";

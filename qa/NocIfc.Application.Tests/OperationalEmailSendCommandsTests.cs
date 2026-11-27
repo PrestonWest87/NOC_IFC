@@ -282,6 +282,32 @@ public sealed class OperationalEmailSendCommandsTests
         Assert.Single(result.Primary.Attachments);
     }
 
+    [Fact]
+    public async Task QueueRefreshesMorningReportAndAdvancesRecurringSchedule()
+    {
+        var store = new TestEmailStore([])
+        {
+            DueIds = [77],
+            QueueMessage = new OperationalEmailQueuedMessage(
+                77, "morning_report", null, null, false, null, 4, "NOC", "Night shift signature",
+                "Morning Operations Report", "", new Dictionary<string, string>(),
+                ["ops@example.com"], [], [], "daily", "08:30", null,
+                [new OperationalEmailAttachmentSnapshot("shift.txt", "text/plain", [7, 8])]),
+        };
+        var sender = new TestOperationalEmailSender(_ => new EmailSendResult(true, "sent"));
+        var processor = new OperationalEmailQueueProcessor(
+            store, new TestSmtpSettings(), new TestDashboardStore("Queue-time shift analysis"), sender);
+
+        var processed = await processor.ProcessDueAsync(DateTimeOffset.UtcNow, 25, CancellationToken.None);
+
+        Assert.Equal(1, processed);
+        Assert.Contains("Queue-time shift analysis", sender.Envelopes.Single().TextBody, StringComparison.Ordinal);
+        Assert.Contains("--\nNight shift signature", sender.Envelopes.Single().TextBody, StringComparison.Ordinal);
+        Assert.Equal(new byte[] { 7, 8 }, sender.Envelopes.Single().Attachments.Single().Content);
+        Assert.Equal("sent", store.CompletedDeliveries.Single().Status);
+        Assert.True(store.CompletedDeliveries.Single().NextRunAtUtc > DateTime.UtcNow);
+    }
+
     private static OperationalEmailSendCommands CreateCommand(
         TestEmailStore store,
         TestOperationalEmailSender sender,
@@ -317,8 +343,12 @@ public sealed class OperationalEmailSendCommandsTests
 
         public List<OperationalEmailMessageSnapshot> Emails { get; } = [];
         public List<int> DeliverySnapshots { get; } = [];
-        public List<(int EmailId, string Status)> CompletedDeliveries { get; } = [];
+        public List<(int EmailId, string Status, DateTime? NextRunAtUtc)> CompletedDeliveries { get; } = [];
         public IReadOnlyList<OperationalEmailSourceMessage> SourceMessages { get; init; } = [];
+        public IReadOnlyList<int> DueIds { get; init; } = [];
+        public OperationalEmailQueuedMessage? QueueMessage { get; init; }
+        public string? UpdatedQueueBody { get; private set; }
+        public IReadOnlyDictionary<string, string>? UpdatedQueueFields { get; private set; }
 
         public Task EnsureTemplateDefaultsAsync(
             IReadOnlyList<OperationalEmailTemplateDefault> defaults,
@@ -379,22 +409,48 @@ public sealed class OperationalEmailSendCommandsTests
             DateTime attemptedAtUtc,
             CancellationToken cancellationToken)
         {
-            Assert.InRange(emailId, 1, Emails.Count);
+            if (QueueMessage is { } queued) Assert.Equal(queued.Id, emailId);
+            else Assert.InRange(emailId, 1, Emails.Count);
             DeliverySnapshots.Add(emailId);
             return Task.FromResult(nextDeliveryId++);
         }
 
-        public Task CompleteImmediateDeliveryAsync(
+        public Task CompleteDeliveryAsync(
             int emailId,
             int deliveryId,
             bool success,
             string message,
             DateTime completedAtUtc,
+            DateTime? nextRunAtUtc,
             CancellationToken cancellationToken)
         {
-            CompletedDeliveries.Add((emailId, success ? "sent" : "failed"));
+            CompletedDeliveries.Add((emailId, success ? "sent" : "failed", nextRunAtUtc));
             return Task.CompletedTask;
         }
+
+        public Task<IReadOnlyList<int>> ClaimDueEmailsAsync(
+            DateTime nowUtc,
+            TimeSpan staleAfter,
+            int limit,
+            CancellationToken cancellationToken) => Task.FromResult(DueIds);
+
+        public Task<OperationalEmailQueuedMessage?> GetProcessingEmailAsync(
+            int emailId,
+            CancellationToken cancellationToken) => Task.FromResult(
+            QueueMessage?.Id == emailId ? QueueMessage : null);
+
+        public Task UpdateProcessingEmailContentAsync(
+            int emailId,
+            string body,
+            IReadOnlyDictionary<string, string> fields,
+            DateTime updatedAtUtc,
+            CancellationToken cancellationToken)
+        {
+            UpdatedQueueBody = body;
+            UpdatedQueueFields = fields;
+            return Task.CompletedTask;
+        }
+
 
         public Task<IReadOnlyList<OperationalEmailSourceMessage>> GetSuccessfulSourceMessagesAsync(
             int sourceEmailId,

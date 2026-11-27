@@ -59,6 +59,27 @@ public sealed record OperationalEmailMessageSnapshot(
     DateTime? NextRunAt,
     IReadOnlyList<OperationalEmailAttachmentSnapshot> Attachments);
 
+public sealed record OperationalEmailQueuedMessage(
+    int Id,
+    string TemplateKey,
+    string? GroupId,
+    string? GroupCompany,
+    bool BccCopyOnly,
+    int? ParentEmailId,
+    int? SignatureId,
+    string? SignatureName,
+    string? SignatureContent,
+    string Subject,
+    string Body,
+    IReadOnlyDictionary<string, string> Fields,
+    IReadOnlyList<string> ToRecipients,
+    IReadOnlyList<string> CcRecipients,
+    IReadOnlyList<string> BccRecipients,
+    string ScheduleType,
+    string? RecurrenceTime,
+    int? RecurrenceWeekday,
+    IReadOnlyList<OperationalEmailAttachmentSnapshot> Attachments);
+
 public sealed record OperationalEmailSourceMessage(
     int Id,
     string TemplateKey,

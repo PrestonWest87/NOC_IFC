@@ -30,12 +30,27 @@ public interface IOperationalEmailStore
         string? senderAddress,
         DateTime attemptedAtUtc,
         CancellationToken cancellationToken);
-    Task CompleteImmediateDeliveryAsync(
+    Task CompleteDeliveryAsync(
         int emailId,
         int deliveryId,
         bool success,
         string message,
         DateTime completedAtUtc,
+        DateTime? nextRunAtUtc,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<int>> ClaimDueEmailsAsync(
+        DateTime nowUtc,
+        TimeSpan staleAfter,
+        int limit,
+        CancellationToken cancellationToken);
+    Task<OperationalEmailQueuedMessage?> GetProcessingEmailAsync(
+        int emailId,
+        CancellationToken cancellationToken);
+    Task UpdateProcessingEmailContentAsync(
+        int emailId,
+        string body,
+        IReadOnlyDictionary<string, string> fields,
+        DateTime updatedAtUtc,
         CancellationToken cancellationToken);
     Task<IReadOnlyList<OperationalEmailSourceMessage>> GetSuccessfulSourceMessagesAsync(
         int sourceEmailId,

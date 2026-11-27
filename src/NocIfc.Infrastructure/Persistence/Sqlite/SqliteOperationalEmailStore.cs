@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using NocIfc.Application.Abstractions.OperationalEmail;
+using NocIfc.Application.Features.OperationalEmail;
 using NocIfc.Domain.OperationalEmail;
 
 namespace NocIfc.Infrastructure.Persistence.Sqlite;
@@ -453,12 +454,13 @@ public sealed class SqliteOperationalEmailStore(SqliteConnectionFactory connecti
         return deliveryId;
     }
 
-    public async Task CompleteImmediateDeliveryAsync(
+    public async Task CompleteDeliveryAsync(
         int emailId,
         int deliveryId,
         bool success,
         string message,
         DateTime completedAtUtc,
+        DateTime? nextRunAtUtc,
         CancellationToken cancellationToken)
     {
         var completed = FormatDate(completedAtUtc);
@@ -483,17 +485,41 @@ public sealed class SqliteOperationalEmailStore(SqliteConnectionFactory connecti
             throw new InvalidOperationException("Operational email delivery record could not be updated.");
         }
 
+        string templateKey;
+        string scheduleType;
+        await using (var read = connection.CreateCommand())
+        {
+            read.Transaction = transaction;
+            read.CommandText = "SELECT template_key, schedule_type FROM operational_emails WHERE id = $id";
+            read.Parameters.AddWithValue("$id", emailId);
+            await using var reader = await read.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                throw new InvalidOperationException("Operational email could not be found.");
+            }
+            templateKey = reader.GetString(0);
+            scheduleType = reader.GetString(1);
+        }
+        var recurring = scheduleType is "daily" or "weekly";
+        if (recurring && success && nextRunAtUtc is null)
+        {
+            throw new InvalidOperationException("Recurring email delivery must set its next run time.");
+        }
+        var keepRecurring = recurring && nextRunAtUtc is not null;
+
         await using var update = connection.CreateCommand();
         update.Transaction = transaction;
         update.CommandText = """
             UPDATE operational_emails
-            SET status = $status, last_sent_at = CASE WHEN $success = 1 THEN $completed ELSE last_sent_at END,
+            SET status = $status, next_run_at = $next_run_at,
+                last_sent_at = CASE WHEN $success = 1 THEN $completed ELSE last_sent_at END,
                 last_error = $error, processing_started_at = NULL, updated_at = $completed
             WHERE id = $email_id AND status = 'processing'
             """;
-        update.Parameters.AddWithValue("$status", success ? "sent" : "failed");
+        update.Parameters.AddWithValue("$status", keepRecurring ? "active" : success ? "sent" : "failed");
         update.Parameters.AddWithValue("$success", success);
         update.Parameters.AddWithValue("$completed", completed);
+        AddNullable(update, "$next_run_at", keepRecurring ? FormatDate(nextRunAtUtc!.Value) : null);
         AddNullable(update, "$error", success ? null : detail);
         update.Parameters.AddWithValue("$email_id", emailId);
         if (await update.ExecuteNonQueryAsync(cancellationToken) != 1)
@@ -501,15 +527,6 @@ public sealed class SqliteOperationalEmailStore(SqliteConnectionFactory connecti
             throw new InvalidOperationException("Operational email status could not be updated.");
         }
 
-        string templateKey;
-        await using (var read = connection.CreateCommand())
-        {
-            read.Transaction = transaction;
-            read.CommandText = "SELECT template_key FROM operational_emails WHERE id = $id";
-            read.Parameters.AddWithValue("$id", emailId);
-            templateKey = (string?)await read.ExecuteScalarAsync(cancellationToken)
-                ?? throw new InvalidOperationException("Operational email could not be found.");
-        }
         await WriteAuditAsync(
             connection,
             transaction,
@@ -696,6 +713,193 @@ public sealed class SqliteOperationalEmailStore(SqliteConnectionFactory connecti
         return status == "processing"
             ? OperationalEmailCancellationResult.InProgress
             : OperationalEmailCancellationResult.NotScheduled;
+    }
+
+    public async Task<IReadOnlyList<int>> ClaimDueEmailsAsync(
+        DateTime nowUtc,
+        TimeSpan staleAfter,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var now = FormatDate(nowUtc);
+        var staleBefore = FormatDate(nowUtc - staleAfter);
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
+        var stale = new List<(int Id, string ScheduleType, string? RecurrenceTime, int? Weekday)>();
+        await using (var query = connection.CreateCommand())
+        {
+            query.Transaction = transaction;
+            query.CommandText = """
+                SELECT id, schedule_type, recurrence_time, recurrence_weekday
+                FROM operational_emails
+                WHERE status = 'processing' AND processing_started_at <= $stale_before
+                """;
+            query.Parameters.AddWithValue("$stale_before", staleBefore);
+            await using var reader = await query.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                stale.Add((reader.GetInt32(0), reader.GetString(1), ReadString(reader, 2),
+                    reader.IsDBNull(3) ? null : reader.GetInt32(3)));
+            }
+        }
+        foreach (var row in stale)
+        {
+            const string interrupted = "A send attempt was interrupted; delivery outcome could not be confirmed.";
+            var recurring = row.ScheduleType is "daily" or "weekly";
+            DateTime? nextRunAt = null;
+            var error = interrupted;
+            if (recurring && TimeOnly.TryParseExact(row.RecurrenceTime, "HH:mm", CultureInfo.InvariantCulture,
+                    DateTimeStyles.None, out var recurrenceTime))
+            {
+                try
+                {
+                    nextRunAt = OperationalEmailScheduleRules.NextRecurrence(
+                        row.ScheduleType, recurrenceTime, row.Weekday, new DateTimeOffset(nowUtc, TimeSpan.Zero));
+                }
+                catch (ArgumentException)
+                {
+                    recurring = false;
+                    error = "An interrupted recurring schedule is invalid and requires review.";
+                }
+            }
+            else if (recurring)
+            {
+                recurring = false;
+                error = "An interrupted recurring schedule is invalid and requires review.";
+            }
+
+            await using (var failedDelivery = connection.CreateCommand())
+            {
+                failedDelivery.Transaction = transaction;
+                failedDelivery.CommandText = """
+                    UPDATE operational_email_deliveries
+                    SET status = 'failed', error_message = $error
+                    WHERE id = (
+                        SELECT id FROM operational_email_deliveries
+                        WHERE operational_email_id = $email_id AND status = 'sending'
+                        ORDER BY attempted_at DESC, id DESC LIMIT 1
+                    )
+                    """;
+                failedDelivery.Parameters.AddWithValue("$error", error);
+                failedDelivery.Parameters.AddWithValue("$email_id", row.Id);
+                await failedDelivery.ExecuteNonQueryAsync(cancellationToken);
+            }
+            await using var recover = connection.CreateCommand();
+            recover.Transaction = transaction;
+            recover.CommandText = """
+                UPDATE operational_emails
+                SET status = $status, next_run_at = $next_run_at, last_error = $error,
+                    processing_started_at = NULL, updated_at = $updated_at
+                WHERE id = $id AND status = 'processing'
+                """;
+            recover.Parameters.AddWithValue("$status", recurring ? "active" : "failed");
+            AddNullable(recover, "$next_run_at", nextRunAt is { } next ? FormatDate(next) : null);
+            recover.Parameters.AddWithValue("$error", error);
+            recover.Parameters.AddWithValue("$updated_at", now);
+            recover.Parameters.AddWithValue("$id", row.Id);
+            await recover.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        var due = new List<int>();
+        await using (var query = connection.CreateCommand())
+        {
+            query.Transaction = transaction;
+            query.CommandText = """
+                SELECT id FROM operational_emails
+                WHERE status IN ('scheduled', 'active') AND next_run_at <= $now
+                ORDER BY next_run_at, id LIMIT $limit
+                """;
+            query.Parameters.AddWithValue("$now", now);
+            query.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 25));
+            await using var reader = await query.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken)) due.Add(reader.GetInt32(0));
+        }
+        var claimed = new List<int>(due.Count);
+        foreach (var emailId in due)
+        {
+            await using var claim = connection.CreateCommand();
+            claim.Transaction = transaction;
+            claim.CommandText = """
+                UPDATE operational_emails
+                SET status = 'processing', processing_started_at = $now, updated_at = $now
+                WHERE id = $id AND status IN ('scheduled', 'active') AND next_run_at <= $now
+                """;
+            claim.Parameters.AddWithValue("$now", now);
+            claim.Parameters.AddWithValue("$id", emailId);
+            if (await claim.ExecuteNonQueryAsync(cancellationToken) == 1) claimed.Add(emailId);
+        }
+        transaction.Commit();
+        return claimed;
+    }
+
+    public async Task<OperationalEmailQueuedMessage?> GetProcessingEmailAsync(
+        int emailId,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        OperationalEmailQueuedMessage? email;
+        await using (var query = connection.CreateCommand())
+        {
+            query.CommandText = """
+                SELECT id, template_key, group_id, group_company, bcc_copy_only, parent_email_id,
+                       signature_id, signature_name, signature_content, subject, body, fields_json,
+                       to_recipients, cc_recipients, bcc_recipients, schedule_type,
+                       recurrence_time, recurrence_weekday
+                FROM operational_emails WHERE id = $id AND status = 'processing' LIMIT 1
+                """;
+            query.Parameters.AddWithValue("$id", emailId);
+            await using var reader = await query.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken)) return null;
+            email = new OperationalEmailQueuedMessage(
+                reader.GetInt32(0), reader.GetString(1), ReadString(reader, 2), ReadString(reader, 3),
+                reader.GetBoolean(4), reader.IsDBNull(5) ? null : reader.GetInt32(5),
+                reader.IsDBNull(6) ? null : reader.GetInt32(6), ReadString(reader, 7), ReadString(reader, 8),
+                reader.GetString(9), reader.GetString(10), ReadStringDictionary(reader, 11),
+                ReadStringArray(reader, 12), ReadStringArray(reader, 13), ReadStringArray(reader, 14),
+                reader.GetString(15), ReadString(reader, 16), reader.IsDBNull(17) ? null : reader.GetInt32(17), []);
+        }
+        await using (var attachments = connection.CreateCommand())
+        {
+            attachments.CommandText = """
+                SELECT filename, content_type, content FROM operational_email_attachments
+                WHERE operational_email_id = $email_id ORDER BY id
+                """;
+            attachments.Parameters.AddWithValue("$email_id", emailId);
+            await using var reader = await attachments.ExecuteReaderAsync(cancellationToken);
+            var items = new List<OperationalEmailAttachmentSnapshot>();
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                items.Add(new OperationalEmailAttachmentSnapshot(reader.GetString(0), reader.GetString(1), (byte[])reader[2]));
+            }
+            email = email with { Attachments = items };
+        }
+        return email;
+    }
+
+    public async Task UpdateProcessingEmailContentAsync(
+        int emailId,
+        string body,
+        IReadOnlyDictionary<string, string> fields,
+        DateTime updatedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        await using var update = connection.CreateCommand();
+        update.CommandText = """
+            UPDATE operational_emails SET body = $body, fields_json = $fields, updated_at = $updated_at
+            WHERE id = $id AND status = 'processing'
+            """;
+        update.Parameters.AddWithValue("$body", body);
+        update.Parameters.AddWithValue("$fields", JsonSerializer.Serialize(fields));
+        update.Parameters.AddWithValue("$updated_at", FormatDate(updatedAtUtc));
+        update.Parameters.AddWithValue("$id", emailId);
+        if (await update.ExecuteNonQueryAsync(cancellationToken) != 1)
+        {
+            throw new InvalidOperationException("Operational email is not ready to update.");
+        }
     }
 
     public async Task<IReadOnlyList<OperationalEmailDeliveryHistoryEntry>> GetDeliveryHistoryAsync(
