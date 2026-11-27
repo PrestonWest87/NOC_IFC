@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Configures the Vite bundler for the React/TypeScript frontend. Defines build plugins, dev server port, and HTTP/WebSocket proxy rules to the FastAPI backend.
+Configures the Vite bundler for the React/TypeScript frontend. Defines build plugins, dev server port, and HTTP/WebSocket proxy rules to the default C# dev-c API.
 
 The `maplibre-assets` plugin serves MapLibre's module worker and shared module during development and emits both files into `dist/assets/` for production. MapLibre resolves these files relative to its bundled JavaScript, and the worker imports the shared module by its fixed sibling filename. It also removes an obsolete Firefox-only focus selector and guards MapLibre's drag-selection reset against undefined CSS values. A dependency-optimizer compatibility plugin uses WebGL's standard renderer value in Firefox rather than requesting the deprecated unmasked-renderer extension.
 
@@ -36,30 +36,30 @@ Two proxy rules forward browser requests to the backend during development:
 
 | Option | Value | Description |
 |--------|-------|-------------|
-| `target` | `VITE_API_URL` env var, falls back to `http://localhost:8102` | Backend FastAPI server address. Resolved at startup from `process.env.VITE_API_URL`. |
+| `target` | `VITE_API_URL` env var, falls back to `http://localhost:8101` | Backend C# API address. Resolved at startup from `process.env.VITE_API_URL`. |
 | `changeOrigin` | `true` | Rewrites the `Origin` header to match the target. Required for CORS and host-based routing. |
 
 #### `/ws` — WebSocket Proxy
 
 | Option | Value | Description |
 |--------|-------|-------------|
-| `target` | `apiUrl` with `http` replaced by `ws` (e.g., `ws://localhost:8102`) | Backend WebSocket endpoint. Protocol is rewritten from HTTP to WS. |
+| `target` | `apiUrl` with `http` replaced by `ws` (e.g., `ws://localhost:8101`) | Backend WebSocket endpoint. Protocol is rewritten from HTTP to WS. |
 | `ws` | `true` | Enables WebSocket proxying. Vite forwards WebSocket upgrade requests to the target. |
 
 **Proxy resolution logic:**
 
 ```typescript
-const apiUrl = process.env.VITE_API_URL || "http://localhost:8102";
+const apiUrl = process.env.VITE_API_URL || "http://localhost:8101";
 ```
 
-- **Development (`web-dev`):** `VITE_API_URL=http://noc-ifc-dev-api:8102` → Vite proxies through the unique host-gateway alias to the dev API host port.
-- **Production (`web`):** Vite is not running. The container serves the already-built static frontend and Nginx handles `/api/` and `/ws`; its declared `VITE_API_URL` is not consumed by the static bundle or Nginx configuration.
+- **Development (`web-dev`):** `VITE_API_URL=http://noc-ifc-dev-c-api:8101` → Vite proxies through the host-gateway alias to the C# API.
+- **Production (`web`):** Vite is not running. The container serves the already-built static frontend and the dev-c Nginx config handles `/api/` and `/ws` through the same API alias.
 
 ## Environment Variables
 
 | Variable | Required | Default | Scope | Description |
 |----------|----------|---------|-------|-------------|
-| `VITE_API_URL` | No | `http://localhost:8102` | Vite dev server | Target used to construct development HTTP and WebSocket proxy addresses. Compose uses `http://noc-ifc-dev-api:8102`; the production React client uses relative `/api/v1` and `/ws` URLs, with Nginx as its proxy. |
+| `VITE_API_URL` | No | `http://localhost:8101` | Vite dev server | Target used to construct development HTTP and WebSocket proxy addresses. Compose uses `http://noc-ifc-dev-c-api:8101`; the production React client uses relative `/api/v1` and `/ws` URLs, with Nginx as its proxy. |
 
 ## Dependencies
 

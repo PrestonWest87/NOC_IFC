@@ -1,6 +1,6 @@
 # NOC Intelligence Fusion Center Architecture
 
-**Status:** Source-of-truth architecture guide
+**Status:** Legacy Python-backup architecture reference
 **Runtime:** FastAPI + Python workers + React/Vite
 **Canonical documentation root:** `docs/`
 
@@ -8,7 +8,7 @@
 
 The NOC Intelligence Fusion Center (IFC) collects cyber, infrastructure, physical, environmental, and vulnerability signals; normalizes them into a shared database; correlates infrastructure alerts; calculates risk; and presents the result through a browser dashboard, REST API, WebSocket updates, and email workflows.
 
-This document describes the checked-in runtime. The authoritative implementation is the source tree, especially `src/api/main.py`, `src/scheduler.py`, `src/core/config.py`, `src/core/db.py`, and `docker-compose.yml`.
+This document describes the retained Python backup runtime. The default `dev-c` stack is the C# API/Worker/Webhook in `src/NocIfc.Api`, `src/NocIfc.Worker`, and `src/NocIfc.Webhook`, launched by `compose.yaml`; see `README_DEV_C.md` and `docs/DEPLOYMENT.md` for its current topology. The ignored local `docker-compose.yml` remains the Python rollback backup.
 
 ## Runtime Topology
 

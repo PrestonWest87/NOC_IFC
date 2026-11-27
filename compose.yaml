@@ -1,0 +1,4 @@
+name: noc-ifc-dev-c
+
+include:
+  - compose.dev-c.yaml

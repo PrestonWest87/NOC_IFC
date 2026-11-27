@@ -1,6 +1,6 @@
 # Operations and Configuration Quick Reference
 
-This is the fast lookup for operators and maintainers. Environment defaults are defined in `src/core/config.py` and `.env.example`; supported scheduler jobs/defaults/bounds are defined in `src/core/scheduler_registry.py`, persisted settings are reloaded by `src/scheduler.py`, and application settings are exposed through the Settings UI.
+This is the fast lookup for the default C# dev-c stack. Scheduler definitions live in `src/NocIfc.Application/Features/Settings/SchedulerSettingsCommands.cs` and run in `src/NocIfc.Worker/SchedulerWorker.cs`; the ignored Python Compose backup retains its own scheduler/configuration references.
 
 ## Service Commands
 
@@ -14,20 +14,20 @@ docker compose logs -f webhook
 docker compose logs -f web
 docker compose restart api
 docker compose up --build -d --force-recreate web
-curl -fsS http://localhost:8102/health
-curl -fsS http://localhost:8102/ready
+curl -fsS http://localhost:8101/health
+curl -fsS http://localhost:8101/ready
 ```
 
 ## Ports
 
 | Port | Service | Check |
 |---:|---|---|
-| 8099 | Webhook (container 8100) | `curl http://localhost:8099/health` |
-| 8102 | API and WebSocket (container 8101) | `/health`, `/ready`, `/ws?token=...` |
-| 8503 | Production web (container 5173) | Browser or `curl` |
-| 5174 | Dev web (container 5173) | Browser when `dev` profile is active |
+| 8100 | C# webhook (container 8100) | `curl http://localhost:8100/health` |
+| 8101 | C# API and WebSocket (container 8101) | `/health`, `/ready`, `/ws?token=...` |
+| 8501 | Production web (container 5173) | Browser or `curl` |
+| 5173 | Vite dev web (container 5173) | Browser when `dev` profile is active |
 
-The dev Compose project is named `noc-ifc-dev`, uses `./data-dev`, and attaches containers to Docker's built-in `bridge` network without allocating a new subnet. API and HMR ports are one above main; webhook uses 8099 because 8101 is already the main API port. The web address is 8503 as configured. The web containers route to the dev API through the unique `noc-ifc-dev-api` host-gateway alias.
+The default C# Compose project is named `noc-ifc-dev-c`, uses `./data-dev-c`, and attaches containers to Docker's built-in `bridge` network without allocating a new subnet. Its host ports match the main Compose mapping. Nginx and Vite route to the API through the `noc-ifc-dev-c-api` host-gateway alias. The ignored local `docker-compose.yml` remains the older Python backup using `./data-dev`.
 
 ## Operational Email
 
@@ -70,7 +70,7 @@ The rows below are a selected operations quick reference, not a complete variabl
 | `ALLOW_PRIVATE_LLM_ENDPOINTS` | `false` | Allowing private endpoints for generic OpenAI-compatible connection tests; Ollama/vLLM local provider selections support validated private targets |
 | `CORS_ORIGINS` | localhost origins | Restricting browser origins |
 | `ALLOW_UNSIGNED_WEBHOOKS` | `false` | Temporary controlled migration only; do not enable by default |
-| `PUBLIC_APP_URL` | `http://localhost:8503` | Registration links or externally advertised URLs |
+| `PUBLIC_APP_URL` | `http://localhost:8501` | Registration links or externally advertised URLs |
 | `NWS_API_USER_AGENT` | `NOC-IFC/2.0 (https://test.weasts.net)` | Identifying NWS API client; set a deployed URL, with `DEFAULT_ADMIN_EMAIL` appended when configured |
 | `REGISTRATION_INVITE_TTL_HOURS` | `72` | Changing invite expiration |
 | `RESCORE_ON_STARTUP` | `false` if absent | Explicitly rescoring all existing articles during startup |
@@ -79,37 +79,37 @@ These environment values remain supported as fallback runtime configuration. A d
 
 ## Frequency Controls
 
-The values below are registry defaults for all 21 jobs; a user with scheduler-management permission may save a different validated value in Settings > Application Settings. `src/core/scheduler_registry.py` is the source of truth. NWS alert polling and the operational email queue are fixed at one minute and cannot be disabled.
+The C# registry in `SchedulerSettingsCommands.Registry` defines these 21 defaults; a user with scheduler-management permission may save a different validated value in Settings > Application Settings. The ignored Python backup retains its separate `src/core/scheduler_registry.py`. NWS alert polling and the operational email queue are fixed at one minute and cannot be disabled.
 
-| Behavior | Source location | Current value |
+| Behavior | C# registry key | Current value |
 |---|---|---:|
-| RSS fetch | `JOB_REGISTRY["rss_fetch"]` | 5 minutes |
-| Enrichment | `JOB_REGISTRY["article_enrichment"]` | 3 minutes |
-| Maintenance expiry | `JOB_REGISTRY["maintenance_expiry"]` | 5 minutes |
-| NWS active alerts | `JOB_REGISTRY["nws_alerts"]` | 1 minute (fixed; cannot be disabled) |
-| Regional hazards | `JOB_REGISTRY["regional_hazards"]` | 7 minutes |
-| Crime | `JOB_REGISTRY["crime_fetch"]` | 10 minutes |
-| Cloud | `JOB_REGISTRY["cloud_outages"]` | 8 minutes |
-| Telemetry | `JOB_REGISTRY["telemetry_sync"]` | 6 minutes |
-| Elastic cache sync | `JOB_REGISTRY["elastic_sync"]` | 6 minutes |
-| Escalation | `JOB_REGISTRY["tiered_alert_escalation"]` | 1 minute (cannot be disabled; 1–5 minute bound) |
-| Database maintenance | `JOB_REGISTRY["database_maintenance"]` | 60 minutes |
-| Internal risk | `JOB_REGISTRY["internal_risk"]` | 2 hours |
-| Rolling shift summary | `JOB_REGISTRY["rolling_summary"]` | 30 minutes |
-| Internal asset brief | `JOB_REGISTRY["internal_brief"]` | 3 hours |
-| Unified brief | `JOB_REGISTRY["unified_brief"]` | 6 hours |
-| KEV | `JOB_REGISTRY["cisa_kev"]` | 7 hours |
-| Global brief | `JOB_REGISTRY["global_brief"]` | Daily 02:00 America/Chicago |
-| Daily Fusion report | `JOB_REGISTRY["daily_fusion_report"]` | Daily 06:00 America/Chicago |
-| Daily email | `JOB_REGISTRY["daily_email_brief"]` | Daily 07:00 America/Chicago |
-| Operational email queue | `JOB_REGISTRY["operational_email_queue"]` | 1 minute (cannot be disabled) |
-| Encrypted database backup | `JOB_REGISTRY["database_backup"]` | Sunday 00:00 America/Chicago (cannot be disabled) |
+| RSS fetch | `rss_fetch` | 5 minutes |
+| Enrichment | `article_enrichment` | 3 minutes |
+| Maintenance expiry | `maintenance_expiry` | 5 minutes |
+| NWS active alerts | `nws_alerts` | 1 minute (fixed; cannot be disabled) |
+| Regional hazards | `regional_hazards` | 7 minutes |
+| Crime | `crime_fetch` | 10 minutes |
+| Cloud | `cloud_outages` | 8 minutes |
+| Telemetry | `telemetry_sync` | 6 minutes |
+| Elastic cache sync | `elastic_sync` | 6 minutes |
+| Escalation | `tiered_alert_escalation` | 1 minute (cannot be disabled; 1–5 minute bound) |
+| Database maintenance | `database_maintenance` | 60 minutes |
+| Internal risk | `internal_risk` | 2 hours |
+| Rolling shift summary | `rolling_summary` | 30 minutes |
+| Internal asset brief | `internal_brief` | 3 hours |
+| Unified brief | `unified_brief` | 6 hours |
+| KEV | `cisa_kev` | 7 hours |
+| Global brief | `global_brief` | Daily 02:00 America/Chicago |
+| Daily Fusion report | `daily_fusion_report` | Daily 06:00 America/Chicago |
+| Daily email | `daily_email_brief` | Daily 07:00 America/Chicago |
+| Operational email queue | `operational_email_queue` | 1 minute (cannot be disabled) |
+| Encrypted database backup | `database_backup` | Sunday 00:00 America/Chicago (cannot be disabled) |
 
 The WebSocket dashboard broadcaster is independent of the scheduler and broadcasts every 10 seconds while clients are connected.
 
-## Application-Level Controls
+## Application-Level Controls (legacy Python source paths)
 
-Change these through the Settings UI or the corresponding `SystemConfig` fields, not by adding environment variables that the code does not read:
+These persisted controls are managed through Settings. The source paths below describe the legacy Python backup; C# dev-c ports are tracked in `README_DEV_C.md`.
 
 - Keyword weights: `Keyword.weight`; validated by the keyword routes and applied by `KeywordScorer`.
 - Scoring mode and CIS overrides: `scoring_mode`, criticality/lethality overrides, and risk offsets.
@@ -121,4 +121,4 @@ Change these through the Settings UI or the corresponding `SystemConfig` fields,
 
 ## Safe Database Actions
 
-Create and verify an encrypted full SQLite backup through Settings > Backup & Restore before destructive work. New packages include all database tables; legacy optional classifier artifacts are validated but ignored on restore. `.env` secrets remain separate. Restore uses the offline maintenance-window procedure in [Maintenance](MAINTENANCE.md#restore-and-disaster-recovery). The legacy Settings JSON exports cover only supported application-model subsets and are not full database backups. Schema migrations run automatically at backend startup; conditional bootstrap data preserves existing keyword weights and custom role grants.
+Create and verify an encrypted full SQLite backup through Settings > Backup & Restore before destructive work. New packages include all database tables; legacy optional classifier artifacts are validated but ignored on restore. `.env` secrets remain separate. Restore uses the coordinated maintenance-window procedure in [Maintenance](MAINTENANCE.md#restore-and-disaster-recovery). The legacy Settings JSON exports cover only supported application-model subsets and are not full database backups. C# services require the host-side Alembic migration to complete before startup; only the legacy Python backup runs migrations at startup.

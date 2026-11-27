@@ -1,5 +1,7 @@
 # docker-compose.yml — Multi-Service Orchestration
 
+This documents the ignored legacy Python backup only. The default dev-c stack is the tracked C# `compose.yaml` (including `compose.dev-c.yaml`).
+
 **Path:** `docker-compose.yml`
 
 ## Purpose

@@ -1,5 +1,7 @@
 # NOC Intelligence Fusion Center — Getting Started Guide
 
+On `dev-c`, the tracked `compose.yaml` starts the C# backend by default and includes `compose.dev-c.yaml`. The ignored local `docker-compose.yml` remains the Python backup.
+
 ## Prerequisites
 
 | Requirement | Minimum | Recommended |
@@ -23,29 +25,28 @@ cd noc-ifc
 cp .env.example .env
 ```
 
-The application defaults to the shared SQLite path below. Set it explicitly only if you need a different location:
-
-```bash
-DATABASE_URL=sqlite:////app/data/noc_fusion.db
-```
+Edit `.env` and replace the `DEFAULT_ADMIN_PASSWORD` placeholder before continuing. The database preparation step creates the initial administrator.
 
 ### 2. Build and Launch
 
 ```bash
+uv sync --project tools/offline-python --locked --python 3.11
+uv run --project tools/offline-python --locked python tools/offline-python/prepare_dev_c_database.py
+DEV_C_UID="$(id -u)" DEV_C_GID="$(id -g)" \
 docker compose up --build -d
 ```
 
-This starts 4 services in the separately named `noc-ifc-dev` Compose project. The dev branch uses `./data-dev` and host ports distinct from the existing deployment:
-- **`api`** — FastAPI backend on host port 8102 (container port 8101)
-- **`worker`** — Background scheduler for data ingestion
-- **`webhook`** — Webhook gateway on host port 8099 (container port 8100)
-- **`web`** — React frontend exposed on host port 8503 (container port 5173)
+The setup command creates only a fresh `./data-dev-c` database and refuses to overwrite an existing one. The default Compose project is `noc-ifc-dev-c`:
+- **`api`** — C# REST/WebSocket backend on host port 8101 (container port 8101)
+- **`worker`** — C# background scheduler
+- **`webhook`** — C# SolarWinds gateway on host port 8100 (container port 8100)
+- **`web`** — React frontend exposed on host port 8501 (container port 5173)
 
 ### 3. Access the Application
 
-Open **http://localhost:8503** in your browser.
+Open **http://localhost:8501** locally or **http://<server-ip>:8501** from the LAN.
 
-Set `DEFAULT_ADMIN_PASSWORD` in `.env` before first startup. `DEFAULT_ADMIN_EMAIL` is optional; it bootstraps a verified recovery/reviewer address. If the bootstrap admin already exists without a verified email, configuring this value and restarting the API or worker will attach and verify it; a matching pending initial recovery-email request will be completed. The database creates the `admin` user only when no users exist and the password value is non-empty. There is no guaranteed hard-coded default password.
+`DEFAULT_ADMIN_EMAIL` is optional; it bootstraps a verified recovery/reviewer address. If the bootstrap admin already exists without a verified email, configuring this value and restarting the API or worker will attach and verify it; a matching pending initial recovery-email request will be completed. The database creates the `admin` user only when no users exist and the password value is non-empty. There is no guaranteed hard-coded default password.
 
 ### 4. Verify It's Running
 
@@ -53,8 +54,8 @@ Set `DEFAULT_ADMIN_PASSWORD` in `.env` before first startup. `DEFAULT_ADMIN_EMAI
 # Check all containers are up
 docker compose ps
 
-# Check API health
-curl http://localhost:8102/health
+# Check API readiness
+curl http://localhost:8101/ready
 
 # Check worker logs (data ingestion should start immediately)
 docker compose logs -f worker
@@ -67,13 +68,13 @@ docker compose logs -f web
 
 ## Development Setup
 
-For hot-reload development:
+For containerized Vite hot reload alongside the production web service:
 
 ```bash
-docker compose --profile dev up --build -d
+DEV_C_UID="$(id -u)" DEV_C_GID="$(id -g)" docker compose --profile dev up --build -d
 ```
 
-The `dev` profile adds a `web-dev` container with Vite's HMR (Hot Module Replacement); it does not remove the production `web` container. Use host port 5174 for the HMR frontend. Frontend changes are picked up instantly via a volume mount. Separate container names, host ports, and the `data-dev` mount keep the dev stack's application state separate; containers use Docker's built-in bridge network.
+Open `http://localhost:5173`; the production `web` service remains available on host port 8501.
 
 ### Standalone Frontend Development
 
@@ -83,7 +84,7 @@ npm ci
 npm run dev
 ```
 
-This starts Vite dev server on port 5173 with proxy configuration for `/api` → `http://localhost:8102` and `/ws` → `ws://localhost:8102`.
+This starts Vite on port 5173 with `/api` and `/ws` proxied to the C# API at `http://localhost:8101`.
 
 ---
 
@@ -130,7 +131,7 @@ The checked-in `.env.example` is the complete environment template, and [the env
 | `WEBSOCKET_MAX_MESSAGE_BYTES` | `65536` | Maximum client WebSocket message |
 | `ALLOW_PRIVATE_LLM_ENDPOINTS` | `false` | Permit private LLM targets for generic OpenAI-compatible tests; explicit Ollama/vLLM provider selections support validated local endpoints |
 | `ALLOW_UNSIGNED_WEBHOOKS` | `false` | Controlled webhook migration exception |
-| `PUBLIC_APP_URL` | `http://localhost:8503` | Registration link base URL |
+| `PUBLIC_APP_URL` | `http://localhost:8501` | Registration link base URL |
 | `REGISTRATION_INVITE_TTL_HOURS` | `72` | Registration invite lifetime |
 | `RESCORE_ON_STARTUP` | `false` | Full article rescore during startup |
 
@@ -208,37 +209,26 @@ Configure AI in the Settings page (AI & SMTP tab):
 
 | Command | Description |
 |---------|-------------|
-| `docker compose down && rm data-dev/noc_fusion.db && docker compose up --build -d` | Destructive dev database reset (deletes all dev application data and re-seeds on startup); back up first and use only when a reset is intended |
-| `docker compose restart api worker webhook` | Run the automatic schema-revision check on backend startup; review [migration compatibility](MIGRATION_COMPATIBILITY.md) before upgrading older databases |
+| `uv run --project tools/offline-python --locked python tools/offline-python/prepare_dev_c_database.py` | Create and seed a fresh `data-dev-c` database; refuses to overwrite existing SQLite files and requires `DEFAULT_ADMIN_PASSWORD` |
+| `DATABASE_URL="sqlite:////absolute/path/data-dev-c/noc_fusion.db" uv run --project tools/offline-python --locked python -c 'from src.core.db import init_db; init_db()'` | Apply host-side migrations/bootstrap to an existing dev-c database after taking a backup |
+| `docker compose restart api worker webhook` | Restart C# services after migration; they check for Alembic head `20261125_0025` but do not migrate at startup |
 
 ---
 
 ## Webhook Configuration
 
-Configure your ITSM monitoring tool to send alerts:
+Configure your ITSM monitoring tool to send signed alerts to the default C# gateway:
 
 ```
-POST http://<your-host>:8099/webhook/solarwinds
+POST http://<your-host>:8100/webhook/solarwinds
 Content-Type: application/json
 ```
 
-The webhook listener accepts SolarWinds-style JSON payloads, normalizes them, and persists alerts for AIOps correlation. Supported field mappings are documented in the Webhook section of ARCHITECTURE.md.
+The C# gateway accepts signed SolarWinds-style JSON payloads, normalizes them, and persists alerts for AIOps correlation. `WEBHOOK_HMAC_SECRET` is required unless `ALLOW_UNSIGNED_WEBHOOKS=true`; unsigned requests otherwise receive 503. See [Webhook Gateway](WEBHOOK.md) for payload mappings and signature format. The Python backup still listens on host port 8099 when explicitly selected with `-f docker-compose.yml`.
 
 ### Testing the Webhook
 
-```bash
-curl -X POST http://localhost:8099/webhook/solarwinds \
-  -H "Content-Type: application/json" \
-  -d '{
-    "Node_Details": {
-      "NodeName": "RTR-AECCORP-01",
-      "IP_Address": "10.0.0.1"
-    },
-    "severity": "CRITICAL",
-    "Alert_Level": "P1",
-    "AlertName": "Node Down"
-  }'
-```
+Use a SolarWinds sender configured with the same `WEBHOOK_HMAC_SECRET`, or run the signature and persistence fixtures in `qa/NocIfc.Api.Tests/WebhookGatewayTests.cs`. Do not enable unsigned requests on a network-facing webhook.
 
 ---
 
@@ -250,9 +240,11 @@ curl -X POST http://localhost:8099/webhook/solarwinds \
 # Check container logs
 docker compose logs api
 
-# Check for port conflicts
-lsof -i :8102
-lsof -i :5174
+# Check for C# dev-c port conflicts
+lsof -i :8101
+lsof -i :8100
+lsof -i :8501
+lsof -i :5173
 
 # Verify .env exists
 ls -la .env
@@ -268,8 +260,8 @@ docker compose logs -f worker
 # Only scheduler registry entries marked startup_run run at boot; the rest wait for their configured schedule.
 # See SCHEDULER.md for the current startup-run list and schedule defaults.
 
-# Check database exists
-ls -la data/noc_fusion.db
+# Check isolated C# database exists
+ls -la data-dev-c/noc_fusion.db
 ```
 
 ### Database Errors
@@ -280,7 +272,8 @@ docker compose logs --tail=300 api
 docker compose logs --tail=300 worker
 docker compose logs --tail=300 webhook
 
-# After resolving the reported issue, backend services recheck/apply migrations on restart.
+# C# services do not apply migrations on restart. After resolving the issue:
+DATABASE_URL="sqlite:////absolute/path/data-dev-c/noc_fusion.db" uv run --project tools/offline-python --locked python -c 'from src.core.db import init_db; init_db()'
 docker compose restart api worker webhook
 ```
 
@@ -290,11 +283,11 @@ Do not delete the database to recover a migration error. Full reset is destructi
 
 ```bash
 # Verify API is running
-curl http://localhost:8102/health
+curl http://localhost:8101/health
 
 # Check for proxy configuration in nginx/vite
-# Production: nginx.conf proxies /ws through the dev API host-gateway alias at port 8102
-# Dev: vite.config.ts proxies /ws to ws://localhost:8102
+# Production: Nginx proxies /ws through the C# API host-gateway alias at port 8101
+# Standalone Vite: vite.config.ts proxies /ws to ws://localhost:8101
 ```
 
 ### Frontend Shows Blank Screen
@@ -316,7 +309,7 @@ docker compose up --build -d --force-recreate web
    - Change the admin password
    - Create individual user accounts
 
-2. **Network isolation**: The dev-branch webhook host port (8099) and API host port (8102) should not be exposed to the public internet. Only port 8503 (frontend) should be publicly accessible.
+2. **Network isolation**: The dev-c ports match main and are LAN-published for testing. Keep them on a trusted development network and do not expose them publicly.
 
 3. **Secrets management**: Session tokens are database-backed, while integration settings are supplied through the supported environment variables and Settings UI. Keep `.env` out of version control and use a secret manager in production.
 

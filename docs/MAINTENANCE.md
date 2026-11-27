@@ -12,15 +12,15 @@ This guide provides recurring maintenance procedures for operators and maintaine
 - Never delete production data as a first troubleshooting action.
 - Record maintenance actions, operator, timestamp, reason, and result in the shift log or change system.
 
-## Dev Branch Compose Layout
+## Default C# dev-c Compose Layout
 
 | Component | Role | Verification |
 |---|---|---|
-| `api` | REST API, authentication, readiness, WebSocket | `curl -fsS http://localhost:8102/ready` |
+| `api` | REST API, authentication, readiness, WebSocket | `curl -fsS http://localhost:8101/ready` |
 | `worker` | Ingestion, scoring, briefs, maintenance, escalation | `docker compose ps`, worker logs |
-| `webhook` | SolarWinds gateway | `curl -fsS http://localhost:8099/health` |
-| `web` | Production React workspace | `curl -I http://localhost:8503` |
-| Database | Isolated dev SQLite in `./data-dev` | API `/ready` and database backup |
+| `webhook` | SolarWinds gateway | `curl -fsS http://localhost:8100/health` |
+| `web` | Production React workspace | `curl -I http://localhost:8501` |
+| Database | Isolated dev-c SQLite in `./data-dev-c` | API `/ready` and database backup |
 
 ## Before Maintenance
 
@@ -31,9 +31,9 @@ $ git status -sb
 $ git log -1 --oneline --decorate
 $ docker compose ps
 $ docker compose logs --tail=100 api worker webhook web
-$ curl -fsS http://localhost:8102/health
-$ curl -fsS http://localhost:8102/ready
-$ curl -fsS http://localhost:8099/health
+$ curl -fsS http://localhost:8101/health
+$ curl -fsS http://localhost:8101/ready
+$ curl -fsS http://localhost:8100/health
 ```
 
 Confirm that the worktree is clean, the intended release is deployed, no active incident is being obscured, and required alert recipients are available.
@@ -113,17 +113,17 @@ Configure `BACKUP_ENCRYPTION_ACTIVE_KEY_ID` and `BACKUP_ENCRYPTION_KEYS` in the 
 
 After adding or rotating keys in `.env`, recreate the API and worker containers so the admin endpoints and scheduled job load the updated key map.
 
-Administrators can create/download manual snapshots under Settings > Backup & Restore. The worker also creates a scheduled snapshot every Sunday at 00:00 `America/Chicago`; that registry-managed job cannot be disabled. The latest three scheduled packages are retained; manual and pre-restore safety packages are retained until explicitly deleted. This dev project's files are stored under `./data-dev/backups`. Download or copy verified packages to protected off-host storage for host-loss recovery.
+Administrators can create/download manual snapshots under Settings > Backup & Restore. The worker also creates a scheduled snapshot every Sunday at 00:00 `America/Chicago`; that registry-managed job cannot be disabled. The latest three scheduled packages are retained; manual and pre-restore safety packages are retained until explicitly deleted. The default C# dev-c project's files are stored under `./data-dev-c/backups`. Download or copy verified packages to protected off-host storage for host-loss recovery.
 
-Packages use versioned manifests, per-file SHA-256 checksums, and chunked authenticated AES-256-GCM encryption. The admin staging endpoint verifies the key/tag, checksums, archive layout, and SQLite integrity before saving an uploaded encrypted package in `./data-dev/backups/staged`. `BACKUP_MAX_BYTES` bounds backup and upload size (default 10 GiB; maximum 100 GiB). Do not put plaintext database exports or encryption keys in the repository or expose the backup directory through the web container.
+Packages use versioned manifests, per-file SHA-256 checksums, and chunked authenticated AES-256-GCM encryption. The admin staging endpoint verifies the key/tag, checksums, archive layout, and SQLite integrity before saving an uploaded encrypted package in `./data-dev-c/backups/staged`. `BACKUP_MAX_BYTES` bounds backup and upload size (default 10 GiB; maximum 100 GiB). Do not put plaintext database exports or encryption keys in the repository or expose the backup directory through the web container.
 
 The older Settings JSON tools remain partial data migration utilities: the legacy JSON backup covers four configuration collections, while `export-all` covers supported ORM models and omits session, recovery, failed-login, audit, and scheduler state. `/admin/upload-db` imports table records into the current database; it does not replace the SQLite file. Use encrypted full snapshots for disaster recovery.
 
 ## Database Initialization and Migrations
 
-At API, worker, webhook, and standalone worker startup, the application checks the Alembic revision under a SQLite file lock and applies only pending revisions. A current database receives no schema DDL. The adoption revision is additive for the documented pre-Alembic schema and preserves existing rows; an unsupported schema or conflicting unique data fails closed before the revision is recorded. See [Migration Compatibility](MIGRATION_COMPATIBILITY.md) for the supported boundary and tested upgrade cases.
+The C# API, Worker, and Webhook only become ready at Alembic head `20261125_0025`; they do not run migrations. Prepare a fresh `data-dev-c` database with `tools/offline-python/prepare_dev_c_database.py`. For an existing dev-c database, take a backup, then run `DATABASE_URL="sqlite:////absolute/path/data-dev-c/noc_fusion.db" uv run --project tools/offline-python --locked python -c 'from src.core.db import init_db; init_db()'` from the repository root. A current database receives no schema DDL. The adoption revision is additive for the documented pre-Alembic schema and preserves existing rows; unsupported schemas fail closed. See [Migration Compatibility](MIGRATION_COMPATIBILITY.md).
 
-Migrations are not a separate one-shot service or administrative API. To retry after resolving a reported failure, restart the affected backend service; it will re-read the database revision before applying upgrades. Do not manually stamp `alembic_version`, drop columns, or try a downgrade as a rollback. Restore a verified pre-upgrade backup if rollback is required.
+Do not manually stamp `alembic_version`, drop columns, or try a downgrade as rollback. Restore a verified pre-upgrade backup if rollback is required. The ignored Python backup Compose retains its legacy startup migration behavior.
 
 `RESCORE_ON_STARTUP` defaults to false. Set it temporarily only when a deliberate full article rescore is required; restart the affected containers and unset it afterward. A full rescore can create database contention and extend startup time.
 
@@ -131,11 +131,11 @@ Migrations are not a separate one-shot service or administrative API. To retry a
 
 For full disaster recovery, stage a `.nocbackup` file from Settings > Backup & Restore and choose **Restore now**. The UI starts a coordinated maintenance window: API writes are gated, the worker stops launching jobs and drains in-flight jobs, the webhook stops intake and drains accepted payloads, and active WebSocket clients are disconnected. The UI displays restore progress and returns when services resume. Restored login sessions are revoked, so the operator signs in again.
 
-If the UI or API is unavailable, use the offline fallback from the deployment directory with the same `.env` encryption keys used by the package:
+The C# default stack performs full restore through the coordinated UI workflow. The older offline Python restore command below is only for the legacy backup Compose:
 
 ```bash
-docker compose stop api worker webhook
-docker compose run --rm --no-deps api python scripts/restore_backup.py \
+docker compose -p noc-ifc-dev -f docker-compose.yml stop api worker webhook
+docker compose -p noc-ifc-dev -f docker-compose.yml run --rm --no-deps api python scripts/restore_backup.py \
   /app/data/backups/staged/<stage-id>.nocbackup --maintenance-confirmed
 ```
 
@@ -145,7 +145,7 @@ The backup directory labels pre-restore safety snapshots separately from user-cr
 
 Allow sufficient free space for the uploaded package, a temporary database snapshot/archive, the current database, and the encrypted pre-restore safety backup. Large databases can require several times their file size during restore.
 
-After a successful restore, verify `docker compose ps`, `curl http://localhost:8102/ready`, administrator sign-in with a newly issued session, dashboards, feeds, RCA data, email configuration, and WebSocket updates. Record the package timestamp and restore result. Ensure the key map contains the key ID used by the package and preserve the `.env`/environment configuration separately.
+After a successful restore, verify `docker compose ps`, `curl http://localhost:8101/ready`, administrator sign-in with a newly issued session, dashboards, feeds, RCA data, email configuration, and WebSocket updates. Record the package timestamp and restore result. Ensure the key map contains the key ID used by the package and preserve the `.env`/environment configuration separately.
 
 For a failed release, use the rollback tag or a previously verified image/commit. Do not move a published release tag; create a corrective release instead.
 
@@ -236,10 +236,10 @@ $ docker compose up --build -d
 
 ```bash
 $ docker compose ps
-$ curl -fsS http://localhost:8102/health
-$ curl -fsS http://localhost:8102/ready
-$ curl -fsS http://localhost:8099/health
-$ curl -fsSI http://localhost:8503
+$ curl -fsS http://localhost:8101/health
+$ curl -fsS http://localhost:8101/ready
+$ curl -fsS http://localhost:8100/health
+$ curl -fsSI http://localhost:8501
 $ docker compose logs --tail=100 api worker webhook web
 ```
 

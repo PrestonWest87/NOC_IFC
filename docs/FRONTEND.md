@@ -53,7 +53,7 @@ Settings & Admin includes Email Contacts and Network Orders & Circuits tabs. The
 - On 401, clears credentials, emits `noc:unauthorized`, redirects to `#/login`, and rejects the original request.
 - On 403, emits `noc:permission-denied`, preserves the session, and exposes the structured permission message to the UI.
 
-Production nginx proxies `/api/` and `/ws` to the API. The Vite dev server proxies the same paths to `VITE_API_URL` (default `http://localhost:8102` on this branch; Compose uses the `noc-ifc-dev-api` host-gateway alias).
+Production nginx proxies `/api/` and `/ws` to the API. The Vite dev server proxies the same paths to `VITE_API_URL` (default `http://localhost:8101` on dev-c; Compose uses the `noc-ifc-dev-c-api` host-gateway alias).
 
 ## Page guide
 
@@ -139,4 +139,4 @@ npm run dev
 npm run build
 ```
 
-The Vite development server listens on container port 5173 and uses polling for Docker file mounts; Compose publishes HMR on host port 5174. Production `web/Dockerfile` compiles to `dist/` and serves the static bundle through nginx on container port 5173 (host port 8503). Production frontend changes require rebuilding/recreating `web`.
+The Vite development server listens on container port 5173 and uses polling for Docker file mounts; the dev-c `dev` profile publishes HMR on host port 5173. Production `web/Dockerfile` compiles to `dist/` and serves the static bundle through nginx on container port 5173 (host port 8501). Production frontend changes require rebuilding/recreating `web`.

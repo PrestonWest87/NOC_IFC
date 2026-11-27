@@ -1,9 +1,11 @@
 # NOC Intelligence Fusion Center — API Reference
 
-Base URL: `http://localhost:8102/api/v1`
-WebSocket: `ws://localhost:8102/ws`
+Base URL (C# dev-c): `http://localhost:8101/api/v1`
+Base URL (legacy Python backup): `http://localhost:8102/api/v1`
+WebSocket (C# dev-c): `ws://localhost:8101/ws`
+WebSocket (legacy Python backup): `ws://localhost:8102/ws`
 
-This operation inventory was reconciled against the checked-out FastAPI OpenAPI schema on 2026-11-25 (198 paths and 214 HTTP operations after retiring classifier-training and feedback endpoints). The running application's OpenAPI schema remains the source of truth.
+This operation inventory was reconciled against the FastAPI OpenAPI schema on 2026-11-25 (198 paths and 214 HTTP operations after retiring classifier-training and feedback endpoints). The default `dev-c` C# API shares this base URL for ported slices; see `README_DEV_C.md` for conversion status. The running application's OpenAPI schema remains the source of truth.
 
 ## Authentication
 
@@ -199,7 +201,7 @@ Body expects `.events` key. Returns AI-generated SIEM triage summary.
 
 ## Keyword Analysis Endpoints (`/keyword-analysis`)
 
-All keyword-analysis endpoints require the exact page permission `Keyword Analysis`. `POST /keyword-analysis/recategorize` also requires `Action: Trigger AI Functions`.
+All keyword-analysis endpoints require the exact page permission `Keyword Analysis`. `POST /keyword-analysis/recategorize` also requires `Action: Trigger AI Functions`. The default C# dev-c implementation reads persisted SQLite analytics through `KeywordAnalysisController`; recategorization uses the shared C# article categorizer.
 
 ### GET /keyword-analysis/overview
 
@@ -215,7 +217,7 @@ Returns article counts, percentages, and average scores by category. `days=0` in
 
 ### GET /keyword-analysis/timeline?keyword=&days=30&interval=day
 
-Returns total articles, matched articles, match rate, and average score grouped by day or week.
+Returns total articles, matched articles, match rate, and average score grouped by day or week. `days=0` includes all stored articles, matching the frontend's All Time option.
 
 ### GET /keyword-analysis/keyword-articles?keyword=<word>&limit=50
 
@@ -544,7 +546,7 @@ Deletes a manual or pre-restore safety backup. Scheduled backups are managed by 
 Lists encrypted packages staged for an offline restore.
 
 ### POST /admin/backups/staged
-Multipart upload with form field `file`. Authenticates and validates the encrypted package, manifest/checksums, archive layout, and SQLite integrity before saving it under the shared `/app/data/backups/staged` path (`./data-dev/backups/staged` on this dev branch). It does not restore the active database.
+Multipart upload with form field `file`. Authenticates and validates the encrypted package, manifest/checksums, archive layout, and SQLite integrity before saving it under the shared `/app/data/backups/staged` path (`./data-dev-c/backups/staged` for default C# dev-c; `./data-dev/backups/staged` for the legacy Python backup). It does not restore the active database.
 
 ### DELETE /admin/backups/staged/{stage_id}
 Deletes a staged encrypted restore package.
@@ -697,7 +699,7 @@ Body: `{email}`. Sends the last complete internal asset risk brief via email (pu
 
 ## WebSocket
 
-Connect to `ws://localhost:8102/ws?token=<session-token>` (or `wss` through HTTPS). The user must have the `AIOps RCA` page and `Tab: AIOps RCA -> Active Board` grants. Dashboard pushes are filtered by allowed site types, and the connection is periodically revalidated so revoked sessions or grants are closed.
+Connect to `ws://localhost:8101/ws?token=<session-token>` (or `wss` through HTTPS). The user must have the `AIOps RCA` page and `Tab: AIOps RCA -> Active Board` grants. Dashboard pushes are filtered by allowed site types, and the connection is periodically revalidated so revoked sessions or grants are closed.
 
 Receives JSON messages with type `dashboard_update` every 10 seconds containing alerts, timeline events, grid outages, per-site unresolved-alert counts, and alert count.
 

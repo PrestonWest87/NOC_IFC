@@ -31,7 +31,7 @@ Provides the high-level operating picture, including operational metrics, global
 
 ### Threat Telemetry
 
-Collects and organizes RSS and OSINT articles, CISA Known Exploited Vulnerabilities, cloud provider outages, and nearby crime incidents. Analysts can filter, search, pin, provide feedback on, and review scored intelligence.
+Collects and organizes RSS and OSINT articles, CISA Known Exploited Vulnerabilities, cloud provider outages, and nearby crime incidents. Analysts can filter, search, pin, and review scored intelligence.
 
 ### Regional Grid
 
@@ -114,33 +114,33 @@ External source availability varies. A source can be temporarily blocked, unavai
 
 ## Runtime Overview
 
-The project runs as a Docker Compose stack:
+On `dev-c`, the tracked `compose.yaml` is the default Docker Compose stack and includes `compose.dev-c.yaml`. It runs the C# API, Worker, and SolarWinds Webhook with the existing React/Nginx frontend. The ignored local `docker-compose.yml` is retained unchanged as a Python backup.
 
 ```text
 Analyst browser
       |
       v
-React web workspace :8503
+React web workspace :8501
       |
-      +---- REST API host :8102 (container :8101)
+      +---- REST API host :8101 (container :8101)
       |             |
       |             v
-      |       Shared database
+      |       ./data-dev-c/noc_fusion.db
       |
       +---- Worker: scheduled collection, scoring, briefs, escalation
 
-SolarWinds Orion ---> Webhook gateway host :8099 (container :8100) ---> Shared database
+SolarWinds Orion ---> Webhook gateway host :8100 (container :8100) ---> Same database
 ```
 
 | Service | Purpose | Host port |
 |---|---|---:|
-| `api` | REST API, authentication, health checks, and live WebSocket updates | 8102 (container 8101) |
+| `api` | REST API, authentication, health checks, and live WebSocket updates | 8101 |
 | `worker` | Scheduled ingestion, enrichment, scoring, reports, maintenance, and escalation | None |
-| `webhook` | SolarWinds request validation and alert processing | 8099 (container 8100) |
-| `web` | Production React workspace served by nginx | 8503 (container 5173) |
-| `web-dev` | Optional Vite development workspace with hot reload | 5174 (container 5173) |
+| `webhook` | SolarWinds request validation and alert processing | 8100 |
+| `web` | Production React workspace served by nginx | 8501 (container 5173) |
+| `web-dev` | Optional Vite development workspace with hot reload | 5173 |
 
-The `dev` branch Compose project is named `noc-ifc-dev`; it uses SQLite stored in `./data-dev`, separate from the existing instance's `./data`. The API, worker, and webhook share the dev database file and attach to Docker's built-in bridge network without allocating another subnet.
+The C# project is named `noc-ifc-dev-c`; it uses fresh SQLite storage in `./data-dev-c`, separate from both the Python backup's `./data-dev` and the main instance's `./data`. The frontend and API/WebSocket proxy use Docker's built-in bridge/host-gateway route without allocating another subnet. API, webhook, production UI, and optional Vite ports match the main Compose mapping and publish on all host interfaces for this dev system.
 
 ## Quick Start
 
@@ -152,38 +152,49 @@ The `dev` branch Compose project is named `noc-ifc-dev`; it uses SQLite stored i
 - Outbound access to configured data sources is required for ingestion.
 - An LLM provider is optional, but required for AI-generated briefs and summaries.
 
-### Start the Dev-Branch Stack
+### Start the C# dev-c Stack
 
 ```bash
 cp .env.example .env
 ```
 
-Set `DEFAULT_ADMIN_PASSWORD` in `.env` before the first startup. Then build and start the services:
+Set `DEFAULT_ADMIN_PASSWORD` in `.env` before the first startup. Prepare the fresh SQLite schema and bootstrap defaults through the pinned host-only migration environment, then build and start the services:
 
 ```bash
-docker compose up --build -d
+uv sync --project tools/offline-python --locked --python 3.11
+uv run --project tools/offline-python --locked python tools/offline-python/prepare_dev_c_database.py
+DEV_C_UID="$(id -u)" DEV_C_GID="$(id -g)" docker compose up --build -d
 ```
 
-Open `http://localhost:8503` and sign in as `admin` using the configured password.
+Open `http://localhost:8501` locally or `http://<server-ip>:8501` from the LAN, then sign in as `admin` using the configured password.
 
 Verify the deployment:
 
 ```bash
 docker compose ps
-curl http://localhost:8102/health
-curl http://localhost:8102/ready
-curl http://localhost:8099/health
+curl http://localhost:8101/health
+curl http://localhost:8101/ready
+curl http://localhost:8100/health
+curl http://localhost:8501/health
 ```
 
-### Start Development Mode
+### Development Mode (Vite HMR)
 
-Development mode adds a Vite workspace with hot reload on host port `5174` (container port `5173`):
+The optional `dev` profile adds Vite on host port `5173` alongside the production web container:
 
 ```bash
-docker compose --profile dev up --build -d
+DEV_C_UID="$(id -u)" DEV_C_GID="$(id -g)" docker compose --profile dev up --build -d
 ```
 
-The Nginx web container is exposed on host port `8503`; the `web-dev` container is available on host port `5174`. The API, webhook, and HMR ports are adjacent to main's ports; the dev UI uses 8503 as configured.
+Open `http://localhost:5173` for hot reload; API and WebSocket requests proxy to the C# backend on port `8101`.
+
+### Legacy Python Backup
+
+The ignored local `docker-compose.yml` is preserved as a Python rollback backup. Use it explicitly if needed; it continues to use the separate `data-dev` directory and legacy Python ports.
+
+```bash
+docker compose -p noc-ifc-dev -f docker-compose.yml up --build -d
+```
 
 ## Initial Configuration
 
@@ -273,7 +284,7 @@ The frontend hides unavailable areas, but the backend also checks protected oper
 Configure SolarWinds or another compatible ITSM source to send:
 
 ```text
-POST http://<host>:8099/webhook/solarwinds
+POST http://<host>:8100/webhook/solarwinds
 Content-Type: application/json
 ```
 
@@ -282,7 +293,7 @@ The gateway validates request size and, when configured, HMAC signatures and tim
 Basic connectivity check:
 
 ```bash
-curl http://localhost:8099/health
+curl http://localhost:8100/health
 ```
 
 ## Common Operator Commands
@@ -304,8 +315,8 @@ docker compose restart api
 docker compose up --build -d --force-recreate web
 
 # Check API and database readiness
-curl http://localhost:8102/health
-curl http://localhost:8102/ready
+curl http://localhost:8101/health
+curl http://localhost:8101/ready
 ```
 
 Before database maintenance or a reset, create a verified backup. Do not remove the database as a first troubleshooting step.
@@ -315,8 +326,8 @@ Before database maintenance or a reset, create a verified backup. Do not remove 
 - Keep `.env` out of version control.
 - Set a unique administrator password before first boot.
 - Restrict `CORS_ORIGINS` to approved browser origins.
-- Restrict dev webhook port `8099` to approved webhook senders.
-- Keep dev ports `8099` and `8102` off the public internet unless protected by a firewall and reverse proxy.
+- Restrict webhook port `8100` to approved webhook senders.
+- Keep dev ports `8100` and `8101` off the public internet unless protected by a firewall and reverse proxy.
 - Use HTTPS through a reverse proxy for production access.
 - Keep the API, worker, and webhook on the same host with access to the shared SQLite data directory.
 - Back up the database before migrations, restores, or destructive administrative actions.

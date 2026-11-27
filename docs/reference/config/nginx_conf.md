@@ -1,6 +1,6 @@
 # Configuration: `web/nginx.conf`
 
-Production nginx server block copied to `/etc/nginx/conf.d/default.conf` by `web/Dockerfile`.
+Legacy Python-backup nginx server block copied to `/etc/nginx/conf.d/default.conf` by `web/Dockerfile`. The default C# dev-c stack uses `web/nginx.dev-c.conf` and proxies to the API through the host gateway on port 8101.
 
 ## Server
 

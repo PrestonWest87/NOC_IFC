@@ -9,7 +9,7 @@
 | RAM | Minimum 2 GB available (4 GB+ recommended for production) |
 | Disk | Minimum 10 GB free (20 GB+ recommended for data retention) |
 | LLM Endpoint | Optional OpenAI-compatible or local Ollama endpoint; required only for AI-generated features |
-| Network | Dev branch host ports 8099, 8102, 8503, and optionally 5174 must be available |
+| Network | C# dev-c host ports 8100, 8101, 8501, and optionally 5173 must be available |
 
 Verify prerequisites:
 
@@ -30,23 +30,45 @@ cd NOC_IFC
 # Create environment file from template
 cp .env.example .env      # Edit with your configuration (see Section 4)
 
-# Build and start all services
-docker compose up --build -d
+# Prepare a fresh dev-c SQLite database (requires DEFAULT_ADMIN_PASSWORD in .env)
+uv sync --project tools/offline-python --locked --python 3.11
+uv run --project tools/offline-python --locked python tools/offline-python/prepare_dev_c_database.py
+
+# Build and start the C# services
+DEV_C_UID="$(id -u)" DEV_C_GID="$(id -g)" docker compose up --build -d
 
 # Verify services are running
 docker compose ps
 
-# Test API health
-curl http://localhost:8102/health
+# Test API readiness
+curl http://localhost:8101/ready
 ```
 
-On this dev branch, access the UI at `http://localhost:8503`. The Compose project uses its own `noc-ifc-dev` name and `./data-dev` storage. Log in as `admin` using the value configured in `DEFAULT_ADMIN_PASSWORD`.
+On `dev-c`, access the UI at `http://localhost:8501` locally or `http://<server-ip>:8501` from the LAN. The default tracked `compose.yaml` selects the C# stack (`noc-ifc-dev-c`) and isolated `./data-dev-c` storage. Log in as `admin` using the local value configured in `DEFAULT_ADMIN_PASSWORD`. The ignored `docker-compose.yml` is preserved as a legacy Python backup.
 
 ---
 
 ## 3. Docker Services
 
-### api — FastAPI REST + WebSocket
+### Current C# dev-c services
+
+The default `compose.yaml` includes `compose.dev-c.yaml` and builds four separate runtime images. The stack uses Docker's built-in `bridge`; the web proxy reaches the API through a host-gateway alias, while the database bind mount is shared only by the three backend processes.
+
+| Service | Runtime target | Host → container | Storage |
+|---------|----------------|------------------|---------|
+| `api` | `deploy/Dockerfile.backend` target `api` (.NET 10) | `8101` → `8101` (all host interfaces) | `./data-dev-c:/app/data` |
+| `worker` | `deploy/Dockerfile.backend` target `worker` (.NET 10) | Internal only | `./data-dev-c:/app/data` |
+| `webhook` | `deploy/Dockerfile.backend` target `webhook` (.NET 10) | `8100` → `8100` (all host interfaces) | `./data-dev-c:/app/data` |
+| `web` | `web/Dockerfile` (React + Nginx) | `8501` → `5173` (all host interfaces) | None |
+| `web-dev` (`dev` profile) | `node:22-alpine` with Vite HMR | `5173` → `5173` (all host interfaces) | Source mount and npm volume |
+
+API readiness is `http://localhost:8101/ready`; webhook liveness is `http://localhost:8100/health`. The API, Worker, and Webhook do not run schema migrations on startup: prepare/migrate the SQLite database with `tools/offline-python/` first. `data-dev-c` is ignored by Git and Docker build contexts.
+
+### Legacy Python backup services
+
+The remaining tables in this section describe the ignored local `docker-compose.yml` backup. To run it intentionally, pass `-f docker-compose.yml`; do not use its ports or commands as the `dev-c` defaults.
+
+#### api — FastAPI REST + WebSocket
 
 | Property | Value |
 |----------|-------|
@@ -58,7 +80,7 @@ On this dev branch, access the UI at `http://localhost:8503`. The Compose projec
 | Environment | `.env` file |
 | WebSocket | `ws://localhost:8102/ws` |
 
-### worker — Background Scheduler
+#### worker — Background Scheduler
 
 | Property | Value |
 |----------|-------|
@@ -72,7 +94,7 @@ On this dev branch, access the UI at `http://localhost:8503`. The Compose projec
 
 Runs all 21 registry-managed background jobs. The complete schedules, startup-run policy, and non-disableable jobs are maintained in [Scheduler and Background Jobs](SCHEDULER.md).
 
-### webhook — SolarWinds Gateway
+#### webhook — SolarWinds Gateway
 
 | Property | Value |
 |----------|-------|
@@ -85,7 +107,7 @@ Runs all 21 registry-managed background jobs. The complete schedules, startup-ru
 
 Receives SolarWinds alerts at `POST http://localhost:8099/webhook/solarwinds`.
 
-### web — Production Frontend (nginx)
+#### web — Production Frontend (nginx)
 
 | Property | Value |
 |----------|-------|
@@ -95,7 +117,7 @@ Receives SolarWinds alerts at `POST http://localhost:8099/webhook/solarwinds`.
 | Depends on | `api` healthy |
 | Static build | No HMR; rebuild required for frontend changes |
 
-### web-dev — Development Frontend (Vite, profile: dev)
+#### web-dev — Development Frontend (Vite, profile: dev)
 
 | Property | Value |
 |----------|-------|
@@ -110,7 +132,7 @@ Receives SolarWinds alerts at `POST http://localhost:8099/webhook/solarwinds`.
 
 ## 4. Environment Variables (.env)
 
-Create `.env` from the template and configure as needed. `.env.example` and [the environment reference](reference/config/env_example.md) are the authoritative exhaustive variable list and source mapping; the table below is a selected deployment quick reference. `VITE_API_URL` is configured in Compose, not in the Python `.env` settings.
+Create `.env` from the template and configure as needed. `.env.example` and [the environment reference](reference/config/env_example.md) are the authoritative exhaustive variable list and source mapping; the table below is a selected deployment quick reference. Production web traffic is same-origin through Nginx; the C# dev-c and legacy Python Vite services each receive their own `VITE_API_URL` in Compose.
 
 ```bash
 cp .env.example .env
@@ -122,7 +144,7 @@ cp .env.example .env
 | `DEMO_SEED_DATA` | No | `false` | Seed synthetic hardware/software assets; use only in disposable environments |
 | `DEFAULT_ADMIN_PASSWORD` | First boot | `.env.example` contains a change-me placeholder; runtime default is empty | Creates the initial admin only when no users exist and the value is non-empty; replace the placeholder before startup |
 | `DEFAULT_ADMIN_EMAIL` | Optional | (empty) | Trusted verified recovery/notification address for the bootstrap administrator; can initialize an existing email-less bootstrap admin at API/worker startup |
-| `LOG_LEVEL` | No | `INFO` | Python log threshold |
+| `LOG_LEVEL` | No | `INFO` | Legacy Python backup log threshold |
 | `RISK_ALERT_RECIPIENTS` | For alerts | (empty) | Comma-separated email addresses for risk alerts |
 | `REMEDYFORCE_TICKET_EMAIL` | For RCA | (empty) | Email target for RCA ticket dispatch |
 | `NOC_NOTIFY_EMAIL` | For after-hours | (empty) | NOC team notification email |
@@ -145,7 +167,7 @@ cp .env.example .env
 | `ALLOW_PRIVATE_LLM_ENDPOINTS` | No | `false` | Permit private targets for generic OpenAI-compatible connection tests; selected Ollama/vLLM providers can use validated local endpoints |
 | `CORS_ORIGINS` | No | localhost origins | Comma-separated allowed browser origins |
 | `ALLOW_UNSIGNED_WEBHOOKS` | No | `false` | Controlled webhook migration exception |
-| `PUBLIC_APP_URL` | No | `http://localhost:8503` | Registration link base URL |
+| `PUBLIC_APP_URL` | No | `http://localhost:8501` | Registration link base URL for the C# default stack |
 | `NWS_API_USER_AGENT` | No | `NOC-IFC/2.0 (https://test.weasts.net)` | Identifying User-Agent for centralized NWS API requests; set the deployed public URL, and `DEFAULT_ADMIN_EMAIL` is appended as contact when configured |
 | `REGISTRATION_INVITE_TTL_HOURS` | No | `72` | Registration invite lifetime |
 | `BACKUP_ENCRYPTION_ACTIVE_KEY_ID` | For backups | `primary` | Key ID used for newly created encrypted full backups |
@@ -155,7 +177,7 @@ cp .env.example .env
 
 The notification-destination and Elastic variables above remain environment fallbacks. Their editable database overrides are available in **Settings > Application Settings > Notification destinations and Elastic integration** and are shared dynamically by the API and worker. Blank optional destinations disable them; reset removes the override and uses the environment value. Elastic API keys are never returned by the settings API. Local AI providers are selected in **Settings > AI & SMTP**; use endpoints reachable from the API container (for example, a Docker service name or the host gateway).
 
-Create a random backup key with `python -c 'import secrets; print(secrets.token_hex(32))'`, then set `BACKUP_ENCRYPTION_KEYS` to a JSON object such as `{"primary":"<64-hex-character-key>"}`. Keep this secret outside the backup directory and deployment host; losing it makes the encrypted backups unreadable. Retain old key IDs in the JSON map through the lifetime of backups encrypted with them. Full encrypted packages for this dev project are stored at `./data-dev/backups`, on its isolated persistent data mount; copy/download them to off-host storage for disaster recovery. `.env` and environment-only credentials are never packaged.
+Create a random backup key with `python -c 'import secrets; print(secrets.token_hex(32))'`, then set `BACKUP_ENCRYPTION_KEYS` to a JSON object such as `{"primary":"<64-hex-character-key>"}`. Keep this secret outside the backup directory and deployment host; losing it makes the encrypted backups unreadable. Retain old key IDs in the JSON map through the lifetime of backups encrypted with them. Full encrypted packages for the default C# dev-c project are stored at `./data-dev-c/backups`; the legacy Python backup uses `./data-dev/backups`. Copy/download packages to off-host storage for disaster recovery. `.env` and environment-only credentials are never packaged.
 
 **Example production `.env`:**
 
@@ -174,16 +196,24 @@ DEFAULT_ADMIN_PASSWORD=Ch@ng3M3!nPr0d
 
 ## 5. Commands Reference
 
-### Production Build and Run
+### C# dev-c Build and Run
 
 ```bash
 docker compose up --build -d
 ```
 
-### Development Mode (Hot Reload)
+### C# Development Mode (Vite HMR)
 
 ```bash
-docker compose --profile dev up --build -d
+DEV_C_UID="$(id -u)" DEV_C_GID="$(id -g)" docker compose --profile dev up --build -d
+```
+
+The optional `web-dev` container is available on host port 5173; the static production `web` remains on 8501.
+
+### Legacy Python Backup
+
+```bash
+docker compose -p noc-ifc-dev --profile dev -f docker-compose.yml up --build -d
 ```
 
 ### View Logs
@@ -230,10 +260,10 @@ docker compose stats            # Live resource usage
 ### Database Operations
 
 ```bash
-# Shell into API container
-docker compose exec api bash
+# Shell into the C# API container
+docker compose exec api sh
 
-# Migrations are checked automatically before backend services start.
+# C# backends require the host-side migration/bootstrap to reach head first.
 docker compose restart api worker webhook
 ```
 
@@ -244,12 +274,12 @@ docker compose restart api worker webhook
 ### Database
 
 - SQLite is the supported application database. API, worker, and webhook containers must share the configured database file.
-- Startup checks the Alembic revision and applies pending migrations before the service accepts work. Back up the database before upgrades (see Section 7).
+- C# API, Worker, and Webhook require Alembic head `20261125_0025` and do not migrate at startup. Run the pinned host-side migration/bootstrap before starting them, and take a backup before upgrading. The legacy Python backup applies migrations during startup.
 - Pre-Alembic application schemas are upgraded additively when they match the documented compatibility map. Unknown missing columns and invalid legacy data stop startup before the revision is recorded; see [Migration Compatibility](MIGRATION_COMPATIBILITY.md) for the tested boundary and recovery procedure.
 
 ### Reverse Proxy and TLS
 
-Deploy nginx or similar reverse proxy in front of the application:
+For the C# stack, web port 8501 is published on host interfaces for this dev environment. For protected deployments, place nginx or a similar trusted reverse proxy in front of it; the bundled Nginx already proxies `/api/` and `/ws` to the API:
 
 ```nginx
 server {
@@ -260,7 +290,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/noc.example.com/privkey.pem;
 
     location / {
-        proxy_pass http://127.0.0.1:8503;
+        proxy_pass http://127.0.0.1:8501;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -268,7 +298,7 @@ server {
     }
 
     location /ws {
-        proxy_pass http://127.0.0.1:8102;
+        proxy_pass http://127.0.0.1:8501/ws;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -277,7 +307,7 @@ server {
     }
 
     location /api {
-        proxy_pass http://127.0.0.1:8102;
+        proxy_pass http://127.0.0.1:8501/api;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -291,6 +321,8 @@ server {
     return 301 https://$server_name$request_uri;
 }
 ```
+
+The legacy Python backup uses the older `8503` web and `8102` API ports; it is not the default Compose stack.
 
 ### Resource Limits
 
@@ -328,22 +360,28 @@ services:
 
 ## 7. Network Architecture
 
+### C# dev-c default
+
+Browser traffic enters the Nginx frontend on localhost port 8501. Nginx proxies `/api/` and `/ws` through the Docker host-gateway alias to API port 8101. SolarWinds requests target localhost port 8100; API, Worker, and Webhook share `./data-dev-c`. Optional Vite HMR uses localhost port 5173.
+
+### Legacy Python backup
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Docker Network                           │
 │                                                             │
 │  ┌──────────┐    ┌──────────┐    ┌──────────┐              │
 │  │   api    │◄───│   web    │    │ webhook  │              │
-│  │  :8101   │    │  :5173   │    │  :8100   │              │
+│  │  :8102   │    │  :5173   │    │  :8100   │              │
 │  └────┬─────┘    └──────────┘    └──────────┘              │
 │       │                                                     │
 │  ┌────┴─────┐         ┌──────────┐                         │
-│  │  worker  │         │ web-dev  │ (dev profile only)      │
+│  │  worker  │         │          │                         │
 │  │  :???    │         │  :5173   │                         │
 │  └──────────┘         └──────────┘                         │
 └─────────────────────────────────────────────────────────────┘
 
-External Access:
+External Access (legacy Python backup):
   localhost:8503 → web (production, nginx static)
   localhost:5174 → web-dev (development, Vite HMR)
   localhost:8102 → api (FastAPI + WebSocket)
@@ -354,10 +392,11 @@ External Access:
 **SolarWinds Integration:**
 
 ```
-SolarWinds → POST http://<host>:8099/webhook/solarwinds → webhook service → database
+SolarWinds → POST http://<host>:8099/webhook/solarwinds → legacy Python webhook → database
+C# SolarWinds → POST http://localhost:8100/webhook/solarwinds → C# webhook → `data-dev-c`
 ```
 
-All dev containers attach to Docker's built-in bridge network without allocating another subnet. The web containers reach the API through the `noc-ifc-dev-api` host-gateway alias; API, worker, and webhook share SQLite through `./data-dev`.
+All default C# containers attach to Docker's built-in bridge network without allocating another subnet. The web container reaches the API through the `noc-ifc-dev-c-api` host-gateway alias; API, Worker, and Webhook share SQLite through `./data-dev-c`. The ignored Python backup uses separate host ports and `./data-dev`.
 
 ---
 
@@ -369,11 +408,11 @@ All dev containers attach to Docker's built-in bridge network without allocating
 | Authorization | Backend authorization enforces page, tab, action, administrator, and site-type grants. The shared catalog is `contracts/permission_catalog.json`; Python and C# adapters consume it. | Keep role grants least-privilege and verify any custom roles after upgrades. |
 | Administrative routes | Legacy `/admin/*` routes require the administrator role; newer user and application settings routes use their specific permissions. | Do not expose backend ports directly to untrusted networks. |
 | CORS | `CORS_ORIGINS` is an explicit origin list; the default allows the local production and development frontends. | Set only the deployed frontend origin(s). |
-| WebSocket | Requires a session token and AIOps page/Active Board access; sessions and permissions are revalidated, and site data is filtered. | Prefer TLS (`wss://`) through a reverse proxy and restrict direct access to host port 8102. |
+| WebSocket | Requires a session token and AIOps page/Active Board access; sessions and permissions are revalidated, and site data is filtered. | Prefer TLS (`wss://`) through a reverse proxy and restrict direct access to host port 8101. |
 | SolarWinds webhook | HMAC and timestamp/replay checks are supported. Unsigned requests are rejected unless `ALLOW_UNSIGNED_WEBHOOKS=true`. | Configure a strong `WEBHOOK_HMAC_SECRET`; keep the unsigned exception disabled. |
 | SMTP/LLM/Elastic credentials | SMTP passwords and LLM/Elastic API keys may be stored in `SystemConfig`; the live SQLite columns are not field-level encrypted. Full backup packages encrypt the database snapshot; `.env` and environment secrets stay external. | Protect the SQLite volume and backups. Define secret rotation and external secret-management requirements for the customer environment. |
 | Request limits | The webhook and WebSocket have configured size limits. There is no general API rate limiter; the database-upload endpoint currently reads its upload into memory. | Add route-level rate limits and bounded upload handling before exposing the service to broad or untrusted networks. |
-| Transport | Compose publishes the API, webhook, and web ports; TLS termination is not built into the stack. | Terminate HTTPS at a trusted reverse proxy and apply firewall rules to limit source networks. |
+| Transport | The C# dev Compose publishes main-compatible API/webhook/web ports on all host interfaces; TLS termination is not built in. | Restrict these development ports to trusted LAN clients with host firewall rules; terminate HTTPS before broader exposure. |
 | Frontend source-IP rule | `web/nginx.conf` contains `allow 10.0.0.0/8` for workspace requests but no `deny all`; this is not an allowlist and does not block unmatched client addresses. | Enforce the intended source-network restriction at the host firewall or trusted upstream proxy. |
 
 Set `DEFAULT_ADMIN_PASSWORD` before first boot; there is no guaranteed hard-coded production password. Review `CORS_ORIGINS`, TLS, network exposure, credential handling, and backup protection as part of each deployment.
@@ -393,7 +432,7 @@ Set `DEFAULT_ADMIN_PASSWORD` before first boot; there is no guaranteed hard-code
 | Frontend blank screen | Build cache issue | `docker compose up --build -d --force-recreate web` |
 | Webhook returns 500 | Invalid SolarWinds payload | Check payload format matches expected schema |
 | Worker memory spike | Large feed batch | Increase memory limit or reduce `chunk_size` |
-| Port conflict on 8102 | Another process using the dev API port | `lsof -i :8102` to identify the process; API is one port above main's 8101 |
+| Port conflict on 8101 | Another process using the C# API port | `lsof -i :8101` to identify the process; the Python backup uses 8102 |
 | Required table/column missing | Migration failed or legacy schema is inconsistent | Back up the database, inspect startup migration logs, resolve the reported issue, and restart the backend |
 
 **Log locations:**
@@ -425,7 +464,7 @@ docker compose up --build -d
 
 # 4. Verify deployment
 docker compose ps
-curl http://localhost:8102/health
+curl http://localhost:8101/health
 docker compose logs --tail=30 worker
 ```
 

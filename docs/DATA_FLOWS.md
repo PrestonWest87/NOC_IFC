@@ -1,6 +1,6 @@
 # Data Flows and Domain Pipelines
 
-This document describes the data transformations implemented by the current source tree. Job frequencies/startup behavior are in [`SCHEDULER.md`](SCHEDULER.md); HTTP contracts are in [`API.md`](API.md).
+This document describes the retained Python implementation. Job frequencies/startup behavior for that backup are in [`SCHEDULER.md`](SCHEDULER.md); HTTP contracts are in [`API.md`](API.md). The C# dev-c conversion status is tracked in `README_DEV_C.md`.
 
 ## Runtime data path
 
@@ -21,7 +21,7 @@ external feeds / webhook / API actions
       FastAPI, React, WebSocket, SMTP
 ```
 
-API, worker, and webhook use one shared SQLite file on the `./data-dev` volume in this dev Compose project. Migrations execute before normal service work. Full encrypted backups snapshot the SQLite file; legacy classifier artifacts are no longer generated or restored, and environment secrets remain outside the package.
+The legacy Python API, worker, and webhook use one shared SQLite file on `./data-dev`; they run migrations before normal service work. Default C# dev-c uses isolated `./data-dev-c` storage and host-side migrations. Full encrypted backups snapshot the SQLite file; legacy classifier artifacts are no longer generated or restored, and environment secrets remain outside the package.
 
 ## 1. RSS ingestion, scoring, and article enrichment
 

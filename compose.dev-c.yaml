@@ -26,11 +26,10 @@ services:
       target: api
     environment:
       <<: *backend-environment
-      ASPNETCORE_URLS: http://+:8102
-      PUBLIC_APP_URL: http://localhost:8512
+      ASPNETCORE_URLS: http://+:8101
+      PUBLIC_APP_URL: http://localhost:8501
     ports:
-      - "127.0.0.1:8112:8102"
-      - "${DEV_C_DOCKER_GATEWAY:-172.17.0.1}:8112:8102"
+      - "8101:8101"
 
   worker:
     <<: *backend-common
@@ -52,7 +51,7 @@ services:
     environment:
       <<: *backend-environment
     ports:
-      - "127.0.0.1:8109:8100"
+      - "8100:8100"
 
   web:
     network_mode: bridge
@@ -62,7 +61,7 @@ services:
       args:
         NGINX_CONF: nginx.dev-c.conf
     ports:
-      - "127.0.0.1:8512:5173"
+      - "8501:5173"
     extra_hosts:
       - "noc-ifc-dev-c-api:host-gateway"
     depends_on:
@@ -75,3 +74,25 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
+
+  web-dev:
+    profiles: ["dev"]
+    network_mode: bridge
+    image: node:22-alpine
+    working_dir: /app
+    command: sh ./dev-entrypoint.sh
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://noc-ifc-dev-c-api:8101
+    extra_hosts:
+      - "noc-ifc-dev-c-api:host-gateway"
+    depends_on:
+      api:
+        condition: service_started
+    volumes:
+      - ./web:/app
+      - web_dev_node_modules:/app/node_modules
+
+volumes:
+  web_dev_node_modules:
