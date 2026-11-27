@@ -16,6 +16,7 @@ public interface IThreatArticleStore
         CancellationToken cancellationToken);
     Task<ThreatArticleDetail?> GetDetailAsync(int articleId, CancellationToken cancellationToken);
     Task<IReadOnlyList<ThreatArticle>> GetByIdsAsync(IReadOnlyList<int> articleIds, CancellationToken cancellationToken);
+    Task<bool> SaveAiBlufAsync(int articleId, string bluf, CancellationToken cancellationToken);
     Task TogglePinAsync(int articleId, CancellationToken cancellationToken);
     Task BoostScoreAsync(int articleId, int amount, CancellationToken cancellationToken);
 }

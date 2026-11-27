@@ -81,6 +81,9 @@ public sealed class SqliteThreatArticleStoreTests
             var selected = await store.GetByIdsAsync([4, 1, 999, 4], CancellationToken.None);
             Assert.Equal(new[] { 1, 4 }, selected.Select(article => article.Id));
             Assert.Empty(await store.GetByIdsAsync([], CancellationToken.None));
+            Assert.True(await store.SaveAiBlufAsync(1, "Generated BLUF", CancellationToken.None));
+            Assert.False(await store.SaveAiBlufAsync(999, "Missing article", CancellationToken.None));
+            Assert.Equal("Generated BLUF", Assert.Single(await store.GetByIdsAsync([1], CancellationToken.None)).AiBluf);
 
             await store.TogglePinAsync(4, CancellationToken.None);
             await store.BoostScoreAsync(1, 20, CancellationToken.None);

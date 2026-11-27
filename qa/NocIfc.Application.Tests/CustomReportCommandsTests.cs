@@ -148,6 +148,8 @@ public sealed class CustomReportCommandsTests
             return Task.FromResult<IReadOnlyList<ThreatArticle>>(
                 Articles.Where(article => articleIds.Contains(article.Id)).ToArray());
         }
+        public Task<bool> SaveAiBlufAsync(int articleId, string bluf, CancellationToken cancellationToken) =>
+            Task.FromResult(true);
         public Task TogglePinAsync(int articleId, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task BoostScoreAsync(int articleId, int amount, CancellationToken cancellationToken) => Task.CompletedTask;
     }

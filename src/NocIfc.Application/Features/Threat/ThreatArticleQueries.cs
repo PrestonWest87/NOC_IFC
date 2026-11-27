@@ -62,6 +62,19 @@ public sealed class ThreatArticleQueries(IThreatArticleStore articles)
         return articles.GetByIdsAsync(articleIds.Distinct().ToArray(), cancellationToken);
     }
 
+    public Task<bool> SaveAiBlufAsync(int articleId, string bluf, CancellationToken cancellationToken)
+    {
+        if (articleId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(articleId), "article_id must be positive.");
+        }
+        if (bluf.Length > 200_000)
+        {
+            throw new ArgumentException("BLUF content must be 200,000 characters or fewer.", nameof(bluf));
+        }
+        return articles.SaveAiBlufAsync(articleId, bluf, cancellationToken);
+    }
+
     public Task TogglePinAsync(int articleId, CancellationToken cancellationToken) =>
         articles.TogglePinAsync(articleId, cancellationToken);
 

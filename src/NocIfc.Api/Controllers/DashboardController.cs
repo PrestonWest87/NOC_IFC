@@ -14,7 +14,8 @@ public sealed class DashboardController(
     DashboardQueries dashboard,
     ExecutiveIntelQueries executiveIntel,
     InternalRiskQueries internalRisk,
-    ThreatArticleQueries articles) : ControllerBase
+    ThreatArticleQueries articles,
+    GenerateArticleBlufCommands blufCommands) : ControllerBase
 {
     [HttpGet("metrics")]
     [RequireAction("Tab: Dashboards -> Operational")]
@@ -148,5 +149,22 @@ public sealed class DashboardController(
         {
             return UnprocessableEntity(new { detail = exception.Message });
         }
+    }
+
+    [HttpPost("articles/generate-bluf")]
+    [RequireAction("Tab: Dashboards -> Operational")]
+    [RequireAction("Action: Trigger AI Functions")]
+    public async Task<IActionResult> GenerateArticleBluf(
+        [FromQuery(Name = "article_id")] int articleId = 0,
+        CancellationToken cancellationToken = default)
+    {
+        if (articleId < 0)
+        {
+            return UnprocessableEntity(new { detail = "article_id must be non-negative." });
+        }
+        var result = await blufCommands.GenerateAsync(articleId, cancellationToken);
+        return result.Success
+            ? Ok(new { status = "ok", bluf = result.Bluf })
+            : Ok(new { status = "error", message = result.Message });
     }
 }

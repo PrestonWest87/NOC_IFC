@@ -158,6 +158,17 @@ public sealed class SqliteThreatArticleStore(SqliteConnectionFactory connections
         return articles;
     }
 
+    public async Task<bool> SaveAiBlufAsync(int articleId, string bluf, CancellationToken cancellationToken)
+    {
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE articles SET ai_bluf = $bluf WHERE id = $id";
+        command.Parameters.AddWithValue("$bluf", bluf);
+        command.Parameters.AddWithValue("$id", articleId);
+        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
     public async Task TogglePinAsync(int articleId, CancellationToken cancellationToken)
     {
         await using var connection = connections.Create();

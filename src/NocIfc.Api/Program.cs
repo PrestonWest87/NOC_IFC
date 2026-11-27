@@ -90,6 +90,7 @@ builder.Services.AddScoped<IInternalRiskStore, SqliteInternalRiskStore>();
 builder.Services.AddScoped<InternalRiskQueries>();
 builder.Services.AddScoped<IThreatArticleStore, SqliteThreatArticleStore>();
 builder.Services.AddScoped<ThreatArticleQueries>();
+builder.Services.AddScoped<GenerateArticleBlufCommands>();
 builder.Services.AddScoped<IThreatStatusStore, SqliteThreatStatusStore>();
 builder.Services.AddScoped<ThreatStatusQueries>();
 builder.Services.AddScoped<IThreatHuntingStore, SqliteThreatHuntingStore>();
