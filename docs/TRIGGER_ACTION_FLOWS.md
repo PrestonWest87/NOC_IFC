@@ -1,6 +1,6 @@
 # Trigger and Action Flows
 
-This guide traces the retained Python implementation's externally triggered, scheduled, browser-initiated, and WebSocket actions. REST route examples use router-relative suffixes; prepend `/api/v1` unless a full path is shown. The webhook and `/health`/`/ready` probes are outside that prefix. Exact route bodies/permissions are in [`API.md`](API.md); legacy Python schedule defaults and bounds are in [`SCHEDULER.md`](SCHEDULER.md). C# dev-c conversion status is tracked in `README_DEV_C.md`.
+This guide preserves the former Python implementation's externally triggered, scheduled, browser-initiated, and WebSocket flows as historical context. Python runtime source has been removed from `dev-c`; current C# route contracts are in [`API.md`](API.md), and current job scheduling is in [`SCHEDULER.md`](SCHEDULER.md). The conversion status is tracked in `README_DEV_C.md`.
 
 ## 1. SolarWinds webhook
 

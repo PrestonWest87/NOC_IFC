@@ -1,49 +1,16 @@
-# Python Dependencies
+# Host-Side Python Tooling
 
-**Direct runtime manifest:** `requirements.txt`
+There is no Python application runtime or root `requirements.txt` on `dev-c`. Python is retained only for Alembic migrations, fresh-database bootstrap, offline backup conversion/recovery, and route-contract comparison.
 
-**Resolved runtime lock:** `requirements.lock`
-**Test manifest:** `requirements-test.txt` (adds the `httpx2` distribution used by FastAPI/Starlette `TestClient` after the runtime lock)
+**Manifest:** `tools/offline-python/pyproject.toml`
 
-The Python image installs only runtime dependencies. The test manifest adds pinned `httpx2==2.13.1` for FastAPI/Starlette `TestClient`; install it after `requirements.lock` when preparing a test environment.
+**Lock:** `tools/offline-python/uv.lock`
+**Python:** 3.11
 
-| Package | Why it is required |
-|---|---|
-| `alembic>=1.13,<2` | Versioned SQLite schema migrations, checked at service startup. |
-| `sqlalchemy` | ORM, schema metadata, sessions, and SQLite engine. |
-| `fastapi` | REST API and SolarWinds webhook application. |
-| `uvicorn[standard]` | ASGI server, WebSocket support, and optimized HTTP/event-loop extras. |
-| `python-multipart>=0.0.20` | Admin database-upload endpoint. |
-| `pydantic-settings` | Typed application settings. |
-| `python-dotenv` | Explicit `.env` loading in `src/core/config.py`. |
-| `feedparser` | RSS/Atom parsing in feed and cloud-status workers. |
-| `schedule` | Dynamic in-process background job scheduler. |
-| `requests` | Synchronous external API and LLM calls. |
-| `aiohttp` | Concurrent asynchronous RSS fetching. |
-| `trafilatura` | Article full-text extraction. |
-| `shapely` | Regional polygon, point, and geometry operations. |
-| `pyproj>=3.6,<4` | Meter-accurate local AEQD projection for the Arkansas 50-mile border buffer. |
-| `elasticsearch>=8.0.0,<9.0.0` | Production Elastic telemetry/search integration; retained in the standard image. Tests mock the client or leave `ELASTIC_URL` blank. |
-| `rapidfuzz` | Native title-similarity ratio used by article deduplication. |
-| `bcrypt==4.1.2` | Password hashing. |
-
-Removed unused direct requirements: `scikit-learn`, `joblib`, PostgreSQL's `psycopg2-binary`, `beautifulsoup4`, `aiofiles`, `openai`, and `google-generativeai`. The article classifier and Keep/Dismiss feedback feature are retired; article scoring uses keyword weights only. LLM calls use `requests` with the configured compatible endpoint, not provider SDKs. Pandas was removed after active regional, AIOps, and settings code was converted to records, counters, and Python lists. `pydeck` was not a declared dependency; its unreferenced legacy rendering helpers were removed.
-
-## Installing dependencies
+The locked tool dependencies are Alembic, SQLAlchemy, Pydantic Settings, python-dotenv, bcrypt, and cryptography. Install the isolated host environment with:
 
 ```bash
-# Runtime image / production environment
-pip install --require-hashes -r requirements.lock
-
-# Development and tests
-pip install --require-hashes -r requirements.lock
-pip install -r requirements-test.txt
+uv sync --project tools/offline-python --locked --python 3.11
 ```
 
-Regenerate the hash-pinned runtime lock after changing direct requirements:
-
-```bash
-uv pip compile requirements.txt --python-version 3.11 --universal --generate-hashes -o requirements.lock
-```
-
-`Dockerfile` installs the lock with hash checking and uses a BuildKit pip cache mount. Keep `requirements.txt` and `requirements.lock` synchronized in the same change.
+Commands are documented in [Getting Started](../../GETTING_STARTED.md), [Maintenance](../../MAINTENANCE.md), and `README_DEV_C.md`. The tool directory is excluded from backend image builds.

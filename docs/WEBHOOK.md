@@ -1,6 +1,6 @@
 # SolarWinds Webhook Gateway
 
-The legacy FastAPI gateway in `src/webhook_listener.py` listens on container port 8100 and is retained in the ignored local `docker-compose.yml` backup. The tracked default `compose.yaml` includes `compose.dev-c.yaml` and selects the C# gateway; the Python listener remains available through the backup Compose file.
+The active SolarWinds gateway is the C# service in `src/NocIfc.Webhook/`, listening on port 8100. The former FastAPI listener and Python runtime Compose stack have been removed from `dev-c`; the request and response details below document the migrated integration contract.
 
 ## Endpoint and successful response
 
@@ -61,13 +61,13 @@ The classifier first passes an explicit device hint through `EnterpriseAIOpsEngi
 | Signing is not configured and unsigned exception is disabled | 503 |
 | Unhandled gateway failure before acceptance | 500 |
 
-`GET /health` is an unauthenticated liveness response. The legacy Python backup publishes host port 8099; default C# dev-c publishes 8100. Restrict the selected host port to approved sender networks and use signed requests in production.
+`GET /health` is an unauthenticated liveness response. The dev-c stack publishes host port 8100. Restrict the host port to approved sender networks and use signed requests in production.
 
 ## C# dev-c port
 
-`src/NocIfc.Webhook/` implements the endpoint and signing settings as a separate ASP.NET Core host, built by the `webhook` target in `deploy/Dockerfile.backend`. The default `compose.yaml` publishes it at `http://localhost:8100/webhook/solarwinds` alongside the C# API and Worker on isolated `data-dev-c` storage; the legacy Python Compose file remains available as a local backup.
+`src/NocIfc.Webhook/` implements the endpoint and signing settings as a separate ASP.NET Core host, built by the `webhook` target in `deploy/Dockerfile.backend`. The default `compose.yaml` publishes it at `http://localhost:8100/webhook/solarwinds` alongside the C# API and Worker on isolated `data-dev-c` storage.
 
 - `GET /health` reports liveness. The host probes SQLite readiness against Alembic revision `20261125_0025`; POST requests return 503 until the database is ready and while restore maintenance is active.
-- Accepted requests use a bounded process-local queue. HTTP 200 means queued, not committed; a process restart can lose queued bodies. The Python background-task path has the same accepted-versus-persisted distinction.
+- Accepted requests use a bounded process-local queue. HTTP 200 means queued, not committed; a process restart can lose queued bodies.
 - A resolution with a known `Site`/`City` only resolves same-node alerts at that mapped location. If the resolution site is missing or `Unknown`, it retains the legacy same-node fallback because there is no site to disambiguate.
 - The .NET configuration validates `WEBHOOK_MAX_BODY_BYTES` from 1 byte through 16 MiB; the other signing and replay settings use the environment names above.

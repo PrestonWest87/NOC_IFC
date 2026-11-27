@@ -150,7 +150,8 @@ public sealed class SqliteBackupManager(
                 output.Flush(true);
             }
             if (size == 0) throw new BackupException("The uploaded backup is empty.");
-            var validation = ValidatePackage(temporary, maxBytes);
+            using var validation = ValidatePackage(temporary, maxBytes);
+            EnsureCurrentSchema(validation.DatabasePath);
             var stageId = $"stage-{Guid.NewGuid():N}.nocbackup";
             var stagedPath = Path.Combine(root, stageId);
             File.Move(temporary, stagedPath);
@@ -694,7 +695,7 @@ public sealed class SqliteBackupManager(
 
     private void EnsureCurrentSchema(string databasePath)
     {
-        // shortcut: C# restore accepts current-head snapshots only; enable older packages after a C#-safe host migration path exists.
+        // shortcut: C# restores current-head snapshots; use the host offline tool to upgrade older packages before staging.
         var connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = databasePath,
@@ -708,7 +709,7 @@ public sealed class SqliteBackupManager(
         var revision = command.ExecuteScalar() as string;
         if (revision != ExpectedSchemaRevision)
         {
-            throw new BackupException("This C# restore requires a backup at the current schema revision; upgrade it with the offline migration tool first.");
+            throw new BackupException("This C# restore requires schema revision 20261125_0025; run tools/offline-python/upgrade_backup.py before staging this package.");
         }
     }
 

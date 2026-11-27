@@ -1,4 +1,6 @@
 using System.Globalization;
+using Microsoft.AspNetCore.Mvc;
+using NocIfc.Api.Validation;
 using NocIfc.Application.Abstractions.Elastic;
 using NocIfc.Application.Abstractions.AIOps;
 using NocIfc.Application.Abstractions.BackupRestore;
@@ -36,6 +38,16 @@ using NocIfc.Infrastructure.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
+builder.Services.Configure<ApiBehaviorOptions>(options =>
+    options.InvalidModelStateResponseFactory = FastApiValidationResponseFactory.Create);
+builder.Services.AddOpenApi();
+var corsOrigins = (builder.Configuration["CORS_ORIGINS"]
+    ?? "http://localhost:8501,http://localhost:5173")
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray();
+builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
+    policy.WithOrigins(corsOrigins).AllowAnyMethod().AllowAnyHeader().AllowCredentials()));
 var integrationEnvironment = new IntegrationEnvironmentSettings(
     builder.Configuration["risk_alert_recipients"] ?? "",
     builder.Configuration["remedyforce_ticket_email"] ?? "",
@@ -224,9 +236,12 @@ builder.Services.AddScoped<SiteTypeQueries>();
 
 var app = builder.Build();
 app.UseWebSockets();
+app.UseRouting();
+app.UseCors();
 app.UseMiddleware<SessionAuthenticationMiddleware>();
 app.MapControllers();
 app.MapGet("/ws", (HttpContext context, AiopsWebSocketHub websockets) => websockets.HandleAsync(context));
+app.MapOpenApi();
 
 app.Run();
 

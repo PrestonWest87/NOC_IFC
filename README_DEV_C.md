@@ -19,9 +19,9 @@ The GitHub tracking issue is [#1 — Re-architect and rebuild the back end in a 
 
 ## Current architecture and constraints
 
-The current backend is Python 3.11 and consists of three processes: FastAPI REST/WebSocket API, scheduler worker, and SolarWinds webhook listener. All three share one SQLite database and persistent data volume. The frontend is a separately built React/Vite app served by Nginx, which proxies `/api/` and `/ws` to the API.
+The original migration baseline was a Python 3.11 FastAPI API, scheduler worker, and SolarWinds webhook sharing SQLite. The active `dev-c` backend is C#; the Python runtime, root Python image, Compose stack, and runtime dependency manifests have been removed from this branch. Python remains only in host-side database migration/bootstrap, encrypted-backup maintenance, and route-contract comparison tools.
 
-The current source and checked-in documentation identify these compatibility areas; regenerate or verify them from `dev` before implementation because counts can change:
+The original Python source and checked-in documentation established these compatibility areas; use them as historical migration references because Python runtime source is no longer present on `dev-c`:
 
 - 18 API routers and a documented inventory of 203 paths / 219 HTTP operations.
 - 45 SQLAlchemy models and SQLite migration head `20261123_0023`.
@@ -31,9 +31,9 @@ The current source and checked-in documentation identify these compatibility are
 - SolarWinds webhook signing, validation, payload normalization, and accepted-response behavior.
 - Operational Email snapshots, scheduling, attachments, recipient routing, and backup/restore behavior.
 
-Important source boundaries today:
+Original Python-to-C# source boundaries:
 
-| Current source | Responsibility | Target location |
+| Original Python source | Responsibility | C# target / retained tool |
 |---|---|---|
 | `src/api/main.py`, `src/api/routes/` | REST, WebSocket, middleware, endpoint binding | Feature-scoped controllers and WebSocket handlers in `src/NocIfc.Api/` |
 | `src/services.py` | Cross-cutting domain behavior and data access | Feature use cases in `NocIfc.Application`; query adapters in `NocIfc.Infrastructure` |
@@ -41,12 +41,12 @@ Important source boundaries today:
 | `src/scheduler.py`, `src/workers/` | Job schedule and provider jobs | `src/NocIfc.Worker/Jobs/` |
 | `src/webhook_listener.py` | SolarWinds ingestion host | `src/NocIfc.Webhook/` |
 | `src/core/`, `src/utils/` | Configuration, permissions, email, LLM, backup, validation | Split by domain/application/infrastructure responsibility |
-| `migrations/` | Alembic history and SQLite upgrades | `tools/offline-python/migrations/` |
-| `scripts/` | Offline restore and seed tools | Shared C# CLI where logic is also used at runtime; remaining offline utilities under `tools/offline-python/` |
-| `web/` | React, Vite, Nginx, frontend assets | Retain; remove only retired model/feedback controls and their calls |
-| `Dockerfile`, `docker-compose.yml` | Current Python image and Compose topology | Shared multi-stage backend Dockerfile and tracked Compose files |
+| `migrations/` | Alembic history and SQLite upgrades (retained host-side) | `migrations/` plus `tools/offline-python/` |
+| `scripts/` | Legacy runtime seed/restore launchers | Offline database/backup tools under `tools/offline-python/` |
+| `web/` | React, Vite, Nginx, frontend assets | Retained unchanged |
+| Root Python `Dockerfile`, `docker-compose.yml`, and `requirements*.txt` | Retired Python runtime image/configuration | Removed from `dev-c`; C# uses `deploy/Dockerfile.backend` and `compose.yaml` |
 
-`src/services.py` and `src/scheduler.py` are large cross-cutting modules. The redesign should split responsibilities by feature and make API and worker hosts call the same application use cases rather than reproduce business logic. Remove compatibility shims such as the dynamic `src/services/` loader and `src/database.py` re-exports after all callers have moved.
+The original `src/services.py` and `src/scheduler.py` cross-cutting modules and their compatibility shims were replaced by feature-scoped C# application use cases and removed from this branch. Python source retained under `src/core/` and `src/models/` exists only for the host-side database and backup tools.
 
 ## Model and feedback retirement
 
@@ -445,7 +445,7 @@ The `native/` project and `NocIfc.Infrastructure/NativeCompute/` adapter remain 
 - Pin the .NET SDK and centralize package versions and compiler/analyzer settings at the solution root.
 - Build API, worker, and webhook from a shared multi-stage backend Dockerfile, publishing separate minimal runtime images. Reuse build layers without copying tests, docs, offline Python tools, or frontend source into runtime images.
 - Keep the frontend in its existing independent Node/Vite-to-Nginx image. Preserve `/api/`, `/ws`, REST paths, payloads, session behavior, and error responses so the frontend does not need an API rewrite.
-- Use tracked `compose.yaml` as the C# default; it includes `compose.dev-c.yaml`. Keep the ignored local `docker-compose.yml` unchanged as the Python backup. The C# project uses main-compatible host ports and isolated `./data-dev-c`; do not mount `data/` or `data-dev/`.
+- Keep tracked `compose.yaml` as the only application Compose entrypoint; it includes `compose.dev-c.yaml`. The retired Python root Dockerfile, Compose file, and runtime requirements are deleted from this branch. The C# project uses main-compatible host ports and isolated `./data-dev-c`; do not mount `data/` or `data-dev/`.
 - Run the existing Alembic migration tool from a pinned host-side Python environment as an explicit pre-start deployment step. It remains the single schema-migration authority and is excluded from all application images. C# services verify that the database is at the expected revision and fail readiness rather than attempting startup migrations in three processes.
 - Port operational backup/restore into shared C# infrastructure so the API and any offline C# command-line utility reuse one implementation. Keep legacy encrypted package compatibility, including retired model payloads.
 - Generate the regional basemap once in the build and share the resulting artifact with the backend and web build. The current backend consumes geometry built from frontend assets, and the generator currently runs in more than one build path.
@@ -455,14 +455,21 @@ The `native/` project and `NocIfc.Infrastructure/NativeCompute/` adapter remain 
 
 ### Isolated dev-c Compose
 
-`compose.yaml` is the default C# stack and includes `compose.dev-c.yaml`. The ignored local `docker-compose.yml` remains unchanged as a Python backup. The C# project uses Docker's built-in `bridge` network and matches main's host ports: API 8101, webhook 8100, production UI 8501, and optional Vite HMR 5173 are all published on host interfaces. Nginx reaches the API through the Docker host-gateway alias. Backend containers run as the host UID/GID so their shared `./data-dev-c` bind mount remains writable by the host migration tool. Set `DEV_C_UID`/`DEV_C_GID` if the host account is not 1000:1000.
+`compose.yaml` is the only application stack and includes `compose.dev-c.yaml`. The C# project uses Docker's built-in `bridge` network and matches main's host ports: API 8101, webhook 8100, production UI 8501, and optional Vite HMR 5173 are published on host interfaces. Nginx reaches the API through the Docker host-gateway alias. Backend containers run as the host UID/GID so their shared `./data-dev-c` bind mount remains writable by the host migration tool. Set `DEV_C_UID`/`DEV_C_GID` if the host account is not 1000:1000.
 
-Before starting C# writers, prepare the separate dev-c database with the pinned Python 3.11 tool environment in `tools/offline-python/`. Its lockfile contains only Alembic/bootstrap dependencies; `.venv` is ignored and the tooling directory is excluded from application images. The fresh-database command refuses to overwrite an existing database, requires `DEFAULT_ADMIN_PASSWORD`, runs the existing migration/bootstrap, and verifies head `20261125_0025` plus the admin account.
+Before starting C# writers, prepare the separate dev-c database with the pinned Python 3.11 tool environment in `tools/offline-python/`. Its lockfile contains only offline migration/bootstrap and encrypted-backup conversion dependencies; `.venv` is ignored and the tooling directory is excluded from application images. The fresh-database command refuses to overwrite an existing database, requires `DEFAULT_ADMIN_PASSWORD`, runs the existing migration/bootstrap, and verifies head `20261125_0025` plus the admin account. C# UI restore requires current-head backups; use `upgrade_backup.py` on the host to migrate/repackage an older encrypted backup without touching the active database.
 
 ```bash
 uv sync --project tools/offline-python --locked --python 3.11
 uv run --project tools/offline-python --locked python tools/offline-python/prepare_dev_c_database.py
 DEV_C_UID="$(id -u)" DEV_C_GID="$(id -g)" docker compose up --build -d
+```
+
+To migrate an older encrypted backup before uploading it to Settings > Backup & Restore:
+
+```bash
+uv run --project tools/offline-python --locked python tools/offline-python/upgrade_backup.py \
+  /path/to/older-backup.nocbackup /path/to/current-head-backup.nocbackup
 ```
 
 Never point this project at `./data` or `./data-dev`; use an isolated backup/restore validation workflow before switching any active database.
@@ -538,12 +545,12 @@ Preserve API and WebSocket contracts, the six-position regional map response, ex
 
 ### 8. Cut over and retire Python runtime
 
-- Validate against isolated dev-c storage, then stop all old Python writers before starting C# writers on the target database.
-- Run the host-side migration step once, take/verify a safety backup, start C# API/worker/webhook, and validate the unchanged frontend, WebSocket, webhook, scheduled delivery, backup, and restore paths.
-- Keep offline Python utilities under `tools/offline-python`; exclude them from every runtime build context/image.
-- Remove Python service entrypoints and backend runtime dependency files only after all required features pass parity checks.
+- [x] Validate against isolated dev-c storage, stop Python writers, and switch the tracked default Compose stack to C#.
+- [x] Prepare/migrate the host database, verify backup/restore, and validate C# API/Worker/Webhook plus the unchanged frontend and route contracts.
+- [x] Keep host-side migration/bootstrap, encrypted-backup maintenance, and route-contract comparison under `tools/offline-python` and minimal `src/core`/`src/models` support; exclude these tools from application images.
+- [x] Remove the Python API, scheduler, webhook, service modules, root Python image/Compose/dependency manifests, and obsolete AIOps seeder from `dev-c`.
 
-**Final gate:** backend runtime images contain no Python executable or package set; the application, deployment, migration, rollback, and operator documentation is current.
+**Runtime-removal gate:** API/Worker/Webhook images contain no Python executable or package set. Manual frontend/workflow review and broader production cutover remain separate release gates.
 
 ## Issue #1 progress log
 
@@ -639,16 +646,19 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Ported the administrator-only Danger Zone delete/nuke/maintenance routes and the explicit `Tab: Settings -> Danger Zone` plus `Action: Clear AIOps Data` RCA event/alert actions. Table clearing remains allowlisted; site contacts clear with their parent sites.
 - Latest no-cache C# Docker build passes 224 tests (196 application, 28 API), including SQLite Danger Zone cleanup and retention checks.
 - Ported AES-256-GCM full SQLite backups, key rotation reads, three-file scheduled retention, staged-package authentication/checksums/integrity validation, streaming downloads, credential invalidation, rollback-safe restore, and the legacy settings/model/database import tools.
-- Restore coordination gates API requests and API background writers, closes WebSocket clients, drains in-flight C# Worker jobs, publishes a 24-hour progress capability, and resumes a pending restore after API restart. The encrypted full-restore endpoint currently accepts backups at the current Alembic head; older packages must be migrated offline before restore because C# does not run Alembic.
+- Restore coordination gates API requests and API background writers, closes WebSocket clients, drains in-flight C# Worker jobs, publishes a 24-hour progress capability, and resumes a pending restore after API restart. The encrypted C# restore endpoint accepts current-head packages; use `tools/offline-python/upgrade_backup.py` to migrate and repackage older encrypted snapshots before staging them. Staging now rejects older revisions immediately with that tool path.
 - Ported the authenticated `/ws` endpoint with AIOps page/Active Board authorization, 30-second and per-message session revalidation, site-filtered dashboard pushes/commands, bounded messages, and restore-aware disconnects. AIOps mutations now publish immediate board refresh events.
 - Added the C# scheduler for all 21 persisted jobs, with runtime revision reload, single-flight job execution, ordered startup runs, Central-time daily/weekly schedules, and Worker restore-drain status. This includes the weekly encrypted backup, NWS/telemetry, article enrichment, maintenance expiry, and tiered alert escalation handlers.
 - Latest no-cache C# Worker Docker build passes 262 tests (228 application, 34 API), including scheduler DST/revision behavior, telemetry fixtures, article URL safety, tiered ticket/page decisions, backup restore, and WebSocket authorization/restore closure. Tests use fake SMTP and HTTP providers.
 - Ported the standalone SolarWinds webhook host with bounded payload reads/queueing, HMAC timestamp/replay validation, normalization, SQLite alert/timeline persistence, readiness gating, and restore-aware writer status. Resolutions use the mapped site when known and preserve same-node fallback for unknown sites.
 - The no-cache C# Webhook Docker build passes 269 tests (229 application, 40 API). Runtime smoke checks confirmed liveness, 503 submission while the database is not ready, then successful queueing and SQLite alert/timeline persistence against a temporary minimal SQLite fixture with the current revision marker. No SMTP or external integrations were used.
-- Ported all Keyword Analysis reads plus action-protected recategorization to the C# API, with persisted SQLite analytics and the frontend's snake-case response contracts. The latest no-cache API build passes 273 tests (231 application, 42 API); all eight Keyword Analysis reads and recategorization returned 200 through the LAN frontend/API proxy.
-- Added isolated `compose.dev-c.yaml` and made it the default through tracked `compose.yaml`: project `noc-ifc-dev-c`, C# API/Worker/Webhook, the unchanged React frontend, main-compatible host ports 8101/8100/8501 plus optional Vite HMR on 5173, and only `./data-dev-c` storage. A dev-c Nginx config uses the host-gateway proxy so this stack works with Docker's built-in bridge and does not consume another address-pool subnet. All four ports publish on host interfaces for this dev setup. The ignored local `docker-compose.yml` remains unchanged as the Python backup; old NOC IFC workers were stopped for the default switch.
-- Default and `dev`-profile Compose validation passes. A no-cache Compose build and runtime-image inspection confirmed the images contain no Python runtime; the latest no-cache API-target build passed all 273 .NET tests (231 application, 42 API). The locked Python 3.11 host migration environment under `tools/offline-python/` created the fresh `data-dev-c` database at Alembic head `20261125_0025` without copying existing data. The full default stack starts on main-compatible ports; API readiness, webhook health, production/Vite frontend health, and login/logout through LAN Nginx passed. The webhook correctly rejects unsigned POSTs because no local HMAC secret is set.
+- Ported all Keyword Analysis reads plus action-protected recategorization to the C# API, with persisted SQLite analytics and the frontend's snake-case response contracts. All eight Keyword Analysis reads and recategorization returned 200 through the LAN frontend/API proxy.
+- Added isolated `compose.dev-c.yaml` and made it the default through tracked `compose.yaml`: project `noc-ifc-dev-c`, C# API/Worker/Webhook, the unchanged React frontend, main-compatible host ports 8101/8100/8501 plus optional Vite HMR on 5173, and only `./data-dev-c` storage. Nginx uses the host-gateway proxy so this stack works with Docker's built-in bridge and does not consume another address-pool subnet. All four ports publish on host interfaces for this dev setup; the Python runtime Compose/Docker files have since been removed from this branch.
+- Default and `dev`-profile Compose validation passes. A no-cache Compose build and runtime-image inspection confirmed the images contain no Python runtime; the latest no-cache API-target build passed all 290 .NET tests (234 application, 56 API). The locked Python 3.11 host migration environment under `tools/offline-python/` created the fresh `data-dev-c` database at Alembic head `20261125_0025` without copying existing data. The full default stack starts on main-compatible ports; API readiness, webhook health, production/Vite frontend health, and login/logout through LAN Nginx passed. The webhook correctly rejects unsigned POSTs because no local HMAC secret is set.
+- Added a host-side `upgrade_backup.py` that migrates an older encrypted package in a temporary database and writes a new current-head package without touching the source or active database. A temporary `20261123_0023` backup upgraded, validated, and round-tripped at `20261125_0025`; C# staging rejects old-head packages before saving them.
+- Restored the legacy `/settings/users`, `/admin/lists`, role, display-user, invite, and assisted-reset URL aliases. The C# API now applies `CORS_ORIGINS`, returns FastAPI-style 422 validation errors, and filters IOC IPs using the Python 3.11 special-use ranges.
+- The C# API publishes OpenAPI at `/openapi/v1.json`; `tools/offline-python/compare_api_routes.py` compares HTTP method/path shapes against a saved Python OpenAPI schema from `origin/dev`. The last comparison found 219 Python operations, 214 C# operations, and no route gaps after the five intentionally retired ML/feedback operations. Placeholder parameter names are normalized during this comparison.
 - The Worker started public-feed/telemetry jobs; IODA timed out while retaining existing data. No SMTP, LLM, or Elastic credentials/destinations were configured in the fresh database or local environment.
-- The C# stack is now the default Compose project; the legacy Python Compose backup is preserved. Manual frontend/workflow review and eventual Python runtime retirement remain later cutover gates.
+- The C# stack is the only Compose project on `dev-c`. The Python API, scheduler, webhook, worker/service modules, root runtime image, and runtime dependencies are removed; only host-side migration/bootstrap and backup-maintenance support remains. Manual frontend/workflow review and broader production cutover remain separate gates.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.

@@ -1,6 +1,6 @@
 # Services and Domain Logic
 
-This guide describes the current backend service boundaries. Source code is authoritative for exact implementation details; detailed module pages are linked throughout and indexed in [`reference/SOURCE_COVERAGE.md`](reference/SOURCE_COVERAGE.md).
+This guide describes the removed Python service layer as a historical migration reference. The Python API/runtime modules are no longer on `dev-c`; current C# boundaries live in `src/NocIfc.Application`, `src/NocIfc.Infrastructure`, and the API/Worker/Webhook hosts. Source code is authoritative for current behavior.
 
 ## Runtime boundaries
 

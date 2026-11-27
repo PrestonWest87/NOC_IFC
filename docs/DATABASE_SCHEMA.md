@@ -288,7 +288,7 @@ The current migration head is `20261125_0025`; revisions `20261111_0012` and `20
 | `word` | String | YES | — | YES (unique) | UNIQUE |
 | `weight` | Integer | YES | `10` | — | 0–100 scoring weight |
 
-> **Critical:** Bootstrap inserts missing default keywords but preserves existing weights. Existing articles are not rescored during ordinary startup; a full rescore is opt-in through `RESCORE_ON_STARTUP=true` or an explicit administrative maintenance action.
+> **Critical:** Host-side bootstrap inserts missing default keywords but preserves existing weights. The C# runtime does not run a corpus-wide score recalculation during startup.
 
 ### 2.6 `system_config` — Singleton Configuration Store
 
@@ -1195,9 +1195,9 @@ Seeds 70 security-weighted keywords (weight range 30–90). Key examples:
 
 Creates a single default `SystemConfig` row if none exists.
 
-### Optional article rescoring
+### Article score updates
 
-`RESCORE_ON_STARTUP=true` explicitly opts into a full rescore of `articles.score`; normal startup skips this maintenance work. Keyword changes do not require an API rebuild.
+Host-side bootstrap does not recalculate stored article scores. Keyword changes apply to new ingestion; they do not require an API rebuild.
 
 ---
 

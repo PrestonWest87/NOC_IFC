@@ -547,11 +547,11 @@ from sqlalchemy.orm import declarative_base
 Base = declarative_base()
 ```
 
-The application runs Alembic revisions at startup before seeding data. `Base.metadata.create_all()` is used only by the one-time legacy adoption revision and isolated tests. Conditional bootstrap data includes:
+The host-side offline initializer applies Alembic revisions before seeding data. `Base.metadata.create_all()` is used only by the one-time legacy adoption revision and isolated tests. Conditional bootstrap data includes:
 - The built-in administrator role and an operational analyst role without new sensitive grants
 - A bootstrap administrator only when `DEFAULT_ADMIN_PASSWORD` is configured and no users exist
 - 70 default keywords with weights
 - 7 default RSS feed sources
-- Eleven Operational Email template defaults, inserted only when missing
 - Default system configuration
-- Rescales articles only when `RESCORE_ON_STARTUP=true` is explicitly configured
+
+The C# Operational Email catalog seeds its eleven template defaults on first catalog access or send.

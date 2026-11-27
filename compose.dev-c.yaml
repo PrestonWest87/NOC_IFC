@@ -58,8 +58,6 @@ services:
     build:
       context: ./web
       dockerfile: Dockerfile
-      args:
-        NGINX_CONF: nginx.dev-c.conf
     ports:
       - "8501:5173"
     extra_hosts:

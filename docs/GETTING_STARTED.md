@@ -1,6 +1,6 @@
 # NOC Intelligence Fusion Center — Getting Started Guide
 
-On `dev-c`, the tracked `compose.yaml` starts the C# backend by default and includes `compose.dev-c.yaml`. The ignored local `docker-compose.yml` remains the Python backup.
+On `dev-c`, the tracked `compose.yaml` is the only application stack and includes `compose.dev-c.yaml`. Python remains only in host-side database migration/bootstrap and backup-maintenance tools.
 
 ## Prerequisites
 
@@ -90,7 +90,7 @@ This starts Vite on port 5173 with `/api` and `/ws` proxied to the C# API at `ht
 
 ## Environment Configuration
 
-The checked-in `.env.example` is the complete environment template, and [the environment reference](reference/config/env_example.md) maps each variable to its reader and purpose. The API, worker, and webhook load `.env` through Docker Compose. The `web-dev` Vite server uses the Compose `VITE_API_URL` value for its development proxy; production serves a static bundle and proxies same-origin `/api/` and `/ws` requests through Nginx. The following optional list is a quick selection, not an exhaustive inventory.
+The checked-in `.env.example` is the complete environment template, and [the environment reference](reference/config/env_example.md) maps each variable to its reader and purpose. The API, Worker, and Webhook load `.env` through Docker Compose. The C# API honors `CORS_ORIGINS`; the `web-dev` Vite server uses the Compose `VITE_API_URL` value for its development proxy, while production serves a static bundle and proxies same-origin `/api/` and `/ws` requests through Nginx. The following optional list is a quick selection, not an exhaustive inventory.
 
 ### Database Variable
 
@@ -116,8 +116,7 @@ The checked-in `.env.example` is the complete environment template, and [the env
 | `ELASTIC_MAX_RESULTS` | `500` | Maximum results per Elastic query page |
 | `DEMO_SEED_DATA` | `true` only for disposable demos | Synthetic asset seed data |
 | `DEFAULT_ADMIN_PASSWORD` | Initial admin password | First boot when no users exist |
-| `DEFAULT_ADMIN_EMAIL` | Optional trusted bootstrap email for the administrator | Recovery and account-review notifications; can initialize an existing email-less bootstrap admin at startup |
-| `LOG_LEVEL` | `INFO` | Python log threshold |
+| `DEFAULT_ADMIN_EMAIL` | Optional trusted bootstrap email for the administrator | Initial account recovery/reviewer setup during host-side bootstrap |
 | `BACKUP_ENCRYPTION_ACTIVE_KEY_ID` | `primary` | Active key ID for full encrypted database backups; set with `BACKUP_ENCRYPTION_KEYS` to enable backups |
 | `BACKUP_ENCRYPTION_KEYS` | Empty | JSON key-ID map of 32-byte hex encryption keys; keep outside the repository and retain old keys until matching backups expire |
 | `BACKUP_MAX_BYTES` | `10737418240` | Maximum encrypted full-backup and restore-upload size in bytes |
@@ -133,7 +132,6 @@ The checked-in `.env.example` is the complete environment template, and [the env
 | `ALLOW_UNSIGNED_WEBHOOKS` | `false` | Controlled webhook migration exception |
 | `PUBLIC_APP_URL` | `http://localhost:8501` | Registration link base URL |
 | `REGISTRATION_INVITE_TTL_HOURS` | `72` | Registration invite lifetime |
-| `RESCORE_ON_STARTUP` | `false` | Full article rescore during startup |
 
 ### SMTP Configuration
 
@@ -211,6 +209,7 @@ Configure AI in the Settings page (AI & SMTP tab):
 |---------|-------------|
 | `uv run --project tools/offline-python --locked python tools/offline-python/prepare_dev_c_database.py` | Create and seed a fresh `data-dev-c` database; refuses to overwrite existing SQLite files and requires `DEFAULT_ADMIN_PASSWORD` |
 | `DATABASE_URL="sqlite:////absolute/path/data-dev-c/noc_fusion.db" uv run --project tools/offline-python --locked python -c 'from src.core.db import init_db; init_db()'` | Apply host-side migrations/bootstrap to an existing dev-c database after taking a backup |
+| `uv run --project tools/offline-python --locked python tools/offline-python/upgrade_backup.py older.nocbackup current-head.nocbackup` | Migrate/repackage an older encrypted snapshot for C# UI restore without changing the active database |
 | `docker compose restart api worker webhook` | Restart C# services after migration; they check for Alembic head `20261125_0025` but do not migrate at startup |
 
 ---
@@ -224,7 +223,7 @@ POST http://<your-host>:8100/webhook/solarwinds
 Content-Type: application/json
 ```
 
-The C# gateway accepts signed SolarWinds-style JSON payloads, normalizes them, and persists alerts for AIOps correlation. `WEBHOOK_HMAC_SECRET` is required unless `ALLOW_UNSIGNED_WEBHOOKS=true`; unsigned requests otherwise receive 503. See [Webhook Gateway](WEBHOOK.md) for payload mappings and signature format. The Python backup still listens on host port 8099 when explicitly selected with `-f docker-compose.yml`.
+The C# gateway accepts signed SolarWinds-style JSON payloads, normalizes them, and persists alerts for AIOps correlation. `WEBHOOK_HMAC_SECRET` is required unless `ALLOW_UNSIGNED_WEBHOOKS=true`; unsigned requests otherwise receive 503. See [Webhook Gateway](WEBHOOK.md) for payload mappings and signature format.
 
 ### Testing the Webhook
 

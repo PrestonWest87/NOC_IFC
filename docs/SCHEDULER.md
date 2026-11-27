@@ -1,6 +1,6 @@
 # Scheduler and Background Jobs
 
-This document describes the retained legacy Python backup worker, started with `python -u src/scheduler.py`. It initializes the database, loads all 21 registered jobs, submits the startup-enabled subset, and runs a one-second `schedule.run_pending()` loop. The registry in `src/core/scheduler_registry.py` supplies its defaults, bounds, schedule types, startup-run behavior, and settings UI metadata. The default C# dev-c worker has a separate registry in `src/NocIfc.Application/Features/Settings/SchedulerSettingsCommands.cs`.
+This document records the removed Python scheduler as a historical reference; its runtime source is not present on `dev-c`. The active C# Worker uses the registry in `src/NocIfc.Application/Features/Settings/SchedulerSettingsCommands.cs` and is configured by `compose.yaml`.
 
 ## Current Schedule
 

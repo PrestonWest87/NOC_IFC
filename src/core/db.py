@@ -79,15 +79,6 @@ def _set_sqlite_pragmas(bind=engine):
     logger.warning("SQLite WAL setup failed after %d attempts.", max_attempts)
 
 
-def get_db():
-    """Yield a request-scoped SQLAlchemy session and always close it after the handler."""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 def init_db():
     """Apply pending migrations, then configure SQLite and run conditional bootstrap seeds."""
     from src.core.migration_runner import run_migrations

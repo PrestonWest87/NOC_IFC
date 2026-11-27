@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using NocIfc.Api.Authentication;
 using NocIfc.Api.Contracts;
 using NocIfc.Application.Abstractions.Email;
@@ -60,14 +61,24 @@ public sealed class AuthenticationController(
     }
 
     [HttpPost("login")]
-    public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken cancellationToken)
+    public async Task<IActionResult> Login(
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] LoginRequest? request,
+        CancellationToken cancellationToken)
     {
-        if (request.Username is null || request.Password is null)
+        var username = request?.Username;
+        var password = request?.Password;
+        if (username is null || password is null)
         {
-            return BadRequest(new { detail = "username and password are required." });
+            var input = new Dictionary<string, object?>();
+            if (username is not null) input["username"] = username;
+            if (password is not null) input["password"] = password;
+            var errors = new List<object>();
+            if (username is null) errors.Add(new { type = "missing", loc = new object[] { "body", "username" }, msg = "Field required", input });
+            if (password is null) errors.Add(new { type = "missing", loc = new object[] { "body", "password" }, msg = "Field required", input });
+            return UnprocessableEntity(new { detail = errors });
         }
 
-        var result = await authentication.AuthenticateAsync(request.Username, request.Password, cancellationToken);
+        var result = await authentication.AuthenticateAsync(username, password, cancellationToken);
         if (result is not null)
         {
             return Ok(new LoginResponse(LoginUserResponse.From(result.User), result.Token));
@@ -77,7 +88,7 @@ public sealed class AuthenticationController(
         try
         {
             var sourceIp = HttpContext.Connection.RemoteIpAddress?.ToString();
-            var alert = await failedLoginAlerts.RecordAsync(request.Username, sourceIp, cancellationToken);
+            var alert = await failedLoginAlerts.RecordAsync(username, sourceIp, cancellationToken);
             if (alert is not null)
             {
                 QueueAlert(alert);
@@ -249,4 +260,5 @@ public sealed class AuthenticationController(
             }
         });
     }
+
 }

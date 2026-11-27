@@ -41,7 +41,6 @@ def main() -> None:
 
     os.environ["DATABASE_URL"] = f"sqlite:///{DATABASE_PATH.as_posix()}"
     os.environ["DEMO_SEED_DATA"] = "false"
-    os.environ["RESCORE_ON_STARTUP"] = "false"
 
     from src.core.db import init_db
 

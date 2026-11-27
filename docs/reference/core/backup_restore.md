@@ -1,6 +1,6 @@
 # Backup and Restore Modules
 
-This page covers `src.core.backup_manager`, `src.core.restore_control`, `src.core.ui_restore`, and the offline entrypoint `scripts/restore_backup.py`. Operator procedures are in [`docs/MAINTENANCE.md`](../../MAINTENANCE.md).
+This page covers the retained host-side `src.core.backup_manager`, `src.core.restore_control`, and `tools/offline-python/restore_backup.py`. C# UI restore orchestration lives in the .NET projects. Operator procedures are in [`docs/MAINTENANCE.md`](../../MAINTENANCE.md).
 
 ## `src.core.backup_manager`
 
@@ -8,7 +8,7 @@ This page covers `src.core.backup_manager`, `src.core.restore_control`, `src.cor
 
 `validate_backup()` authenticates/decrypts to a temporary workspace, checks archive layout, manifest/checksums, and SQLite integrity, then removes temporary files. Management helpers list, download, stage, relabel legacy pre-restore files, and delete backups/staged uploads. Scheduled snapshots retain the newest three scheduled packages; manual and pre-restore safety packages are not automatically pruned.
 
-`restore_backup()` requires `maintenance_confirmed=True`, upgrades the extracted database to the packaged application's migration head, invalidates restored sessions and outstanding account links, creates a pre-restore safety backup, and atomically installs the database with rollback handling. `scripts/restore_backup.py:main()` parses the package and maintenance-confirmation flag, supersedes an active UI restore when confirmed, invokes this path, prints JSON, and exits nonzero on a safe restore error. The offline script requires API, worker, and webhook writers to be stopped before it runs.
+`restore_backup()` requires `maintenance_confirmed=True`, upgrades the extracted database to the packaged application's migration head, invalidates restored sessions and outstanding account links, creates a pre-restore safety backup, and atomically installs the database with rollback handling. `tools/offline-python/restore_backup.py:main()` parses the package and maintenance-confirmation flag, supersedes an active restore marker when confirmed, invokes this path, prints JSON, and exits nonzero on a safe restore error. The offline script requires API, worker, and webhook writers to be stopped before it runs.
 
 ### Public backup-manager helpers
 

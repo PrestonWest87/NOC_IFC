@@ -26,7 +26,7 @@ Multi-stage Docker build for the React frontend. Stage 1 compiles the TypeScript
 | `FROM` | `nginx:alpine` | Minimal Nginx Alpine image for static file serving. |
 | `COPY --from=builder` | `/app/dist /usr/share/nginx/html` | Copies compiled JS/CSS/HTML and versioned `/maps/` GeoJSON into Nginx's default web root. |
 | `COPY` | `nginx.conf /etc/nginx/conf.d/default.conf` | Overrides the default Nginx config with the project's custom config (proxy pass to API, WebSocket support). |
-| `EXPOSE` | `5173` | Documents the port the container listens on. Does not publish the port — that is handled by `docker-compose.yml` `ports:` mapping. |
+| `EXPOSE` | `5173` | Documents the port the container listens on. Does not publish the port — that is handled by `compose.dev-c.yaml` `ports:` mapping. |
 | `CMD` | `["nginx", "-g", "daemon off;"]` | Runs Nginx in the foreground so the container stays alive. |
 
 ## Dependencies
@@ -39,7 +39,7 @@ Multi-stage Docker build for the React frontend. Stage 1 compiles the TypeScript
 
 ## Usage
 
-Referenced by the `web` service in `docker-compose.yml`:
+Referenced by the `web` service in `compose.dev-c.yaml`:
 
 ```yaml
 web:

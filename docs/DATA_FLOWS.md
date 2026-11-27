@@ -1,6 +1,6 @@
 # Data Flows and Domain Pipelines
 
-This document describes the retained Python implementation. Job frequencies/startup behavior for that backup are in [`SCHEDULER.md`](SCHEDULER.md); HTTP contracts are in [`API.md`](API.md). The C# dev-c conversion status is tracked in `README_DEV_C.md`.
+This document preserves the pre-port Python dataflow as a historical behavior reference. The Python API, worker, and webhook sources have been removed from `dev-c`; current C# behavior is tracked in `README_DEV_C.md` and [`API.md`](API.md). Python remains only for host-side migration/bootstrap and backup maintenance.
 
 ## Runtime data path
 
@@ -21,7 +21,7 @@ external feeds / webhook / API actions
       FastAPI, React, WebSocket, SMTP
 ```
 
-The legacy Python API, worker, and webhook use one shared SQLite file on `./data-dev`; they run migrations before normal service work. Default C# dev-c uses isolated `./data-dev-c` storage and host-side migrations. Full encrypted backups snapshot the SQLite file; legacy classifier artifacts are no longer generated or restored, and environment secrets remain outside the package.
+The former Python API, worker, and webhook shared one SQLite file on `./data-dev` and ran migrations before service work. The active C# dev-c stack uses isolated `./data-dev-c` storage and host-side migrations. Full encrypted backups snapshot the SQLite file; environment secrets remain outside the package.
 
 ## 1. RSS ingestion, scoring, and article enrichment
 

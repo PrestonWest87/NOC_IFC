@@ -49,6 +49,22 @@ public sealed class SqliteBackupManagerTests
     }
 
     [Fact]
+    public void RejectsOlderSchemaAtUploadWithOfflineUpgradeInstruction()
+    {
+        using var workspace = new TemporaryDirectory("nocifc-old-backup-");
+        var databasePath = Path.Combine(workspace.Path, "database.sqlite");
+        CreateDatabase(databasePath, includeRestoreTables: false, schemaRevision: "20261123_0023");
+        var manager = CreateManager(databasePath);
+        var backup = manager.CreateBackup("manual");
+
+        using var package = manager.OpenBackupRead(backup.Id);
+        var error = Assert.Throws<BackupException>(() => manager.StageUpload(package));
+
+        Assert.Contains("upgrade_backup.py", error.Message);
+        Assert.Empty(manager.ListStagedBackups());
+    }
+
+    [Fact]
     public void RestoreValidatesSchemaInvalidatesCredentialsAndCreatesSafetyBackup()
     {
         using var workspace = new TemporaryDirectory("nocifc-restore-");
@@ -87,14 +103,17 @@ public sealed class SqliteBackupManagerTests
     private static SqliteBackupManager CreateManager(string databasePath) =>
         new(new SqliteConnectionFactory($"sqlite:///{databasePath}"), Encryption);
 
-    private static void CreateDatabase(string path, bool includeRestoreTables)
+    private static void CreateDatabase(
+        string path,
+        bool includeRestoreTables,
+        string schemaRevision = CurrentSchema)
     {
         using var connection = CreateConnection(path);
         using var command = connection.CreateCommand();
         command.CommandText = includeRestoreTables
             ? """
               CREATE TABLE alembic_version (version_num TEXT NOT NULL);
-              INSERT INTO alembic_version VALUES ('20261125_0025');
+              INSERT INTO alembic_version VALUES ($revision);
               CREATE TABLE application_data (id INTEGER PRIMARY KEY, value TEXT);
               INSERT INTO application_data VALUES (1, 'snapshot version');
               CREATE TABLE users (id INTEGER PRIMARY KEY, session_token TEXT);
@@ -112,10 +131,11 @@ public sealed class SqliteBackupManagerTests
               """
             : """
               CREATE TABLE alembic_version (version_num TEXT NOT NULL);
-              INSERT INTO alembic_version VALUES ('20261125_0025');
+              INSERT INTO alembic_version VALUES ($revision);
               CREATE TABLE application_data (id INTEGER PRIMARY KEY, value TEXT);
               INSERT INTO application_data VALUES (1, 'snapshot version');
               """;
+        command.Parameters.AddWithValue("$revision", schemaRevision);
         command.ExecuteNonQuery();
     }
 

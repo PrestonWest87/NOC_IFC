@@ -1,12 +1,5 @@
-"""Load environment-backed runtime settings shared by API, worker, and webhook.
+"""Load configuration used by host-side migration and backup tools."""
 
-Only fields declared on `Settings` are Pydantic-managed here; selected legacy
-values are read directly from the environment by their owning modules.
-"""
-
-import sys
-import os
-import logging
 from pydantic import Field
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
@@ -15,36 +8,10 @@ load_dotenv()
 
 
 class Settings(BaseSettings):
-    """Pydantic-managed environment settings shared by backend processes."""
+    """Pydantic-managed settings retained for offline database maintenance."""
     database_url: str = "sqlite:////app/data/noc_fusion.db"
     demo_seed_data: bool = False
-    log_level: str = "INFO"
-    elastic_url: str = ""
-    elastic_api_key: str = ""
-    elastic_verify_certs: bool = True
-    elastic_ca_certs: str | None = None
-    elastic_request_timeout: float = Field(default=15.0, gt=0, le=120)
-    elastic_max_results: int = Field(default=500, gt=0, le=5000)
-    remedyforce_ticket_email: str = ""
-    noc_notify_email: str = ""
-    noc_onpage_email: str = ""
-    itnetwork_onpage_email: str = ""
-    crime_alert_sms: str | None = None
-    crime_alert_email: str | None = None
-    risk_alert_recipients: str = ""
-    webhook_hmac_secret: str | None = None
-    webhook_signature_header: str = "X-SolarWinds-Signature"
-    webhook_timestamp_header: str = "X-SolarWinds-Timestamp"
-    webhook_replay_window_seconds: int = 300
-    webhook_max_body_bytes: int = 1048576
-    websocket_max_message_bytes: int = 65536
-    allow_private_llm_endpoints: bool = False
-    cors_origins: str = "http://localhost:8503,http://localhost:5174,http://localhost:5173"
-    allow_unsigned_webhooks: bool = False
-    public_app_url: str = "http://localhost:8503"
-    nws_api_user_agent: str = "NOC-IFC/2.0 (https://test.weasts.net)"
     default_admin_email: str = ""
-    registration_invite_ttl_hours: int = 72
     backup_encryption_keys: str = ""
     backup_encryption_active_key_id: str = "primary"
     backup_max_bytes: int = Field(default=10737418240, gt=0, le=107374182400)
@@ -58,26 +25,3 @@ class Settings(BaseSettings):
 settings = Settings()
 
 DATABASE_URL = settings.database_url
-ELASTIC_URL = settings.elastic_url
-ELASTIC_API_KEY = settings.elastic_api_key
-ELASTIC_VERIFY_CERTS = settings.elastic_verify_certs
-ELASTIC_CA_CERTS = settings.elastic_ca_certs
-ELASTIC_REQUEST_TIMEOUT = settings.elastic_request_timeout
-ELASTIC_MAX_RESULTS = settings.elastic_max_results
-CRIME_ALERT_SMS = settings.crime_alert_sms
-CRIME_ALERT_EMAIL = settings.crime_alert_email
-RISK_ALERT_RECIPIENTS = settings.risk_alert_recipients
-
-
-def setup_logging(level=None):
-    """Configure process-wide stdout logging using the explicit level or `LOG_LEVEL`."""
-    if level is None:
-        level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
-        level = getattr(logging, level_name, logging.WARNING)
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-        handlers=[logging.StreamHandler(sys.stdout)],
-        force=True,
-    )

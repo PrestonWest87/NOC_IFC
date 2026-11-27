@@ -1,11 +1,12 @@
 [project]
 name = "noc-ifc-offline-migrations"
 version = "0.1.0"
-description = "Host-side SQLite Alembic migration and bootstrap environment."
+description = "Host-side SQLite migration, backup conversion, and bootstrap tools."
 requires-python = ">=3.11,<3.12"
 dependencies = [
     "alembic==1.20.0",
     "bcrypt==4.1.2",
+    "cryptography==46.0.7",
     "pydantic==2.13.5",
     "pydantic-settings==2.15.0",
     "python-dotenv==1.2.4",

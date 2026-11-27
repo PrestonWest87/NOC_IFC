@@ -50,6 +50,30 @@ public sealed class AiopsDashboardQueriesTests
         Assert.False(result.IsAdministrator);
     }
 
+    [Fact]
+    public async Task AcknowledgeSiteOnlyUpdatesUncorrelatedAlertsWithinTheCallerScope()
+    {
+        var correlated = Alert(2, "Central NOC") with { IsCorrelated = true };
+        var store = new StubDashboardStore
+        {
+            Alerts = [Alert(1, "Central NOC"), correlated, Alert(3, "Field Office")],
+        };
+        var facilities = new FacilityDirectoryCommands(new StubFacilityStore(
+            [Location(1, "Central NOC", "NOC"), Location(2, "Field Office", "SOC")]));
+        var queries = new AiopsDashboardQueries(store, facilities, new AiopsInvestigationState());
+        var user = new AuthenticatedUser(9, "operator", "analyst", ["AIOps RCA"], [], ["NOC"]);
+
+        var acknowledged = await queries.AcknowledgeSiteAsync(user, 1, CancellationToken.None);
+        var denied = await queries.AcknowledgeSiteAsync(user, 2, CancellationToken.None);
+        var missing = await queries.AcknowledgeSiteAsync(user, 99, CancellationToken.None);
+
+        Assert.Equal(AiopsSiteAcknowledgeOutcome.Acknowledged, acknowledged.Outcome);
+        Assert.Equal(1, acknowledged.UpdatedAlerts);
+        Assert.Equal([1], store.AcknowledgedAlertIds);
+        Assert.Equal(AiopsSiteAcknowledgeOutcome.SiteScopeDenied, denied.Outcome);
+        Assert.Equal(AiopsSiteAcknowledgeOutcome.SiteNotFound, missing.Outcome);
+    }
+
     private static AiopsAlertEntry Alert(int id, string site) => new(
         id, "Down", "High", $"node-{id}", null, "Down", null, "details", null, null, site,
         DateTime.UtcNow, null, false, false, false, false, null, "Router", "network",
@@ -68,6 +92,7 @@ public sealed class AiopsDashboardQueriesTests
         public IReadOnlyList<AiopsTimelineEventEntry> Events { get; init; } = [];
         public IReadOnlyList<AiopsRegionalOutageEntry> Outages { get; init; } = [];
         public IReadOnlyDictionary<string, int> Counts { get; init; } = new Dictionary<string, int>();
+        public IReadOnlyList<int> AcknowledgedAlertIds { get; private set; } = [];
 
         public Task<IReadOnlyList<AiopsAlertEntry>> GetUnresolvedAlertsAsync(
             IReadOnlySet<string>? allowedSiteNames,
@@ -95,7 +120,11 @@ public sealed class AiopsDashboardQueriesTests
             string username,
             DateTime acknowledgedAtUtc,
             IReadOnlySet<string>? allowedSiteNames,
-            CancellationToken cancellationToken) => Task.FromResult(true);
+            CancellationToken cancellationToken)
+        {
+            AcknowledgedAlertIds = alertIds;
+            return Task.FromResult(true);
+        }
 
         public Task<bool> CanAccessAlertIdsAsync(
             IReadOnlyList<int> alertIds,

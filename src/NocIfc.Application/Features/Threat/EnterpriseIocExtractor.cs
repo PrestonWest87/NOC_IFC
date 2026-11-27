@@ -8,6 +8,40 @@ namespace NocIfc.Application.Features.Threat;
 public static class EnterpriseIocExtractor
 {
     private const int ContextWindow = 45;
+    // Keep these special-use ranges aligned with the Python 3.11 ipaddress policy.
+    private static readonly IPNetwork[] PrivateIpv4 =
+    [
+        IPNetwork.Parse("0.0.0.0/8"), IPNetwork.Parse("10.0.0.0/8"), IPNetwork.Parse("127.0.0.0/8"),
+        IPNetwork.Parse("169.254.0.0/16"), IPNetwork.Parse("172.16.0.0/12"), IPNetwork.Parse("192.0.0.0/24"),
+        IPNetwork.Parse("192.0.0.170/31"), IPNetwork.Parse("192.0.2.0/24"), IPNetwork.Parse("192.168.0.0/16"),
+        IPNetwork.Parse("198.18.0.0/15"), IPNetwork.Parse("198.51.100.0/24"), IPNetwork.Parse("203.0.113.0/24"),
+        IPNetwork.Parse("240.0.0.0/4"), IPNetwork.Parse("255.255.255.255/32"),
+    ];
+    private static readonly IPNetwork[] PublicIpv4Exceptions =
+    [
+        IPNetwork.Parse("192.0.0.9/32"), IPNetwork.Parse("192.0.0.10/32"),
+    ];
+    private static readonly IPNetwork[] PrivateIpv6 =
+    [
+        IPNetwork.Parse("::/128"), IPNetwork.Parse("::1/128"), IPNetwork.Parse("::ffff:0:0/96"),
+        IPNetwork.Parse("64:ff9b:1::/48"), IPNetwork.Parse("100::/64"), IPNetwork.Parse("2001::/23"),
+        IPNetwork.Parse("2001:db8::/32"), IPNetwork.Parse("2002::/16"), IPNetwork.Parse("fc00::/7"),
+        IPNetwork.Parse("fe80::/10"),
+    ];
+    private static readonly IPNetwork[] PublicIpv6Exceptions =
+    [
+        IPNetwork.Parse("2001:1::1/128"), IPNetwork.Parse("2001:1::2/128"), IPNetwork.Parse("2001:3::/32"),
+        IPNetwork.Parse("2001:4:112::/48"), IPNetwork.Parse("2001:20::/28"), IPNetwork.Parse("2001:30::/28"),
+    ];
+    private static readonly IPNetwork Ipv4Multicast = IPNetwork.Parse("224.0.0.0/4");
+    private static readonly IPNetwork[] ReservedIpv6 =
+    [
+        IPNetwork.Parse("::/8"), IPNetwork.Parse("100::/8"), IPNetwork.Parse("200::/7"),
+        IPNetwork.Parse("400::/6"), IPNetwork.Parse("800::/5"), IPNetwork.Parse("1000::/4"),
+        IPNetwork.Parse("4000::/3"), IPNetwork.Parse("6000::/3"), IPNetwork.Parse("8000::/3"),
+        IPNetwork.Parse("a000::/3"), IPNetwork.Parse("c000::/3"), IPNetwork.Parse("e000::/4"),
+        IPNetwork.Parse("f000::/5"), IPNetwork.Parse("f800::/6"), IPNetwork.Parse("fe00::/9"),
+    ];
     private static readonly HashSet<string> IgnoreDomains = new(
         ["example.com", "google.com", "microsoft.com", "apple.com", "amazon.com", "github.com", "mitre.org", "nist.gov", "virustotal.com", "shodan.io", "schema.org", "w3.org", "wikipedia.org", "iana.org"],
         StringComparer.Ordinal);
@@ -115,27 +149,25 @@ public static class EnterpriseIocExtractor
         if (address.IsIPv4MappedToIPv6) return IsPublicIp(address.MapToIPv4().ToString());
         if (address.AddressFamily == AddressFamily.InterNetwork)
         {
-            var bytes = address.GetAddressBytes();
-            var first = bytes[0];
-            var second = bytes[1];
-            var third = bytes[2];
-            return !(first is 0 or 10 or 127 || first >= 224
-                || first == 100 && second is >= 64 and <= 127
-                || first == 169 && second == 254
-                || first == 172 && second is >= 16 and <= 31
-                || first == 192 && (second == 168 || second == 0 || second == 2)
-                || first == 198 && (second == 18 || second == 19 || second == 51 && third == 100)
-                || first == 203 && second == 0 && third == 113);
+            if (!IsStrictIpv4Literal(value)) return false;
+            return !PrivateIpv4.Any(network => network.Contains(address)
+                    && !PublicIpv4Exceptions.Any(exception => exception.Contains(address)))
+                && !Ipv4Multicast.Contains(address);
         }
         if (address.AddressFamily != AddressFamily.InterNetworkV6) return false;
-        var ipv6 = address.GetAddressBytes();
-        var allZero = ipv6.All(valueByte => valueByte == 0);
-        var loopback = ipv6.Take(15).All(valueByte => valueByte == 0) && ipv6[15] == 1;
-        var uniqueLocal = (ipv6[0] & 0xFE) == 0xFC;
-        var linkLocal = ipv6[0] == 0xFE && (ipv6[1] & 0xC0) == 0x80;
-        var siteLocal = ipv6[0] == 0xFE && (ipv6[1] & 0xC0) == 0xC0;
-        var documentation = ipv6[0] == 0x20 && ipv6[1] == 0x01 && ipv6[2] == 0x0D && ipv6[3] == 0xB8;
-        return !(allZero || loopback || address.IsIPv6Multicast || uniqueLocal || linkLocal || siteLocal || documentation);
+        return !address.IsIPv6Multicast
+            && !ReservedIpv6.Any(network => network.Contains(address))
+            && !PrivateIpv6.Any(network => network.Contains(address)
+                && !PublicIpv6Exceptions.Any(exception => exception.Contains(address)));
+    }
+
+    private static bool IsStrictIpv4Literal(string value)
+    {
+        var octets = value.Split('.');
+        return octets.Length == 4 && octets.All(octet =>
+            octet.Length is > 0 and <= 3
+            && (octet == "0" || octet[0] != '0')
+            && byte.TryParse(octet, out _));
     }
 
     private static IocRule Rule(string category, string type, string pattern) =>

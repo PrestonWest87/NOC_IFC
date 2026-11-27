@@ -1,17 +1,23 @@
 # NOC Intelligence Fusion Center — API Reference
 
-Base URL (C# dev-c): `http://localhost:8101/api/v1`
-Base URL (legacy Python backup): `http://localhost:8102/api/v1`
-WebSocket (C# dev-c): `ws://localhost:8101/ws`
-WebSocket (legacy Python backup): `ws://localhost:8102/ws`
+Base URL: `http://localhost:8101/api/v1`
+WebSocket: `ws://localhost:8101/ws`
+C# OpenAPI schema: `http://localhost:8101/openapi/v1.json`
 
-This operation inventory was reconciled against the FastAPI OpenAPI schema on 2026-11-25 (198 paths and 214 HTTP operations after retiring classifier-training and feedback endpoints). The default `dev-c` C# API shares this base URL for ported slices; see `README_DEV_C.md` for conversion status. The running application's OpenAPI schema remains the source of truth.
+This route inventory was compared with the Python `origin/dev` baseline at `7ccb0eb`: 219 Python operations versus 214 C# operations, with the five classifier/feedback operations intentionally retired and no remaining method/path gaps. The Python runtime source is not included on `dev-c`; the baseline may be supplied as a saved OpenAPI document to the comparator. See `README_DEV_C.md` for conversion status.
+
+Compare HTTP method/path shapes against a saved Python OpenAPI document (path-parameter names are normalized; retired classifier/feedback operations are ignored) with:
+
+```bash
+python3 tools/offline-python/compare_api_routes.py \
+  /path/to/origin-dev-openapi.json http://localhost:8101/openapi/v1.json
+```
 
 ## Authentication
 
 The API installs `authentication_middleware` for `/api/v1/*`. Login, invitation validation/registration, password-reset request/completion, and recovery-email verification are public. Protected routes accept `Authorization: Bearer <session-token>` and retain `token`/`session_token` query parameters for compatibility. Route dependencies enforce page, tab, action, role, and site-type permissions.
 
-401 responses mean the session is missing, invalid, revoked, or belongs to an inactive account; 403 responses preserve the session and return a structured permission error, for example `detail.code = "permission_denied"` with the missing `permission`. Site-scope denials use `detail.code = "site_scope_denied"`.
+401 responses mean the session is missing, invalid, revoked, or belongs to an inactive account; 403 responses preserve the session and return a structured permission error, for example `detail.code = "permission_denied"` with the missing `permission`. Site-scope denials use `detail.code = "site_scope_denied"`. Request binding/validation failures return HTTP 422 with a FastAPI-style `detail` error list.
 
 ### GET /health and GET /ready
 
@@ -546,13 +552,13 @@ Deletes a manual or pre-restore safety backup. Scheduled backups are managed by 
 Lists encrypted packages staged for an offline restore.
 
 ### POST /admin/backups/staged
-Multipart upload with form field `file`. Authenticates and validates the encrypted package, manifest/checksums, archive layout, and SQLite integrity before saving it under the shared `/app/data/backups/staged` path (`./data-dev-c/backups/staged` for default C# dev-c; `./data-dev/backups/staged` for the legacy Python backup). It does not restore the active database.
+Multipart upload with form field `file`. Authenticates and validates the encrypted package, manifest/checksums, archive layout, and SQLite integrity before saving it under the shared `/app/data/backups/staged` path (`./data-dev-c/backups/staged` for default C# dev-c). The API accepts only Alembic head `20261125_0025`; convert older packages with `tools/offline-python/upgrade_backup.py` before upload. It does not restore the active database.
 
 ### DELETE /admin/backups/staged/{stage_id}
 Deletes a staged encrypted restore package.
 
 ### POST /admin/backups/staged/{stage_id}/restore
-Starts a UI-managed restore and returns HTTP 202 with a random `restore_id`. The service gates API requests, drains worker/webhook writes, closes WebSocket clients, then validates/migrates and atomically installs the staged snapshot with a pre-restore backup. On success it removes all staged restore packages and invalidates sessions and outstanding account links.
+Starts a UI-managed restore and returns HTTP 202 with a random `restore_id`. The C# service requires the staged database to be at Alembic head `20261125_0025`, gates API requests, drains worker/webhook writes, closes WebSocket clients, then validates and atomically installs the snapshot with a pre-restore backup. Use `tools/offline-python/upgrade_backup.py` to migrate older encrypted snapshots before staging. On success the service removes all staged restore packages and invalidates sessions and outstanding account links.
 
 ### POST /restore-status
 Body: `{"restore_id":"<value returned by the restore request>"}`. Returns restore state and progress for up to 24 hours. The random ID is a status capability so progress remains available after the restored database revokes the caller's prior session. It exposes status only, not database contents or package paths.
@@ -566,7 +572,7 @@ Returns the legacy configuration backup containing keywords, feeds, monitored lo
 Body: legacy backup data dict. Adds records that are not already present for those four collections.
 
 ### GET /admin/export-all
-Exports the 28 application models listed in `src/services.py` `ALL_MODELS`, including site contacts. It excludes session, failed-login, invitation, recovery-request/token, account-audit, and scheduler-job configuration tables, so it is not a complete database backup. The export is administrator-only and may contain password hashes, site contact details, and stored integration credentials; protect it as sensitive data.
+Exports the supported application-model subset, including site contacts. It excludes session, failed-login, invitation, recovery-request/token, account-audit, and scheduler-job configuration tables, so it is not a complete database backup. The export is administrator-only and may contain password hashes, site contact details, and stored integration credentials; protect it as sensitive data.
 
 ### POST /admin/import-all
 Body: JSON export data for supported models; set `"_merge": true` in the body to skip duplicate IDs. With the default `"_merge": false`, non-empty supported tables are cleared before inserting their supplied rows.

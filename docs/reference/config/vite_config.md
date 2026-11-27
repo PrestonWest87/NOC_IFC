@@ -22,7 +22,7 @@ The `maplibre-assets` plugin serves MapLibre's module worker and shared module d
 
 | Option | Value | Default | Description |
 |--------|-------|---------|-------------|
-| `server.port` | `5173` | `5173` | Port the Vite dev server listens on. Must match the port exposed in `Dockerfile` and mapped in `docker-compose.yml`. |
+| `server.port` | `5173` | `5173` | Port the Vite dev server listens on. Must match the port exposed in the web Dockerfile and mapped in `compose.dev-c.yaml`. |
 | `server.host` | `0.0.0.0` | — | Binds the dev server to all container interfaces so the published Compose port is reachable. |
 | `server.allowedHosts` | `["test.weasts.net"]` | — | Explicit extra host accepted by Vite's dev host validation. |
 | `server.watch.usePolling` | `true` | `false` | Enables container bind-mount change detection. |

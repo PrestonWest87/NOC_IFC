@@ -1,6 +1,6 @@
 # Shared Permission Contract
 
-`contracts/permission_catalog.json` is the canonical page, action, and tab catalog used by backend authorization and the Users & Roles editor. `src.core.permissions` loads it for the Python runtime; the C# application embeds the same file. The frontend maps catalog keys to its routes and local tab identifiers.
+`contracts/permission_catalog.json` is the canonical page, action, and tab catalog used by C# authorization and the Users & Roles editor. The retained `src.core.permissions` adapter loads it for host-side bootstrap role seeding. The frontend maps catalog keys to its routes and local tab identifiers.
 
 ## Catalogs
 

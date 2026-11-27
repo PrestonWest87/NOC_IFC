@@ -384,6 +384,7 @@ public sealed class AiopsRcaReadController(
     }
 
     [HttpGet("rca/sitrep")]
+    [HttpGet("aiops/sitrep")]
     [RequireAction("Tab: AIOps RCA -> Global Correlation")]
     [RequireAction("Action: Generate Reports")]
     public async Task<IActionResult> GetSitrep(CancellationToken cancellationToken)
@@ -406,6 +407,38 @@ public sealed class AiopsRcaReadController(
             });
         }
         return Ok(new { report });
+    }
+
+    [HttpPatch("aiops/sites/{siteId:int}/acknowledge")]
+    [RequireAction("Tab: AIOps RCA -> Active Board")]
+    [RequireAction("Action: Acknowledge RCA Alerts")]
+    public async Task<IActionResult> AcknowledgeAiopsSite(int siteId, CancellationToken cancellationToken)
+    {
+        var user = AuthenticatedUserContext.GetUser(HttpContext);
+        if (user is null)
+        {
+            return Unauthorized(new { detail = new { code = "unauthenticated", message = "Not authenticated" } });
+        }
+
+        var result = await dashboard.AcknowledgeSiteAsync(user, siteId, cancellationToken);
+        if (result.Outcome == AiopsSiteAcknowledgeOutcome.SiteNotFound)
+        {
+            return NotFound(new { detail = "Site not found" });
+        }
+        if (result.Outcome == AiopsSiteAcknowledgeOutcome.SiteScopeDenied)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                detail = new
+                {
+                    code = "site_scope_denied",
+                    message = "This site is outside your permitted site types.",
+                },
+            });
+        }
+
+        await websockets.BroadcastRefreshAsync(cancellationToken);
+        return Ok(new { status = "acknowledged" });
     }
 
     [HttpPost("rca/sitrep")]

@@ -27,7 +27,7 @@ curl -fsS http://localhost:8101/ready
 | 8501 | Production web (container 5173) | Browser or `curl` |
 | 5173 | Vite dev web (container 5173) | Browser when `dev` profile is active |
 
-The default C# Compose project is named `noc-ifc-dev-c`, uses `./data-dev-c`, and attaches containers to Docker's built-in `bridge` network without allocating a new subnet. Its host ports match the main Compose mapping. Nginx and Vite route to the API through the `noc-ifc-dev-c-api` host-gateway alias. The ignored local `docker-compose.yml` remains the older Python backup using `./data-dev`.
+The default C# Compose project is named `noc-ifc-dev-c`, uses `./data-dev-c`, and attaches containers to Docker's built-in `bridge` network without allocating a new subnet. Its host ports match the main Compose mapping. Nginx and Vite route to the API through the `noc-ifc-dev-c-api` host-gateway alias. The Python runtime Compose stack has been removed from `dev-c`.
 
 ## Operational Email
 
@@ -52,8 +52,7 @@ The rows below are a selected operations quick reference, not a complete variabl
 | `DATABASE_URL` | SQLite in `/app/data` | Selecting the shared SQLite database file |
 | `DEMO_SEED_DATA` | `false` | Only for disposable demonstrations |
 | `DEFAULT_ADMIN_PASSWORD` | empty | Setting the first admin password before first boot |
-| `DEFAULT_ADMIN_EMAIL` | empty | Providing a trusted bootstrap recovery/reviewer mailbox; can initialize an existing email-less bootstrap admin on API/worker startup |
-| `LOG_LEVEL` | `INFO` | Increasing diagnostic detail (`DEBUG`) or reducing noise |
+| `DEFAULT_ADMIN_EMAIL` | empty | Providing a trusted initial-admin mailbox during host-side database bootstrap |
 | `RISK_ALERT_RECIPIENTS` | empty | Enabling risk and daily brief recipients |
 | `REMEDYFORCE_TICKET_EMAIL` | empty | Escalation ticket destination |
 | `NOC_NOTIFY_EMAIL` | empty | After-hours NOC notifications |
@@ -73,13 +72,12 @@ The rows below are a selected operations quick reference, not a complete variabl
 | `PUBLIC_APP_URL` | `http://localhost:8501` | Registration links or externally advertised URLs |
 | `NWS_API_USER_AGENT` | `NOC-IFC/2.0 (https://test.weasts.net)` | Identifying NWS API client; set a deployed URL, with `DEFAULT_ADMIN_EMAIL` appended when configured |
 | `REGISTRATION_INVITE_TTL_HOURS` | `72` | Changing invite expiration |
-| `RESCORE_ON_STARTUP` | `false` if absent | Explicitly rescoring all existing articles during startup |
 
 These environment values remain supported as fallback runtime configuration. A database value saved in Settings > Application Settings > Notification destinations and Elastic integration takes precedence; an explicit blank disables an optional destination/integration, and “Reset to environment” restores fallback behavior. Values are read dynamically by API and worker processes. The `.env.example` deliberately contains a change-me placeholder for `DEFAULT_ADMIN_PASSWORD`; replace it before first startup.
 
 ## Frequency Controls
 
-The C# registry in `SchedulerSettingsCommands.Registry` defines these 21 defaults; a user with scheduler-management permission may save a different validated value in Settings > Application Settings. The ignored Python backup retains its separate `src/core/scheduler_registry.py`. NWS alert polling and the operational email queue are fixed at one minute and cannot be disabled.
+The C# registry in `SchedulerSettingsCommands.Registry` defines these 21 defaults; a user with scheduler-management permission may save a different validated value in Settings > Application Settings. NWS alert polling and the operational email queue are fixed at one minute and cannot be disabled.
 
 | Behavior | C# registry key | Current value |
 |---|---|---:|
@@ -107,18 +105,18 @@ The C# registry in `SchedulerSettingsCommands.Registry` defines these 21 default
 
 The WebSocket dashboard broadcaster is independent of the scheduler and broadcasts every 10 seconds while clients are connected.
 
-## Application-Level Controls (legacy Python source paths)
+## Application-Level Controls
 
-These persisted controls are managed through Settings. The source paths below describe the legacy Python backup; C# dev-c ports are tracked in `README_DEV_C.md`.
+These persisted controls are managed through Settings. Current implementation details are tracked in `README_DEV_C.md`; the Python runtime modules have been removed from this branch.
 
 - Keyword weights: `Keyword.weight`; validated by the keyword routes and applied by `KeywordScorer`.
 - Scoring mode and CIS overrides: `scoring_mode`, criticality/lethality overrides, and risk offsets.
-- LLM provider/model/context: `SystemConfig` LLM fields; `src/utils/llm.py` applies context-window limits.
+- LLM provider/model/context: `SystemConfig` LLM fields; provider-aware context limits are applied by the C# application/infrastructure services.
 - Notification destinations and Elastic URL/key/TLS/query bounds: Settings > Application Settings; null overrides use the matching environment value.
-- SMTP host, port, credentials, sender, and recipients: `SystemConfig`; `src/utils/mailer.py` sends messages.
-- Active SMTP profile and Gmail OAuth credentials: `SystemConfig`; `src/core/email_settings.py` selects a profile, `src/core/gmail_oauth.py` refreshes access tokens, and `POST /admin/config/test-email` validates saved delivery.
+- SMTP host, port, credentials, sender, and recipients: `SystemConfig`; the C# email sender delivers messages.
+- Active SMTP profile and Gmail OAuth credentials: `SystemConfig`; the C# email sender selects a profile and refreshes Gmail tokens.
 - RSS sources: `FeedSource` rows managed from Settings.
 
 ## Safe Database Actions
 
-Create and verify an encrypted full SQLite backup through Settings > Backup & Restore before destructive work. New packages include all database tables; legacy optional classifier artifacts are validated but ignored on restore. `.env` secrets remain separate. Restore uses the coordinated maintenance-window procedure in [Maintenance](MAINTENANCE.md#restore-and-disaster-recovery). The legacy Settings JSON exports cover only supported application-model subsets and are not full database backups. C# services require the host-side Alembic migration to complete before startup; only the legacy Python backup runs migrations at startup.
+Create and verify an encrypted full SQLite backup through Settings > Backup & Restore before destructive work. New packages include all database tables; `.env` secrets remain separate. Restore uses the coordinated maintenance-window procedure in [Maintenance](MAINTENANCE.md#restore-and-disaster-recovery). The legacy Settings JSON exports cover only supported application-model subsets and are not full database backups. C# services require the host-side Alembic migration/bootstrap to complete before startup.

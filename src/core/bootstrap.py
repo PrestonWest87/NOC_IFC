@@ -14,7 +14,6 @@ from datetime import datetime
 import bcrypt
 
 from src.core.config import settings
-from src.core.operational_email import ensure_operational_email_templates
 from src.core.permissions import ADMIN_ACTIONS, PAGE_KEYS, TAB_CATALOG
 from src.models.schema import (
     AccountAuditEvent,
@@ -308,9 +307,8 @@ def _seed_demo_assets(session_factory):
 def ensure_bootstrap_data(session_factory) -> None:
     """Run independent, best-effort seed stages after migrations.
 
-    A failed stage is logged without suppressing unrelated seed stages. Full
-    article rescoring is opt-in through `RESCORE_ON_STARTUP` and is not part of
-    ordinary bootstrap.
+    A failed stage is logged without suppressing unrelated seed stages. This
+    host-side bootstrap does not run article-scoring or application jobs.
     """
     try:
         with session_factory() as session:
@@ -342,19 +340,3 @@ def ensure_bootstrap_data(session_factory) -> None:
         _seed_demo_assets(session_factory)
     except Exception:
         logger.exception("Could not seed demo assets")
-
-    try:
-        ensure_operational_email_templates(session_factory)
-    except Exception:
-        logger.exception("Could not seed operational email templates")
-
-    if os.environ.get("RESCORE_ON_STARTUP", "false").lower() in {"1", "true", "yes"}:
-        try:
-            from src.services import rescore_all_articles
-
-            rescored = rescore_all_articles()
-            logger.info("Rescored %d existing articles with new keywords.", rescored)
-        except Exception:
-            logger.exception("Could not rescore articles")
-    else:
-        logger.info("Skipping startup article rescore; run maintenance rescore explicitly when required.")

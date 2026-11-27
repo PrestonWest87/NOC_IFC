@@ -47,7 +47,7 @@ Use `POST /api/v1/hunting/sync-elastic-cache?hours_back=24` from the Threat Hunt
 
 ## Scores Are Zero or Unexpected
 
-Check keyword rows and weights in Keyword Analysis/Settings. Keyword changes are persisted in `Keyword.weight`; the scorer can be reloaded through the application. To explicitly rescore existing articles, set `RESCORE_ON_STARTUP=true` for a controlled restart or use the administrative rescore operation if available. Do not leave startup rescoring enabled on every restart for a large database.
+Check keyword rows and weights in Keyword Analysis/Settings. Keyword changes are persisted in `Keyword.weight` and affect new ingestion; the C# runtime does not recalculate historical article scores at startup. The removed Python startup-rescore setting is not available on `dev-c`.
 
 Inspect keyword-scorer logs and verify configured keyword weights. The scorer now uses keyword weights only; existing databases may retain legacy feedback values, but they are no longer read or updated.
 

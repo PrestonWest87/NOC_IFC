@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <ProjectReference Include="../NocIfc.Application/NocIfc.Application.csproj" />
     <ProjectReference Include="../NocIfc.Infrastructure/NocIfc.Infrastructure.csproj" />
   </ItemGroup>

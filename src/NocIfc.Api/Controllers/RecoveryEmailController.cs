@@ -55,7 +55,7 @@ public sealed class RecoveryEmailController(
             }
             else if (user.IsAdministrator)
             {
-                message = "Your request was recorded, but no other verified recovery-email reviewer is configured. For initial administrator setup, configure DEFAULT_ADMIN_EMAIL and restart the API/worker, or add another verified user administrator to review it.";
+                message = "Your request was recorded, but no other verified recovery-email reviewer is configured. For initial administrator setup, configure DEFAULT_ADMIN_EMAIL during the host-side database bootstrap/migration, or add another verified user administrator to review it.";
             }
             else
             {

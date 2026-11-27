@@ -27,6 +27,6 @@
 
 ## Authority and Maintenance
 
-Source code is authoritative for behavior. `ARCHITECTURE.md`, `API.md`, `DATABASE_SCHEMA.md`, `SCHEDULER.md`, `PERMISSIONS.md`, `OPERATIONS_REFERENCE.md`, and `TROUBLESHOOTING.md` describe the current operational contracts. Module pages under `reference/` provide source-oriented detail and must be updated when signatures, inputs, outputs, side effects, algorithms, or error handling change. `IN_CODE_DOCUMENTATION_PLAN.md` records source-documentation goals, dated coverage progress, and verification.
+Source code is authoritative for behavior. `ARCHITECTURE.md`, `API.md`, `DATABASE_SCHEMA.md`, `SCHEDULER.md`, `PERMISSIONS.md`, `OPERATIONS_REFERENCE.md`, and `TROUBLESHOOTING.md` describe current C# operations. Some module pages under `reference/` preserve the removed Python implementation as historical migration context; see `reference/README.md`. `IN_CODE_DOCUMENTATION_PLAN.md` records source-documentation goals and verification.
 
 Use repository-relative source paths. Do not document secrets, machine-specific absolute paths, generated build output, or undocumented environment variables as if they were deployment requirements.

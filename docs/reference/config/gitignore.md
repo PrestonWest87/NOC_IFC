@@ -10,7 +10,7 @@ Git uses this file to hide matching untracked paths from normal status/add opera
 |---|---|
 | `.env` | Local environment/secrets file. `.env.example` is not ignored and is the checked-in template. |
 | `.env.dev` | Optional local dev environment file; keep runtime credentials out of version control. |
-| `docker-compose.yml` | Ignore pattern in this working copy. The current `docker-compose.yml` is already tracked, so Git continues to include and version it; the ignore rule does not untrack it. |
+| `docker-compose.yml` | Prevents a local legacy Python Compose file from being re-added; the tracked Python runtime Compose file has been removed from `dev-c`. |
 | `data/` | Runtime SQLite database, backup packages, and cached data. |
 | `data-dev/` | Isolated dev Compose SQLite database, backup packages, and cached data. |
 | `src/__pycache__/`, `__pycache__/`, `*.pyc`, `*.pyo` | Python bytecode and cache directories/files. |

@@ -1,22 +1,21 @@
 # Module Reference Corpus
 
-This directory is the detailed source-oriented reference corpus. It is part of the canonical `docs/` tree; the former top-level `Documentation/` directory no longer exists.
+This directory contains current C# references and historical Python implementation notes. It is part of the canonical `docs/` tree; the former top-level `Documentation/` directory no longer exists. Python API, scheduler, webhook, worker, and service source was removed from `dev-c`; only host-side migration/bootstrap and backup-maintenance modules remain executable.
 
 ## Coverage
 
-- `api/`: FastAPI lifecycle, WebSocket manager, authentication, and route handlers.
-- `scheduler.md`: Scheduler functions, ingestion algorithms, retention, and escalation.
-- `api/webhook_listener.md`: SolarWinds gateway validation, normalization, and background processing.
-- `core/`: application and operational settings, LLM provider protocols, Arkansas regional geometry/CAP filtering, site-contact validation, database sessions/migrations, bootstrap data, permission and scheduler registries, persistent paths, and encrypted backup/restore lifecycle.
+- `api/`, `services/`, `utils/`, and `workers/`: historical Python behavior references; these runtimes are not present on `dev-c`.
+- `scheduler.md`: historical Python scheduler behavior; current schedules are implemented in the C# Worker.
+- `core/`: retained migration/bootstrap/backup modules plus historical notes for removed Python runtime helpers.
 - [Migration compatibility](../MIGRATION_COMPATIBILITY.md): supported legacy SQLite upgrade shapes, additive changes, and fail-closed recovery behavior.
-- `database_compat.md`: active compatibility exports used by services and workers.
+- `database_compat.md`: historical Python compatibility exports; removed from `dev-c`.
 - `models/`: SQLAlchemy entities and relationships.
 - `services/`: data access, scoring, categorization, IOC extraction, and AIOps algorithms.
 - `utils/`: LLM, mail, risk-alert, and safe Markdown rendering.
 - `workers/`: external feed workers and scheduled data integrations.
 - `web/`: React pages, components, hooks, state, and utilities.
 - `config/`: Docker, nginx, TypeScript, Vite, dependency, and environment-file notes.
-- `scripts/`: Operational CLI utilities such as encrypted restore and synthetic AIOps data seeding.
+- `scripts/`: historical script references. Current host-side migration, backup conversion, and restore commands are under `tools/offline-python/`.
 - `SOURCE_COVERAGE.md`: Current source-to-reference coverage map and documentation requirements.
 
 ## Source-of-Truth Rule

@@ -6,40 +6,15 @@ The detailed module pages live under `docs/reference/`. The current source-to-re
 
 | Area | Source | Reference |
 |---|---|---|
-| Configuration | `src/core/config.py` | `reference/core/config.md` |
-| Dynamic operational settings | `src/core/runtime_settings.py` | `reference/core/runtime_settings.md`, `OPERATIONS_REFERENCE.md` |
-| Active outbound email profile selection | `src/core/email_settings.py` | `reference/core/email_settings.md`, `reference/utils/mailer.md`, `OPERATIONS_REFERENCE.md` |
-| Gmail OAuth2 access-token refresh | `src/core/gmail_oauth.py` | `reference/core/gmail_oauth.md`, `reference/utils/mailer.md`, `GETTING_STARTED.md` |
-| LLM provider protocols | `src/core/llm_providers.py` | `reference/core/llm_providers.md`, `reference/utils/llm.md` |
-| Arkansas regional coverage and CAP filtering | `src/core/arkansas_coverage.py` | `reference/core/arkansas_coverage.md`, `DATA_FLOWS.md` |
-| Monitored-site contact validation | `src/core/site_contact_validation.py` | `reference/core/site_contact_validation.md`, `reference/services/services.md` |
-| Core package | `src/core/__init__.py` | `reference/core/__init__.md` |
-| Database lifecycle | `src/core/db.py` | `reference/core/db.md` |
-| SQLite migrations | `src/core/migration_runner.py`, `alembic.ini`, `migrations/env.py`, `migrations/schema_v1.py`, `migrations/versions/*.py` | `reference/core/migration_runner.md`, `MIGRATION_COMPATIBILITY.md` |
-| Bootstrap seeding | `src/core/bootstrap.py` | `reference/core/bootstrap.md` |
-| Shared permission catalog | `contracts/permission_catalog.json`, `src/core/permissions.py` | `reference/core/permissions.md` |
-| Scheduler registry | `src/core/scheduler_registry.py` | `reference/core/scheduler_registry.md`, `SCHEDULER.md` |
-| Persistent data/model paths | `src/core/paths.py` | `reference/core/paths.md` |
-| Encrypted backups and restore | `src/core/backup_manager.py`, `src/core/restore_control.py`, `src/core/ui_restore.py` | `reference/core/backup_restore.md`, `MAINTENANCE.md` |
-| Operational email persistence and scheduling | `src/core/operational_email.py` | `reference/core/operational_email.md`, `SCHEDULER.md`, `DATABASE_SCHEMA.md` |
-| Database compatibility surface | `src/database.py` | `reference/database_compat.md` |
-| Model package | `src/models/__init__.py` | `reference/models/__init__.md` |
-| API package/lifecycle/auth/health | `src/api/__init__.py`, `src/api/main.py`, `src/api/auth_guard.py` | `reference/api/main.md` |
-| WebSocket manager | `src/api/ws_manager.py` | `reference/api/ws_manager.md` |
-| API route handlers | `src/api/routes/*.py` | `reference/api/routes/` and `API.md` (operation coverage is checked against OpenAPI) |
-| Data access and domain functions | `src/services.py` | `reference/services/services.md` |
-| AIOps algorithms | `src/services/aiops_engine.py` | `reference/services/aiops_engine.md` |
-| Article scoring | `src/services/logic.py` | `reference/services/logic.md` |
-| Categorization | `src/services/categorizer.py` | `reference/services/categorizer.md` |
-| IOC extraction | `src/services/ioc_extractor.py` | `reference/services/ioc_extractor.md` |
-| LLM/map-reduce | `src/utils/llm.py` | `reference/utils/llm.md` |
-| SMTP email delivery | `src/utils/mailer.py` | `reference/utils/mailer.md` |
-| Risk alerts | `src/utils/risk_alert.py` | `reference/utils/risk_alert.md` |
-| Utility package | `src/utils/__init__.py` | `reference/utils/__init__.md` |
-| Scheduler | `src/scheduler.py` | `SCHEDULER.md`, `reference/scheduler.md` |
-| Workers | `src/workers/*.py` | `reference/workers/` |
-| Webhook | `src/webhook_listener.py` | `WEBHOOK.md`, `reference/api/webhook_listener.md` |
-| Operational scripts | `scripts/*.py` | `reference/scripts/` and `reference/core/backup_restore.md` |
+| API controllers and OpenAPI | `src/NocIfc.Api/` | `API.md`, `README_DEV_C.md` |
+| Application use cases | `src/NocIfc.Application/` | `README_DEV_C.md` and feature references |
+| SQLite persistence and integrations | `src/NocIfc.Infrastructure/` | `DATABASE_SCHEMA.md`, `README_DEV_C.md` |
+| Worker scheduler | `src/NocIfc.Worker/` | `SCHEDULER.md`, `README_DEV_C.md` |
+| SolarWinds webhook | `src/NocIfc.Webhook/` | `WEBHOOK.md` |
+| Shared permission contract | `contracts/permission_catalog.json` | `PERMISSIONS.md` |
+| Host-side SQLite migration/bootstrap | `alembic.ini`, `migrations/`, `src/core/{config,db,migration_runner,bootstrap,permissions}.py`, `src/models/` | `MIGRATION_COMPATIBILITY.md`, `MAINTENANCE.md` |
+| Host-side encrypted backup conversion/recovery | `tools/offline-python/`, `src/core/{backup_manager,restore_control,paths}.py` | `MAINTENANCE.md`, `reference/core/backup_restore.md` |
+| Python/C# route comparison helper | `tools/offline-python/compare_api_routes.py` | `API.md` |
 
 ## Frontend Modules
 
@@ -48,14 +23,14 @@ The detailed module pages live under `docs/reference/`. The current source-to-re
 | Application/router/providers | `web/src/App.tsx` | `reference/web/App.md` |
 | Auth, API client, and CSV downloads | `web/src/utils/AuthContext.tsx`, `web/src/utils/api.ts`, `web/src/utils/csv.ts` | `reference/web/utils/AuthContext.md`, `reference/web/utils/api.md`, `reference/web/utils/csv.md` |
 | Routing and permissions | `web/src/utils/routeConfig.ts`, `permissions.ts` | `FRONTEND.md`, `reference/web/utils/routeConfig.md`, `reference/web/utils/permissions.md` |
-| Timezone and Markdown rendering | `src/utils/markdown.py`, `web/src/utils/markdown.ts`, `web/src/utils/timezone.ts`, `web/src/components/MarkdownContent.tsx` | `reference/utils/markdown.md`, `reference/web/utils/timezone.md`, `reference/web/components/MarkdownContent.md` |
+| Timezone and Markdown rendering | `web/src/utils/markdown.ts`, `web/src/utils/timezone.ts`, `web/src/components/MarkdownContent.tsx` | `reference/web/utils/timezone.md`, `reference/web/components/MarkdownContent.md` |
 | Realtime hook | `web/src/hooks/useAIOpsWebSocket.ts` | `reference/web/hooks/useAIOpsWebSocket.md` |
 | Pages | `web/src/pages/*.tsx` | `reference/web/pages/` |
 | Components and theme | `web/src/components/*.tsx` | `reference/web/components/` |
 
 ## Legacy Boundary
 
-The former Streamlit entrypoint and `src/ui/` tree have been removed. The active runtime is the FastAPI/React stack described in `ARCHITECTURE.md`.
+The Python API, scheduler, webhook, workers, service layer, and root runtime manifests have been removed from `dev-c`. Python files remain only for host-side migration/bootstrap and backup maintenance; the active runtime is the C# stack described in `README_DEV_C.md` and `DEPLOYMENT.md`.
 
 ## Documentation Quality Rule
 

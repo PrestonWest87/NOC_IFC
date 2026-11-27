@@ -1,65 +1,18 @@
 # Configuration: `web/nginx.conf`
 
-Legacy Python-backup nginx server block copied to `/etc/nginx/conf.d/default.conf` by `web/Dockerfile`. The default C# dev-c stack uses `web/nginx.dev-c.conf` and proxies to the API through the host gateway on port 8101.
+This is the active dev-c production Nginx server block, copied into the web image by `web/Dockerfile`. Compose adds the `noc-ifc-dev-c-api` host-gateway alias so Nginx can proxy to the C# API on port 8101.
 
-## Server
+## Server and static assets
 
-| Directive | Current value | Behavior |
-|---|---|---|
-| `listen` | `5173` | Container listener; dev Compose maps host `8503` to it. |
-| `server_name` | `localhost test.weasts.net` | Accepted host names. |
-| `resolver` | `127.0.0.11 valid=30s` | Retained Nginx Docker resolver configuration. |
-| `client_max_body_size` | `101g` | Nginx-level request-body ceiling; API-level backup-upload limits remain controlled separately by `BACKUP_MAX_BYTES`. |
-| `root` | `/usr/share/nginx/html` | Production Vite build output. |
-| `index` | `index.html` | SPA entry document. |
-| `gzip` | enabled | Compresses JSON/GeoJSON and web assets for smaller transfer size. |
+The server listens on container port 5173, serves the Vite production build from `/usr/share/nginx/html`, enables gzip, and serves `/health` locally. Versioned `/maps/` GeoJSON gets a one-year immutable cache header. Missing `.mjs` files return 404 instead of the SPA shell.
 
-## Locations
+The root SPA location has an `allow 10.0.0.0/8` directive but no matching `deny all`; it is not an allowlist. Enforce network restrictions at a firewall or trusted reverse proxy.
 
-### `location = /health`
+## API, backup, and WebSocket proxying
 
-Exact-match liveness endpoint. Disables access logging, adds a text content type, and returns `ok` without contacting the API.
+`/api/`, the more-specific backup upload/download route, and `/ws` proxy to `http://noc-ifc-dev-c-api:8101`. The backup route disables request and response buffering and sets one-hour timeouts for large encrypted package transfers. `/ws` enables HTTP/1.1 upgrade headers.
 
-### `location ~ \.mjs$`
-
-Serves JavaScript module files with `application/javascript`. Missing `.mjs` files return `404` rather than the SPA entry document, preventing module workers from receiving HTML with an invalid MIME type.
-
-### `location ^~ /maps/`
-
-Serves precompiled, versioned contiguous-US boundary GeoJSON with `application/geo+json` and a one-year immutable cache header. These files are same-origin static assets; live hazard overlays continue to come from API endpoints.
-
-### `location /`
-
-Uses `try_files $uri /index.html` for the React SPA fallback and contains an `allow 10.0.0.0/8` directive. There is no corresponding `deny all` in this location/server configuration, so this directive does **not** form an allowlist that blocks all other client addresses. The exact health endpoint is separate. Enforce the intended network boundary at a firewall or reverse proxy; changing the source configuration is outside this documentation-only pass.
-
-### `location /api/`
-
-Uses the built-in bridge host-gateway alias:
-
-```nginx
-proxy_pass http://noc-ifc-dev-api:8102;
-```
-
-Passes `Host`, `X-Real-IP`, `X-Forwarded-For`, and `X-Forwarded-Proto` headers. The backend API handles authentication and route authorization.
-
-### `location ^~ /api/v1/admin/backups`
-
-This more-specific location proxies large backup downloads/uploads directly to the API through `noc-ifc-dev-api:8102`. It sets 3600-second proxy/body timeouts and disables both proxy response buffering and request buffering so large backup streams are not buffered to disk or memory by Nginx.
-
-### `location /ws`
-
-Proxies to `noc-ifc-dev-api:8102` and enables HTTP/1.1 upgrade headers:
-
-- `proxy_http_version 1.1`
-- `Upgrade: $http_upgrade`
-- `Connection: "upgrade"`
-- `Host: $host`
-
-The frontend connects to the exact `/ws` path and supplies the session token as a query parameter.
-
-## Usage
-
-This configuration applies only to the production `web` container. The `web-dev` service uses Vite’s proxy configuration. The `allow 10.0.0.0/8` directive alone does not deny unmatched clients; see the `location /` note above.
+The Vite development service uses its own proxy from `vite.config.ts`; the Python runtime proxy and duplicate Nginx configuration have been removed from `dev-c`.
 
 ```bash
 docker compose exec web nginx -t

@@ -2,7 +2,7 @@
 
 **File:** `src/core/db.py`
 
-Provides the SQLite engine/session factory, startup migration integration, post-migration connection tuning, bootstrap data setup, and the FastAPI database dependency.
+Provides the SQLite engine/session factory, host-side migration integration, post-migration connection tuning, and bootstrap data setup. The former FastAPI request dependency has been removed.
 
 ## Database URL and engine
 
@@ -13,11 +13,11 @@ Provides the SQLite engine/session factory, startup migration integration, post-
 | Function | Contract |
 |---|---|
 | `validate_database_url(database_url)` | Parse a SQLAlchemy URL and reject any backend other than SQLite with `RuntimeError`. |
-| `get_db()` | Yield a request-scoped `SessionLocal` session and close it in `finally`; route/service code owns commits. |
+| `SessionLocal` | Create a short-lived SQLAlchemy session for offline bootstrap and migration helpers. |
 
 ## Startup sequence
 
-`init_db()` performs these steps before a process serves work:
+`init_db()` performs these steps during host-side database preparation:
 
 1. Calls `src.core.migration_runner.run_migrations(engine)`.
 2. Enables persistent WAL mode and registers connection-local SQLite pragmas.
@@ -49,7 +49,7 @@ After migrations, `_set_sqlite_pragmas()` enables persistent WAL mode. The SQLAl
 - A trusted `DEFAULT_ADMIN_EMAIL` may verify an existing email-less bootstrap admin and resolve a matching pending recovery-email request.
 - Default RSS feeds and keywords are queried in batches and inserted only when absent; existing feed state and keyword weights are preserved.
 - `DEMO_SEED_DATA` seeds sample assets only when the corresponding table is empty.
-- Full article rescoring remains opt-in through `RESCORE_ON_STARTUP=true`.
+- The host-side initializer prepares schema and seed data only; it does not run application jobs.
 
 ## Operational notes
 

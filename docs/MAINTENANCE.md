@@ -123,23 +123,29 @@ The older Settings JSON tools remain partial data migration utilities: the legac
 
 The C# API, Worker, and Webhook only become ready at Alembic head `20261125_0025`; they do not run migrations. Prepare a fresh `data-dev-c` database with `tools/offline-python/prepare_dev_c_database.py`. For an existing dev-c database, take a backup, then run `DATABASE_URL="sqlite:////absolute/path/data-dev-c/noc_fusion.db" uv run --project tools/offline-python --locked python -c 'from src.core.db import init_db; init_db()'` from the repository root. A current database receives no schema DDL. The adoption revision is additive for the documented pre-Alembic schema and preserves existing rows; unsupported schemas fail closed. See [Migration Compatibility](MIGRATION_COMPATIBILITY.md).
 
-Do not manually stamp `alembic_version`, drop columns, or try a downgrade as rollback. Restore a verified pre-upgrade backup if rollback is required. The ignored Python backup Compose retains its legacy startup migration behavior.
-
-`RESCORE_ON_STARTUP` defaults to false. Set it temporarily only when a deliberate full article rescore is required; restart the affected containers and unset it afterward. A full rescore can create database contention and extend startup time.
+Do not manually stamp `alembic_version`, drop columns, or try a downgrade as rollback. Restore a verified pre-upgrade backup if rollback is required. The host-side Alembic tool is the only schema migration path on this branch.
 
 ## Restore and Disaster Recovery
 
 For full disaster recovery, stage a `.nocbackup` file from Settings > Backup & Restore and choose **Restore now**. The UI starts a coordinated maintenance window: API writes are gated, the worker stops launching jobs and drains in-flight jobs, the webhook stops intake and drains accepted payloads, and active WebSocket clients are disconnected. The UI displays restore progress and returns when services resume. Restored login sessions are revoked, so the operator signs in again.
 
-The C# default stack performs full restore through the coordinated UI workflow. The older offline Python restore command below is only for the legacy backup Compose:
+The C# UI restore accepts encrypted packages at the current Alembic head. To upgrade an older encrypted package, convert it to a current-head package on the host before staging it. This reads the existing backup key map from `.env` and does not modify the source package or active database:
 
 ```bash
-docker compose -p noc-ifc-dev -f docker-compose.yml stop api worker webhook
-docker compose -p noc-ifc-dev -f docker-compose.yml run --rm --no-deps api python scripts/restore_backup.py \
-  /app/data/backups/staged/<stage-id>.nocbackup --maintenance-confirmed
+uv run --project tools/offline-python --locked python tools/offline-python/upgrade_backup.py \
+  /path/to/older-backup.nocbackup /path/to/current-head-backup.nocbackup
 ```
 
-The UI restore and offline command decrypt and validate the package, upgrade the staged database to the packaged application's migration head, create an encrypted pre-restore safety backup, invalidate restored login sessions and outstanding registration/reset/recovery-email links, and atomically install the database. On success, all staged restore packages are removed; the permanent manual/scheduled backups and pre-restore safety package remain. Request and account-audit history are preserved. If validation or installation fails, the live database is left intact or rolled back and staged packages remain available for retry. For the offline command, keep all writers stopped until it exits. If it exits with an error, review the output and bring the services back up before troubleshooting.
+The conversion leaves the source package and active database untouched, applies migrations to a temporary restored copy, invalidates restored sessions/links as a normal restore does, and creates a new encrypted package. If the C# UI is unavailable, the host-side offline restore fallback can install a staged package after all writers are stopped:
+
+```bash
+docker compose stop api worker webhook
+DATABASE_URL="sqlite:////absolute/path/data-dev-c/noc_fusion.db" \
+  uv run --project tools/offline-python --locked python tools/offline-python/restore_backup.py \
+  /absolute/path/data-dev-c/backups/staged/<stage-id>.nocbackup --maintenance-confirmed
+```
+
+The C# UI restore decrypts and validates a current-head package, creates an encrypted pre-restore safety backup, invalidates restored login sessions and outstanding registration/reset/recovery-email links, and atomically installs the database. The offline tool applies migrations to the staged database before installation. On success, UI restore removes all staged restore packages; the permanent manual/scheduled backups and pre-restore safety package remain. Request and account-audit history are preserved. If validation or installation fails, the live database is left intact or rolled back and staged packages remain available for retry. For offline restore, keep all writers stopped until the command exits; if it fails, review its output before restarting services.
 
 The backup directory labels pre-restore safety snapshots separately from user-created manual backups. Packages created before this label was added may still appear as manual backups until their manifest is checked and they are relabeled.
 

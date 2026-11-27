@@ -21,4 +21,20 @@ public sealed class EnterpriseIocExtractorTests
         Assert.DoesNotContain(indicators, item => item.Type == "IPv4" && item.Indicator is "10.1.2.3" or "8.8.8.8");
         Assert.All(indicators, item => Assert.StartsWith("...", item.Context));
     }
+
+    [Fact]
+    public void UsesThePythonSpecialAddressExceptionsForIpv4AndIpv6()
+    {
+        const string teredo = "2001:0000:0000:0000:0000:0000:0000:0001";
+        const string globalAnycast = "2001:0001:0000:0000:0000:0000:0000:0001";
+        var indicators = EnterpriseIocExtractor.Extract(
+            $"192.0.0.9 192.2.0.1 100.64.0.1 001.002.003.004 {teredo} {globalAnycast}");
+
+        Assert.Contains(indicators, item => item.Type == "IPv4" && item.Indicator == "192.0.0.9");
+        Assert.Contains(indicators, item => item.Type == "IPv4" && item.Indicator == "192.2.0.1");
+        Assert.Contains(indicators, item => item.Type == "IPv4" && item.Indicator == "100.64.0.1");
+        Assert.DoesNotContain(indicators, item => item.Type == "IPv4" && item.Indicator == "001.002.003.004");
+        Assert.DoesNotContain(indicators, item => item.Type == "IPv6" && item.Indicator == teredo);
+        Assert.Contains(indicators, item => item.Type == "IPv6" && item.Indicator == globalAnycast);
+    }
 }

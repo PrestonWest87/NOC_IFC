@@ -67,7 +67,7 @@ All endpoints in this group are administrator-only. Configure `BACKUP_ENCRYPTION
 | `POST /backups/staged/{stage_id}/restore` | Starts a UI-managed restore and returns 202 with a random `restore_id`. The API gates requests, closes WebSockets, waits for API/worker/webhook writers to drain, then migrates and atomically installs the package with rollback handling. |
 | `POST /restore-status` | This capability endpoint is mounted at `/api/v1/restore-status`, outside the `/admin` prefix. It accepts `{restore_id}` and does not require a session because a successful restore revokes the initiating session. |
 
-Restore invalidates restored sessions and outstanding invitation/reset/email-verification links, preserves request/audit history, and clears staged packages on success. The offline fallback is `scripts/restore_backup.py --maintenance-confirmed` after stopping all writers. See [`core/backup_restore.md`](../../core/backup_restore.md) and [`MAINTENANCE.md`](../../../MAINTENANCE.md).
+Restore invalidates restored sessions and outstanding invitation/reset/email-verification links, preserves request/audit history, and clears staged packages on success. The host-side offline fallback is `tools/offline-python/restore_backup.py --maintenance-confirmed` after stopping all writers. This page documents the removed Python route; active C# endpoints are in `API.md`. See [`core/backup_restore.md`](../../core/backup_restore.md) and [`MAINTENANCE.md`](../../../MAINTENANCE.md).
 
 ## Legacy partial migration and destructive tools
 

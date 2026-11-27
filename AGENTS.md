@@ -8,6 +8,10 @@ The application rewrite is on `architecture/monolith-to-decoupled` — a decoupl
 
 Automated tests under `tests/` are local-only and intentionally excluded from version control by user request. Do not stage or re-add test files unless asked.
 
+## `dev-c` Branch Override
+
+When the current branch is `dev-c`, the C# API, Worker, and Webhook plus the React frontend are the active runtime, launched by tracked `compose.yaml`. The legacy Python API, scheduler, webhook listener, service modules, root runtime Dockerfile/Compose file, and dependency manifests are removed from this branch. Python is retained only for host-side Alembic migration/bootstrap, encrypted-backup maintenance, and route-contract comparison under `migrations/`, `src/core/`, `src/models/`, and `tools/offline-python/`. Do not restore Python runtime files or copy these branch-specific changes to `dev`, `main`, or other worktrees without a separate request; see `README_DEV_C.md` for the C# branch plan.
+
 ## Active Implementation Plan — Operational Email
 
 **Implementation branch:** `dev`, based on the clean `origin/main` commit and published as `origin/dev`. Keep this feature on `dev` only; do not merge it into `main` or `architecture/monolith-to-decoupled` without a later user request. Preserve the unrelated untracked integration-plan documents in the worktree. The dev Compose project is `noc-ifc-dev`, uses `./data-dev` and Docker's built-in `bridge` network, and publishes host ports 8102 (API), 8099 (webhook), 8503 (web), and 5174 (Vite HMR).

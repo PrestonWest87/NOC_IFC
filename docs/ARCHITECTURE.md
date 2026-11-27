@@ -1,16 +1,16 @@
 # NOC Intelligence Fusion Center Architecture
 
-**Status:** Legacy Python-backup architecture reference
-**Runtime:** FastAPI + Python workers + React/Vite
+**Status:** Historical Python source and behavior reference; the runtime was removed from `dev-c`
+**Active runtime:** .NET 10 API/Worker/Webhook + React/Vite
 **Canonical documentation root:** `docs/`
 
 ## Purpose
 
 The NOC Intelligence Fusion Center (IFC) collects cyber, infrastructure, physical, environmental, and vulnerability signals; normalizes them into a shared database; correlates infrastructure alerts; calculates risk; and presents the result through a browser dashboard, REST API, WebSocket updates, and email workflows.
 
-This document describes the retained Python backup runtime. The default `dev-c` stack is the C# API/Worker/Webhook in `src/NocIfc.Api`, `src/NocIfc.Worker`, and `src/NocIfc.Webhook`, launched by `compose.yaml`; see `README_DEV_C.md` and `docs/DEPLOYMENT.md` for its current topology. The ignored local `docker-compose.yml` remains the Python rollback backup.
+This document preserves the original Python implementation as a migration and behavior reference; its API, scheduler, webhook, and worker source files are no longer on `dev-c`. The active stack is the C# API/Worker/Webhook in `src/NocIfc.Api`, `src/NocIfc.Worker`, and `src/NocIfc.Webhook`, launched by `compose.yaml`. Host-side Python remains only for Alembic migration/bootstrap and encrypted-backup maintenance. See `README_DEV_C.md` and `docs/DEPLOYMENT.md` for current topology.
 
-## Runtime Topology
+## Historical Python Runtime Topology
 
 ```text
 Browser
@@ -32,7 +32,7 @@ external feeds and SMTP
 SolarWinds -> host webhook:8099 -> webhook:8100 -> shared database
 ```
 
-## Deployable Services
+## Removed Python Service Topology (Reference)
 
 | Service | Entrypoint | Port | Responsibility |
 |---|---|---:|---|
@@ -42,7 +42,7 @@ SolarWinds -> host webhook:8099 -> webhook:8100 -> shared database
 | `web` | `web/Dockerfile` | host 8503 -> container 5173 | Production React build served by nginx |
 | `web-dev` | Vite under the `dev` profile | host 5174 -> container 5173 | Development frontend with source mounts and HMR |
 
-The API, worker, and webhook share `./data-dev` as `/app/data`. The dev Compose project is named `noc-ifc-dev`, uses separate host ports/storage, and attaches to Docker's built-in bridge without allocating another subnet. The web containers reach the dev API through a unique host-gateway alias. SQLite is the only supported application database.
+The original Python API, worker, and webhook shared `./data-dev` as `/app/data`. These entries document the pre-port source topology; only the C# topology in `compose.yaml` is deployable from this branch. SQLite remains the only supported application database.
 
 ## Backend Boundaries
 
@@ -91,7 +91,7 @@ The web build precompiles and serves local contiguous-US state outlines plus Ark
 
 The API middleware reads a Bearer session token supplied by the frontend and attaches the authenticated user to protected requests; legacy `token` and `session_token` query parameters remain accepted. Login creates an opaque database-backed session token; this is not JWT authentication. 401 responses invalidate the frontend session; 403 responses return structured permission details and preserve it. The WebSocket endpoint requires `?token=<session token>`, the `AIOps RCA` page and `Tab: AIOps RCA -> Active Board`, periodically revalidates the session/grants, filters payloads by allowed site types, and authorizes client commands separately.
 
-RBAC is represented by role page permissions, action permissions, tab permissions, and allowed site types. `contracts/permission_catalog.json` is the shared permission contract; the Python adapter and C# API consume the same keys, while frontend permission utilities map those keys to local page/tab identifiers. Sensitive operations have distinct grants for report generation, report dispatch, arbitrary email, risk overrides, scheduler changes, user/role management, and recovery review. The full key list and built-in role rules are in [Permissions](PERMISSIONS.md). Backend authorization remains authoritative; the frontend hides/labels controls for usability.
+RBAC is represented by role page permissions, action permissions, tab permissions, and allowed site types. `contracts/permission_catalog.json` is the shared permission contract; the C# API consumes its keys, while frontend permission utilities map them to local page/tab identifiers. Sensitive operations have distinct grants for report generation, report dispatch, arbitrary email, risk overrides, scheduler changes, user/role management, and recovery review. The full key list and built-in role rules are in [Permissions](PERMISSIONS.md). Backend authorization remains authoritative; the frontend hides/labels controls for usability.
 
 Individual accounts are created through email invitations. Administrator-created display accounts may omit email and use administrator-assisted recovery. Recovery-email changes and password resets are queued for permission-based user-administrator review; approved recovery addresses must also be mailbox-verified.
 
@@ -99,11 +99,11 @@ Risk overrides, notification destinations, Elastic connection settings, and edit
 
 ## Database Lifecycle
 
-`init_db()` applies pending Alembic revisions under a shared SQLite migration lock before it configures SQLite pragmas or seeds data. The database's `alembic_version` table records the last successful revision; startup at the current revision performs no schema DDL. The initial adoption revision creates a fresh baseline or additively adopts known pre-Alembic schemas. It preserves existing rows, applies explicit one-time backfills, and fails closed when required legacy columns are missing from the compatibility map or normalized emails conflict. Migration errors abort startup; see [Migration Compatibility](MIGRATION_COMPATIBILITY.md) before upgrading an older database. Conditional bootstrap seeds preserve operator-edited feeds, keyword weights, and custom role grants. Set `RESCORE_ON_STARTUP=true` only when an explicit full-corpus rescore is acceptable.
+The host-side offline `init_db()` tool applies pending Alembic revisions under a shared SQLite migration lock before configuring SQLite pragmas or seeding data. C# services require the database to be prepared at the expected head and do not run migrations themselves. The initial adoption revision creates a fresh baseline or additively adopts known pre-Alembic schemas. It preserves existing rows, applies explicit one-time backfills, and fails closed when required legacy columns are missing from the compatibility map or normalized emails conflict. Migration errors abort preparation; see [Migration Compatibility](MIGRATION_COMPATIBILITY.md) before upgrading an older database. Conditional bootstrap seeds preserve operator-edited feeds, keywords, and custom role grants.
 
 After migrations, SQLite startup enables WAL. Each NullPool connection receives `synchronous=NORMAL`, memory temp storage, a 16 MB cache, a 64 MB mmap, and a 30-second connection timeout.
 
-`src/core/backup_manager.py` uses SQLite's online backup API for complete snapshots, then encrypts a versioned database/model package with chunked authenticated AES-256-GCM. Backups reside on the shared data volume and have scheduled-only retention. The administrator UI coordinates a cross-container maintenance pause and restore; `scripts/restore_backup.py` remains the offline fallback.
+`src/core/backup_manager.py` is retained for host-side encrypted package conversion and recovery. The C# administrator UI coordinates online restore; `tools/offline-python/restore_backup.py` is the host-only offline fallback.
 
 ## Failure Isolation
 
@@ -115,20 +115,15 @@ After migrations, SQLite startup enables WAL. Each NullPool connection receives 
 
 ## Source Reference
 
-| Concern | Source |
+| Concern | Current source |
 |---|---|
-| Settings and environment parsing | `src/core/config.py` |
-| Live alert/Elastic settings | `src/core/runtime_settings.py` |
-| LLM provider protocols | `src/core/llm_providers.py` |
-| Regional geometry and CAP alert filtering | `src/core/arkansas_coverage.py` |
-| Monitored-site contact validation | `src/core/site_contact_validation.py` |
-| Engine/session/migrations/seeds | `src/core/db.py` |
-| API lifecycle and WebSocket | `src/api/main.py`, `src/api/ws_manager.py` |
-| Authentication middleware | `src/api/auth_guard.py` |
+| API and WebSocket | `src/NocIfc.Api/` |
+| Application use cases | `src/NocIfc.Application/` |
+| SQLite persistence and integrations | `src/NocIfc.Infrastructure/` |
+| Scheduler | `src/NocIfc.Worker/` |
+| SolarWinds webhook | `src/NocIfc.Webhook/` |
 | Shared permission contract | `contracts/permission_catalog.json` |
-| Route handlers | `src/api/routes/*.py` |
-| Services and DAL | `src/services.py`, `src/services/*.py` |
-| Scheduler registry, persistence, and reload | `src/core/scheduler_registry.py`, `src/scheduler.py` |
-| Webhook gateway | `src/webhook_listener.py` |
+| Host-side schema migration/bootstrap | `migrations/`, `tools/offline-python/`, retained `src/core/` and `src/models/` modules |
+| Encrypted backup conversion/recovery | `tools/offline-python/`, retained `src/core/backup_manager.py` and `restore_control.py` |
 | React routing and providers | `web/src/App.tsx` |
-| Container topology | `docker-compose.yml` |
+| Container topology | `compose.yaml`, `compose.dev-c.yaml`, `deploy/Dockerfile.backend` |

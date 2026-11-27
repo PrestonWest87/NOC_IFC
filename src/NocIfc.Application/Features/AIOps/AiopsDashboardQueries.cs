@@ -15,6 +15,15 @@ public enum AiopsSiteMaintenanceOutcome
     SiteNotFound,
 }
 
+public enum AiopsSiteAcknowledgeOutcome
+{
+    Acknowledged,
+    SiteScopeDenied,
+    SiteNotFound,
+}
+
+public sealed record AiopsSiteAcknowledgeResult(AiopsSiteAcknowledgeOutcome Outcome, int UpdatedAlerts);
+
 public sealed record AiopsScopedDashboardInputs(
     IReadOnlyList<AiopsAlertEntry> Alerts,
     IReadOnlyList<AiopsTimelineEventEntry> Events,
@@ -101,6 +110,39 @@ public sealed class AiopsDashboardQueries(
         var allowedSiteNames = await GetAllowedSiteNamesAsync(user, cancellationToken);
         return await dashboard.AcknowledgeAlertsAsync(
             alertIds, user.Username, DateTime.UtcNow, allowedSiteNames, cancellationToken);
+    }
+
+    public async Task<AiopsSiteAcknowledgeResult> AcknowledgeSiteAsync(
+        AuthenticatedUser user,
+        int siteId,
+        CancellationToken cancellationToken)
+    {
+        var site = (await facilities.GetAdminLocationsAsync(cancellationToken))
+            .FirstOrDefault(location => location.Id == siteId);
+        if (site is null || string.IsNullOrEmpty(site.Name))
+        {
+            return new AiopsSiteAcknowledgeResult(AiopsSiteAcknowledgeOutcome.SiteNotFound, 0);
+        }
+        var siteName = site.Name;
+
+        var allowedSiteNames = await GetAllowedSiteNamesAsync(user, cancellationToken);
+        if (allowedSiteNames is not null && !allowedSiteNames.Contains(siteName))
+        {
+            return new AiopsSiteAcknowledgeResult(AiopsSiteAcknowledgeOutcome.SiteScopeDenied, 0);
+        }
+
+        var alerts = await dashboard.GetUnresolvedAlertsAsync(allowedSiteNames, cancellationToken);
+        var alertIds = alerts
+            .Where(alert => !alert.IsCorrelated
+                && string.Equals(alert.MappedLocation, siteName, StringComparison.Ordinal))
+            .Select(alert => alert.Id)
+            .ToArray();
+        if (alertIds.Length > 0 && !await dashboard.AcknowledgeAlertsAsync(
+                alertIds, user.Username, DateTime.UtcNow, allowedSiteNames, cancellationToken))
+        {
+            return new AiopsSiteAcknowledgeResult(AiopsSiteAcknowledgeOutcome.SiteScopeDenied, 0);
+        }
+        return new AiopsSiteAcknowledgeResult(AiopsSiteAcknowledgeOutcome.Acknowledged, alertIds.Length);
     }
 
     public async Task<bool> SetClusterDispatchAsync(

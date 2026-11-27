@@ -114,7 +114,7 @@ External source availability varies. A source can be temporarily blocked, unavai
 
 ## Runtime Overview
 
-On `dev-c`, the tracked `compose.yaml` is the default Docker Compose stack and includes `compose.dev-c.yaml`. It runs the C# API, Worker, and SolarWinds Webhook with the existing React/Nginx frontend. The ignored local `docker-compose.yml` is retained unchanged as a Python backup.
+On `dev-c`, the tracked `compose.yaml` is the only application Compose stack and includes `compose.dev-c.yaml`. It runs the C# API, Worker, and SolarWinds Webhook with the existing React/Nginx frontend. The retired Python runtime and its root Docker/Compose manifests have been removed from this branch; host-side Python remains only for offline migration and backup maintenance.
 
 ```text
 Analyst browser
@@ -140,7 +140,7 @@ SolarWinds Orion ---> Webhook gateway host :8100 (container :8100) ---> Same dat
 | `web` | Production React workspace served by nginx | 8501 (container 5173) |
 | `web-dev` | Optional Vite development workspace with hot reload | 5173 |
 
-The C# project is named `noc-ifc-dev-c`; it uses fresh SQLite storage in `./data-dev-c`, separate from both the Python backup's `./data-dev` and the main instance's `./data`. The frontend and API/WebSocket proxy use Docker's built-in bridge/host-gateway route without allocating another subnet. API, webhook, production UI, and optional Vite ports match the main Compose mapping and publish on all host interfaces for this dev system.
+The C# project is named `noc-ifc-dev-c`; it uses isolated SQLite storage in `./data-dev-c`, separate from the main instance's `./data`. The frontend and API/WebSocket proxy use Docker's built-in bridge/host-gateway route without allocating another subnet. API, webhook, production UI, and optional Vite ports match the main Compose mapping and publish on all host interfaces for this dev system.
 
 ## Quick Start
 
@@ -187,14 +187,6 @@ DEV_C_UID="$(id -u)" DEV_C_GID="$(id -g)" docker compose --profile dev up --buil
 ```
 
 Open `http://localhost:5173` for hot reload; API and WebSocket requests proxy to the C# backend on port `8101`.
-
-### Legacy Python Backup
-
-The ignored local `docker-compose.yml` is preserved as a Python rollback backup. Use it explicitly if needed; it continues to use the separate `data-dev` directory and legacy Python ports.
-
-```bash
-docker compose -p noc-ifc-dev -f docker-compose.yml up --build -d
-```
 
 ## Initial Configuration
 
