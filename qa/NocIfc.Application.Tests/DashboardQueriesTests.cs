@@ -55,5 +55,8 @@ public sealed class DashboardQueriesTests
                 "global", DateTime.UtcNow,
                 "AI failed to process batch.", DateTime.UtcNow,
                 "unified", DateTime.UtcNow));
+
+        public Task<bool> SaveUnifiedBriefAsync(string content, DateTime savedAtUtc, CancellationToken cancellationToken) =>
+            Task.FromResult(true);
     }
 }

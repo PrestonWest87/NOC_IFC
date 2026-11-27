@@ -82,6 +82,9 @@ public sealed class SqliteOperationalDashboardStoreTests
             Assert.Equal("unified", briefs.UnifiedBrief);
             Assert.Equal("ORANGE", briefs.LastGlobalRisk);
             Assert.Equal("RED", briefs.LastInternalRisk);
+            Assert.True(await store.SaveUnifiedBriefAsync("New unified brief", now, CancellationToken.None));
+            var savedBrief = await store.GetBriefsAsync(CancellationToken.None);
+            Assert.Equal("New unified brief", savedBrief?.UnifiedBrief);
         }
         finally
         {

@@ -8,4 +8,5 @@ public interface IOperationalDashboardStore
     Task<IReadOnlyList<DashboardRegionalHazard>> GetHazardsAsync(DateTime nowUtc, int limit, CancellationToken cancellationToken);
     Task<IReadOnlyList<DailyThreatScoreEntry>> GetThreatTrendsAsync(DateTime sinceUtc, CancellationToken cancellationToken);
     Task<DashboardBriefSnapshot?> GetBriefsAsync(CancellationToken cancellationToken);
+    Task<bool> SaveUnifiedBriefAsync(string content, DateTime savedAtUtc, CancellationToken cancellationToken);
 }

@@ -86,6 +86,8 @@ builder.Services.AddScoped<IOperationalDashboardStore, SqliteOperationalDashboar
 builder.Services.AddScoped<DashboardQueries>();
 builder.Services.AddScoped<IExecutiveIntelStore, SqliteExecutiveIntelStore>();
 builder.Services.AddScoped<ExecutiveIntelQueries>();
+builder.Services.AddScoped<UnifiedBriefGenerationCommands>();
+builder.Services.AddSingleton<UnifiedBriefGenerationState>();
 builder.Services.AddScoped<IInternalRiskStore, SqliteInternalRiskStore>();
 builder.Services.AddScoped<InternalRiskQueries>();
 builder.Services.AddScoped<IThreatArticleStore, SqliteThreatArticleStore>();

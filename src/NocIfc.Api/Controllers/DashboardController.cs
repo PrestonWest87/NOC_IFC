@@ -5,6 +5,7 @@ using NocIfc.Api.Contracts;
 using NocIfc.Application.Features.AIOps;
 using NocIfc.Application.Features.Dashboard;
 using NocIfc.Application.Features.Threat;
+using NocIfc.Api.Services;
 
 namespace NocIfc.Api.Controllers;
 
@@ -17,7 +18,8 @@ public sealed class DashboardController(
     InternalRiskQueries internalRisk,
     ThreatArticleQueries articles,
     GenerateArticleBlufCommands blufCommands,
-    AiopsSitrepActionCommands sitrepActions) : ControllerBase
+    AiopsSitrepActionCommands sitrepActions,
+    UnifiedBriefGenerationState unifiedBriefGeneration) : ControllerBase
 {
     [HttpGet("metrics")]
     [RequireAction("Tab: Dashboards -> Operational")]
@@ -121,6 +123,32 @@ public sealed class DashboardController(
             return Unauthorized(new { detail = new { code = "unauthenticated", message = "Not authenticated" } });
         }
         return Ok(await dashboard.GetBriefsAsync(user, cancellationToken));
+    }
+
+    [HttpPost("generate-unified-brief")]
+    [RequireAction("Tab: Dashboards -> Unified Brief")]
+    [RequireAction("Action: Generate Reports")]
+    public IActionResult GenerateUnifiedBrief()
+    {
+        var id = unifiedBriefGeneration.Start();
+        return Ok(new { status = "started", generation_id = id.ToString() });
+    }
+
+    [HttpGet("brief-generation-status")]
+    [RequireAction("Tab: Dashboards -> Unified Brief")]
+    public IActionResult GetUnifiedBriefGenerationStatus([FromQuery(Name = "generation_id")] string? generationId)
+    {
+        if (string.IsNullOrWhiteSpace(generationId))
+        {
+            return UnprocessableEntity(new { detail = "generation_id is required." });
+        }
+        if (!Guid.TryParse(generationId, out var id))
+        {
+            return Ok(new { status = "unknown" });
+        }
+        return unifiedBriefGeneration.GetProgress(id) is { } progress
+            ? Ok(progress)
+            : Ok(new { status = "unknown" });
     }
 
     [HttpPost("articles/toggle-pin")]

@@ -105,6 +105,8 @@ public sealed class BriefBroadcastCommandsTests
         public Task<IReadOnlyList<DailyThreatScoreEntry>> GetThreatTrendsAsync(DateTime sinceUtc, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<DailyThreatScoreEntry>>([]);
         public Task<DashboardBriefSnapshot?> GetBriefsAsync(CancellationToken cancellationToken) => Task.FromResult(snapshot);
+        public Task<bool> SaveUnifiedBriefAsync(string content, DateTime savedAtUtc, CancellationToken cancellationToken) =>
+            Task.FromResult(true);
     }
 
     private sealed class StubInternalRiskStore(InternalRiskSnapshotEntry? snapshot) : IInternalRiskStore
