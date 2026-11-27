@@ -116,7 +116,7 @@ builder.Services.AddScoped<SavedReportCommands>();
 builder.Services.AddScoped<IDailyBriefingStore, SqliteDailyBriefingStore>();
 builder.Services.AddScoped<DailyBriefingQueries>();
 builder.Services.AddScoped<DailyFusionCommands>();
-builder.Services.AddScoped<DailyFusionBroadcastCommands>();
+builder.Services.AddScoped<ReportingBroadcastCommands>();
 builder.Services.AddSingleton(new NwsForecastConfiguration(
     builder.Configuration["nws_api_user_agent"] ?? "NOC-IFC/2.0 (https://test.weasts.net)",
     builder.Configuration["default_admin_email"] ?? ""));

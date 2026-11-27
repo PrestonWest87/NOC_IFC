@@ -15,6 +15,18 @@ public sealed class DailyFusionBroadcastRequest
     public string? Recipients { get; init; } = "";
 }
 
+public sealed class CustomReportBroadcastRequest
+{
+    [JsonPropertyName("title")]
+    public string? Title { get; init; } = "NOC Custom Intel Report";
+
+    [JsonPropertyName("content")]
+    public string? Content { get; init; } = "";
+
+    [JsonPropertyName("recipients")]
+    public string? Recipients { get; init; } = "";
+}
+
 public sealed class ReportingArticleSearchRequest
 {
     [JsonPropertyName("target")]

@@ -13,7 +13,7 @@ public sealed class ReportingController(
     SavedReportCommands reports,
     DailyBriefingQueries briefings,
     DailyFusionCommands dailyFusion,
-    DailyFusionBroadcastCommands dailyFusionBroadcast,
+    ReportingBroadcastCommands broadcasts,
     ThreatHuntingQueries threatHunting) : ControllerBase
 {
     [HttpGet("daily-briefings")]
@@ -45,8 +45,31 @@ public sealed class ReportingController(
         }
         try
         {
-            var result = await dailyFusionBroadcast.BroadcastAsync(
+            var result = await broadcasts.BroadcastDailyFusionAsync(
                 request.ReportDate ?? "", request.Content ?? "", request.Recipients ?? "", cancellationToken);
+            return Ok(new { status = result.Success ? "ok" : "error", message = result.Message });
+        }
+        catch (ArgumentException exception)
+        {
+            return UnprocessableEntity(new { detail = exception.Message });
+        }
+    }
+
+    [HttpPost("broadcast-custom")]
+    [RequireAction("Tab: Reporting -> Report Builder")]
+    [RequireAction("Action: Dispatch Exec Report")]
+    public async Task<IActionResult> BroadcastCustom(
+        [FromBody] CustomReportBroadcastRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (request is null)
+        {
+            return UnprocessableEntity(new { detail = "A custom report broadcast request is required." });
+        }
+        try
+        {
+            var result = await broadcasts.BroadcastCustomAsync(
+                request.Title, request.Content ?? "", request.Recipients ?? "", cancellationToken);
             return Ok(new { status = result.Success ? "ok" : "error", message = result.Message });
         }
         catch (ArgumentException exception)

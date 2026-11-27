@@ -6,9 +6,9 @@ using NocIfc.Application.Features.Identity;
 
 namespace NocIfc.Application.Features.Reporting;
 
-public sealed class DailyFusionBroadcastCommands(IEmailSender emailSender)
+public sealed class ReportingBroadcastCommands(IEmailSender emailSender)
 {
-    public async Task<EmailSendResult> BroadcastAsync(
+    public async Task<EmailSendResult> BroadcastDailyFusionAsync(
         string reportDate,
         string content,
         string recipients,
@@ -23,12 +23,43 @@ public sealed class DailyFusionBroadcastCommands(IEmailSender emailSender)
         {
             return new EmailSendResult(false, "No recipients specified.");
         }
-        var html = FormatEmail(reportDate, content);
+        var html = FormatDailyEmail(reportDate, content);
         return await emailSender.SendHtmlAsync(
             normalizedRecipients,
             $"Daily Fusion Report - {reportDate}",
             html,
             cancellationToken);
+    }
+
+    public async Task<EmailSendResult> BroadcastCustomAsync(
+        string? title,
+        string content,
+        string recipients,
+        CancellationToken cancellationToken)
+    {
+        title ??= "NOC Custom Intel Report";
+        if (title.Length > 200 || content.Length > 200_000 || recipients.Length > 2_000)
+        {
+            throw new ArgumentException("Custom report email fields exceed their maximum length.");
+        }
+        var normalizedRecipients = NormalizeRecipients(recipients);
+        if (normalizedRecipients.Length == 0)
+        {
+            return new EmailSendResult(false, "No recipients specified.");
+        }
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return new EmailSendResult(false, "No report content available.");
+        }
+
+        var displayTitle = title.Trim();
+        if (displayTitle.Length == 0) displayTitle = "NOC Custom Intel Report";
+        var now = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("America/Chicago"));
+        var zoneName = now.Offset == TimeSpan.FromHours(-5) ? "CDT" : "CST";
+        var reportTime = $"{now.ToString("dddd, MMMM dd, yyyy 'at' hh:mm tt", System.Globalization.CultureInfo.InvariantCulture)} {zoneName}";
+        var html = FormatCustomEmail(title, reportTime, content);
+        return await emailSender.SendHtmlAsync(
+            normalizedRecipients, displayTitle, html, cancellationToken);
     }
 
     private static string NormalizeRecipients(string recipients)
@@ -52,7 +83,7 @@ public sealed class DailyFusionBroadcastCommands(IEmailSender emailSender)
         return string.Join(", ", addresses);
     }
 
-    private static string FormatEmail(string reportDate, string content)
+    private static string FormatDailyEmail(string reportDate, string content)
     {
         var renderedContent = RenderMarkdown(content);
         return $"""
@@ -62,6 +93,25 @@ public sealed class DailyFusionBroadcastCommands(IEmailSender emailSender)
                 <p style="color:#7f8c8d;font-size:0.9em;margin-bottom:20px;"><strong>Date:</strong> {WebUtility.HtmlEncode(reportDate)}</p>
                 <div style="font-size:14px;background-color:#fff;padding:15px;border-radius:4px;border:1px solid #eee;">
                   {renderedContent}
+                </div>
+              </div>
+            </div>
+            """;
+    }
+
+    private static string FormatCustomEmail(string title, string reportTime, string content)
+    {
+        var renderedContent = RenderMarkdown(content.Trim());
+        return $"""
+            <div style="margin:0;padding:20px;background:#f3f4f6;">
+              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;max-width:850px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+                <div style="background:#1d4ed8;padding:24px 30px;">
+                  <h1 style="color:#fff;margin:0 0 6px;font-size:22px;font-weight:600;">{WebUtility.HtmlEncode(title)}</h1>
+                  <p style="color:#dbeafe;margin:0;font-size:13px;">Generated: {WebUtility.HtmlEncode(reportTime)}</p>
+                </div>
+                <div style="padding:25px 30px;font-size:14px;line-height:1.6;color:#374151;">{renderedContent}</div>
+                <div style="background:#f9fafb;padding:13px 30px;text-align:center;border-top:1px solid #e5e7eb;">
+                  <p style="margin:0;font-size:11px;color:#9ca3af;">NOC Intelligence Fusion Center &middot; Internal Use Only</p>
                 </div>
               </div>
             </div>

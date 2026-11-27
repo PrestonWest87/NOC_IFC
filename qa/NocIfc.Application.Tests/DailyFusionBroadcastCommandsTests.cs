@@ -10,9 +10,9 @@ public sealed class DailyFusionBroadcastCommandsTests
     public async Task SendsNormalizedRecipientsAsSafeHtml()
     {
         var sender = new StubEmailSender();
-        var commands = new DailyFusionBroadcastCommands(sender);
+        var commands = new ReportingBroadcastCommands(sender);
 
-        var result = await commands.BroadcastAsync(
+        var result = await commands.BroadcastDailyFusionAsync(
             "Thursday, November 26, 2026",
             "# Daily Brief\n\n- **Threat:** <script>alert(1)</script>",
             " first@example.test;second@example.test ",
@@ -33,19 +33,42 @@ public sealed class DailyFusionBroadcastCommandsTests
     public async Task RejectsInvalidRecipientsAndSkipsEmptyRecipientDelivery()
     {
         var sender = new StubEmailSender();
-        var commands = new DailyFusionBroadcastCommands(sender);
+        var commands = new ReportingBroadcastCommands(sender);
 
-        var noRecipients = await commands.BroadcastAsync("date", "content", " ; , ", CancellationToken.None);
+        var noRecipients = await commands.BroadcastDailyFusionAsync("date", "content", " ; , ", CancellationToken.None);
         Assert.False(noRecipients.Success);
         Assert.Equal("No recipients specified.", noRecipients.Message);
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            commands.BroadcastAsync("date", "content", "valid@example.test\r\nBcc:other@example.test", CancellationToken.None));
+            commands.BroadcastDailyFusionAsync("date", "content", "valid@example.test\r\nBcc:other@example.test", CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            commands.BroadcastAsync("date", "content", "not-an-email", CancellationToken.None));
+            commands.BroadcastDailyFusionAsync("date", "content", "not-an-email", CancellationToken.None));
         var tooMany = string.Join(",", Enumerable.Range(1, 21).Select(index => $"user{index}@example.test"));
         await Assert.ThrowsAsync<ArgumentException>(() =>
-            commands.BroadcastAsync("date", "content", tooMany, CancellationToken.None));
+            commands.BroadcastDailyFusionAsync("date", "content", tooMany, CancellationToken.None));
         Assert.Empty(sender.HtmlCalls);
+    }
+
+    [Fact]
+    public async Task BroadcastsCustomReportWithEscapedTitleAndCentralGenerationTime()
+    {
+        var sender = new StubEmailSender();
+        var commands = new ReportingBroadcastCommands(sender);
+
+        var result = await commands.BroadcastCustomAsync(
+            "  <Quarterly Ops>  ",
+            "## Risk\n\n- **Impact:** <script>untrusted</script>",
+            "ops@example.test",
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        var call = Assert.Single(sender.HtmlCalls);
+        Assert.Equal("<Quarterly Ops>", call.Subject);
+        Assert.Contains("&lt;Quarterly Ops&gt;", call.Body);
+        Assert.Contains("Generated:", call.Body);
+        Assert.Contains("<h2", call.Body);
+        Assert.Contains("<strong>Impact:</strong>", call.Body);
+        Assert.Contains("&lt;script&gt;untrusted&lt;/script&gt;", call.Body);
+        Assert.DoesNotContain("<script>", call.Body);
     }
 
     private sealed class StubEmailSender : IEmailSender
