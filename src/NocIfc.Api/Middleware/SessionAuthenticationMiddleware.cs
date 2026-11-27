@@ -1,5 +1,6 @@
 using System.Text.Json;
 using NocIfc.Api.Authentication;
+using NocIfc.Application.Abstractions.BackupRestore;
 using NocIfc.Application.Abstractions.Identity;
 
 namespace NocIfc.Api.Middleware;
@@ -19,31 +20,67 @@ public sealed class SessionAuthenticationMiddleware(
         "/api/v1/restore-status",
     };
 
-    public async Task InvokeAsync(HttpContext context, IUserSessionResolver sessions)
+    public async Task InvokeAsync(
+        HttpContext context,
+        IUserSessionResolver sessions,
+        IRestoreMaintenanceControl? restore = null)
     {
         var path = context.Request.Path.Value?.TrimEnd('/') ?? string.Empty;
-        if (HttpMethods.IsOptions(context.Request.Method)
-            || !path.StartsWith("/api/v1", StringComparison.Ordinal)
-            || PublicRoutes.Contains(path))
+        var apiPath = path.StartsWith("/api/v1", StringComparison.Ordinal);
+        var restoreStart = path.StartsWith("/api/v1/admin/backups/staged/", StringComparison.Ordinal)
+            && path.EndsWith("/restore", StringComparison.Ordinal);
+        var maintenanceExempt = path is "/health" or "/ready" or "/api/v1/restore-status" || restoreStart;
+        if (restore?.MaintenanceRequested == true && apiPath && !maintenanceExempt)
         {
+            await WriteRestoreInProgress(context, "A full database restore is in progress. Retry after maintenance completes.");
+            return;
+        }
+
+        var trackRequest = HttpMethods.IsOptions(context.Request.Method) is false
+            && apiPath && path != "/ready" && path != "/api/v1/restore-status" && !restoreStart;
+        if (trackRequest && restore is not null && !restore.TryBeginApiRequest())
+        {
+            await WriteRestoreInProgress(context, "A full database restore is in progress. Retry after maintenance completes.");
+            return;
+        }
+
+        try
+        {
+            if (HttpMethods.IsOptions(context.Request.Method)
+                || !apiPath
+                || PublicRoutes.Contains(path))
+            {
+                await next(context);
+                return;
+            }
+
+            var token = TokenFromRequest(context, path);
+            var user = await sessions.ResolveAsync(token, context.RequestAborted);
+            if (user is null)
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(
+                    new { detail = new { code = "unauthenticated", message = "Not authenticated" } },
+                    context.RequestAborted);
+                return;
+            }
+
+            AuthenticatedUserContext.Set(context, user, token);
+            logger.LogDebug("Authenticated API request for user id {UserId}.", user.Id);
             await next(context);
-            return;
         }
-
-        var token = TokenFromRequest(context, path);
-        var user = await sessions.ResolveAsync(token, context.RequestAborted);
-        if (user is null)
+        finally
         {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            await context.Response.WriteAsJsonAsync(
-                new { detail = new { code = "unauthenticated", message = "Not authenticated" } },
-                context.RequestAborted);
-            return;
+            if (trackRequest) restore?.EndApiRequest();
         }
+    }
 
-        AuthenticatedUserContext.Set(context, user, token);
-        logger.LogDebug("Authenticated API request for user id {UserId}.", user.Id);
-        await next(context);
+    private static Task WriteRestoreInProgress(HttpContext context, string message)
+    {
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        context.Response.Headers.RetryAfter = "5";
+        return context.Response.WriteAsJsonAsync(
+            new { detail = new { code = "restore_in_progress", message } }, context.RequestAborted);
     }
 
     private static string TokenFromRequest(HttpContext context, string path)

@@ -1,6 +1,7 @@
 using System.Globalization;
 using NocIfc.Application.Abstractions.Elastic;
 using NocIfc.Application.Abstractions.AIOps;
+using NocIfc.Application.Abstractions.BackupRestore;
 using NocIfc.Application.Abstractions.Dashboard;
 using NocIfc.Api.Middleware;
 using NocIfc.Api.Services;
@@ -23,6 +24,8 @@ using NocIfc.Application.Features.Reporting;
 using NocIfc.Application.Features.AIOps;
 using NocIfc.Application.Features.Logbook;
 using NocIfc.Application.Features.OperationalEmail;
+using NocIfc.Domain.BackupRestore;
+using NocIfc.Infrastructure.BackupRestore;
 using NocIfc.Infrastructure.Email;
 using NocIfc.Infrastructure.Integrations.Elastic;
 using NocIfc.Infrastructure.Integrations.Llm;
@@ -53,6 +56,15 @@ builder.Services.AddSingleton(new LlmEndpointPolicy(
 var databaseUrl = builder.Configuration["DATABASE_URL"]
     ?? throw new InvalidOperationException("DATABASE_URL is required.");
 builder.Services.AddSingleton(new SqliteConnectionFactory(databaseUrl));
+builder.Services.AddSingleton(new BackupEncryptionSettings(
+    builder.Configuration["BACKUP_ENCRYPTION_KEYS"] ?? "",
+    builder.Configuration["BACKUP_ENCRYPTION_ACTIVE_KEY_ID"] ?? "primary",
+    builder.Configuration["BACKUP_MAX_BYTES"] ?? "10737418240"));
+builder.Services.AddSingleton<IBackupManager, SqliteBackupManager>();
+builder.Services.AddScoped<IBackupDataStore, SqliteBackupDataStore>();
+builder.Services.AddSingleton<IRestoreMaintenanceControl, SqliteRestoreMaintenanceControl>();
+builder.Services.AddSingleton<RestoreCoordinator>();
+builder.Services.AddHostedService(services => services.GetRequiredService<RestoreCoordinator>());
 builder.Services.AddSingleton<SqliteReadinessProbe>();
 builder.Services.AddScoped<IUserSessionResolver, SqliteUserSessionResolver>();
 builder.Services.AddScoped<IAuthenticationStore, SqliteAuthenticationStore>();

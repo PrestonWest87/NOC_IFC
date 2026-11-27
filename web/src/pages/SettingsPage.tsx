@@ -1384,7 +1384,7 @@ function BackupRestoreTab({ isAdmin }: { isAdmin: boolean }) {
 
       <Card title="Restore an Encrypted Backup" icon={Upload} wide>
         <p style={{ color: "var(--text-secondary)", fontSize: "0.8rem", marginTop: 0 }}>
-          Uploading authenticates the encryption tag, checks hashes, and validates SQLite integrity. Restore starts here: API writes, scheduled jobs, and webhook intake pause while the database is migrated and atomically replaced. Keep enough free disk space for the package, current database, temporary restore files, and pre-restore safety snapshot.
+          Uploading authenticates the encryption tag, checks hashes, and validates SQLite integrity. Restore accepts snapshots at the current schema revision; migrate older snapshots offline first. API writes, scheduled jobs, and webhook intake pause while the database is atomically replaced. Keep enough free disk space for the package, current database, temporary restore files, and pre-restore safety snapshot.
         </p>
         <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
           <input type="file" accept=".nocbackup" onChange={e => setStageFile(e.target.files?.[0] || null)}
@@ -1411,7 +1411,7 @@ function BackupRestoreTab({ isAdmin }: { isAdmin: boolean }) {
                   style={btn("var(--accent-red)")}><Trash2 size={13} /> Remove staged file</button>
               </div>
               <p style={{ color: "var(--text-muted)", fontSize: "0.73rem", margin: "0.45rem 0" }}>
-                Restore creates an encrypted pre-restore backup, invalidates restored sessions and outstanding account links, applies migrations, clears all staged restore packages on success, and resumes services when complete. You will need to sign in again.
+                Restore creates an encrypted pre-restore backup, invalidates restored sessions and outstanding account links, clears all staged restore packages on success, and resumes services when complete. You will need to sign in again.
               </p>
               <button
                 onClick={() => window.confirm(`Restore ${item.stage_id}? Database writers will pause and all restored sessions will be revoked.`) && restoreStagedMutation.mutate(item.stage_id)}

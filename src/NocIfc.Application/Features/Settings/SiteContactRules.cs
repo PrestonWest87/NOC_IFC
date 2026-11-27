@@ -2,7 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace NocIfc.Application.Features.Settings;
 
-internal static class SiteContactRules
+public static class SiteContactRules
 {
     private static readonly IReadOnlyDictionary<string, int> Limits = new Dictionary<string, int>(StringComparer.Ordinal)
     {

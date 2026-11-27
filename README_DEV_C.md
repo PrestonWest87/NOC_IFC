@@ -624,6 +624,10 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Latest no-cache Worker Docker build passes 222 tests (194 application, 28 API) and publishes the API and Worker targets. Queue tests use a fake sender; no live SMTP was used.
 - Ported the administrator-only Danger Zone delete/nuke/maintenance routes and the explicit `Tab: Settings -> Danger Zone` plus `Action: Clear AIOps Data` RCA event/alert actions. Table clearing remains allowlisted; site contacts clear with their parent sites.
 - Latest no-cache C# Docker build passes 224 tests (196 application, 28 API), including SQLite Danger Zone cleanup and retention checks.
-- Remaining before cutover: encrypted Backup & Restore and restore maintenance coordination; WebSockets; the remaining C# scheduled jobs; and the SolarWinds webhook. Complete these slices, then pause for final verification before Compose cutover.
+- Ported AES-256-GCM full SQLite backups, key rotation reads, three-file scheduled retention, staged-package authentication/checksums/integrity validation, streaming downloads, credential invalidation, rollback-safe restore, and the legacy settings/model/database import tools.
+- Restore coordination gates API requests and API background writers, drains the Operational Email Worker, publishes a 24-hour progress capability, and resumes a pending restore after API restart. The encrypted full-restore endpoint currently accepts backups at the current Alembic head; older packages must be migrated offline before restore because C# does not run Alembic.
+- Automatic weekly backup triggering remains pending with the remaining C# scheduler port.
+- Latest no-cache C# Docker build passes 230 tests (201 application, 29 API), including backup package round-trip/tamper rejection, restore credential invalidation/pre-restore backup and API gating, legacy import, Danger Zone, and queue behavior. No live SMTP was used.
+- Remaining before cutover: WebSockets, the remaining C# scheduled jobs, and the SolarWinds webhook. Complete these slices, then pause for final verification before Compose cutover.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.

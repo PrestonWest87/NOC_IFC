@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using NocIfc.Application.Abstractions.BackupRestore;
 using NocIfc.Application.Features.OperationalEmail;
 using NocIfc.Infrastructure.Persistence.Sqlite;
 
@@ -9,6 +10,7 @@ namespace NocIfc.Worker;
 public sealed class OperationalEmailQueueWorker(
     IServiceScopeFactory scopes,
     SqliteReadinessProbe readiness,
+    IRestoreMaintenanceControl restoreControl,
     ILogger<OperationalEmailQueueWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -19,8 +21,24 @@ public sealed class OperationalEmailQueueWorker(
         }
 
         using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
-        while (await timer.WaitForNextTickAsync(stoppingToken))
+        while (!stoppingToken.IsCancellationRequested)
         {
+            if (restoreControl.MaintenanceRequested)
+            {
+                restoreControl.PublishWorkerStatus("paused", 0);
+                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                continue;
+            }
+            if (!await timer.WaitForNextTickAsync(stoppingToken)) break;
+            if (restoreControl.MaintenanceRequested)
+            {
+                restoreControl.PublishWorkerStatus("paused", 0);
+                continue;
+            }
+
+            restoreControl.PublishWorkerStatus("running", 1, ["operational_email_queue"]);
+            using var heartbeatCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            var heartbeat = PublishHeartbeatAsync(restoreControl, heartbeatCancellation.Token);
             try
             {
                 await using var scope = scopes.CreateAsyncScope();
@@ -36,6 +54,29 @@ public sealed class OperationalEmailQueueWorker(
             {
                 logger.LogError(exception, "Operational email queue cycle failed.");
             }
+            finally
+            {
+                heartbeatCancellation.Cancel();
+                try { await heartbeat; }
+                catch (OperationCanceledException) { }
+                restoreControl.PublishWorkerStatus(
+                    restoreControl.MaintenanceRequested ? "paused" : "running",
+                    0);
+            }
+        }
+    }
+
+    private static async Task PublishHeartbeatAsync(
+        IRestoreMaintenanceControl restoreControl,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+            restoreControl.PublishWorkerStatus(
+                restoreControl.MaintenanceRequested ? "draining" : "running",
+                1,
+                ["operational_email_queue"]);
         }
     }
 }

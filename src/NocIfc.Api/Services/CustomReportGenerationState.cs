@@ -1,11 +1,13 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.DependencyInjection;
+using NocIfc.Application.Abstractions.BackupRestore;
 using NocIfc.Application.Features.Reporting;
 
 namespace NocIfc.Api.Services;
 
 public sealed class CustomReportGenerationState(
     IServiceScopeFactory scopeFactory,
+    IRestoreMaintenanceControl restoreControl,
     ILogger<CustomReportGenerationState> logger)
 {
     private readonly ConcurrentDictionary<Guid, GenerationState> _generations = new();
@@ -15,6 +17,13 @@ public sealed class CustomReportGenerationState(
         var id = Guid.NewGuid();
         _generations[id] = new GenerationState(
             new CustomReportProgress("starting", "Initializing report generation...", 0), null);
+        if (!restoreControl.TryBeginApiBackgroundWriter())
+        {
+            _generations[id] = new GenerationState(
+                new CustomReportProgress("error", "A database restore is in progress.", 0),
+                new CustomReportGenerationResult(false, null, "A database restore is in progress."));
+            return id;
+        }
         _ = Task.Run(() => RunAsync(id, input));
         return id;
     }
@@ -59,6 +68,10 @@ public sealed class CustomReportGenerationState(
                     Progress = new CustomReportProgress("error", "Report generation failed.", 0),
                     Result = new CustomReportGenerationResult(false, null, "Report generation failed."),
                 });
+        }
+        finally
+        {
+            restoreControl.EndApiBackgroundWriter();
         }
     }
 

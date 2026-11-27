@@ -1,10 +1,12 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using NocIfc.Application.Abstractions.BackupRestore;
 using NocIfc.Application.Abstractions.Dashboard;
 using NocIfc.Application.Abstractions.Email;
 using NocIfc.Application.Abstractions.OperationalEmail;
 using NocIfc.Application.Abstractions.Settings;
 using NocIfc.Application.Features.OperationalEmail;
+using NocIfc.Infrastructure.BackupRestore;
 using NocIfc.Infrastructure.Email;
 using NocIfc.Infrastructure.Persistence.Sqlite;
 using NocIfc.Worker;
@@ -15,6 +17,7 @@ var databaseUrl = builder.Configuration["DATABASE_URL"]
 
 builder.Services.AddSingleton(new SqliteConnectionFactory(databaseUrl));
 builder.Services.AddSingleton<SqliteReadinessProbe>();
+builder.Services.AddSingleton<IRestoreMaintenanceControl, SqliteRestoreMaintenanceControl>();
 builder.Services.AddScoped<IOperationalEmailStore, SqliteOperationalEmailStore>();
 builder.Services.AddScoped<IAiSmtpSettingsStore, SqliteAiSmtpSettingsStore>();
 builder.Services.AddScoped<IOperationalDashboardStore, SqliteOperationalDashboardStore>();

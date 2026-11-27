@@ -5,6 +5,7 @@ namespace NocIfc.Infrastructure.Persistence.Sqlite;
 public sealed class SqliteConnectionFactory
 {
     private readonly string _connectionString;
+    public string DatabasePath { get; }
 
     public SqliteConnectionFactory(string databaseUrl)
     {
@@ -20,9 +21,10 @@ public sealed class SqliteConnectionFactory
             throw new InvalidOperationException("DATABASE_URL must use an absolute SQLite path.");
         }
 
+        DatabasePath = Path.GetFullPath(dataSource);
         _connectionString = new SqliteConnectionStringBuilder
         {
-            DataSource = dataSource,
+            DataSource = DatabasePath,
             Mode = SqliteOpenMode.ReadWrite,
             Pooling = false,
         }.ToString();

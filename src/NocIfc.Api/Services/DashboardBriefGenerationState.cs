@@ -1,11 +1,13 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.DependencyInjection;
+using NocIfc.Application.Abstractions.BackupRestore;
 using NocIfc.Application.Features.Dashboard;
 
 namespace NocIfc.Api.Services;
 
 public sealed class DashboardBriefGenerationState(
     IServiceScopeFactory scopeFactory,
+    IRestoreMaintenanceControl restoreControl,
     ILogger<DashboardBriefGenerationState> logger)
 {
     private readonly ConcurrentDictionary<Guid, BriefGenerationProgress> _progress = new();
@@ -23,6 +25,12 @@ public sealed class DashboardBriefGenerationState(
     {
         var id = Guid.NewGuid();
         _progress[id] = new BriefGenerationProgress("starting", "Starting generation...", 0, 0, 0, null);
+        if (!restoreControl.TryBeginApiBackgroundWriter())
+        {
+            _progress[id] = new BriefGenerationProgress(
+                "error", "A database restore is in progress.", 0, 0, 0, "A database restore is in progress.");
+            return id;
+        }
         _ = Task.Run(() => RunAsync(id, kind));
         return id;
     }
@@ -55,6 +63,10 @@ public sealed class DashboardBriefGenerationState(
             logger.LogError(exception, "Dashboard brief generation {GenerationId} ({BriefKind}) failed.", id, kind);
             _progress[id] = new BriefGenerationProgress(
                 "error", "Brief generation failed.", 0, 0, 0, "Brief generation failed.");
+        }
+        finally
+        {
+            restoreControl.EndApiBackgroundWriter();
         }
     }
 
