@@ -320,7 +320,12 @@ public sealed class SqliteOperationalEmailStore(SqliteConnectionFactory connecti
         AddNullable(insert, "$recurrence_weekday", email.RecurrenceWeekday);
         AddNullable(insert, "$next_run_at", email.NextRunAt is { } nextRunAt ? FormatDate(nextRunAt) : null);
         AddNullable(insert, "$processing_started_at", email.ScheduleType == "immediate" ? now : null);
-        insert.Parameters.AddWithValue("$status", email.ScheduleType == "immediate" ? "processing" : "scheduled");
+        insert.Parameters.AddWithValue("$status", email.ScheduleType switch
+        {
+            "immediate" => "processing",
+            "daily" or "weekly" => "active",
+            _ => "scheduled",
+        });
         insert.Parameters.AddWithValue("$created_at", now);
         insert.Parameters.AddWithValue("$updated_at", now);
         await insert.ExecuteNonQueryAsync(cancellationToken);
@@ -590,6 +595,380 @@ public sealed class SqliteOperationalEmailStore(SqliteConnectionFactory connecti
         }
         return result;
     }
+
+    public async Task<IReadOnlyList<OperationalEmailScheduledEntry>> GetScheduledEmailsAsync(
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        await using var query = connection.CreateCommand();
+        query.CommandText = """
+            SELECT id, template_key, created_by_user_id, signature_id, signature_name,
+                   parent_email_id, group_id, group_company, bcc_copy_only, subject, fields_json,
+                   to_recipients, cc_recipients, bcc_recipients, schedule_type, timezone,
+                   scheduled_at, recurrence_time, recurrence_weekday, next_run_at, status,
+                   last_sent_at, last_error, created_at
+            FROM operational_emails
+            WHERE status IN ('scheduled', 'active', 'processing')
+                AND schedule_type IN ('once', 'daily', 'weekly')
+            ORDER BY next_run_at, id
+            LIMIT $limit
+            """;
+        query.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 250));
+        return await ReadScheduledEmailsAsync(connection, query, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<OperationalEmailScheduledEntry>> GetScheduledEmailsByIdsAsync(
+        IReadOnlyList<int> emailIds,
+        CancellationToken cancellationToken)
+    {
+        var ids = emailIds.Distinct().Take(250).ToArray();
+        if (ids.Length == 0) return [];
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        await using var query = connection.CreateCommand();
+        var placeholders = new List<string>();
+        for (var index = 0; index < ids.Length; index++)
+        {
+            var name = $"$id_{index}";
+            placeholders.Add(name);
+            query.Parameters.AddWithValue(name, ids[index]);
+        }
+        query.CommandText = $"""
+            SELECT id, template_key, created_by_user_id, signature_id, signature_name,
+                   parent_email_id, group_id, group_company, bcc_copy_only, subject, fields_json,
+                   to_recipients, cc_recipients, bcc_recipients, schedule_type, timezone,
+                   scheduled_at, recurrence_time, recurrence_weekday, next_run_at, status,
+                   last_sent_at, last_error, created_at
+            FROM operational_emails
+            WHERE id IN ({string.Join(", ", placeholders)})
+                AND schedule_type IN ('once', 'daily', 'weekly')
+            ORDER BY next_run_at, id
+            """;
+        return await ReadScheduledEmailsAsync(connection, query, cancellationToken);
+    }
+
+    public async Task<OperationalEmailCancellationResult> CancelScheduledEmailAsync(
+        int emailId,
+        int actorUserId,
+        DateTime cancelledAtUtc,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
+        await using var update = connection.CreateCommand();
+        update.Transaction = transaction;
+        update.CommandText = """
+            UPDATE operational_emails
+            SET status = 'cancelled', next_run_at = NULL, updated_at = $updated_at
+            WHERE id = $id AND status IN ('scheduled', 'active')
+                AND schedule_type IN ('once', 'daily', 'weekly')
+            """;
+        update.Parameters.AddWithValue("$id", emailId);
+        update.Parameters.AddWithValue("$updated_at", FormatDate(cancelledAtUtc));
+        if (await update.ExecuteNonQueryAsync(cancellationToken) == 1)
+        {
+            await WriteAuditAsync(connection, transaction, "operational_email_cancelled", actorUserId,
+                new { email_id = emailId }, cancellationToken);
+            transaction.Commit();
+            return OperationalEmailCancellationResult.Cancelled;
+        }
+
+        string? scheduleType = null;
+        string? status = null;
+        await using (var read = connection.CreateCommand())
+        {
+            read.Transaction = transaction;
+            read.CommandText = "SELECT schedule_type, status FROM operational_emails WHERE id = $id LIMIT 1";
+            read.Parameters.AddWithValue("$id", emailId);
+            await using var reader = await read.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                scheduleType = reader.GetString(0);
+                status = reader.GetString(1);
+            }
+        }
+        transaction.Commit();
+        if (scheduleType is null || status is null) return OperationalEmailCancellationResult.NotFound;
+        if (scheduleType is not ("once" or "daily" or "weekly")) return OperationalEmailCancellationResult.NotFound;
+        return status == "processing"
+            ? OperationalEmailCancellationResult.InProgress
+            : OperationalEmailCancellationResult.NotScheduled;
+    }
+
+    public async Task<IReadOnlyList<OperationalEmailDeliveryHistoryEntry>> GetDeliveryHistoryAsync(
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        await using var query = connection.CreateCommand();
+        query.CommandText = """
+            SELECT d.id, d.operational_email_id, COALESCE(e.template_key, ''),
+                   COALESCE(e.bcc_copy_only, 0), d.status, COALESCE(d.smtp_provider, 'smtp'),
+                   d.sender_address, d.signature_name, d.to_recipients, d.cc_recipients,
+                   d.bcc_recipients, d.subject, d.attachment_names, d.attempted_at,
+                   d.sent_at, d.error_message
+            FROM operational_email_deliveries d
+            LEFT JOIN operational_emails e ON e.id = d.operational_email_id
+            ORDER BY d.attempted_at DESC, d.id DESC
+            LIMIT $limit
+            """;
+        query.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 250));
+        await using var reader = await query.ExecuteReaderAsync(cancellationToken);
+        var result = new List<OperationalEmailDeliveryHistoryEntry>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new OperationalEmailDeliveryHistoryEntry(
+                reader.GetInt32(0), reader.GetInt32(1), reader.GetString(2), reader.GetBoolean(3),
+                reader.GetString(4), reader.GetString(5), ReadString(reader, 6), ReadString(reader, 7),
+                ReadStringArray(reader, 8), ReadStringArray(reader, 9), ReadStringArray(reader, 10),
+                reader.GetString(11), ReadStringArray(reader, 12), ReadDateTime(reader, 13),
+                ReadDateTime(reader, 14), ReadString(reader, 15)));
+        }
+        return result;
+    }
+
+    public async Task<OperationalEmailDeliveryDetail?> GetDeliveryDetailAsync(
+        int deliveryId,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        await using var query = connection.CreateCommand();
+        query.CommandText = """
+            SELECT d.id, d.operational_email_id, e.group_id, e.group_company,
+                   COALESCE(e.bcc_copy_only, 0), COALESCE(e.template_key, ''), d.status,
+                   COALESCE(d.smtp_provider, 'smtp'), d.sender_address, d.signature_name,
+                   d.to_recipients, d.cc_recipients, d.bcc_recipients, d.subject, d.body,
+                   d.fields_json, d.attachment_names, d.attempted_at, d.sent_at, d.error_message
+            FROM operational_email_deliveries d
+            LEFT JOIN operational_emails e ON e.id = d.operational_email_id
+            WHERE d.id = $id LIMIT 1
+            """;
+        query.Parameters.AddWithValue("$id", deliveryId);
+        await using var reader = await query.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken)) return null;
+        return new OperationalEmailDeliveryDetail(
+            reader.GetInt32(0), reader.GetInt32(1), ReadString(reader, 2), ReadString(reader, 3),
+            reader.GetBoolean(4), reader.GetString(5), reader.GetString(6), reader.GetString(7),
+            ReadString(reader, 8), ReadString(reader, 9), ReadStringArray(reader, 10),
+            ReadStringArray(reader, 11), ReadStringArray(reader, 12), reader.GetString(13),
+            reader.GetString(14), ReadStringDictionary(reader, 15), ReadStringArray(reader, 16),
+            ReadDateTime(reader, 17), ReadDateTime(reader, 18), ReadString(reader, 19));
+    }
+
+    public async Task<IReadOnlyList<OperationalEmailSourceGroup>> GetSentSourceGroupsAsync(
+        IReadOnlyList<string> templateKeys,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        if (templateKeys.Count == 0) return [];
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        var templatePlaceholders = new List<string>();
+        await using var query = connection.CreateCommand();
+        for (var index = 0; index < templateKeys.Count; index++)
+        {
+            var name = $"$template_{index}";
+            templatePlaceholders.Add(name);
+            query.Parameters.AddWithValue(name, templateKeys[index]);
+        }
+        query.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 250) * 50);
+        query.CommandText = $"""
+            SELECT e.id, e.group_id, e.group_company, e.template_key, d.subject, d.fields_json,
+                   d.to_recipients, d.cc_recipients, d.bcc_recipients, d.sent_at
+            FROM operational_email_deliveries d
+            JOIN operational_emails e ON e.id = d.operational_email_id
+            JOIN (
+                SELECT operational_email_id, MAX(id) AS delivery_id
+                FROM operational_email_deliveries WHERE status = 'sent'
+                GROUP BY operational_email_id
+            ) latest ON latest.delivery_id = d.id
+            WHERE e.template_key IN ({string.Join(", ", templatePlaceholders)})
+                AND e.bcc_copy_only = 0
+            ORDER BY d.sent_at DESC, e.id DESC
+            LIMIT $limit
+            """;
+        var rows = new List<SourceDeliveryRow>();
+        await using (var reader = await query.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                rows.Add(new SourceDeliveryRow(
+                    reader.GetInt32(0), ReadString(reader, 1), ReadString(reader, 2), reader.GetString(3),
+                    reader.GetString(4), ReadStringDictionary(reader, 5), ReadStringArray(reader, 6),
+                    ReadStringArray(reader, 7), ReadStringArray(reader, 8), ReadDateTime(reader, 9)));
+            }
+        }
+        if (rows.Count == 0) return [];
+
+        var groupIds = rows.Select(row => row.GroupId).Where(id => !string.IsNullOrEmpty(id))
+            .Distinct(StringComparer.Ordinal).ToArray();
+        var bccByGroup = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        if (groupIds.Length > 0)
+        {
+            await using var bccQuery = connection.CreateCommand();
+            var groupPlaceholders = new List<string>();
+            for (var index = 0; index < groupIds.Length; index++)
+            {
+                var name = $"$group_{index}";
+                groupPlaceholders.Add(name);
+                bccQuery.Parameters.AddWithValue(name, groupIds[index]);
+            }
+            var bccTemplatePlaceholders = new List<string>();
+            for (var index = 0; index < templateKeys.Count; index++)
+            {
+                var name = $"$bcc_template_{index}";
+                bccTemplatePlaceholders.Add(name);
+                bccQuery.Parameters.AddWithValue(name, templateKeys[index]);
+            }
+            bccQuery.CommandText = $"""
+                SELECT e.group_id, e.bcc_recipients
+                FROM operational_emails e
+                JOIN (
+                    SELECT operational_email_id, MAX(id) AS delivery_id
+                    FROM operational_email_deliveries WHERE status = 'sent'
+                    GROUP BY operational_email_id
+                ) latest ON latest.operational_email_id = e.id
+                JOIN operational_email_deliveries d ON d.id = latest.delivery_id
+                WHERE e.group_id IN ({string.Join(", ", groupPlaceholders)})
+                    AND e.template_key IN ({string.Join(", ", bccTemplatePlaceholders)})
+                    AND e.bcc_copy_only = 1 AND d.status = 'sent'
+                """;
+            await using var reader = await bccQuery.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var groupId = ReadString(reader, 0);
+                if (groupId is null) continue;
+                if (!bccByGroup.TryGetValue(groupId, out var recipients))
+                {
+                    recipients = [];
+                    bccByGroup[groupId] = recipients;
+                }
+                recipients.AddRange(ReadStringArray(reader, 1));
+            }
+        }
+
+        var groupedRows = rows.GroupBy(row => row.GroupId ?? $"email:{row.Id}", StringComparer.Ordinal)
+            .Select(group => group.OrderBy(row => row.Id).ToArray())
+            .OrderByDescending(group => group.Max(row => row.SentAt ?? DateTime.MinValue))
+            .Take(Math.Clamp(limit, 1, 250));
+        var result = new List<OperationalEmailSourceGroup>();
+        foreach (var members in groupedRows)
+        {
+            var source = members[0];
+            var fields = new Dictionary<string, string>(source.Fields, StringComparer.Ordinal);
+            foreach (var (field, separator) in new[]
+                     { ("network_orders", "\n"), ("a_location", "; "), ("z_location", "; "), ("contact", "; ") })
+            {
+                var values = UniqueStrings(members.Select(row => row.Fields.GetValueOrDefault(field, "")));
+                if (values.Length > 0) fields[field] = string.Join(separator, values);
+            }
+            var companies = UniqueStrings(members.Select(row => row.GroupCompany ?? ""));
+            var groupKey = source.GroupId;
+            var bcc = members.SelectMany(row => row.BccRecipients).ToList();
+            if (groupKey is not null && bccByGroup.TryGetValue(groupKey, out var copiedBcc)) bcc.AddRange(copiedBcc);
+            result.Add(new OperationalEmailSourceGroup(
+                source.Id,
+                source.GroupId,
+                !string.IsNullOrWhiteSpace(source.GroupCompany),
+                companies.Length > 0 ? companies.Length : members.Length,
+                companies,
+                members.Select(row => row.Id).ToArray(),
+                source.TemplateKey,
+                source.Subject,
+                UniqueStrings(members.SelectMany(row => row.ToRecipients)),
+                UniqueStrings(members.SelectMany(row => row.CcRecipients)),
+                UniqueStrings(bcc),
+                fields,
+                members.Where(row => row.SentAt is not null).MaxBy(row => row.SentAt)?.SentAt));
+        }
+        return result;
+    }
+
+    private static async Task<IReadOnlyList<OperationalEmailScheduledEntry>> ReadScheduledEmailsAsync(
+        SqliteConnection connection,
+        SqliteCommand query,
+        CancellationToken cancellationToken)
+    {
+        var entries = new List<OperationalEmailScheduledEntry>();
+        await using (var reader = await query.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                entries.Add(new OperationalEmailScheduledEntry(
+                    reader.GetInt32(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetInt32(2),
+                    reader.IsDBNull(3) ? null : reader.GetInt32(3), ReadString(reader, 4),
+                    reader.IsDBNull(5) ? null : reader.GetInt32(5), ReadString(reader, 6), ReadString(reader, 7),
+                    reader.GetBoolean(8), reader.GetString(9), ReadStringDictionary(reader, 10),
+                    ReadStringArray(reader, 11), ReadStringArray(reader, 12), ReadStringArray(reader, 13),
+                    reader.GetString(14), reader.GetString(15), ReadDateTime(reader, 16), ReadString(reader, 17),
+                    reader.IsDBNull(18) ? null : reader.GetInt32(18), ReadDateTime(reader, 19),
+                    reader.GetString(20), ReadDateTime(reader, 21), ReadString(reader, 22), ReadDateTime(reader, 23), []));
+            }
+        }
+        if (entries.Count == 0) return entries;
+
+        await using var attachments = connection.CreateCommand();
+        var placeholders = new List<string>();
+        for (var index = 0; index < entries.Count; index++)
+        {
+            var name = $"$email_{index}";
+            placeholders.Add(name);
+            attachments.Parameters.AddWithValue(name, entries[index].Id);
+        }
+        attachments.CommandText = $"""
+            SELECT operational_email_id, filename, content_type, size_bytes
+            FROM operational_email_attachments
+            WHERE operational_email_id IN ({string.Join(", ", placeholders)})
+            ORDER BY operational_email_id, id
+            """;
+        var byEmail = new Dictionary<int, List<OperationalEmailAttachmentMetadata>>();
+        await using (var reader = await attachments.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var emailId = reader.GetInt32(0);
+                if (!byEmail.TryGetValue(emailId, out var items))
+                {
+                    items = [];
+                    byEmail[emailId] = items;
+                }
+                items.Add(new OperationalEmailAttachmentMetadata(reader.GetString(1), reader.GetString(2), reader.GetInt32(3)));
+            }
+        }
+        return entries.Select(entry => entry with
+        {
+            Attachments = byEmail.GetValueOrDefault(entry.Id, []),
+        }).ToArray();
+    }
+
+    private static string[] ReadStringArray(SqliteDataReader reader, int ordinal) =>
+        reader.IsDBNull(ordinal) ? [] : JsonSerializer.Deserialize<string[]>(reader.GetString(ordinal)) ?? [];
+
+    private static Dictionary<string, string> ReadStringDictionary(SqliteDataReader reader, int ordinal) =>
+        reader.IsDBNull(ordinal)
+            ? new Dictionary<string, string>(StringComparer.Ordinal)
+            : JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(ordinal)) ?? new(StringComparer.Ordinal);
+
+    private static string[] UniqueStrings(IEnumerable<string> values) =>
+        values.Select(value => value?.Trim() ?? "").Where(value => value.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+
+    private sealed record SourceDeliveryRow(
+        int Id,
+        string? GroupId,
+        string? GroupCompany,
+        string TemplateKey,
+        string Subject,
+        Dictionary<string, string> Fields,
+        IReadOnlyList<string> ToRecipients,
+        IReadOnlyList<string> CcRecipients,
+        IReadOnlyList<string> BccRecipients,
+        DateTime? SentAt);
 
     private static async Task<bool> SignatureNameExistsAsync(
         SqliteConnection connection,

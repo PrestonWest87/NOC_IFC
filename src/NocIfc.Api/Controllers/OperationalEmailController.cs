@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc;
 using NocIfc.Api.Authentication;
 using NocIfc.Api.Authorization;
@@ -14,7 +16,8 @@ public sealed class OperationalEmailController(
     OperationalEmailCatalogQueries catalog,
     OperationalEmailTemplateCommands templates,
     OperationalEmailSignatureCommands signatures,
-    OperationalEmailSendCommands sends) : ControllerBase
+    OperationalEmailSendCommands sends,
+    OperationalEmailScheduleHistoryQueries schedules) : ControllerBase
 {
     [HttpGet("templates")]
     public async Task<IActionResult> GetTemplates(CancellationToken cancellationToken) =>
@@ -149,6 +152,101 @@ public sealed class OperationalEmailController(
         }
     }
 
+    [HttpPost("schedule")]
+    public async Task<IActionResult> Schedule(
+        [FromBody] JsonObject? body,
+        CancellationToken cancellationToken)
+    {
+        var user = AuthenticatedUserContext.GetUser(HttpContext);
+        if (user is null) return Unauthorized();
+        try
+        {
+            if (body is null || !body.TryGetPropertyValue("schedule", out var scheduleNode)
+                || scheduleNode is not JsonObject scheduleObject)
+            {
+                throw new ArgumentException("Schedule configuration must be an object.");
+            }
+            var schedule = ReadScheduleInput(scheduleObject);
+            var composeBody = body.DeepClone().AsObject();
+            composeBody.Remove("schedule");
+            var result = await sends.ScheduleAsync(
+                ReadSendInput(composeBody), schedule, user.Id, cancellationToken);
+            return Ok(OperationalEmailScheduleResponse.From(result));
+        }
+        catch (ArgumentException exception)
+        {
+            return UnprocessableEntity(new { detail = exception.Message });
+        }
+    }
+
+    [HttpGet("scheduled")]
+    public async Task<IActionResult> GetScheduledEmails(
+        [FromQuery] int limit = 100,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit is < 1 or > 250) return UnprocessableEntity(new { detail = "limit must be between 1 and 250." });
+        return Ok((await schedules.GetScheduledAsync(limit, cancellationToken))
+            .Select(OperationalEmailScheduledEmailResponse.From).ToArray());
+    }
+
+    [HttpDelete("scheduled/{emailId:int}")]
+    public async Task<IActionResult> CancelScheduledEmail(int emailId, CancellationToken cancellationToken)
+    {
+        var user = AuthenticatedUserContext.GetUser(HttpContext);
+        if (user is null) return Unauthorized();
+        try
+        {
+            return Ok(await schedules.CancelAsync(emailId, user.Id, cancellationToken));
+        }
+        catch (KeyNotFoundException exception)
+        {
+            return NotFound(new { detail = exception.Message });
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Conflict(new { detail = exception.Message });
+        }
+    }
+
+    [HttpGet("history")]
+    public async Task<IActionResult> GetHistory(
+        [FromQuery] int limit = 100,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit is < 1 or > 250) return UnprocessableEntity(new { detail = "limit must be between 1 and 250." });
+        return Ok((await schedules.GetHistoryAsync(limit, cancellationToken))
+            .Select(OperationalEmailDeliveryHistoryResponse.From).ToArray());
+    }
+
+    [HttpGet("history/{deliveryId:int}")]
+    public async Task<IActionResult> GetDelivery(int deliveryId, CancellationToken cancellationToken)
+    {
+        var delivery = await schedules.GetDeliveryAsync(deliveryId, cancellationToken);
+        return delivery is null
+            ? NotFound(new { detail = "Email delivery was not found." })
+            : Ok(OperationalEmailDeliveryDetailResponse.From(delivery));
+    }
+
+    [HttpGet("maintenance-notices")]
+    public async Task<IActionResult> GetMaintenanceNotices(
+        [FromQuery] int limit = 100,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit is < 1 or > 250) return UnprocessableEntity(new { detail = "limit must be between 1 and 250." });
+        return Ok((await schedules.GetMaintenanceNoticesAsync(limit, cancellationToken))
+            .Select(OperationalEmailSourceGroupResponse.From).ToArray());
+    }
+
+    [HttpGet("fiber-outages")]
+    public async Task<IActionResult> GetFiberOutages(
+        [FromQuery] int limit = 100,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit is < 1 or > 250) return UnprocessableEntity(new { detail = "limit must be between 1 and 250." });
+        return Ok((await schedules.GetFiberOutagesAsync(limit, cancellationToken))
+            .Select(OperationalEmailSourceGroupResponse.From).ToArray());
+    }
+
     private static IReadOnlyDictionary<string, string> ReadTemplateValues(JsonObject? body)
     {
         if (body is null) return new Dictionary<string, string>(StringComparer.Ordinal);
@@ -268,6 +366,29 @@ public sealed class OperationalEmailController(
     {
         if (value is JsonValue scalar && scalar.TryGetValue<bool>(out var boolean)) return boolean;
         throw new ArgumentException($"{key} must be a boolean value.");
+    }
+
+    private static OperationalEmailScheduleInput ReadScheduleInput(JsonObject body)
+    {
+        EnsureOnlyFields(body, "schedule", "schedule_type", "scheduled_at", "recurrence_time", "recurrence_weekday", "timezone");
+        var scheduledText = ReadSendText(body, "scheduled_at", allowNull: true);
+        DateTimeOffset? scheduledAt = null;
+        if (scheduledText is not null)
+        {
+            if (!Regex.IsMatch(scheduledText, @"(?:Z|[+-]\d{2}:\d{2})$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+                || !DateTimeOffset.TryParse(scheduledText, CultureInfo.InvariantCulture,
+                    DateTimeStyles.None, out var parsed))
+            {
+                throw new ArgumentException("One-time send must use an ISO 8601 date and time with a time zone.");
+            }
+            scheduledAt = parsed;
+        }
+        return new OperationalEmailScheduleInput(
+            ReadSendText(body, "schedule_type", allowNull: false),
+            scheduledAt,
+            ReadSendText(body, "recurrence_time", allowNull: true),
+            ReadInteger(body, "recurrence_weekday"),
+            ReadSendText(body, "timezone", allowNull: false));
     }
 
     private static void EnsureOnlyFields(JsonObject body, string label, params string[] allowed)

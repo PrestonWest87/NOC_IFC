@@ -30,6 +30,16 @@ public sealed record OperationalEmailSendInput(
     bool? UseDefaultSignature,
     IReadOnlySet<string> ProvidedFields);
 
+public sealed record OperationalEmailScheduleResult(
+    OperationalEmailScheduledEntry Primary,
+    bool Grouped,
+    string? GroupId,
+    string? Message,
+    int? CompanyCount,
+    IReadOnlyList<int>? EmailIds,
+    DateTime? NextRunAt,
+    IReadOnlyList<OperationalEmailScheduledEntry>? Emails);
+
 public sealed record OperationalEmailSendDelivery(
     int EmailId,
     int DeliveryId,
@@ -87,71 +97,15 @@ public sealed class OperationalEmailSendCommands(
         int actorUserId,
         CancellationToken cancellationToken)
     {
-        ValidateRequestBounds(input);
-        var templateKey = input.TemplateKey?.Trim() ?? "";
-        var definition = OperationalEmailTemplateCatalog.Find(templateKey)
-            ?? throw new ArgumentException("Unknown operational email template.");
-        var defaults = OperationalEmailTemplateCatalog.All.Select(template => new OperationalEmailTemplateDefault(
-            template.Key, template.Label, template.Description, template.DefaultSubject, template.DefaultBody,
-            "", "", "", null)).ToArray();
-        await emailStore.EnsureTemplateDefaultsAsync(defaults, cancellationToken);
-        var savedTemplates = (await emailStore.GetTemplateDefaultsAsync(cancellationToken))
-            .ToDictionary(template => template.TemplateKey, StringComparer.Ordinal);
-        if (!savedTemplates.TryGetValue(templateKey, out var template))
-        {
-            throw new ArgumentException("Operational email template is not initialized.");
-        }
-
-        var settings = await smtpSettings.GetAsync(cancellationToken);
-        var provider = string.IsNullOrWhiteSpace(settings?.ActiveSmtpProvider)
-            ? "smtp"
-            : settings.ActiveSmtpProvider;
-        var senderAddress = provider switch
-        {
-            "gmail" => OperationalEmailRules.ParseAddress(
-                string.IsNullOrWhiteSpace(settings?.GmailSmtpSender)
-                    ? settings?.GmailSmtpUsername
-                    : settings.GmailSmtpSender),
-            "smtp" => OperationalEmailRules.ParseAddress(settings?.SmtpSender),
-            _ => "",
-        };
-        var needsFiberDirectories = definition.NetworkOrderAutofill
-            || OperationalEmailTemplateCatalog.FiberCircuitBccKeys.Contains(templateKey);
-        var context = new SendContext(
-            definition,
-            template,
-            provider,
-            senderAddress,
-            OperationalEmailRules.GlobalSenderRecipient(settings),
-            TimezoneAbbreviation(),
-            needsFiberDirectories
-                ? await directories.GetFiberAsync(cancellationToken)
-                : Array.Empty<FiberEmailContactEntry>(),
-            definition.OnpageTo
-                ? await directories.GetOnpageAsync(cancellationToken)
-                : Array.Empty<OnpageEmailContactEntry>(),
-            needsFiberDirectories
-                ? await directories.GetNetworkOrdersAsync(cancellationToken)
-                : Array.Empty<NetworkOrderCircuitEntry>(),
-            await emailStore.GetSignaturesAsync(false, cancellationToken),
-            definition.LiveSource == "global_shift_analysis"
-                ? (await dashboard.GetBriefsAsync(cancellationToken))?.RollingSummary ?? ""
-                : "");
-
-        var signature = SelectSignature(input, context.Signatures);
-        var attachments = NormalizeAttachments(definition, input.Attachments);
-        var sourceMessages = await ResolveSourceMessagesAsync(input, context, cancellationToken);
-        var prepared = PrepareMessages(input, context, sourceMessages, signature, attachments);
-        prepared = CollapseCircuitlessBccCopies(prepared, context);
-        if (prepared.Count == 0)
-        {
-            throw new ArgumentException("No email recipients were prepared for delivery.");
-        }
+        var composition = await ComposeAsync(input, forSchedule: false, cancellationToken);
+        var context = composition.Context;
+        var prepared = composition.Messages;
+        var templateKey = context.Definition.Key;
 
         var persisted = new List<PersistedMessage>(prepared.Count);
         foreach (var message in prepared)
         {
-            var emailId = await emailStore.CreateEmailAsync(message.ToSnapshot(actorUserId), cancellationToken);
+            var emailId = await emailStore.CreateEmailAsync(message.ToSnapshot(actorUserId, null), cancellationToken);
             persisted.Add(new PersistedMessage(emailId, message));
         }
 
@@ -205,6 +159,123 @@ public sealed class OperationalEmailSendCommands(
         return AggregateResults(templateKey, prepared, outcomes);
     }
 
+    public async Task<OperationalEmailScheduleResult> ScheduleAsync(
+        OperationalEmailSendInput input,
+        OperationalEmailScheduleInput scheduleInput,
+        int actorUserId,
+        CancellationToken cancellationToken)
+    {
+        var schedule = OperationalEmailScheduleRules.Validate(scheduleInput, DateTimeOffset.UtcNow);
+        var composition = await ComposeAsync(input, forSchedule: true, cancellationToken);
+        var persistedIds = new List<int>(composition.Messages.Count);
+        foreach (var message in composition.Messages)
+        {
+            persistedIds.Add(await emailStore.CreateEmailAsync(
+                message.ToSnapshot(actorUserId, schedule), cancellationToken));
+        }
+        var scheduled = await emailStore.GetScheduledEmailsByIdsAsync(persistedIds, cancellationToken);
+        var byId = scheduled.ToDictionary(email => email.Id);
+        var ordered = persistedIds.Select(id => byId.TryGetValue(id, out var item)
+            ? item
+            : throw new InvalidOperationException("Scheduled email snapshot could not be loaded.")).ToArray();
+        var primaryMessages = composition.Messages.Select((message, index) => (message, index))
+            .Where(item => !item.message.BccCopyOnly).ToArray();
+        var primary = primaryMessages.Select(item => byId[persistedIds[item.index]]).ToArray();
+        var copies = composition.Messages.Count(message => message.BccCopyOnly);
+        var hasCompanyGroups = primaryMessages.Any(item => item.message.GroupCompany is not null);
+        if (composition.Messages.Count == 1 && composition.Messages[0].GroupId is null)
+        {
+            return new OperationalEmailScheduleResult(primary[0], false, null, null, null, null,
+                primary[0].NextRunAt, null);
+        }
+        if (!hasCompanyGroups)
+        {
+            var message = copies == 0
+                ? null
+                : $"Scheduled email with {copies} circuit-filtered BCC cop{(copies == 1 ? "y" : "ies")}.";
+            return new OperationalEmailScheduleResult(
+                primary[0], false, null, message, null,
+                composition.Messages.Count > 1 || composition.Messages[0].GroupId is not null
+                    ? ordered.Select(email => email.Id).ToArray()
+                    : null,
+                primary[0].NextRunAt,
+                null);
+        }
+
+        var templateKey = composition.Context.Definition.Key;
+        var label = templateKey == OperationalEmailTemplateCatalog.FiberMaintenanceKey
+            ? "Fiber Maintenance"
+            : composition.Context.Definition.Label;
+        var groupMessage = $"Scheduled {label} notices for {primary.Length} compan{(primary.Length == 1 ? "y" : "ies")}.";
+        if (copies > 0) groupMessage += $" Circuit-filtered BCC copies: {copies}.";
+        return new OperationalEmailScheduleResult(
+            primary[0],
+            true,
+            composition.Messages[0].GroupId,
+            groupMessage,
+            primary.Length,
+            ordered.Select(email => email.Id).ToArray(),
+            primary[0].NextRunAt,
+            ordered);
+    }
+
+    private async Task<PreparedComposition> ComposeAsync(
+        OperationalEmailSendInput input,
+        bool forSchedule,
+        CancellationToken cancellationToken)
+    {
+        ValidateRequestBounds(input);
+        var templateKey = input.TemplateKey?.Trim() ?? "";
+        var definition = OperationalEmailTemplateCatalog.Find(templateKey)
+            ?? throw new ArgumentException("Unknown operational email template.");
+        var defaults = OperationalEmailTemplateCatalog.All.Select(template => new OperationalEmailTemplateDefault(
+            template.Key, template.Label, template.Description, template.DefaultSubject, template.DefaultBody,
+            "", "", "", null)).ToArray();
+        await emailStore.EnsureTemplateDefaultsAsync(defaults, cancellationToken);
+        var savedTemplates = (await emailStore.GetTemplateDefaultsAsync(cancellationToken))
+            .ToDictionary(template => template.TemplateKey, StringComparer.Ordinal);
+        if (!savedTemplates.TryGetValue(templateKey, out var template))
+        {
+            throw new ArgumentException("Operational email template is not initialized.");
+        }
+
+        var settings = await smtpSettings.GetAsync(cancellationToken);
+        var provider = string.IsNullOrWhiteSpace(settings?.ActiveSmtpProvider) ? "smtp" : settings.ActiveSmtpProvider;
+        var senderAddress = provider switch
+        {
+            "gmail" => OperationalEmailRules.ParseAddress(
+                string.IsNullOrWhiteSpace(settings?.GmailSmtpSender)
+                    ? settings?.GmailSmtpUsername
+                    : settings.GmailSmtpSender),
+            "smtp" => OperationalEmailRules.ParseAddress(settings?.SmtpSender),
+            _ => "",
+        };
+        var needsFiberDirectories = definition.NetworkOrderAutofill
+            || OperationalEmailTemplateCatalog.FiberCircuitBccKeys.Contains(templateKey);
+        var context = new SendContext(
+            definition,
+            template,
+            provider,
+            senderAddress,
+            OperationalEmailRules.GlobalSenderRecipient(settings),
+            TimezoneAbbreviation(),
+            needsFiberDirectories ? await directories.GetFiberAsync(cancellationToken) : Array.Empty<FiberEmailContactEntry>(),
+            definition.OnpageTo ? await directories.GetOnpageAsync(cancellationToken) : Array.Empty<OnpageEmailContactEntry>(),
+            needsFiberDirectories ? await directories.GetNetworkOrdersAsync(cancellationToken) : Array.Empty<NetworkOrderCircuitEntry>(),
+            await emailStore.GetSignaturesAsync(false, cancellationToken),
+            definition.LiveSource == "global_shift_analysis"
+                ? (await dashboard.GetBriefsAsync(cancellationToken))?.RollingSummary ?? ""
+                : "");
+
+        var signature = SelectSignature(input, context.Signatures);
+        var attachments = NormalizeAttachments(definition, input.Attachments);
+        var sourceMessages = await ResolveSourceMessagesAsync(input, context, cancellationToken);
+        var prepared = PrepareMessages(input, context, sourceMessages, signature, attachments, forSchedule);
+        prepared = CollapseCircuitlessBccCopies(prepared, context);
+        if (prepared.Count == 0) throw new ArgumentException("No email recipients were prepared for delivery.");
+        return new PreparedComposition(context, prepared);
+    }
+
     private async Task<IReadOnlyList<OperationalEmailSourceMessage>> ResolveSourceMessagesAsync(
         OperationalEmailSendInput input,
         SendContext context,
@@ -254,12 +325,13 @@ public sealed class OperationalEmailSendCommands(
         SendContext context,
         IReadOnlyList<OperationalEmailSourceMessage> sourceMessages,
         OperationalEmailSignatureEntry? signature,
-        IReadOnlyList<OperationalEmailAttachmentSnapshot> attachments)
+        IReadOnlyList<OperationalEmailAttachmentSnapshot> attachments,
+        bool forSchedule)
     {
         var templateKey = context.Definition.Key;
         if (templateKey == OperationalEmailTemplateCatalog.FiberMaintenanceKey)
         {
-            return PrepareFiberMaintenance(input, context, signature, attachments);
+            return PrepareFiberMaintenance(input, context, signature, attachments, forSchedule);
         }
         if (templateKey == "fiber_outage")
         {
@@ -267,7 +339,7 @@ public sealed class OperationalEmailSendCommands(
             var records = SelectNetworkOrderRecords(preview, context.NetworkOrders);
             if (records.Count > 0)
             {
-                return PrepareFiberOutageGroups(input, context, preview, records, signature, attachments);
+                return PrepareFiberOutageGroups(input, context, preview, records, signature, attachments, forSchedule);
             }
         }
         if (sourceMessages.Count > 0)
@@ -278,13 +350,13 @@ public sealed class OperationalEmailSendCommands(
             var parent = sourceMessages.Single(message => message.Id == parentId && !message.BccCopyOnly);
             if (parent.GroupId is not null && LinkedEditableFields.ContainsKey(templateKey))
             {
-                return PrepareLinkedGroup(input, context, sourceMessages, signature, attachments);
+                return PrepareLinkedGroup(input, context, sourceMessages, signature, attachments, forSchedule);
             }
-            var prepared = PrepareOne(input, context, parent, signature, attachments, false);
+            var prepared = PrepareOne(input, context, parent, signature, attachments, false, forSchedule);
             return ScopeSelectedCircuitBcc(prepared, context);
         }
 
-        var message = PrepareOne(input, context, null, signature, attachments, false);
+        var message = PrepareOne(input, context, null, signature, attachments, false, forSchedule);
         return ScopeSelectedCircuitBcc(message, context);
     }
 
@@ -292,7 +364,8 @@ public sealed class OperationalEmailSendCommands(
         OperationalEmailSendInput input,
         SendContext context,
         OperationalEmailSignatureEntry? signature,
-        IReadOnlyList<OperationalEmailAttachmentSnapshot> attachments)
+        IReadOnlyList<OperationalEmailAttachmentSnapshot> attachments,
+        bool forSchedule)
     {
         var fields = PrepareFields(input.Fields, context.Definition, null, context, deferRequired: true);
         var records = SelectNetworkOrderRecords(fields, context.NetworkOrders);
@@ -333,7 +406,7 @@ public sealed class OperationalEmailSendCommands(
                 Fields = companyFields,
                 ProvidedFields = WithFields(input.ProvidedFields, "to", "subject", "body"),
             };
-            var message = PrepareOne(companyInput, context, null, signature, attachments, false);
+            var message = PrepareOne(companyInput, context, null, signature, attachments, false, forSchedule);
             message.GroupId = groupId;
             message.GroupCompany = group.Name;
             message.Company = group.Name;
@@ -348,7 +421,8 @@ public sealed class OperationalEmailSendCommands(
         Dictionary<string, string> fields,
         IReadOnlyList<NetworkOrderCircuitEntry> records,
         OperationalEmailSignatureEntry? signature,
-        IReadOnlyList<OperationalEmailAttachmentSnapshot> attachments)
+        IReadOnlyList<OperationalEmailAttachmentSnapshot> attachments,
+        bool forSchedule)
     {
         AutofillNetworkOrderFields(context.Definition, fields, records);
         fields = PrepareFields(fields, context.Definition, null, context);
@@ -379,7 +453,8 @@ public sealed class OperationalEmailSendCommands(
                 Fields = companyFields,
                 ProvidedFields = WithFields(input.ProvidedFields, "to", "subject", "body"),
             };
-            var message = PrepareOne(companyInput, context, null, signature, attachments, companyRouted: true);
+            var message = PrepareOne(companyInput, context, null, signature, attachments,
+                companyRouted: true, forSchedule: forSchedule);
             message.GroupId = groupId;
             message.GroupCompany = group.Name;
             message.Company = group.Name;
@@ -393,7 +468,8 @@ public sealed class OperationalEmailSendCommands(
         SendContext context,
         IReadOnlyList<OperationalEmailSourceMessage> sourceMessages,
         OperationalEmailSignatureEntry? signature,
-        IReadOnlyList<OperationalEmailAttachmentSnapshot> attachments)
+        IReadOnlyList<OperationalEmailAttachmentSnapshot> attachments,
+        bool forSchedule)
     {
         var templateKey = context.Definition.Key;
         var members = sourceMessages.Where(message => !message.BccCopyOnly).ToArray();
@@ -430,7 +506,7 @@ public sealed class OperationalEmailSendCommands(
                 };
             }
 
-            var message = PrepareOne(memberInput, context, member, signature, attachments, false);
+            var message = PrepareOne(memberInput, context, member, signature, attachments, false, forSchedule);
             message.GroupId = batchId;
             message.GroupCompany = member.GroupCompany;
             var label = member.GroupCompany
@@ -457,7 +533,8 @@ public sealed class OperationalEmailSendCommands(
         OperationalEmailSourceMessage? parent,
         OperationalEmailSignatureEntry? signature,
         IReadOnlyList<OperationalEmailAttachmentSnapshot> attachments,
-        bool companyRouted)
+        bool companyRouted,
+        bool forSchedule)
     {
         var definition = context.Definition;
         var template = context.Template;
@@ -498,7 +575,7 @@ public sealed class OperationalEmailSendCommands(
         if (definition.LiveSource == "global_shift_analysis")
         {
             fields["shift_analysis"] = context.LatestShiftAnalysis;
-            if (string.IsNullOrWhiteSpace(context.LatestShiftAnalysis))
+            if (string.IsNullOrWhiteSpace(context.LatestShiftAnalysis) && !forSchedule)
             {
                 throw new ArgumentException("No shift analysis is available in Global Dashboards yet.");
             }
@@ -515,7 +592,7 @@ public sealed class OperationalEmailSendCommands(
             body = AppendSignature(body, signature.Content);
         }
         body = NormalizeLines(body);
-        if (string.IsNullOrWhiteSpace(body) || body.Length > 200_000)
+        if (body.Length > 200_000 || (!forSchedule && string.IsNullOrWhiteSpace(body)))
         {
             throw new ArgumentException("Email body must contain no more than 200,000 characters and cannot be blank.");
         }
@@ -1518,6 +1595,8 @@ public sealed class OperationalEmailSendCommands(
         return pattern.Replace(value, "");
     }
 
+    private sealed record PreparedComposition(SendContext Context, List<PreparedEmail> Messages);
+
     private sealed record SendContext(
         OperationalEmailTemplateDefinition Definition,
         OperationalEmailTemplateDefault Template,
@@ -1554,7 +1633,9 @@ public sealed class OperationalEmailSendCommands(
         public IReadOnlyList<OperationalEmailAttachmentSnapshot> Attachments { get; init; } = [];
         public string? Company { get; set; }
 
-        public OperationalEmailMessageSnapshot ToSnapshot(int actorUserId) => new(
+        public OperationalEmailMessageSnapshot ToSnapshot(
+            int actorUserId,
+            OperationalEmailScheduleDefinition? schedule) => new(
             TemplateKey,
             actorUserId,
             SignatureId,
@@ -1570,12 +1651,12 @@ public sealed class OperationalEmailSendCommands(
             ToRecipients,
             CcRecipients,
             BccRecipients,
-            "immediate",
-            EmailTimezone,
-            null,
-            null,
-            null,
-            null,
+            schedule?.ScheduleType ?? "immediate",
+            schedule?.Timezone ?? EmailTimezone,
+            schedule?.ScheduledAt,
+            schedule?.RecurrenceTime,
+            schedule?.RecurrenceWeekday,
+            schedule?.NextRunAt,
             Attachments);
     }
 }

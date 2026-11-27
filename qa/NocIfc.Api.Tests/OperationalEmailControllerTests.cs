@@ -25,7 +25,7 @@ public sealed class OperationalEmailControllerTests
             NullLogger<SessionAuthenticationMiddleware>.Instance);
         await middleware.InvokeAsync(context, new TestSessionResolver());
 
-        var controller = new OperationalEmailController(null!, null!, null!, null!)
+        var controller = new OperationalEmailController(null!, null!, null!, null!, null!)
         {
             ControllerContext = new ControllerContext { HttpContext = context },
         };
@@ -53,6 +53,33 @@ public sealed class OperationalEmailControllerTests
         Assert.Equal(18, root.GetProperty("delivery_id").GetInt32());
         Assert.Equal("sent", root.GetProperty("status").GetString());
         Assert.False(root.TryGetProperty("grouped", out _));
+    }
+
+    [Fact]
+    public async Task ScheduleRejectsNaiveOneTimeTimestamp()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Path = "/api/v1/operational-email/schedule";
+        context.Request.Headers.Authorization = "Bearer test-session";
+        await new SessionAuthenticationMiddleware(_ => Task.CompletedTask,
+            NullLogger<SessionAuthenticationMiddleware>.Instance)
+            .InvokeAsync(context, new TestSessionResolver());
+        var controller = new OperationalEmailController(null!, null!, null!, null!, null!)
+        {
+            ControllerContext = new ControllerContext { HttpContext = context },
+        };
+        var body = JsonNode.Parse("""
+            {
+              "template_key": "morning_report",
+              "to": "ops@example.com",
+              "schedule": { "schedule_type": "once", "scheduled_at": "2026-11-28T08:30" }
+            }
+            """)!.AsObject();
+
+        var result = await controller.Schedule(body, CancellationToken.None);
+
+        var error = Assert.IsType<UnprocessableEntityObjectResult>(result);
+        Assert.Contains("with a time zone", error.Value?.ToString() ?? "", StringComparison.Ordinal);
     }
 
     private sealed class TestSessionResolver : IUserSessionResolver

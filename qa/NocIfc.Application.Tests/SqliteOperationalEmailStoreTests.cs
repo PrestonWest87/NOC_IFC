@@ -164,6 +164,47 @@ public sealed class SqliteOperationalEmailStoreTests
                 ungroupedId, ["maintenance_notice"], false, CancellationToken.None));
             Assert.Null(ungroupedSource.GroupId);
             Assert.Equal("Single source", ungroupedSource.Body);
+
+            var history = await store.GetDeliveryHistoryAsync(10, CancellationToken.None);
+            Assert.Equal(2, history.Count);
+            var detail = await store.GetDeliveryDetailAsync(ungroupedDeliveryId, CancellationToken.None);
+            Assert.Equal("Single source", detail?.Body);
+            Assert.Equal("noc@example.com", detail?.SenderAddress);
+            var sourceGroups = await store.GetSentSourceGroupsAsync(["maintenance_notice"], 10, CancellationToken.None);
+            Assert.Equal(2, sourceGroups.Count);
+            Assert.Contains(sourceGroups, item => item.GroupId == "group-1" && item.Grouped);
+
+            var nextRun = DateTime.UtcNow.AddDays(1);
+            var scheduleId = await store.CreateEmailAsync(new OperationalEmailMessageSnapshot(
+                "maintenance_notice", 7, null, null, null, null, null, null, false,
+                "Scheduled maintenance", "Future body", new Dictionary<string, string>(),
+                ["ops@example.com"], [], [], "once", "America/Chicago", nextRun, null, null, nextRun,
+                [new OperationalEmailAttachmentSnapshot("plan.txt", "text/plain", [9, 8])]),
+                CancellationToken.None);
+            var scheduled = Assert.Single(await store.GetScheduledEmailsByIdsAsync([scheduleId], CancellationToken.None));
+            Assert.Equal("scheduled", scheduled.Status);
+            Assert.Equal("once", scheduled.ScheduleType);
+            Assert.Equal("plan.txt", Assert.Single(scheduled.Attachments).FileName);
+            Assert.Contains(await store.GetScheduledEmailsAsync(100, CancellationToken.None), item => item.Id == scheduleId);
+            Assert.Equal(OperationalEmailCancellationResult.Cancelled,
+                await store.CancelScheduledEmailAsync(scheduleId, 7, DateTime.UtcNow, CancellationToken.None));
+            Assert.DoesNotContain(await store.GetScheduledEmailsAsync(100, CancellationToken.None), item => item.Id == scheduleId);
+
+            var recurringId = await store.CreateEmailAsync(new OperationalEmailMessageSnapshot(
+                "maintenance_notice", 7, null, null, null, null, null, null, false,
+                "Recurring maintenance", "Future body", new Dictionary<string, string>(),
+                ["ops@example.com"], [], [], "daily", "America/Chicago", null, "08:30", null, nextRun, []),
+                CancellationToken.None);
+            await using (var connection = connections.Create())
+            {
+                await connection.OpenAsync();
+                await using var claim = connection.CreateCommand();
+                claim.CommandText = "UPDATE operational_emails SET status = 'processing' WHERE id = $id";
+                claim.Parameters.AddWithValue("$id", recurringId);
+                await claim.ExecuteNonQueryAsync();
+            }
+            Assert.Equal(OperationalEmailCancellationResult.InProgress,
+                await store.CancelScheduledEmailAsync(recurringId, 7, DateTime.UtcNow, CancellationToken.None));
         }
         finally
         {

@@ -253,6 +253,35 @@ public sealed class OperationalEmailSendCommandsTests
         Assert.Null(bccCopy.Company);
     }
 
+    [Fact]
+    public async Task SchedulesMorningReportSnapshotWithoutRequiringCurrentShiftAnalysis()
+    {
+        var store = new TestEmailStore([]);
+        var sender = new TestOperationalEmailSender(_ => throw new InvalidOperationException("Schedules are not sent in the API request."));
+        var command = CreateCommand(store, sender);
+        var attachment = Convert.ToBase64String([4, 5, 6]);
+        var input = new OperationalEmailSendInput(
+            "morning_report", "ops@example.com", null, null, null, null, new Dictionary<string, string>(),
+            [new OperationalEmailAttachmentInput("shift.txt", "text/plain", attachment)],
+            null, null, null, false, new HashSet<string>(["template_key", "to", "attachments"], StringComparer.Ordinal));
+        var scheduledAt = DateTimeOffset.UtcNow.AddHours(1);
+
+        var result = await command.ScheduleAsync(
+            input,
+            new OperationalEmailScheduleInput("once", scheduledAt, null, null, "America/Chicago"),
+            7,
+            CancellationToken.None);
+
+        Assert.Equal("scheduled", result.Primary.Status);
+        Assert.Equal("once", result.Primary.ScheduleType);
+        Assert.Equal(scheduledAt.UtcDateTime, result.Primary.NextRunAt);
+        Assert.Empty(sender.Envelopes);
+        Assert.Empty(store.DeliverySnapshots);
+        Assert.Empty(store.Emails.Single().Body);
+        Assert.Equal(new byte[] { 4, 5, 6 }, store.Emails.Single().Attachments.Single().Content);
+        Assert.Single(result.Primary.Attachments);
+    }
+
     private static OperationalEmailSendCommands CreateCommand(
         TestEmailStore store,
         TestOperationalEmailSender sender,
@@ -282,6 +311,7 @@ public sealed class OperationalEmailSendCommandsTests
         : IOperationalEmailStore
     {
         private readonly Dictionary<string, OperationalEmailTemplateDefault> templates = new(StringComparer.Ordinal);
+        private readonly Dictionary<int, OperationalEmailScheduledEntry> scheduled = [];
         private int nextEmailId = 1;
         private int nextDeliveryId = 1;
 
@@ -329,7 +359,17 @@ public sealed class OperationalEmailSendCommandsTests
         public Task<int> CreateEmailAsync(OperationalEmailMessageSnapshot email, CancellationToken cancellationToken)
         {
             Emails.Add(email);
-            return Task.FromResult(nextEmailId++);
+            var id = nextEmailId++;
+            scheduled[id] = new OperationalEmailScheduledEntry(
+                id, email.TemplateKey, email.CreatedByUserId, email.SignatureId, email.SignatureName,
+                email.ParentEmailId, email.GroupId, email.GroupCompany, email.BccCopyOnly, email.Subject,
+                email.Fields, email.ToRecipients, email.CcRecipients, email.BccRecipients, email.ScheduleType,
+                email.Timezone, email.ScheduledAt, email.RecurrenceTime, email.RecurrenceWeekday, email.NextRunAt,
+                email.ScheduleType is "daily" or "weekly" ? "active" : email.ScheduleType == "immediate" ? "processing" : "scheduled",
+                null, null, DateTime.UtcNow,
+                email.Attachments.Select(attachment => new OperationalEmailAttachmentMetadata(
+                    attachment.FileName, attachment.ContentType, attachment.Content.Length)).ToArray());
+            return Task.FromResult(id);
         }
 
         public Task<int> CreateDeliverySnapshotAsync(
@@ -362,6 +402,34 @@ public sealed class OperationalEmailSendCommandsTests
             bool includeBccCopies,
             CancellationToken cancellationToken) =>
             Task.FromResult(SourceMessages);
+
+        public Task<IReadOnlyList<OperationalEmailScheduledEntry>> GetScheduledEmailsAsync(
+            int limit,
+            CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<OperationalEmailScheduledEntry>>([]);
+
+        public Task<IReadOnlyList<OperationalEmailScheduledEntry>> GetScheduledEmailsByIdsAsync(
+            IReadOnlyList<int> emailIds,
+            CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<OperationalEmailScheduledEntry>>(
+                emailIds.Where(scheduled.ContainsKey).Select(id => scheduled[id]).ToArray());
+
+        public Task<OperationalEmailCancellationResult> CancelScheduledEmailAsync(
+            int emailId,
+            int actorUserId,
+            DateTime cancelledAtUtc,
+            CancellationToken cancellationToken) => Task.FromResult(OperationalEmailCancellationResult.NotFound);
+
+        public Task<IReadOnlyList<OperationalEmailDeliveryHistoryEntry>> GetDeliveryHistoryAsync(
+            int limit,
+            CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<OperationalEmailDeliveryHistoryEntry>>([]);
+
+        public Task<OperationalEmailDeliveryDetail?> GetDeliveryDetailAsync(
+            int deliveryId,
+            CancellationToken cancellationToken) => Task.FromResult<OperationalEmailDeliveryDetail?>(null);
+
+        public Task<IReadOnlyList<OperationalEmailSourceGroup>> GetSentSourceGroupsAsync(
+            IReadOnlyList<string> templateKeys,
+            int limit,
+            CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<OperationalEmailSourceGroup>>([]);
     }
 
     private sealed class TestDirectories : ISettingsReferenceDirectoryStore

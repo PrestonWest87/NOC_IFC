@@ -42,4 +42,25 @@ public interface IOperationalEmailStore
         IReadOnlyList<string> allowedTemplateKeys,
         bool includeBccCopies,
         CancellationToken cancellationToken);
+    Task<IReadOnlyList<OperationalEmailScheduledEntry>> GetScheduledEmailsAsync(
+        int limit,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<OperationalEmailScheduledEntry>> GetScheduledEmailsByIdsAsync(
+        IReadOnlyList<int> emailIds,
+        CancellationToken cancellationToken);
+    Task<OperationalEmailCancellationResult> CancelScheduledEmailAsync(
+        int emailId,
+        int actorUserId,
+        DateTime cancelledAtUtc,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<OperationalEmailDeliveryHistoryEntry>> GetDeliveryHistoryAsync(
+        int limit,
+        CancellationToken cancellationToken);
+    Task<OperationalEmailDeliveryDetail?> GetDeliveryDetailAsync(
+        int deliveryId,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<OperationalEmailSourceGroup>> GetSentSourceGroupsAsync(
+        IReadOnlyList<string> templateKeys,
+        int limit,
+        CancellationToken cancellationToken);
 }

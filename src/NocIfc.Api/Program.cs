@@ -80,6 +80,7 @@ builder.Services.AddScoped<OperationalEmailCatalogQueries>();
 builder.Services.AddScoped<OperationalEmailTemplateCommands>();
 builder.Services.AddScoped<OperationalEmailSignatureCommands>();
 builder.Services.AddScoped<OperationalEmailSendCommands>();
+builder.Services.AddScoped<OperationalEmailScheduleHistoryQueries>();
 builder.Services.AddScoped<ISchedulerSettingsStore, SqliteSchedulerSettingsStore>();
 builder.Services.AddScoped<SchedulerSettingsCommands>();
 builder.Services.AddScoped<ISettingsReferenceDirectoryStore, SqliteSettingsReferenceDirectoryStore>();
