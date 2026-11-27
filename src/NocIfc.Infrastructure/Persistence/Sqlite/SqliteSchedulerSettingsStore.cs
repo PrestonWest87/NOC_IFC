@@ -160,6 +160,20 @@ public sealed class SqliteSchedulerSettingsStore(SqliteConnectionFactory connect
         return revision;
     }
 
+    public async Task MarkAppliedAsync(int revision, CancellationToken cancellationToken)
+    {
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE system_config
+            SET scheduler_applied_revision = MAX(COALESCE(scheduler_applied_revision, 0), $revision)
+            WHERE scheduler_revision >= $revision
+            """;
+        command.Parameters.AddWithValue("$revision", revision);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     private static Dictionary<string, object> ScheduleDetails(SchedulerSchedule schedule)
     {
         var details = new Dictionary<string, object>(StringComparer.Ordinal)

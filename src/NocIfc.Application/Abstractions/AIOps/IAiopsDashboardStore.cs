@@ -7,6 +7,10 @@ public interface IAiopsDashboardStore
     Task<IReadOnlyList<AiopsAlertEntry>> GetUnresolvedAlertsAsync(
         IReadOnlySet<string>? allowedSiteNames,
         CancellationToken cancellationToken);
+    Task<IReadOnlyList<AiopsAlertEntry>> GetActiveAlertsAsync(
+        IReadOnlySet<string>? allowedSiteNames,
+        DateTime receivedAfterUtc,
+        CancellationToken cancellationToken);
     Task<IReadOnlyList<AiopsTimelineEventEntry>> GetTimelineEventsAsync(
         IReadOnlySet<string>? allowedSiteNames,
         int limit,

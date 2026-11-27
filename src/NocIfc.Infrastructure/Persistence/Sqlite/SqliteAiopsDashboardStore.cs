@@ -42,6 +42,42 @@ public sealed class SqliteAiopsDashboardStore(SqliteConnectionFactory connection
         return alerts;
     }
 
+    public async Task<IReadOnlyList<AiopsAlertEntry>> GetActiveAlertsAsync(
+        IReadOnlySet<string>? allowedSiteNames,
+        DateTime receivedAfterUtc,
+        CancellationToken cancellationToken)
+    {
+        if (allowedSiteNames is { Count: 0 }) return [];
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        var scope = AddSiteFilter(command, allowedSiteNames, "mapped_location");
+        command.CommandText = $"""
+            SELECT id, event_type, severity, node_name, ip_address, status, sw_timestamp, details,
+                   node_link, raw_payload, mapped_location, received_at, resolved_at, is_dispatched,
+                   is_ticketed, is_correlated, needs_dispatch, ai_root_cause, device_type, event_category,
+                   acknowledged_by, acknowledged_at, dispatched_by, dispatched_at, onpage_sent_at
+            FROM solarwinds_alerts
+            WHERE status != 'Resolved' AND received_at >= $received_after {scope}
+            ORDER BY received_at, id
+            """;
+        command.Parameters.AddWithValue("$received_after", FormatDate(receivedAfterUtc));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var alerts = new List<AiopsAlertEntry>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            alerts.Add(new AiopsAlertEntry(
+                reader.GetInt32(0), ReadString(reader, 1), ReadString(reader, 2), ReadString(reader, 3),
+                ReadString(reader, 4), ReadString(reader, 5), ReadString(reader, 6), ReadString(reader, 7),
+                ReadString(reader, 8), ReadString(reader, 9), ReadString(reader, 10), ReadDateTime(reader, 11),
+                ReadDateTime(reader, 12), ReadBoolean(reader, 13), ReadBoolean(reader, 14), ReadBoolean(reader, 15),
+                ReadBoolean(reader, 16), ReadString(reader, 17), ReadString(reader, 18), ReadString(reader, 19),
+                ReadString(reader, 20), ReadDateTime(reader, 21), ReadString(reader, 22),
+                ReadDateTime(reader, 23), ReadDateTime(reader, 24)));
+        }
+        return alerts;
+    }
+
     public async Task<IReadOnlyList<AiopsTimelineEventEntry>> GetTimelineEventsAsync(
         IReadOnlySet<string>? allowedSiteNames,
         int limit,

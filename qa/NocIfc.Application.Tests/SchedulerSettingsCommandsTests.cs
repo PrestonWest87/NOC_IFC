@@ -79,5 +79,7 @@ public sealed class SchedulerSettingsCommandsTests
             UpdatedBy = updatedBy;
             return Task.FromResult(5);
         }
+
+        public Task MarkAppliedAsync(int revision, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

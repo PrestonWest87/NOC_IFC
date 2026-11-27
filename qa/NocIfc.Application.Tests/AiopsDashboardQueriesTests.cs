@@ -73,6 +73,11 @@ public sealed class AiopsDashboardQueriesTests
             IReadOnlySet<string>? allowedSiteNames,
             CancellationToken cancellationToken) => Task.FromResult(Alerts);
 
+        public Task<IReadOnlyList<AiopsAlertEntry>> GetActiveAlertsAsync(
+            IReadOnlySet<string>? allowedSiteNames,
+            DateTime receivedAfterUtc,
+            CancellationToken cancellationToken) => Task.FromResult(Alerts);
+
         public Task<IReadOnlyList<AiopsTimelineEventEntry>> GetTimelineEventsAsync(
             IReadOnlySet<string>? allowedSiteNames,
             int limit,

@@ -11,4 +11,5 @@ public interface ISchedulerSettingsStore
         string updatedBy,
         int actorUserId,
         CancellationToken cancellationToken);
+    Task MarkAppliedAsync(int revision, CancellationToken cancellationToken);
 }

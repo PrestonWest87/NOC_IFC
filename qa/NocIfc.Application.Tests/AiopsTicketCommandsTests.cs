@@ -105,6 +105,7 @@ public sealed class AiopsTicketCommandsTests
         public IReadOnlyList<int> DispatchedIds { get; private set; } = [];
 
         public Task<IReadOnlyList<AiopsAlertEntry>> GetUnresolvedAlertsAsync(IReadOnlySet<string>? allowedSiteNames, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<AiopsAlertEntry>>([]);
+        public Task<IReadOnlyList<AiopsAlertEntry>> GetActiveAlertsAsync(IReadOnlySet<string>? allowedSiteNames, DateTime receivedAfterUtc, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<AiopsAlertEntry>>([]);
         public Task<IReadOnlyList<AiopsTimelineEventEntry>> GetTimelineEventsAsync(IReadOnlySet<string>? allowedSiteNames, int limit, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<AiopsTimelineEventEntry>>([]);
         public Task<IReadOnlyList<AiopsRegionalOutageEntry>> GetUnresolvedOutagesAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<AiopsRegionalOutageEntry>>([]);
         public Task<IReadOnlyDictionary<string, int>> GetActiveIssueCountsAsync(IReadOnlySet<string>? allowedSiteNames, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyDictionary<string, int>>(new Dictionary<string, int>());

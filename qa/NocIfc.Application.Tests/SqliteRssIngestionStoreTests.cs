@@ -35,7 +35,7 @@ public sealed class SqliteRssIngestionStoreTests
                 await setup.ExecuteNonQueryAsync();
             }
 
-            var now = DateTime.UtcNow;
+            var now = DateTime.UtcNow.Date.AddHours(12);
             var original = Article(
                 "Ransomware attack disrupts utility control systems",
                 "https://source.example.test/1", now,

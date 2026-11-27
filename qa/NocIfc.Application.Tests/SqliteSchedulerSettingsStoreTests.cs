@@ -59,8 +59,14 @@ public sealed class SqliteSchedulerSettingsStoreTests
 
             Assert.Equal(5, firstRevision);
             Assert.Equal(6, secondRevision);
+            await store.MarkAppliedAsync(5, CancellationToken.None);
+            await store.MarkAppliedAsync(4, CancellationToken.None);
+            var partiallyApplied = await store.GetAsync(CancellationToken.None);
+            Assert.Equal(5, partiallyApplied.AppliedRevision);
+            await store.MarkAppliedAsync(6, CancellationToken.None);
+
             var updated = await store.GetAsync(CancellationToken.None);
-            Assert.Equal(3, updated.AppliedRevision);
+            Assert.Equal(6, updated.AppliedRevision);
             var savedJob = Assert.Single(updated.Jobs);
             Assert.Equal(15, savedJob.Value.Schedule.EveryValue);
             Assert.False(savedJob.Value.Schedule.Enabled);
