@@ -7,6 +7,7 @@ docker-compose.yml
 # Runtime data
 data/
 data-dev/
+data-dev-c/
 
 # Python bytecode
 src/__pycache__/

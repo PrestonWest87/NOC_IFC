@@ -1,0 +1,77 @@
+name: noc-ifc-dev-c
+
+x-backend-common: &backend-common
+  env_file: .env
+  user: "${DEV_C_UID:-1000}:${DEV_C_GID:-1000}"
+  volumes:
+    - type: bind
+      source: ./data-dev-c
+      target: /app/data
+      bind:
+        create_host_path: false
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  restart: unless-stopped
+
+x-backend-environment: &backend-environment
+  DATABASE_URL: sqlite:////app/data/noc_fusion.db
+
+services:
+  api:
+    <<: *backend-common
+    network_mode: bridge
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backend
+      target: api
+    environment:
+      <<: *backend-environment
+      ASPNETCORE_URLS: http://+:8102
+      PUBLIC_APP_URL: http://localhost:8512
+    ports:
+      - "127.0.0.1:8112:8102"
+      - "${DEV_C_DOCKER_GATEWAY:-172.17.0.1}:8112:8102"
+
+  worker:
+    <<: *backend-common
+    network_mode: bridge
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backend
+      target: worker
+    environment:
+      <<: *backend-environment
+
+  webhook:
+    <<: *backend-common
+    network_mode: bridge
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backend
+      target: webhook
+    environment:
+      <<: *backend-environment
+    ports:
+      - "127.0.0.1:8109:8100"
+
+  web:
+    network_mode: bridge
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        NGINX_CONF: nginx.dev-c.conf
+    ports:
+      - "127.0.0.1:8512:5173"
+    extra_hosts:
+      - "noc-ifc-dev-c-api:host-gateway"
+    depends_on:
+      api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:5173/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped

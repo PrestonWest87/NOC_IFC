@@ -445,13 +445,27 @@ The `native/` project and `NocIfc.Infrastructure/NativeCompute/` adapter remain 
 - Pin the .NET SDK and centralize package versions and compiler/analyzer settings at the solution root.
 - Build API, worker, and webhook from a shared multi-stage backend Dockerfile, publishing separate minimal runtime images. Reuse build layers without copying tests, docs, offline Python tools, or frontend source into runtime images.
 - Keep the frontend in its existing independent Node/Vite-to-Nginx image. Preserve `/api/`, `/ws`, REST paths, payloads, session behavior, and error responses so the frontend does not need an API rewrite.
-- Keep `compose.yaml` as the tracked common topology. Add `compose.dev-c.yaml` with a unique Compose project, host ports, and `./data-dev-c`; do not mount `data/` or `data-dev/` into dev-c.
+- Keep the ignored local `docker-compose.yml` untouched. Run the C# stack from tracked `compose.dev-c.yaml` with a unique project, isolated host ports, and `./data-dev-c`; do not mount `data/` or `data-dev/` into dev-c. Consolidate a tracked common Compose file only at the deliberate default-service switch.
 - Run the existing Alembic migration tool from a pinned host-side Python environment as an explicit pre-start deployment step. It remains the single schema-migration authority and is excluded from all application images. C# services verify that the database is at the expected revision and fail readiness rather than attempting startup migrations in three processes.
 - Port operational backup/restore into shared C# infrastructure so the API and any offline C# command-line utility reuse one implementation. Keep legacy encrypted package compatibility, including retired model payloads.
 - Generate the regional basemap once in the build and share the resulting artifact with the backend and web build. The current backend consumes geometry built from frontend assets, and the generator currently runs in more than one build path.
 - Use `qa/` for tracked tests. The existing `tests/` directory is intentionally local-only/ignored; do not stage or re-add it.
 - CI should build/test .NET, run contract and persistence checks, build the unchanged frontend, exercise offline migration compatibility on disposable SQLite databases, build Compose targets, and inspect backend images for Python executables/packages.
 - If C++ is introduced, build it with CMake and run native tests as a separate optional CI stage. Only backend images that call the native library should include it.
+
+### Isolated dev-c Compose
+
+`compose.dev-c.yaml` is opt-in and does not replace the ignored local `docker-compose.yml`. It uses Docker's built-in `bridge` network and publishes the API, webhook, and UI on localhost ports 8112, 8109, and 8512. Nginx reaches the API through the Docker host-gateway alias; the API port is also bound to the bridge gateway IP for that proxy. Backend containers run as the host UID/GID so their shared `./data-dev-c` bind mount remains writable by the host migration tool. Set `DEV_C_UID`/`DEV_C_GID` if the host account is not 1000:1000, and `DEV_C_DOCKER_GATEWAY` if the bridge gateway is not `172.17.0.1`.
+
+Before starting C# writers, create a separate dev-c database and run the existing migration/bootstrap from a pinned host Python environment. The C# images intentionally have no Python and only report ready at Alembic head `20261125_0025`.
+
+```bash
+mkdir -p data-dev-c
+DATABASE_URL="sqlite:///$PWD/data-dev-c/noc_fusion.db" /path/to/pinned-venv/bin/python -c 'from src.core.db import init_db; init_db()'
+DEV_C_UID="$(id -u)" DEV_C_GID="$(id -g)" docker compose -f compose.dev-c.yaml up --build -d
+```
+
+Never point this project at `./data` or `./data-dev`; use an isolated backup/restore validation workflow before switching any active database.
 
 ## Step-by-step implementation and acceptance gates
 
@@ -631,6 +645,8 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Latest no-cache C# Worker Docker build passes 262 tests (228 application, 34 API), including scheduler DST/revision behavior, telemetry fixtures, article URL safety, tiered ticket/page decisions, backup restore, and WebSocket authorization/restore closure. Tests use fake SMTP and HTTP providers.
 - Ported the standalone SolarWinds webhook host with bounded payload reads/queueing, HMAC timestamp/replay validation, normalization, SQLite alert/timeline persistence, readiness gating, and restore-aware writer status. Resolutions use the mapped site when known and preserve same-node fallback for unknown sites.
 - The no-cache C# Webhook Docker build passes 269 tests (229 application, 40 API). Runtime smoke checks confirmed liveness, 503 submission while the database is not ready, then successful queueing and SQLite alert/timeline persistence against a temporary minimal SQLite fixture with the current revision marker. No SMTP or external integrations were used.
-- The remaining cutover work is Compose integration and full-stack verification. Current Compose still selects the Python webhook; this slice stops before that service switch.
+- Added isolated `compose.dev-c.yaml`: project `noc-ifc-dev-c`, C# API/Worker/Webhook, the unchanged React frontend, host ports 8112/8109/8512, and only `./data-dev-c` storage. A dev-c Nginx config uses the host-gateway proxy so this stack works with Docker's built-in bridge and does not consume another address-pool subnet. The ignored local `docker-compose.yml` and its Python services remain untouched.
+- `docker compose -f compose.dev-c.yaml config --quiet` and no-cache builds of all four images pass; the .NET suite remains 269/269 and no runtime image contains Python. Runtime smoke checks covered API liveness/readiness, Worker wait-for-database behavior, Web UI/health and host-gateway proxying, and Webhook persistence. Full Compose startup remains pending a separately prepared/migrated database. `data-dev-c` did not exist at verification time and the host has no Alembic/Python migration environment; no existing data directory was copied or changed.
+- The default-service switch, full-stack workflow/rollback validation, and Python runtime retirement remain the final cutover gate.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.
