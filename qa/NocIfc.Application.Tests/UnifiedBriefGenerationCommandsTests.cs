@@ -151,6 +151,8 @@ public sealed class UnifiedBriefGenerationCommandsTests
         }
         public Task<bool> SaveGlobalBriefAsync(string content, DateTime savedAtUtc, CancellationToken cancellationToken) =>
             Task.FromResult(true);
+        public Task<bool> SaveInternalBriefAsync(string content, DateTime savedAtUtc, CancellationToken cancellationToken) =>
+            Task.FromResult(true);
     }
 
     private sealed class StubExecutiveIntelStore(ExecutiveIntelInputs inputs) : IExecutiveIntelStore

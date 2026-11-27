@@ -130,6 +130,8 @@ public sealed class GlobalBriefGenerationCommandsTests
             SavedGlobalBrief = content;
             return Task.FromResult(true);
         }
+        public Task<bool> SaveInternalBriefAsync(string content, DateTime savedAtUtc, CancellationToken cancellationToken) =>
+            Task.FromResult(true);
     }
 
     private sealed class StubKevStore : ICisaKevStore

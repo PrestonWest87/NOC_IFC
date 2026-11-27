@@ -14,6 +14,8 @@ public sealed class DashboardBriefGenerationState(
 
     public Guid StartGlobal() => Start(BriefKind.Global);
 
+    public Guid StartInternal() => Start(BriefKind.Internal);
+
     public BriefGenerationProgress? GetProgress(Guid id) =>
         _progress.TryGetValue(id, out var progress) ? progress : null;
 
@@ -37,6 +39,8 @@ public sealed class DashboardBriefGenerationState(
                     .GenerateAsync(progress => _progress[id] = progress, CancellationToken.None),
                 BriefKind.Global => await commands.GetRequiredService<GlobalBriefGenerationCommands>()
                     .GenerateAsync(progress => _progress[id] = progress, CancellationToken.None),
+                BriefKind.Internal => await commands.GetRequiredService<InternalBriefGenerationCommands>()
+                    .GenerateAsync(progress => _progress[id] = progress, CancellationToken.None),
                 _ => throw new InvalidOperationException("Unsupported dashboard brief kind."),
             };
             if (!result.Success)
@@ -58,5 +62,6 @@ public sealed class DashboardBriefGenerationState(
     {
         Unified,
         Global,
+        Internal,
     }
 }

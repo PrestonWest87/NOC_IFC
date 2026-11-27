@@ -177,6 +177,32 @@ public sealed class DashboardController(
             : Ok(new { status = "unknown" });
     }
 
+    [HttpPost("generate-internal-brief")]
+    [RequireAction("Tab: Dashboards -> Internal Risk")]
+    [RequireAction("Action: Generate Reports")]
+    public IActionResult GenerateInternalBrief()
+    {
+        var id = briefGeneration.StartInternal();
+        return Ok(new { status = "started", generation_id = id.ToString() });
+    }
+
+    [HttpGet("internal-brief-generation-status")]
+    [RequireAction("Tab: Dashboards -> Internal Risk")]
+    public IActionResult GetInternalBriefGenerationStatus([FromQuery(Name = "generation_id")] string? generationId)
+    {
+        if (string.IsNullOrWhiteSpace(generationId))
+        {
+            return UnprocessableEntity(new { detail = "generation_id is required." });
+        }
+        if (!Guid.TryParse(generationId, out var id))
+        {
+            return Ok(new { status = "unknown" });
+        }
+        return briefGeneration.GetProgress(id) is { } progress
+            ? Ok(progress)
+            : Ok(new { status = "unknown" });
+    }
+
     [HttpPost("articles/toggle-pin")]
     [RequireAction("Tab: Dashboards -> Operational")]
     [RequireAction("Action: Pin Articles")]

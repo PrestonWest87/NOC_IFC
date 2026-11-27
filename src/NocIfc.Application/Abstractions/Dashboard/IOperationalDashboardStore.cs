@@ -10,4 +10,5 @@ public interface IOperationalDashboardStore
     Task<DashboardBriefSnapshot?> GetBriefsAsync(CancellationToken cancellationToken);
     Task<bool> SaveUnifiedBriefAsync(string content, DateTime savedAtUtc, CancellationToken cancellationToken);
     Task<bool> SaveGlobalBriefAsync(string content, DateTime savedAtUtc, CancellationToken cancellationToken);
+    Task<bool> SaveInternalBriefAsync(string content, DateTime savedAtUtc, CancellationToken cancellationToken);
 }

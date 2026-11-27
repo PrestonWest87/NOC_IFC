@@ -61,5 +61,8 @@ public sealed class DashboardQueriesTests
 
         public Task<bool> SaveGlobalBriefAsync(string content, DateTime savedAtUtc, CancellationToken cancellationToken) =>
             Task.FromResult(true);
+
+        public Task<bool> SaveInternalBriefAsync(string content, DateTime savedAtUtc, CancellationToken cancellationToken) =>
+            Task.FromResult(true);
     }
 }

@@ -602,5 +602,8 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Latest no-cache C# Docker build passes all 190 tests (165 application, 25 API). HTTP smoke checks cover generate/status permissions, unknown IDs, and the disabled-AI completion path; no live LLM or SMTP calls were made.
 - Ported asynchronous Global Threat Brief generation/status with US/CI and actor filtering, structured map outputs, programmatic sector/CVE assembly, Arkansas hazard context, and persisted results.
 - Latest no-cache C# Docker build passes all 192 tests (167 application, 25 API). HTTP smoke checks cover Global Risk/Generate Reports permissions and the disabled-AI progress result; no live LLM or SMTP calls were made.
+- Ported asynchronous Internal Asset Risk Brief generation/status from the latest persisted internal-risk snapshot and recent CISA KEVs, with provider-aware context-bounded map/reduce, failure-safe persistence, and Internal Risk/Generate Reports grants.
+- Latest no-cache C# Docker build passes all 194 tests (169 application, 25 API). HTTP smoke checks cover allowed/denied generation, unknown generation IDs, and asynchronous missing-snapshot errors; no live LLM or SMTP calls were made.
+- Remaining before cutover: internal-risk snapshot generation, remaining manual sync workflows and the full Operational Email workspace, Danger Zone and Backup & Restore, WebSockets, scheduled C# worker jobs, and the SolarWinds webhook. Complete these slices, then pause for final verification before Compose cutover.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.
