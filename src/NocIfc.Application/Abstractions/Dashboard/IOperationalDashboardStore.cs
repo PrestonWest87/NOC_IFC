@@ -9,4 +9,5 @@ public interface IOperationalDashboardStore
     Task<IReadOnlyList<DailyThreatScoreEntry>> GetThreatTrendsAsync(DateTime sinceUtc, CancellationToken cancellationToken);
     Task<DashboardBriefSnapshot?> GetBriefsAsync(CancellationToken cancellationToken);
     Task<bool> SaveUnifiedBriefAsync(string content, DateTime savedAtUtc, CancellationToken cancellationToken);
+    Task<bool> SaveGlobalBriefAsync(string content, DateTime savedAtUtc, CancellationToken cancellationToken);
 }

@@ -41,6 +41,22 @@ public sealed class ExecutiveIntelQueries(IExecutiveIntelStore intel)
     public Task<ExecutiveIntelReport> GetForReportingAsync(CancellationToken cancellationToken) =>
         GetAsync(0, [], cancellationToken);
 
+    public Task<IReadOnlyList<ThreatArticle>> GetRecentScoredArticlesAsync(
+        int hoursBack,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        if (hoursBack is < 1 or > 168)
+        {
+            throw new ArgumentOutOfRangeException(nameof(hoursBack), "hours_back must be between 1 and 168.");
+        }
+        if (limit is < 1 or > 300)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limit), "limit must be between 1 and 300.");
+        }
+        return intel.GetRecentScoredArticlesAsync(DateTime.UtcNow.AddHours(-hoursBack), limit, cancellationToken);
+    }
+
     private async Task<ExecutiveIntelReport> GetAsync(
         int? activeWarningCount,
         IReadOnlyList<CrimeIncidentEntry>? recentCrimes,

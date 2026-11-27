@@ -92,6 +92,8 @@ public sealed class SqliteExecutiveIntelStoreTests
             Assert.Single(inputs.RecentCrimes);
             Assert.Equal(1, inputs.ActiveWarningCount);
             Assert.Single(inputs.ScoreHistory);
+            var recentScored = await store.GetRecentScoredArticlesAsync(now.AddHours(-24), 250, CancellationToken.None);
+            Assert.Equal(new[] { 1, 3 }, recentScored.Select(article => article.Id));
 
             await store.SaveDailyThreatScoreAsync(now.Date, 5, 2, 20, 25, CancellationToken.None);
             await store.SaveDailyThreatScoreAsync(now.Date, 3, 4, 22, 26, CancellationToken.None);

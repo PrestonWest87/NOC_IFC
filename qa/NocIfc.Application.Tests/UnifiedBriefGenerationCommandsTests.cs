@@ -30,7 +30,7 @@ public sealed class UnifiedBriefGenerationCommandsTests
             llm,
             new StubExecutiveIntelStore(Inputs()),
             new StubInternalRiskStore(InternalSnapshot()));
-        var progress = new List<UnifiedBriefGenerationProgress>();
+        var progress = new List<BriefGenerationProgress>();
 
         var result = await command.GenerateAsync(progress.Add, CancellationToken.None);
 
@@ -62,7 +62,7 @@ public sealed class UnifiedBriefGenerationCommandsTests
             disabledLlm,
             new StubExecutiveIntelStore(Inputs()),
             new StubInternalRiskStore(InternalSnapshot()));
-        var disabledProgress = new List<UnifiedBriefGenerationProgress>();
+        var disabledProgress = new List<BriefGenerationProgress>();
         var disabledResult = await disabled.GenerateAsync(disabledProgress.Add, CancellationToken.None);
         Assert.False(disabledResult.Success);
         Assert.Equal("AI is currently disabled in settings.", disabledResult.Message);
@@ -77,7 +77,7 @@ public sealed class UnifiedBriefGenerationCommandsTests
             failedLlm,
             new StubExecutiveIntelStore(Inputs()),
             new StubInternalRiskStore(InternalSnapshot()));
-        var failedProgress = new List<UnifiedBriefGenerationProgress>();
+        var failedProgress = new List<BriefGenerationProgress>();
         var failedResult = await failed.GenerateAsync(failedProgress.Add, CancellationToken.None);
         Assert.False(failedResult.Success);
         Assert.Equal("Unified brief cyber evidence could not be processed.", failedResult.Message);
@@ -149,12 +149,17 @@ public sealed class UnifiedBriefGenerationCommandsTests
             SavedBrief = content;
             return Task.FromResult(true);
         }
+        public Task<bool> SaveGlobalBriefAsync(string content, DateTime savedAtUtc, CancellationToken cancellationToken) =>
+            Task.FromResult(true);
     }
 
     private sealed class StubExecutiveIntelStore(ExecutiveIntelInputs inputs) : IExecutiveIntelStore
     {
         public Task<ExecutiveIntelInputs> GetInputsAsync(DateTime sinceUtc, DateTime nowUtc, CancellationToken cancellationToken) =>
             Task.FromResult(inputs);
+        public Task<IReadOnlyList<ThreatArticle>> GetRecentScoredArticlesAsync(
+            DateTime sinceUtc, int limit, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ThreatArticle>>([]);
         public Task SaveDailyThreatScoreAsync(
             DateTime recordDateUtc, int cyberPoints, int physicalPoints, double cyberBaseline, double physicalBaseline,
             CancellationToken cancellationToken) => Task.CompletedTask;

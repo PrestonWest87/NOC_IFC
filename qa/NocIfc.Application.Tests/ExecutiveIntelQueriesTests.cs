@@ -117,6 +117,10 @@ public sealed class ExecutiveIntelQueriesTests
         public Task<ExecutiveIntelInputs> GetInputsAsync(DateTime sinceUtc, DateTime nowUtc, CancellationToken cancellationToken) =>
             Task.FromResult(Inputs);
 
+        public Task<IReadOnlyList<ThreatArticle>> GetRecentScoredArticlesAsync(
+            DateTime sinceUtc, int limit, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ThreatArticle>>([]);
+
         public Task SaveDailyThreatScoreAsync(
             DateTime recordDateUtc,
             int cyberPoints,

@@ -107,6 +107,8 @@ public sealed class BriefBroadcastCommandsTests
         public Task<DashboardBriefSnapshot?> GetBriefsAsync(CancellationToken cancellationToken) => Task.FromResult(snapshot);
         public Task<bool> SaveUnifiedBriefAsync(string content, DateTime savedAtUtc, CancellationToken cancellationToken) =>
             Task.FromResult(true);
+        public Task<bool> SaveGlobalBriefAsync(string content, DateTime savedAtUtc, CancellationToken cancellationToken) =>
+            Task.FromResult(true);
     }
 
     private sealed class StubInternalRiskStore(InternalRiskSnapshotEntry? snapshot) : IInternalRiskStore

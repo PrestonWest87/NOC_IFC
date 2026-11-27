@@ -8,7 +8,7 @@ using NocIfc.Application.Features.Threat;
 
 namespace NocIfc.Application.Features.Dashboard;
 
-public sealed record UnifiedBriefGenerationProgress(
+public sealed record BriefGenerationProgress(
     [property: JsonPropertyName("stage")] string Stage,
     [property: JsonPropertyName("message")] string Message,
     [property: JsonPropertyName("total_items")] int TotalItems,
@@ -16,7 +16,7 @@ public sealed record UnifiedBriefGenerationProgress(
     [property: JsonPropertyName("percent")] int Percent,
     [property: JsonPropertyName("error")] string? Error);
 
-public sealed record UnifiedBriefGenerationResult(bool Success, string? Brief, string? Message);
+public sealed record BriefGenerationResult(bool Success, string? Brief, string? Message);
 
 public sealed class UnifiedBriefGenerationCommands(
     ExecutiveIntelQueries executiveIntel,
@@ -40,8 +40,8 @@ public sealed class UnifiedBriefGenerationCommands(
     private const string PhysicalMapPrompt = "Extract precise factual details regarding weather severity, regional infrastructure hazards, and perimeter crimes (including distance and FBI categories). Be purely objective.";
     private const string PhysicalReducePrompt = "Compile an exhaustive physical risk digest. Categorize strictly into: 1) Severe Weather/Geospatial Hazards and 2) Local Perimeter Crimes. Retain exact distances, locations, and severity classifications. DO NOT embellish.";
 
-    public async Task<UnifiedBriefGenerationResult> GenerateAsync(
-        Action<UnifiedBriefGenerationProgress> reportProgress,
+    public async Task<BriefGenerationResult> GenerateAsync(
+        Action<BriefGenerationProgress> reportProgress,
         CancellationToken cancellationToken)
     {
         Report("gathering", "Gathering telemetry data...", 0);
@@ -166,16 +166,16 @@ public sealed class UnifiedBriefGenerationCommands(
         }
 
         Report("complete", "Brief generation complete.", 100);
-        return new UnifiedBriefGenerationResult(true, brief, null);
+        return new BriefGenerationResult(true, brief, null);
 
-        UnifiedBriefGenerationResult Fail(string message)
+        BriefGenerationResult Fail(string message)
         {
             Report("error", message, 0, message);
-            return new UnifiedBriefGenerationResult(false, null, message);
+            return new BriefGenerationResult(false, null, message);
         }
 
         void Report(string stage, string message, int percent, string? error = null, int total = 0, int processed = 0) =>
-            reportProgress(new UnifiedBriefGenerationProgress(stage, message, total, processed, percent, error));
+            reportProgress(new BriefGenerationProgress(stage, message, total, processed, percent, error));
     }
 
     private async Task<string> SummarizeAsync(
@@ -188,7 +188,7 @@ public sealed class UnifiedBriefGenerationCommands(
         LlmProviderSettings settings,
         int maxTokens,
         int contextWindow,
-        Action<UnifiedBriefGenerationProgress> reportProgress,
+        Action<BriefGenerationProgress> reportProgress,
         CancellationToken cancellationToken)
     {
         var chunkSize = Math.Max(1, (int)(15 * Math.Max(1d, contextWindow / 128_000d)));
@@ -198,7 +198,7 @@ public sealed class UnifiedBriefGenerationCommands(
         {
             var completed = index + 1;
             var percent = progressStart + (int)(completed / (double)chunks.Length * progressSpan);
-            reportProgress(new UnifiedBriefGenerationProgress(
+            reportProgress(new BriefGenerationProgress(
                 stage,
                 $"{(stage == "cyber_map" ? "Cyber intelligence" : "Physical intelligence")} map-reduce: chunk {completed}/{chunks.Length} ({items.Count} items)",
                 items.Count,

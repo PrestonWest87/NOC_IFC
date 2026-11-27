@@ -77,6 +77,22 @@ public sealed class SqliteExecutiveIntelStore(SqliteConnectionFactory connection
             activeWarnings);
     }
 
+    public async Task<IReadOnlyList<ThreatArticle>> GetRecentScoredArticlesAsync(
+        DateTime sinceUtc,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        return await ReadArticlesAsync(
+            connection,
+            "published_date >= $since AND score >= 50.0",
+            "score DESC",
+            limit,
+            cancellationToken,
+            command => AddDate(command, "$since", sinceUtc));
+    }
+
     public async Task SaveDailyThreatScoreAsync(
         DateTime recordDateUtc,
         int cyberPoints,

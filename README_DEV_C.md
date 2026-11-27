@@ -600,5 +600,7 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Latest no-cache C# Docker build passes all 188 tests (163 application, 25 API). HTTP smoke checks cover both Dashboard generation grants and their disabled-AI responses.
 - Ported asynchronous `POST /dashboard/generate-unified-brief` and progress polling with provider-aware cyber/physical map-reduce, source-grounded synthesis, failure-safe persistence, and the Unified Brief tab/action grants.
 - Latest no-cache C# Docker build passes all 190 tests (165 application, 25 API). HTTP smoke checks cover generate/status permissions, unknown IDs, and the disabled-AI completion path; no live LLM or SMTP calls were made.
+- Ported asynchronous Global Threat Brief generation/status with US/CI and actor filtering, structured map outputs, programmatic sector/CVE assembly, Arkansas hazard context, and persisted results.
+- Latest no-cache C# Docker build passes all 192 tests (167 application, 25 API). HTTP smoke checks cover Global Risk/Generate Reports permissions and the disabled-AI progress result; no live LLM or SMTP calls were made.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.

@@ -163,6 +163,20 @@ public sealed class SqliteOperationalDashboardStore(SqliteConnectionFactory conn
         return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
     }
 
+    public async Task<bool> SaveGlobalBriefAsync(
+        string content,
+        DateTime savedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE system_config SET global_brief = $brief, global_brief_time = $saved_at WHERE id = (SELECT id FROM system_config ORDER BY id LIMIT 1)";
+        command.Parameters.AddWithValue("$brief", content);
+        command.Parameters.AddWithValue("$saved_at", FormatDate(savedAtUtc));
+        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
     private static string FormatDate(DateTime value) =>
         value.ToString("yyyy-MM-dd HH:mm:ss.ffffff", CultureInfo.InvariantCulture);
 

@@ -19,7 +19,7 @@ public sealed class DashboardController(
     ThreatArticleQueries articles,
     GenerateArticleBlufCommands blufCommands,
     AiopsSitrepActionCommands sitrepActions,
-    UnifiedBriefGenerationState unifiedBriefGeneration) : ControllerBase
+    DashboardBriefGenerationState briefGeneration) : ControllerBase
 {
     [HttpGet("metrics")]
     [RequireAction("Tab: Dashboards -> Operational")]
@@ -130,7 +130,7 @@ public sealed class DashboardController(
     [RequireAction("Action: Generate Reports")]
     public IActionResult GenerateUnifiedBrief()
     {
-        var id = unifiedBriefGeneration.Start();
+        var id = briefGeneration.StartUnified();
         return Ok(new { status = "started", generation_id = id.ToString() });
     }
 
@@ -146,7 +146,33 @@ public sealed class DashboardController(
         {
             return Ok(new { status = "unknown" });
         }
-        return unifiedBriefGeneration.GetProgress(id) is { } progress
+        return briefGeneration.GetProgress(id) is { } progress
+            ? Ok(progress)
+            : Ok(new { status = "unknown" });
+    }
+
+    [HttpPost("generate-global-brief")]
+    [RequireAction("Tab: Dashboards -> Global Risk")]
+    [RequireAction("Action: Generate Reports")]
+    public IActionResult GenerateGlobalBrief()
+    {
+        var id = briefGeneration.StartGlobal();
+        return Ok(new { status = "started", generation_id = id.ToString() });
+    }
+
+    [HttpGet("global-brief-generation-status")]
+    [RequireAction("Tab: Dashboards -> Global Risk")]
+    public IActionResult GetGlobalBriefGenerationStatus([FromQuery(Name = "generation_id")] string? generationId)
+    {
+        if (string.IsNullOrWhiteSpace(generationId))
+        {
+            return UnprocessableEntity(new { detail = "generation_id is required." });
+        }
+        if (!Guid.TryParse(generationId, out var id))
+        {
+            return Ok(new { status = "unknown" });
+        }
+        return briefGeneration.GetProgress(id) is { } progress
             ? Ok(progress)
             : Ok(new { status = "unknown" });
     }
