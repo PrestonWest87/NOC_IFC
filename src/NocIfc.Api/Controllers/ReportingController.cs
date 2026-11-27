@@ -12,12 +12,24 @@ namespace NocIfc.Api.Controllers;
 public sealed class ReportingController(
     SavedReportCommands reports,
     DailyBriefingQueries briefings,
+    DailyFusionCommands dailyFusion,
     ThreatHuntingQueries threatHunting) : ControllerBase
 {
     [HttpGet("daily-briefings")]
     [RequireAction("Tab: Reporting -> Daily Fusion")]
     public async Task<IActionResult> GetDailyBriefings(CancellationToken cancellationToken) =>
         Ok((await briefings.GetAllAsync(cancellationToken)).Select(DailyBriefingResponse.From).ToArray());
+
+    [HttpPost("generate-daily")]
+    [RequireAction("Tab: Reporting -> Daily Fusion")]
+    [RequireAction("Action: Generate Reports")]
+    public async Task<IActionResult> GenerateDaily(CancellationToken cancellationToken)
+    {
+        var result = await dailyFusion.GenerateAsync(cancellationToken);
+        return result.Success
+            ? Ok(new { status = "ok", date = result.Date, content = result.Content })
+            : Ok(new { status = "error", message = result.Message ?? "Report generation failed or AI is disabled." });
+    }
 
     [HttpPost("search-articles")]
     [RequireAction("Tab: Reporting -> Report Builder")]
