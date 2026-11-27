@@ -121,6 +121,7 @@ builder.Services.AddScoped<DailyFusionCommands>();
 builder.Services.AddScoped<ReportingBroadcastCommands>();
 builder.Services.AddScoped<CustomReportCommands>();
 builder.Services.AddScoped<SendEmailCommands>();
+builder.Services.AddScoped<BriefBroadcastCommands>();
 builder.Services.AddSingleton<CustomReportGenerationState>();
 builder.Services.AddSingleton(new NwsForecastConfiguration(
     builder.Configuration["nws_api_user_agent"] ?? "NOC-IFC/2.0 (https://test.weasts.net)",

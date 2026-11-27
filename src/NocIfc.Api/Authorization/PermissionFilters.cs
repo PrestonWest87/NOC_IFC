@@ -47,6 +47,39 @@ public sealed class RequirePageAttribute(string permission) : RequirePermissionA
 {
 }
 
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false, Inherited = true)]
+public sealed class RequireAnyPageAttribute : Attribute, IAuthorizationFilter
+{
+    private readonly string[] _permissions;
+
+    public RequireAnyPageAttribute(params string[] permissions)
+    {
+        if (permissions.Length == 0)
+        {
+            throw new ArgumentException("At least one page permission is required.", nameof(permissions));
+        }
+        var unknown = permissions.FirstOrDefault(permission => !PermissionCatalog.ContainsPage(permission));
+        if (unknown is not null)
+        {
+            throw new ArgumentException($"Unknown page permission: {unknown}", nameof(permissions));
+        }
+        _permissions = permissions;
+    }
+
+    public void OnAuthorization(AuthorizationFilterContext context)
+    {
+        var user = AuthenticatedUserContext.GetUser(context.HttpContext);
+        if (user is null)
+        {
+            context.Result = PermissionResponses.Unauthenticated();
+        }
+        else if (!user.IsAdministrator && !_permissions.Any(permission => user.AllowedPages.Contains(permission, StringComparer.Ordinal)))
+        {
+            context.Result = PermissionResponses.Denied(string.Join(" or ", _permissions), "page");
+        }
+    }
+}
+
 public sealed class RequireActionAttribute(string permission) : RequirePermissionAttribute(permission, "action")
 {
 }

@@ -118,7 +118,7 @@ public sealed class ReportingBroadcastCommands(IEmailSender emailSender)
             """;
     }
 
-    private static string RenderMarkdown(string markdown)
+    internal static string RenderMarkdown(string markdown)
     {
         var output = new StringBuilder();
         var inList = false;

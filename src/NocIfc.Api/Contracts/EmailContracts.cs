@@ -28,3 +28,9 @@ public sealed class SendEmailRequest
     [JsonPropertyName("attachments")]
     public IReadOnlyList<EmailAttachmentRequest?>? Attachments { get; init; } = [];
 }
+
+public sealed class BriefBroadcastRequest
+{
+    [JsonPropertyName("email")]
+    public string? Email { get; init; } = "";
+}

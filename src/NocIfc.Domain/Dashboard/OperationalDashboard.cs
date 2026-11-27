@@ -41,4 +41,6 @@ public sealed record DashboardBriefSnapshot(
     string? InternalBrief,
     DateTime? InternalBriefTime,
     string? UnifiedBrief,
-    DateTime? UnifiedBriefTime);
+    DateTime? UnifiedBriefTime,
+    string? LastGlobalRisk = null,
+    string? LastInternalRisk = null);

@@ -125,7 +125,8 @@ public sealed class SqliteOperationalDashboardStore(SqliteConnectionFactory conn
             SELECT rolling_summary, rolling_summary_time,
                    global_brief, global_brief_time,
                    internal_brief, internal_brief_time,
-                   unified_brief, unified_brief_time
+                   unified_brief, unified_brief_time,
+                   last_global_risk, last_internal_risk
             FROM system_config
             ORDER BY id
             LIMIT 1
@@ -143,7 +144,9 @@ public sealed class SqliteOperationalDashboardStore(SqliteConnectionFactory conn
             ReadString(reader, 4),
             ReadDateTime(reader, 5),
             ReadString(reader, 6),
-            ReadDateTime(reader, 7));
+            ReadDateTime(reader, 7),
+            ReadString(reader, 8),
+            ReadString(reader, 9));
     }
 
     private static string FormatDate(DateTime value) =>

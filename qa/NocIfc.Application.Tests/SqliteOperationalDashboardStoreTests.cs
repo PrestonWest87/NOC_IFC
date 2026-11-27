@@ -38,7 +38,8 @@ public sealed class SqliteOperationalDashboardStoreTests
                     CREATE TABLE system_config (
                         id INTEGER PRIMARY KEY, rolling_summary TEXT, rolling_summary_time DATETIME,
                         global_brief TEXT, global_brief_time DATETIME, internal_brief TEXT,
-                        internal_brief_time DATETIME, unified_brief TEXT, unified_brief_time DATETIME
+                        internal_brief_time DATETIME, unified_brief TEXT, unified_brief_time DATETIME,
+                        last_global_risk TEXT, last_internal_risk TEXT
                     );
                     """;
                 await setup.ExecuteNonQueryAsync();
@@ -53,7 +54,7 @@ public sealed class SqliteOperationalDashboardStoreTests
                         (4, 'haz-4', 'Watch', 'Moderate', 'Old warning', 'Description', 'County', $old, $old, 'active', $old, $past, NULL, $future, NULL, 'Alert', '[]', 'state', 'county');
                     INSERT INTO cloud_outages VALUES (1, $recent, 0), (2, $recent, 1);
                     INSERT INTO daily_threat_scores VALUES (1, $old, 1, 2, 3, 4), (2, $recent, 5, 6, 7, 8);
-                    INSERT INTO system_config VALUES (1, 'shift', $recent, 'global', $recent, 'internal', $recent, 'unified', $recent);
+                    INSERT INTO system_config VALUES (1, 'shift', $recent, 'global', $recent, 'internal', $recent, 'unified', $recent, 'ORANGE', 'RED');
                     """;
                 seed.Parameters.AddWithValue("$recent", FormatDate(now.AddHours(-12)));
                 seed.Parameters.AddWithValue("$old", FormatDate(now.AddDays(-20)));
@@ -79,6 +80,8 @@ public sealed class SqliteOperationalDashboardStoreTests
                 await store.GetBriefsAsync(CancellationToken.None));
             Assert.Equal("shift", briefs.RollingSummary);
             Assert.Equal("unified", briefs.UnifiedBrief);
+            Assert.Equal("ORANGE", briefs.LastGlobalRisk);
+            Assert.Equal("RED", briefs.LastInternalRisk);
         }
         finally
         {
