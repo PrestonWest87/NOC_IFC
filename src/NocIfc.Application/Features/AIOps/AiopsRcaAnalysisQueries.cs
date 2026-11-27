@@ -38,7 +38,7 @@ public sealed class AiopsRcaAnalysisQueries(
             inputs.Alerts, inputs.Events, inputs.Locations, context, false, nowUtc, includeFleetCorrelations: false);
     }
 
-    private async Task<bool> HasAllSiteTypeAccessAsync(
+    public async Task<bool> HasAllSiteTypeAccessAsync(
         AuthenticatedUser user,
         CancellationToken cancellationToken)
     {

@@ -107,6 +107,8 @@ builder.Services.AddScoped<AiopsRcaAnalysisEngine>();
 builder.Services.AddScoped<AiopsRcaAnalysisQueries>();
 builder.Services.AddScoped<AiopsTicketCommands>();
 builder.Services.AddScoped<AiopsSitrepQueries>();
+builder.Services.AddScoped<IAiopsSitrepActionStore, SqliteAiopsSitrepActionStore>();
+builder.Services.AddScoped<AiopsSitrepActionCommands>();
 builder.Services.AddSingleton(new NwsForecastConfiguration(
     builder.Configuration["nws_api_user_agent"] ?? "NOC-IFC/2.0 (https://test.weasts.net)",
     builder.Configuration["default_admin_email"] ?? ""));

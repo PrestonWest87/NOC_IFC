@@ -16,6 +16,7 @@ public sealed class AiopsRcaReadController(
     AiopsRcaAnalysisQueries analysis,
     AiopsTicketCommands tickets,
     AiopsSitrepQueries sitrep,
+    AiopsSitrepActionCommands sitrepActions,
     AiopsInvestigationState investigating) : ControllerBase
 {
     [HttpGet("aiops/dashboard")]
@@ -387,6 +388,59 @@ public sealed class AiopsRcaReadController(
             });
         }
         return Ok(new { report });
+    }
+
+    [HttpPost("rca/sitrep")]
+    [RequireAction("Tab: AIOps RCA -> Global Correlation")]
+    public async Task<IActionResult> RunSitrepAction(
+        [FromBody] RcaSitrepActionRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var user = AuthenticatedUserContext.GetUser(HttpContext);
+        if (user is null)
+        {
+            return Unauthorized(new { detail = new { code = "unauthenticated", message = "Not authenticated" } });
+        }
+        var action = request?.Action ?? "";
+        var permission = AiopsSitrepActionCommands.RequiredPermission(action);
+        if (permission is null)
+        {
+            return Ok(new { status = "error", message = $"Unknown action: {action}" });
+        }
+        if (!user.IsAdministrator && !user.AllowedActions.Contains(permission, StringComparer.Ordinal))
+        {
+            return PermissionResponses.Denied(permission, "action");
+        }
+        if (action != "refresh_briefing"
+            && !await analysis.HasAllSiteTypeAccessAsync(user, cancellationToken))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                detail = new
+                {
+                    code = "site_scope_denied",
+                    message = "This operation requires access to all site types.",
+                },
+            });
+        }
+
+        if (action == "refresh_briefing")
+        {
+            var result = await sitrepActions.RefreshBriefingAsync(cancellationToken);
+            return result.Success
+                ? Ok(new { status = "ok", summary = result.Content })
+                : Ok(new { status = "error", message = result.Content });
+        }
+        if (action == "scoring_rationale")
+        {
+            var result = await sitrepActions.GenerateScoringRationaleAsync(
+                request?.ToIntelInput() ?? new AiopsScoringRationaleInput("UNKNOWN", [], [], []),
+                cancellationToken);
+            return result.Success
+                ? Ok(new { status = "ok", report = result.Content })
+                : Ok(new { status = "error", message = result.Content });
+        }
+        return Ok(new { status = "ok", report = await sitrepActions.GenerateSecurityAuditAsync(cancellationToken) });
     }
 
     [HttpPost("rca/investigate")]
