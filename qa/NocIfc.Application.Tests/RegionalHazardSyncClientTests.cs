@@ -330,6 +330,9 @@ public sealed class RegionalHazardSyncClientTests
             Messages.Add(new EmailMessage(recipientOverride, subject, body));
             return Task.FromResult(new EmailSendResult(true, "sent"));
         }
+
+        public Task<EmailSendResult> SendHtmlAsync(string recipientOverride, string subject, string body, CancellationToken cancellationToken) =>
+            SendPlainTextAsync(recipientOverride, subject, body, cancellationToken);
     }
 
     private sealed record EmailMessage(string Recipient, string Subject, string Body);

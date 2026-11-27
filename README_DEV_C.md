@@ -579,5 +579,7 @@ The first conversion slices are committed and pushed on `dev-c`; implementation 
 - Latest C# tests remain 167 (143 application, 24 API); HTTP smoke checks cover quoted-term OR search, results, malformed phrase responses, and lookback bounds.
 - Ported Daily Fusion generation for the prior Chicago calendar day, including bounded cyber/KEV/weather/cloud inputs, provider-aware summarization, deterministic fallback, and report-date upsert persistence.
 - Latest no-cache C# Docker build passes all 171 tests (147 application, 24 API). HTTP smoke checks verify Daily Fusion action permissions and the disabled-AI response without modifying the archive.
+- Ported Daily Fusion broadcast with recipient bounds/validation, escaped Markdown-to-HTML content, and the active configured sender.
+- Latest no-cache C# Docker build passes all 173 tests (149 application, 24 API). HTTP smoke checks cover dispatch permission, missing/invalid recipients, and SMTP-disabled delivery without network activity.
 
 The legacy database column is intentionally retained for compatibility. No database cleanup, schema change, GitHub issue update, or cross-branch merge is included in this conversion slice.

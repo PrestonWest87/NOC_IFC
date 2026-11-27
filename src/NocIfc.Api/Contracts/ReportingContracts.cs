@@ -3,6 +3,18 @@ using NocIfc.Domain.Threat;
 
 namespace NocIfc.Api.Contracts;
 
+public sealed class DailyFusionBroadcastRequest
+{
+    [JsonPropertyName("report_date")]
+    public string? ReportDate { get; init; } = "";
+
+    [JsonPropertyName("content")]
+    public string? Content { get; init; } = "";
+
+    [JsonPropertyName("recipients")]
+    public string? Recipients { get; init; } = "";
+}
+
 public sealed class ReportingArticleSearchRequest
 {
     [JsonPropertyName("target")]

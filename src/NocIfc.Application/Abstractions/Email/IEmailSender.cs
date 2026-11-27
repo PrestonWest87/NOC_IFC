@@ -9,4 +9,9 @@ public interface IEmailSender
         string subject,
         string body,
         CancellationToken cancellationToken);
+    Task<EmailSendResult> SendHtmlAsync(
+        string recipientOverride,
+        string subject,
+        string body,
+        CancellationToken cancellationToken);
 }

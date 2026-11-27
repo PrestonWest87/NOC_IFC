@@ -13,6 +13,7 @@ public sealed class ReportingController(
     SavedReportCommands reports,
     DailyBriefingQueries briefings,
     DailyFusionCommands dailyFusion,
+    DailyFusionBroadcastCommands dailyFusionBroadcast,
     ThreatHuntingQueries threatHunting) : ControllerBase
 {
     [HttpGet("daily-briefings")]
@@ -29,6 +30,29 @@ public sealed class ReportingController(
         return result.Success
             ? Ok(new { status = "ok", date = result.Date, content = result.Content })
             : Ok(new { status = "error", message = result.Message ?? "Report generation failed or AI is disabled." });
+    }
+
+    [HttpPost("broadcast")]
+    [RequireAction("Tab: Reporting -> Daily Fusion")]
+    [RequireAction("Action: Dispatch Exec Report")]
+    public async Task<IActionResult> BroadcastDailyFusion(
+        [FromBody] DailyFusionBroadcastRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (request is null)
+        {
+            return UnprocessableEntity(new { detail = "A Daily Fusion broadcast request is required." });
+        }
+        try
+        {
+            var result = await dailyFusionBroadcast.BroadcastAsync(
+                request.ReportDate ?? "", request.Content ?? "", request.Recipients ?? "", cancellationToken);
+            return Ok(new { status = result.Success ? "ok" : "error", message = result.Message });
+        }
+        catch (ArgumentException exception)
+        {
+            return UnprocessableEntity(new { detail = exception.Message });
+        }
     }
 
     [HttpPost("search-articles")]

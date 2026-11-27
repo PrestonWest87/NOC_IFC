@@ -104,5 +104,12 @@ public sealed class AiSmtpSettingsCommandsTests
             Subject = subject;
             return Task.FromResult(new EmailSendResult(true, "sent"));
         }
+
+        public Task<EmailSendResult> SendHtmlAsync(
+            string recipientOverride,
+            string subject,
+            string body,
+            CancellationToken cancellationToken) =>
+            SendPlainTextAsync(recipientOverride, subject, body, cancellationToken);
     }
 }

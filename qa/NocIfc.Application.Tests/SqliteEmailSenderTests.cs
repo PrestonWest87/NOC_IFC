@@ -38,9 +38,13 @@ public sealed class SqliteEmailSenderTests
             var sender = new SqliteEmailSender(connections, new GmailOAuthTokenProvider(http));
             var result = await sender.SendPlainTextAsync(
                 "security@example.com", "Test alert", "body", CancellationToken.None);
+            var htmlResult = await sender.SendHtmlAsync(
+                "security@example.com", "Test report", "<p>body</p>", CancellationToken.None);
 
             Assert.False(result.Success);
             Assert.Equal("SMTP is disabled in Settings.", result.Message);
+            Assert.False(htmlResult.Success);
+            Assert.Equal("SMTP is disabled in Settings.", htmlResult.Message);
         }
         finally
         {

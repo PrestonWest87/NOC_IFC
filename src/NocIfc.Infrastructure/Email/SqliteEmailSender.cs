@@ -12,10 +12,25 @@ public sealed class SqliteEmailSender(
     SqliteConnectionFactory connections,
     GmailOAuthTokenProvider gmailTokens) : IEmailSender
 {
-    public async Task<EmailSendResult> SendPlainTextAsync(
+    public Task<EmailSendResult> SendPlainTextAsync(
         string recipientOverride,
         string subject,
         string body,
+        CancellationToken cancellationToken) =>
+        SendAsync(recipientOverride, subject, body, false, cancellationToken);
+
+    public Task<EmailSendResult> SendHtmlAsync(
+        string recipientOverride,
+        string subject,
+        string body,
+        CancellationToken cancellationToken) =>
+        SendAsync(recipientOverride, subject, body, true, cancellationToken);
+
+    private async Task<EmailSendResult> SendAsync(
+        string recipientOverride,
+        string subject,
+        string body,
+        bool isHtml,
         CancellationToken cancellationToken)
     {
         var profile = await ReadProfileAsync(cancellationToken);
@@ -52,7 +67,7 @@ public sealed class SqliteEmailSender(
             message.From.AddRange(InternetAddressList.Parse(profile.Sender));
             message.To.AddRange(InternetAddressList.Parse(recipient));
             message.Subject = $"[NOC FUSION] {subject}";
-            message.Body = new TextPart("plain") { Text = body };
+            message.Body = new TextPart(isHtml ? "html" : "plain") { Text = body };
 
             using var client = new SmtpClient { Timeout = 10_000 };
             await client.ConnectAsync(profile.Server, profile.Port, SecureSocketOptions.StartTls, timeout.Token);

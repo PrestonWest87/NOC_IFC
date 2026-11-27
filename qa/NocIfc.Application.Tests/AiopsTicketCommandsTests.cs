@@ -80,6 +80,13 @@ public sealed class AiopsTicketCommandsTests
             Calls.Add((recipientOverride, subject, body));
             return Task.FromResult(Result);
         }
+
+        public Task<EmailSendResult> SendHtmlAsync(
+            string recipientOverride,
+            string subject,
+            string body,
+            CancellationToken cancellationToken) =>
+            SendPlainTextAsync(recipientOverride, subject, body, cancellationToken);
     }
 
     private sealed class StubDashboardStore : IAiopsDashboardStore
