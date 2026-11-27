@@ -34,6 +34,27 @@ public sealed class SqliteOperationalEmailStoreTests
                         id INTEGER PRIMARY KEY, actor_user_id INTEGER, subject_user_id INTEGER,
                         event_type TEXT, event_detail TEXT, created_at DATETIME
                     );
+                    CREATE TABLE operational_emails (
+                        id INTEGER PRIMARY KEY, template_key TEXT, created_by_user_id INTEGER,
+                        signature_id INTEGER, signature_name TEXT, signature_content TEXT,
+                        parent_email_id INTEGER, group_id TEXT, group_company TEXT, bcc_copy_only INTEGER,
+                        subject TEXT, body TEXT, fields_json TEXT, to_recipients TEXT, cc_recipients TEXT,
+                        bcc_recipients TEXT, schedule_type TEXT, timezone TEXT, scheduled_at DATETIME,
+                        recurrence_time TEXT, recurrence_weekday INTEGER, next_run_at DATETIME,
+                        processing_started_at DATETIME, status TEXT, last_sent_at DATETIME, last_error TEXT,
+                        created_at DATETIME, updated_at DATETIME
+                    );
+                    CREATE TABLE operational_email_attachments (
+                        id INTEGER PRIMARY KEY, operational_email_id INTEGER, filename TEXT,
+                        content_type TEXT, content BLOB, size_bytes INTEGER
+                    );
+                    CREATE TABLE operational_email_deliveries (
+                        id INTEGER PRIMARY KEY, operational_email_id INTEGER, status TEXT,
+                        smtp_provider TEXT, sender_address TEXT, signature_id INTEGER, signature_name TEXT,
+                        to_recipients TEXT, cc_recipients TEXT, bcc_recipients TEXT, subject TEXT, body TEXT,
+                        fields_json TEXT, attachment_names TEXT, attempted_at DATETIME, sent_at DATETIME,
+                        error_message TEXT
+                    );
                     """;
                 await setup.ExecuteNonQueryAsync();
             }
@@ -88,6 +109,61 @@ public sealed class SqliteOperationalEmailStoreTests
                 Assert.Equal("operational_email_signature_updated", events[2].Type);
                 Assert.DoesNotContain(events, item => item.Detail.Contains("NOC signature", StringComparison.Ordinal));
             }
+
+            var emailId = await store.CreateEmailAsync(new OperationalEmailMessageSnapshot(
+                "maintenance_notice", 7, null, null, null, null, "group-1", "Utility A", false,
+                "Maintenance window", "Message body", new Dictionary<string, string> { ["site"] = "North" },
+                ["to@example.com"], ["cc@example.com"], ["bcc@example.com"], "immediate", "America/Chicago",
+                null, null, null, null,
+                [new OperationalEmailAttachmentSnapshot("report.txt", "text/plain", [1, 2, 3])]),
+                CancellationToken.None);
+            var deliveryId = await store.CreateDeliverySnapshotAsync(
+                emailId, "smtp", "noc@example.com", DateTime.UtcNow, CancellationToken.None);
+            await store.CompleteImmediateDeliveryAsync(
+                emailId, deliveryId, true, "Email sent successfully.", DateTime.UtcNow, CancellationToken.None);
+
+            var source = Assert.Single(await store.GetSuccessfulSourceMessagesAsync(
+                emailId, ["maintenance_notice"], false, CancellationToken.None));
+            Assert.Equal("group-1", source.GroupId);
+            Assert.Equal("Utility A", source.GroupCompany);
+            Assert.Equal("Message body", source.Body);
+            Assert.Equal(["bcc@example.com"], source.BccRecipients);
+            await using (var connection = connections.Create())
+            {
+                await connection.OpenAsync();
+                await using var read = connection.CreateCommand();
+                read.CommandText = """
+                    SELECT e.status, d.status, d.smtp_provider, d.sender_address,
+                           d.attachment_names, a.content
+                    FROM operational_emails e
+                    JOIN operational_email_deliveries d ON d.operational_email_id = e.id
+                    JOIN operational_email_attachments a ON a.operational_email_id = e.id
+                    WHERE e.id = $id
+                    """;
+                read.Parameters.AddWithValue("$id", emailId);
+                await using var reader = await read.ExecuteReaderAsync();
+                Assert.True(await reader.ReadAsync());
+                Assert.Equal("sent", reader.GetString(0));
+                Assert.Equal("sent", reader.GetString(1));
+                Assert.Equal("smtp", reader.GetString(2));
+                Assert.Equal("noc@example.com", reader.GetString(3));
+                Assert.Equal("[\"report.txt\"]", reader.GetString(4));
+                Assert.Equal(new byte[] { 1, 2, 3 }, (byte[])reader[5]);
+            }
+
+            var ungroupedId = await store.CreateEmailAsync(new OperationalEmailMessageSnapshot(
+                "maintenance_notice", 7, null, null, null, null, null, null, false,
+                "Solo maintenance", "Single source", new Dictionary<string, string>(),
+                ["solo@example.com"], [], [], "immediate", "America/Chicago", null, null, null, null, []),
+                CancellationToken.None);
+            var ungroupedDeliveryId = await store.CreateDeliverySnapshotAsync(
+                ungroupedId, "smtp", "noc@example.com", DateTime.UtcNow, CancellationToken.None);
+            await store.CompleteImmediateDeliveryAsync(
+                ungroupedId, ungroupedDeliveryId, true, "sent", DateTime.UtcNow, CancellationToken.None);
+            var ungroupedSource = Assert.Single(await store.GetSuccessfulSourceMessagesAsync(
+                ungroupedId, ["maintenance_notice"], false, CancellationToken.None));
+            Assert.Null(ungroupedSource.GroupId);
+            Assert.Equal("Single source", ungroupedSource.Body);
         }
         finally
         {

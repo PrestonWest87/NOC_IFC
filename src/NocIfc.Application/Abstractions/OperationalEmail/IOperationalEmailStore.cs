@@ -23,4 +23,23 @@ public interface IOperationalEmailStore
         IReadOnlyList<string> changedFields,
         int actorUserId,
         CancellationToken cancellationToken);
+    Task<int> CreateEmailAsync(OperationalEmailMessageSnapshot email, CancellationToken cancellationToken);
+    Task<int> CreateDeliverySnapshotAsync(
+        int emailId,
+        string smtpProvider,
+        string? senderAddress,
+        DateTime attemptedAtUtc,
+        CancellationToken cancellationToken);
+    Task CompleteImmediateDeliveryAsync(
+        int emailId,
+        int deliveryId,
+        bool success,
+        string message,
+        DateTime completedAtUtc,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<OperationalEmailSourceMessage>> GetSuccessfulSourceMessagesAsync(
+        int sourceEmailId,
+        IReadOnlyList<string> allowedTemplateKeys,
+        bool includeBccCopies,
+        CancellationToken cancellationToken);
 }

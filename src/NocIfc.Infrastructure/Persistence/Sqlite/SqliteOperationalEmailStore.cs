@@ -273,6 +273,324 @@ public sealed class SqliteOperationalEmailStore(SqliteConnectionFactory connecti
             });
     }
 
+    public async Task<int> CreateEmailAsync(
+        OperationalEmailMessageSnapshot email,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
+        var now = FormatDate(DateTime.UtcNow);
+        await using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT INTO operational_emails (
+                template_key, created_by_user_id, signature_id, signature_name, signature_content,
+                parent_email_id, group_id, group_company, bcc_copy_only, subject, body, fields_json,
+                to_recipients, cc_recipients, bcc_recipients, schedule_type, timezone, scheduled_at,
+                recurrence_time, recurrence_weekday, next_run_at, processing_started_at, status,
+                created_at, updated_at
+            ) VALUES (
+                $template_key, $created_by_user_id, $signature_id, $signature_name, $signature_content,
+                $parent_email_id, $group_id, $group_company, $bcc_copy_only, $subject, $body, $fields_json,
+                $to_recipients, $cc_recipients, $bcc_recipients, $schedule_type, $timezone, $scheduled_at,
+                $recurrence_time, $recurrence_weekday, $next_run_at, $processing_started_at, $status,
+                $created_at, $updated_at
+            )
+            """;
+        insert.Parameters.AddWithValue("$template_key", email.TemplateKey);
+        insert.Parameters.AddWithValue("$created_by_user_id", email.CreatedByUserId);
+        AddNullable(insert, "$signature_id", email.SignatureId);
+        AddNullable(insert, "$signature_name", email.SignatureName);
+        AddNullable(insert, "$signature_content", email.SignatureContent);
+        AddNullable(insert, "$parent_email_id", email.ParentEmailId);
+        AddNullable(insert, "$group_id", email.GroupId);
+        AddNullable(insert, "$group_company", email.GroupCompany);
+        insert.Parameters.AddWithValue("$bcc_copy_only", email.BccCopyOnly);
+        insert.Parameters.AddWithValue("$subject", email.Subject);
+        insert.Parameters.AddWithValue("$body", email.Body);
+        insert.Parameters.AddWithValue("$fields_json", JsonSerializer.Serialize(email.Fields));
+        insert.Parameters.AddWithValue("$to_recipients", JsonSerializer.Serialize(email.ToRecipients));
+        insert.Parameters.AddWithValue("$cc_recipients", JsonSerializer.Serialize(email.CcRecipients));
+        insert.Parameters.AddWithValue("$bcc_recipients", JsonSerializer.Serialize(email.BccRecipients));
+        insert.Parameters.AddWithValue("$schedule_type", email.ScheduleType);
+        insert.Parameters.AddWithValue("$timezone", email.Timezone);
+        AddNullable(insert, "$scheduled_at", email.ScheduledAt is { } scheduledAt ? FormatDate(scheduledAt) : null);
+        AddNullable(insert, "$recurrence_time", email.RecurrenceTime);
+        AddNullable(insert, "$recurrence_weekday", email.RecurrenceWeekday);
+        AddNullable(insert, "$next_run_at", email.NextRunAt is { } nextRunAt ? FormatDate(nextRunAt) : null);
+        AddNullable(insert, "$processing_started_at", email.ScheduleType == "immediate" ? now : null);
+        insert.Parameters.AddWithValue("$status", email.ScheduleType == "immediate" ? "processing" : "scheduled");
+        insert.Parameters.AddWithValue("$created_at", now);
+        insert.Parameters.AddWithValue("$updated_at", now);
+        await insert.ExecuteNonQueryAsync(cancellationToken);
+
+        await using var idCommand = connection.CreateCommand();
+        idCommand.Transaction = transaction;
+        idCommand.CommandText = "SELECT last_insert_rowid()";
+        var emailId = Convert.ToInt32(
+            await idCommand.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
+        foreach (var attachment in email.Attachments)
+        {
+            await using var attachmentCommand = connection.CreateCommand();
+            attachmentCommand.Transaction = transaction;
+            attachmentCommand.CommandText = """
+                INSERT INTO operational_email_attachments (
+                    operational_email_id, filename, content_type, content, size_bytes
+                ) VALUES ($email_id, $filename, $content_type, $content, $size_bytes)
+                """;
+            attachmentCommand.Parameters.AddWithValue("$email_id", emailId);
+            attachmentCommand.Parameters.AddWithValue("$filename", attachment.FileName);
+            attachmentCommand.Parameters.AddWithValue("$content_type", attachment.ContentType);
+            attachmentCommand.Parameters.AddWithValue("$content", attachment.Content);
+            attachmentCommand.Parameters.AddWithValue("$size_bytes", attachment.Content.Length);
+            await attachmentCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await WriteAuditAsync(
+            connection,
+            transaction,
+            email.ScheduleType == "immediate" ? "operational_email_created" : "operational_email_scheduled",
+            email.CreatedByUserId,
+            new { email_id = emailId, template_key = email.TemplateKey, schedule_type = email.ScheduleType },
+            cancellationToken);
+        transaction.Commit();
+        return emailId;
+    }
+
+    public async Task<int> CreateDeliverySnapshotAsync(
+        int emailId,
+        string smtpProvider,
+        string? senderAddress,
+        DateTime attemptedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
+        int? signatureId;
+        string signatureName;
+        string toRecipients;
+        string ccRecipients;
+        string bccRecipients;
+        string subject;
+        string body;
+        string fields;
+        await using (var read = connection.CreateCommand())
+        {
+            read.Transaction = transaction;
+            read.CommandText = """
+                SELECT signature_id, signature_name, to_recipients, cc_recipients,
+                       bcc_recipients, subject, body, fields_json
+                FROM operational_emails WHERE id = $id AND status = 'processing' LIMIT 1
+                """;
+            read.Parameters.AddWithValue("$id", emailId);
+            await using var reader = await read.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                throw new InvalidOperationException("Operational email is not ready for delivery.");
+            }
+            signatureId = reader.IsDBNull(0) ? null : reader.GetInt32(0);
+            signatureName = ReadString(reader, 1) ?? "";
+            toRecipients = reader.GetString(2);
+            ccRecipients = reader.GetString(3);
+            bccRecipients = reader.GetString(4);
+            subject = reader.GetString(5);
+            body = reader.GetString(6);
+            fields = reader.GetString(7);
+        }
+
+        var attachmentNames = new List<string>();
+        await using (var attachments = connection.CreateCommand())
+        {
+            attachments.Transaction = transaction;
+            attachments.CommandText = """
+                SELECT filename FROM operational_email_attachments
+                WHERE operational_email_id = $email_id ORDER BY id
+                """;
+            attachments.Parameters.AddWithValue("$email_id", emailId);
+            await using var reader = await attachments.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken)) attachmentNames.Add(reader.GetString(0));
+        }
+
+        await using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT INTO operational_email_deliveries (
+                operational_email_id, status, smtp_provider, sender_address, signature_id, signature_name,
+                to_recipients, cc_recipients, bcc_recipients, subject, body, fields_json, attachment_names,
+                attempted_at
+            ) VALUES (
+                $email_id, 'sending', $provider, $sender, $signature_id, $signature_name,
+                $to_recipients, $cc_recipients, $bcc_recipients, $subject, $body, $fields, $attachment_names,
+                $attempted_at
+            )
+            """;
+        insert.Parameters.AddWithValue("$email_id", emailId);
+        insert.Parameters.AddWithValue("$provider", smtpProvider);
+        AddNullable(insert, "$sender", senderAddress);
+        AddNullable(insert, "$signature_id", signatureId);
+        AddNullable(insert, "$signature_name", string.IsNullOrEmpty(signatureName) ? null : signatureName);
+        insert.Parameters.AddWithValue("$to_recipients", toRecipients);
+        insert.Parameters.AddWithValue("$cc_recipients", ccRecipients);
+        insert.Parameters.AddWithValue("$bcc_recipients", bccRecipients);
+        insert.Parameters.AddWithValue("$subject", subject);
+        insert.Parameters.AddWithValue("$body", body);
+        insert.Parameters.AddWithValue("$fields", fields);
+        insert.Parameters.AddWithValue("$attachment_names", JsonSerializer.Serialize(attachmentNames));
+        insert.Parameters.AddWithValue("$attempted_at", FormatDate(attemptedAtUtc));
+        await insert.ExecuteNonQueryAsync(cancellationToken);
+        await using var idCommand = connection.CreateCommand();
+        idCommand.Transaction = transaction;
+        idCommand.CommandText = "SELECT last_insert_rowid()";
+        var deliveryId = Convert.ToInt32(
+            await idCommand.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture);
+        transaction.Commit();
+        return deliveryId;
+    }
+
+    public async Task CompleteImmediateDeliveryAsync(
+        int emailId,
+        int deliveryId,
+        bool success,
+        string message,
+        DateTime completedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var completed = FormatDate(completedAtUtc);
+        var detail = message.Length > 2000 ? message[..2000] : message;
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        using var transaction = connection.BeginTransaction();
+        await using var delivery = connection.CreateCommand();
+        delivery.Transaction = transaction;
+        delivery.CommandText = """
+            UPDATE operational_email_deliveries
+            SET status = $status, sent_at = $sent_at, error_message = $error
+            WHERE id = $delivery_id AND operational_email_id = $email_id
+            """;
+        delivery.Parameters.AddWithValue("$status", success ? "sent" : "failed");
+        AddNullable(delivery, "$sent_at", success ? completed : null);
+        AddNullable(delivery, "$error", success ? null : detail);
+        delivery.Parameters.AddWithValue("$delivery_id", deliveryId);
+        delivery.Parameters.AddWithValue("$email_id", emailId);
+        if (await delivery.ExecuteNonQueryAsync(cancellationToken) != 1)
+        {
+            throw new InvalidOperationException("Operational email delivery record could not be updated.");
+        }
+
+        await using var update = connection.CreateCommand();
+        update.Transaction = transaction;
+        update.CommandText = """
+            UPDATE operational_emails
+            SET status = $status, last_sent_at = CASE WHEN $success = 1 THEN $completed ELSE last_sent_at END,
+                last_error = $error, processing_started_at = NULL, updated_at = $completed
+            WHERE id = $email_id AND status = 'processing'
+            """;
+        update.Parameters.AddWithValue("$status", success ? "sent" : "failed");
+        update.Parameters.AddWithValue("$success", success);
+        update.Parameters.AddWithValue("$completed", completed);
+        AddNullable(update, "$error", success ? null : detail);
+        update.Parameters.AddWithValue("$email_id", emailId);
+        if (await update.ExecuteNonQueryAsync(cancellationToken) != 1)
+        {
+            throw new InvalidOperationException("Operational email status could not be updated.");
+        }
+
+        string templateKey;
+        await using (var read = connection.CreateCommand())
+        {
+            read.Transaction = transaction;
+            read.CommandText = "SELECT template_key FROM operational_emails WHERE id = $id";
+            read.Parameters.AddWithValue("$id", emailId);
+            templateKey = (string?)await read.ExecuteScalarAsync(cancellationToken)
+                ?? throw new InvalidOperationException("Operational email could not be found.");
+        }
+        await WriteAuditAsync(
+            connection,
+            transaction,
+            success ? "operational_email_sent" : "operational_email_failed",
+            null,
+            new { email_id = emailId, delivery_id = deliveryId, template_key = templateKey },
+            cancellationToken);
+        transaction.Commit();
+    }
+
+    public async Task<IReadOnlyList<OperationalEmailSourceMessage>> GetSuccessfulSourceMessagesAsync(
+        int sourceEmailId,
+        IReadOnlyList<string> allowedTemplateKeys,
+        bool includeBccCopies,
+        CancellationToken cancellationToken)
+    {
+        if (allowedTemplateKeys.Count == 0) return [];
+        await using var connection = connections.Create();
+        await connection.OpenAsync(cancellationToken);
+        var parameters = new List<SqliteParameter>();
+        var templateParameters = new List<string>();
+        for (var index = 0; index < allowedTemplateKeys.Count; index++)
+        {
+            var name = $"$template_{index}";
+            templateParameters.Add(name);
+            parameters.Add(new SqliteParameter(name, allowedTemplateKeys[index]));
+        }
+        var templates = string.Join(", ", templateParameters);
+        string? groupId;
+        await using (var parent = connection.CreateCommand())
+        {
+            parent.CommandText = $"""
+                SELECT group_id FROM operational_emails e
+                WHERE e.id = $id AND e.template_key IN ({templates}) AND e.bcc_copy_only = 0
+                    AND EXISTS (
+                        SELECT 1 FROM operational_email_deliveries d
+                        WHERE d.operational_email_id = e.id AND d.status = 'sent'
+                    )
+                LIMIT 1
+                """;
+            parent.Parameters.AddWithValue("$id", sourceEmailId);
+            parent.Parameters.AddRange(parameters);
+            var value = await parent.ExecuteScalarAsync(cancellationToken);
+            groupId = value as string;
+        }
+        var groupCondition = groupId is null ? "e.id = $id" : "e.group_id = $group_id";
+        var bccFilter = includeBccCopies ? "" : "AND e.bcc_copy_only = 0";
+        await using var query = connection.CreateCommand();
+        query.CommandText = $"""
+            SELECT e.id, e.template_key, e.group_id, e.group_company, e.bcc_copy_only,
+                   e.subject, e.body, e.fields_json, e.to_recipients, e.cc_recipients,
+                   e.bcc_recipients, e.signature_id, e.signature_name, e.signature_content
+            FROM operational_emails e
+            WHERE {groupCondition} AND e.template_key IN ({templates}) {bccFilter}
+                AND EXISTS (
+                    SELECT 1 FROM operational_email_deliveries d
+                    WHERE d.operational_email_id = e.id AND d.status = 'sent'
+                )
+            ORDER BY e.id
+            """;
+        query.Parameters.AddWithValue("$id", sourceEmailId);
+        if (groupId is not null) query.Parameters.AddWithValue("$group_id", groupId);
+        query.Parameters.AddRange(parameters.Select(parameter => new SqliteParameter(parameter.ParameterName, parameter.Value)));
+        await using var reader = await query.ExecuteReaderAsync(cancellationToken);
+        var result = new List<OperationalEmailSourceMessage>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new OperationalEmailSourceMessage(
+                reader.GetInt32(0),
+                reader.GetString(1),
+                ReadString(reader, 2),
+                ReadString(reader, 3),
+                reader.GetBoolean(4),
+                reader.GetString(5),
+                reader.GetString(6),
+                JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(7)) ?? [],
+                JsonSerializer.Deserialize<string[]>(reader.GetString(8)) ?? [],
+                JsonSerializer.Deserialize<string[]>(reader.GetString(9)) ?? [],
+                JsonSerializer.Deserialize<string[]>(reader.GetString(10)) ?? [],
+                reader.IsDBNull(11) ? null : reader.GetInt32(11),
+                ReadString(reader, 12),
+                ReadString(reader, 13)));
+        }
+        return result;
+    }
+
     private static async Task<bool> SignatureNameExistsAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
@@ -296,7 +614,7 @@ public sealed class SqliteOperationalEmailStore(SqliteConnectionFactory connecti
         SqliteConnection connection,
         SqliteTransaction transaction,
         string eventType,
-        int actorUserId,
+        int? actorUserId,
         object detail,
         CancellationToken cancellationToken)
     {
@@ -306,7 +624,7 @@ public sealed class SqliteOperationalEmailStore(SqliteConnectionFactory connecti
             INSERT INTO account_audit_events (actor_user_id, subject_user_id, event_type, event_detail, created_at)
             VALUES ($actor, NULL, $event_type, $detail, $created_at)
             """;
-        command.Parameters.AddWithValue("$actor", actorUserId);
+        AddNullable(command, "$actor", actorUserId);
         command.Parameters.AddWithValue("$event_type", eventType);
         command.Parameters.AddWithValue("$detail", JsonSerializer.Serialize(detail));
         command.Parameters.AddWithValue("$created_at", FormatDate(DateTime.UtcNow));
@@ -329,6 +647,9 @@ public sealed class SqliteOperationalEmailStore(SqliteConnectionFactory connecti
 
     private static DateTime? ReadDateTime(SqliteDataReader reader, int ordinal) =>
         reader.IsDBNull(ordinal) ? null : DateTime.SpecifyKind(reader.GetDateTime(ordinal), DateTimeKind.Unspecified);
+
+    private static void AddNullable(SqliteCommand command, string name, object? value) =>
+        command.Parameters.AddWithValue(name, value ?? DBNull.Value);
 
     private static string FormatDate(DateTime value) =>
         value.ToString("yyyy-MM-dd HH:mm:ss.ffffff", CultureInfo.InvariantCulture);

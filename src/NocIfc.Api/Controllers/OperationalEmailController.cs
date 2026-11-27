@@ -13,7 +13,8 @@ namespace NocIfc.Api.Controllers;
 public sealed class OperationalEmailController(
     OperationalEmailCatalogQueries catalog,
     OperationalEmailTemplateCommands templates,
-    OperationalEmailSignatureCommands signatures) : ControllerBase
+    OperationalEmailSignatureCommands signatures,
+    OperationalEmailSendCommands sends) : ControllerBase
 {
     [HttpGet("templates")]
     public async Task<IActionResult> GetTemplates(CancellationToken cancellationToken) =>
@@ -67,7 +68,7 @@ public sealed class OperationalEmailController(
         try
         {
             if (body is null) throw new ArgumentException("Signature body must be an object.");
-            EnsureOnlyFields(body, "name", "content", "is_active", "is_default");
+            EnsureOnlyFields(body, "signature", "name", "content", "is_active", "is_default");
             var user = AuthenticatedUserContext.GetUser(HttpContext);
             if (user is null) return Unauthorized();
             var signature = await signatures.CreateAsync(
@@ -130,6 +131,24 @@ public sealed class OperationalEmailController(
         }
     }
 
+    [HttpPost("send")]
+    public async Task<IActionResult> Send(
+        [FromBody] JsonObject? body,
+        CancellationToken cancellationToken)
+    {
+        var user = AuthenticatedUserContext.GetUser(HttpContext);
+        if (user is null) return Unauthorized();
+        try
+        {
+            var result = await sends.SendAsync(ReadSendInput(body), user.Id, cancellationToken);
+            return Ok(OperationalEmailSendResponse.From(result));
+        }
+        catch (ArgumentException exception)
+        {
+            return UnprocessableEntity(new { detail = exception.Message });
+        }
+    }
+
     private static IReadOnlyDictionary<string, string> ReadTemplateValues(JsonObject? body)
     {
         if (body is null) return new Dictionary<string, string>(StringComparer.Ordinal);
@@ -153,14 +172,112 @@ public sealed class OperationalEmailController(
             fields);
     }
 
-    private static void EnsureOnlyFields(JsonObject body, params string[] allowed)
+    private static OperationalEmailSendInput ReadSendInput(JsonObject? body)
+    {
+        if (body is null) throw new ArgumentException("Operational email body must be an object.");
+        EnsureOnlyFields(body, "operational email",
+            "template_key", "to", "cc", "bcc", "subject", "body", "fields", "attachments",
+            "maintenance_notice_id", "source_email_id", "signature_id", "use_default_signature");
+
+        var fields = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (body.TryGetPropertyValue("fields", out var fieldsNode))
+        {
+            if (fieldsNode is not JsonObject fieldsObject)
+            {
+                throw new ArgumentException("Template fields must be an object.");
+            }
+            if (fieldsObject.Count > 40)
+            {
+                throw new ArgumentException("No more than 40 template fields may be supplied.");
+            }
+            foreach (var (key, value) in fieldsObject)
+            {
+                if (value is null) throw new ArgumentException($"{key} must be text.");
+                fields[key] = ReadTextNode(value, key) ?? "";
+            }
+        }
+
+        var attachments = new List<OperationalEmailAttachmentInput>();
+        if (body.TryGetPropertyValue("attachments", out var attachmentsNode))
+        {
+            if (attachmentsNode is not JsonArray attachmentsArray)
+            {
+                throw new ArgumentException("Attachments must be a list.");
+            }
+            if (attachmentsArray.Count > 5)
+            {
+                throw new ArgumentException("No more than 5 attachments may be included.");
+            }
+            foreach (var attachmentNode in attachmentsArray)
+            {
+                if (attachmentNode is not JsonObject attachment)
+                {
+                    throw new ArgumentException("Invalid attachment payload.");
+                }
+                EnsureOnlyFields(attachment, "attachment", "filename", "content_type", "content_base64");
+                if (!attachment.ContainsKey("filename") || !attachment.ContainsKey("content_base64"))
+                {
+                    throw new ArgumentException("Attachment filename and content_base64 are required.");
+                }
+                attachments.Add(new OperationalEmailAttachmentInput(
+                    ReadSendText(attachment, "filename", allowNull: false),
+                    ReadSendText(attachment, "content_type", allowNull: false),
+                    ReadSendText(attachment, "content_base64", allowNull: false)));
+            }
+        }
+
+        var useDefaultSignature = body.TryGetPropertyValue("use_default_signature", out var defaultNode)
+            ? ReadBooleanValue(defaultNode, "use_default_signature")
+            : true;
+        return new OperationalEmailSendInput(
+            ReadSendText(body, "template_key", allowNull: false),
+            ReadSendText(body, "to", allowNull: false),
+            ReadSendText(body, "cc", allowNull: false),
+            ReadSendText(body, "bcc", allowNull: false),
+            ReadSendText(body, "subject", allowNull: true),
+            ReadSendText(body, "body", allowNull: true),
+            fields,
+            attachments,
+            ReadInteger(body, "maintenance_notice_id"),
+            ReadInteger(body, "source_email_id"),
+            ReadInteger(body, "signature_id"),
+            useDefaultSignature,
+            body.Select(pair => pair.Key).ToHashSet(StringComparer.Ordinal));
+    }
+
+    private static string? ReadSendText(JsonObject body, string key, bool allowNull)
+    {
+        if (!body.TryGetPropertyValue(key, out var value)) return null;
+        if (value is null)
+        {
+            if (allowNull) return null;
+            throw new ArgumentException($"{key} must be text.");
+        }
+        return ReadTextNode(value, key);
+    }
+
+    private static int? ReadInteger(JsonObject body, string key)
+    {
+        if (!body.TryGetPropertyValue(key, out var value)) return null;
+        if (value is null) return null;
+        if (value is JsonValue scalar && scalar.TryGetValue<int>(out var number)) return number;
+        throw new ArgumentException($"{key} must be an integer or null.");
+    }
+
+    private static bool ReadBooleanValue(JsonNode? value, string key)
+    {
+        if (value is JsonValue scalar && scalar.TryGetValue<bool>(out var boolean)) return boolean;
+        throw new ArgumentException($"{key} must be a boolean value.");
+    }
+
+    private static void EnsureOnlyFields(JsonObject body, string label, params string[] allowed)
     {
         var allowedSet = allowed.ToHashSet(StringComparer.Ordinal);
         var unknown = body.Select(pair => pair.Key).Where(key => !allowedSet.Contains(key))
             .OrderBy(key => key, StringComparer.Ordinal).ToArray();
         if (unknown.Length > 0)
         {
-            throw new ArgumentException($"Unsupported signature field(s): {string.Join(", ", unknown)}.");
+            throw new ArgumentException($"Unsupported {label} field(s): {string.Join(", ", unknown)}.");
         }
     }
 

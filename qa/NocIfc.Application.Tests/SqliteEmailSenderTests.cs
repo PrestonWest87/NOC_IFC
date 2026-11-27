@@ -1,5 +1,6 @@
 using NocIfc.Infrastructure.Email;
 using NocIfc.Infrastructure.Persistence.Sqlite;
+using NocIfc.Application.Abstractions.Email;
 using Xunit;
 
 namespace NocIfc.Application.Tests;
@@ -44,6 +45,14 @@ public sealed class SqliteEmailSenderTests
                 "security@example.com", "Test report", "<p>body</p>",
                 [new NocIfc.Application.Abstractions.Email.EmailAttachment("weather.svg", "image/svg+xml", [1, 2, 3])],
                 CancellationToken.None);
+            var operationalResult = await sender.SendOperationalEmailAsync(
+                new OperationalEmailEnvelope(
+                    ["security@example.com"], ["noc@example.com"], ["audit@example.com"],
+                    "Operational test", "Plain body", "<pre>Plain body</pre>", []),
+                CancellationToken.None);
+            var missingToResult = await sender.SendOperationalEmailAsync(
+                new OperationalEmailEnvelope([], [], ["audit@example.com"], "No To", "Body", "<pre>Body</pre>", []),
+                CancellationToken.None);
 
             Assert.False(result.Success);
             Assert.Equal("SMTP is disabled in Settings.", result.Message);
@@ -51,6 +60,10 @@ public sealed class SqliteEmailSenderTests
             Assert.Equal("SMTP is disabled in Settings.", htmlResult.Message);
             Assert.False(attachmentResult.Success);
             Assert.Equal("SMTP is disabled in Settings.", attachmentResult.Message);
+            Assert.False(operationalResult.Success);
+            Assert.Equal("SMTP is disabled in Settings.", operationalResult.Message);
+            Assert.False(missingToResult.Success);
+            Assert.Equal("At least one To recipient is required.", missingToResult.Message);
         }
         finally
         {

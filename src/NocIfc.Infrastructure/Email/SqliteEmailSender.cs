@@ -10,7 +10,7 @@ namespace NocIfc.Infrastructure.Email;
 
 public sealed class SqliteEmailSender(
     SqliteConnectionFactory connections,
-    GmailOAuthTokenProvider gmailTokens) : IEmailSender
+    GmailOAuthTokenProvider gmailTokens) : IEmailSender, IOperationalEmailSender
 {
     public Task<EmailSendResult> SendPlainTextAsync(
         string recipientOverride,
@@ -34,13 +34,38 @@ public sealed class SqliteEmailSender(
         CancellationToken cancellationToken) =>
         SendAsync(recipientOverride, subject, body, true, attachments, cancellationToken);
 
+    public Task<EmailSendResult> SendOperationalEmailAsync(
+        OperationalEmailEnvelope envelope,
+        CancellationToken cancellationToken)
+    {
+        if (envelope.ToRecipients.Count == 0)
+        {
+            return Task.FromResult(new EmailSendResult(false, "At least one To recipient is required."));
+        }
+        return SendAsync(
+            string.Join(", ", envelope.ToRecipients),
+            envelope.Subject,
+            envelope.TextBody,
+            false,
+            envelope.Attachments,
+            cancellationToken,
+            envelope.CcRecipients,
+            envelope.BccRecipients,
+            envelope.HtmlBody,
+            "");
+    }
+
     private async Task<EmailSendResult> SendAsync(
         string recipientOverride,
         string subject,
         string body,
         bool isHtml,
         IReadOnlyList<EmailAttachment> attachments,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<string>? ccRecipients = null,
+        IReadOnlyList<string>? bccRecipients = null,
+        string? htmlAlternative = null,
+        string subjectPrefix = "[NOC FUSION]")
     {
         var profile = await ReadProfileAsync(cancellationToken);
         var recipient = string.IsNullOrWhiteSpace(recipientOverride) ? profile.Recipient : recipientOverride;
@@ -75,14 +100,31 @@ public sealed class SqliteEmailSender(
             var message = new MimeMessage();
             message.From.AddRange(InternetAddressList.Parse(profile.Sender));
             message.To.AddRange(InternetAddressList.Parse(recipient));
-            message.Subject = $"[NOC FUSION] {subject}";
-            if (attachments.Count == 0)
+            if (ccRecipients is { Count: > 0 })
+            {
+                message.Cc.AddRange(InternetAddressList.Parse(string.Join(", ", ccRecipients)));
+            }
+            message.Subject = string.IsNullOrEmpty(subjectPrefix) ? subject : $"{subjectPrefix} {subject}";
+            if (attachments.Count == 0 && htmlAlternative is null)
             {
                 message.Body = new TextPart(isHtml ? "html" : "plain") { Text = body };
             }
             else
             {
-                var builder = new BodyBuilder { HtmlBody = body };
+                var builder = new BodyBuilder();
+                if (htmlAlternative is not null)
+                {
+                    builder.TextBody = body;
+                    builder.HtmlBody = htmlAlternative;
+                }
+                else if (isHtml)
+                {
+                    builder.HtmlBody = body;
+                }
+                else
+                {
+                    builder.TextBody = body;
+                }
                 foreach (var attachment in attachments)
                 {
                     builder.Attachments.Add(
@@ -111,7 +153,23 @@ public sealed class SqliteEmailSender(
                 await client.AuthenticateAsync(profile.Username, profile.Password, timeout.Token);
             }
 
-            await client.SendAsync(message, timeout.Token);
+            if (bccRecipients is { Count: > 0 })
+            {
+                var envelopeRecipients = message.To.Mailboxes
+                    .Concat(message.Cc.Mailboxes)
+                    .Concat(InternetAddressList.Parse(string.Join(", ", bccRecipients)).Mailboxes)
+                    .ToArray();
+                var sender = message.From.Mailboxes.FirstOrDefault();
+                if (sender is null || envelopeRecipients.Length == 0)
+                {
+                    return new EmailSendResult(false, "Email recipients are invalid or empty.");
+                }
+                await client.SendAsync(message, sender, envelopeRecipients, timeout.Token);
+            }
+            else
+            {
+                await client.SendAsync(message, timeout.Token);
+            }
             await client.DisconnectAsync(true, timeout.Token);
             return new EmailSendResult(true, "Email sent successfully.");
         }

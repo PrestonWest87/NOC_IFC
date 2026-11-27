@@ -79,6 +79,7 @@ builder.Services.AddScoped<IOperationalEmailStore, SqliteOperationalEmailStore>(
 builder.Services.AddScoped<OperationalEmailCatalogQueries>();
 builder.Services.AddScoped<OperationalEmailTemplateCommands>();
 builder.Services.AddScoped<OperationalEmailSignatureCommands>();
+builder.Services.AddScoped<OperationalEmailSendCommands>();
 builder.Services.AddScoped<ISchedulerSettingsStore, SqliteSchedulerSettingsStore>();
 builder.Services.AddScoped<SchedulerSettingsCommands>();
 builder.Services.AddScoped<ISettingsReferenceDirectoryStore, SqliteSettingsReferenceDirectoryStore>();
@@ -179,7 +180,9 @@ builder.Services.AddScoped<RegionalWildfireQueries>();
 builder.Services.AddScoped<IElasticEventSource>(_ => new ElasticSearchClient());
 builder.Services.AddScoped<IFailedLoginAlertStore, SqliteFailedLoginAlertStore>();
 builder.Services.AddHttpClient<GmailOAuthTokenProvider>(client => client.Timeout = TimeSpan.FromSeconds(10));
-builder.Services.AddScoped<IEmailSender, SqliteEmailSender>();
+builder.Services.AddScoped<SqliteEmailSender>();
+builder.Services.AddScoped<IEmailSender>(services => services.GetRequiredService<SqliteEmailSender>());
+builder.Services.AddScoped<IOperationalEmailSender>(services => services.GetRequiredService<SqliteEmailSender>());
 builder.Services.AddHttpClient<ProviderAwareLlmClient>(client => client.Timeout = TimeSpan.FromMinutes(5))
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddScoped<ILlmConnectionTester>(services =>

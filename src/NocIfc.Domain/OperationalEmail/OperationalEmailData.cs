@@ -32,3 +32,45 @@ public sealed record OperationalEmailSignatureMutation(
     bool Found,
     bool NameConflict,
     OperationalEmailSignatureEntry? Signature);
+
+public sealed record OperationalEmailAttachmentSnapshot(string FileName, string ContentType, byte[] Content);
+
+public sealed record OperationalEmailMessageSnapshot(
+    string TemplateKey,
+    int CreatedByUserId,
+    int? SignatureId,
+    string? SignatureName,
+    string? SignatureContent,
+    int? ParentEmailId,
+    string? GroupId,
+    string? GroupCompany,
+    bool BccCopyOnly,
+    string Subject,
+    string Body,
+    IReadOnlyDictionary<string, string> Fields,
+    IReadOnlyList<string> ToRecipients,
+    IReadOnlyList<string> CcRecipients,
+    IReadOnlyList<string> BccRecipients,
+    string ScheduleType,
+    string Timezone,
+    DateTime? ScheduledAt,
+    string? RecurrenceTime,
+    int? RecurrenceWeekday,
+    DateTime? NextRunAt,
+    IReadOnlyList<OperationalEmailAttachmentSnapshot> Attachments);
+
+public sealed record OperationalEmailSourceMessage(
+    int Id,
+    string TemplateKey,
+    string? GroupId,
+    string? GroupCompany,
+    bool BccCopyOnly,
+    string Subject,
+    string Body,
+    IReadOnlyDictionary<string, string> Fields,
+    IReadOnlyList<string> ToRecipients,
+    IReadOnlyList<string> CcRecipients,
+    IReadOnlyList<string> BccRecipients,
+    int? SignatureId,
+    string? SignatureName,
+    string? SignatureContent);
