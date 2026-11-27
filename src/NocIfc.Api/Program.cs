@@ -155,6 +155,8 @@ builder.Services.AddScoped<IShiftLogbookStore, SqliteShiftLogbookStore>();
 builder.Services.AddScoped<ShiftLogbookCommands>();
 builder.Services.AddScoped<IAiopsDashboardStore, SqliteAiopsDashboardStore>();
 builder.Services.AddScoped<IAiopsRcaAnalysisStore, SqliteAiopsRcaAnalysisStore>();
+builder.Services.AddSingleton<AiopsWebSocketHub>();
+builder.Services.AddHostedService(services => services.GetRequiredService<AiopsWebSocketHub>());
 builder.Services.AddSingleton<AiopsInvestigationState>();
 builder.Services.AddScoped<AiopsDashboardQueries>();
 builder.Services.AddScoped<AiopsRcaAnalysisEngine>();
@@ -218,8 +220,10 @@ builder.Services.AddScoped<ISiteTypeDirectory, SqliteSiteTypeDirectory>();
 builder.Services.AddScoped<SiteTypeQueries>();
 
 var app = builder.Build();
+app.UseWebSockets();
 app.UseMiddleware<SessionAuthenticationMiddleware>();
 app.MapControllers();
+app.MapGet("/ws", (HttpContext context, AiopsWebSocketHub websockets) => websockets.HandleAsync(context));
 
 app.Run();
 

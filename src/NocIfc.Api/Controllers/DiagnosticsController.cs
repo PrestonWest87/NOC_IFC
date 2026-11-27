@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using NocIfc.Application.Abstractions.BackupRestore;
+using NocIfc.Api.Services;
 using NocIfc.Infrastructure.Persistence.Sqlite;
 
 namespace NocIfc.Api.Controllers;
@@ -8,10 +9,11 @@ namespace NocIfc.Api.Controllers;
 public sealed class DiagnosticsController(
     SqliteReadinessProbe database,
     IRestoreMaintenanceControl restore,
+    AiopsWebSocketHub websockets,
     ILogger<DiagnosticsController> logger) : ControllerBase
 {
     [HttpGet("/health")]
-    public IActionResult Health() => Ok(new { status = "ok", ws_clients = 0 });
+    public IActionResult Health() => Ok(new { status = "ok", ws_clients = websockets.Count });
 
     [HttpGet("/ready")]
     public async Task<IActionResult> Readiness(CancellationToken cancellationToken)

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using NocIfc.Api.Authorization;
+using NocIfc.Api.Services;
 using NocIfc.Application.Features.Settings;
 
 namespace NocIfc.Api.Controllers.AIOps;
@@ -7,7 +8,7 @@ namespace NocIfc.Api.Controllers.AIOps;
 [ApiController]
 [Route("api/v1/rca")]
 [RequirePage("AIOps RCA")]
-public sealed class AiopsRcaDangerController(DangerZoneCommands dangerZone) : ControllerBase
+public sealed class AiopsRcaDangerController(DangerZoneCommands dangerZone, AiopsWebSocketHub websockets) : ControllerBase
 {
     [HttpPost("clear-events")]
     [RequireAction("Tab: Settings -> Danger Zone")]
@@ -15,6 +16,7 @@ public sealed class AiopsRcaDangerController(DangerZoneCommands dangerZone) : Co
     public async Task<IActionResult> ClearTimelineEvents(CancellationToken cancellationToken)
     {
         await dangerZone.ClearTimelineEventsAsync(cancellationToken);
+        await websockets.BroadcastRefreshAsync(cancellationToken);
         return Ok(new { status = "ok" });
     }
 
@@ -24,6 +26,7 @@ public sealed class AiopsRcaDangerController(DangerZoneCommands dangerZone) : Co
     public async Task<IActionResult> ClearAlerts(CancellationToken cancellationToken)
     {
         await dangerZone.ClearActiveAlertsAsync(cancellationToken);
+        await websockets.BroadcastRefreshAsync(cancellationToken);
         return Ok(new { status = "ok" });
     }
 }

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using NocIfc.Api.Authentication;
 using NocIfc.Api.Authorization;
 using NocIfc.Api.Contracts;
+using NocIfc.Api.Services;
 using NocIfc.Application.Features.AIOps;
 using NocIfc.Domain.AIOps;
 
@@ -17,7 +18,8 @@ public sealed class AiopsRcaReadController(
     AiopsTicketCommands tickets,
     AiopsSitrepQueries sitrep,
     AiopsSitrepActionCommands sitrepActions,
-    AiopsInvestigationState investigating) : ControllerBase
+    AiopsInvestigationState investigating,
+    AiopsWebSocketHub websockets) : ControllerBase
 {
     [HttpGet("aiops/dashboard")]
     [RequireAction("Tab: AIOps RCA -> Active Board")]
@@ -92,6 +94,7 @@ public sealed class AiopsRcaReadController(
                 },
             });
         }
+        await websockets.BroadcastRefreshAsync(cancellationToken);
         return Ok(new { status = "ok" });
     }
 
@@ -120,6 +123,7 @@ public sealed class AiopsRcaReadController(
                 },
             });
         }
+        await websockets.BroadcastRefreshAsync(cancellationToken);
         return Ok(new { status = "ok" });
     }
 
@@ -146,23 +150,27 @@ public sealed class AiopsRcaReadController(
 
         var result = await dashboard.SetSiteNeedsDispatchAsync(
             user, site, needsDispatch, cancellationToken);
-        return result.Outcome switch
+        if (result.Outcome is AiopsNeedsDispatchOutcome.SiteScopeDenied)
         {
-            AiopsNeedsDispatchOutcome.SiteScopeDenied => StatusCode(StatusCodes.Status403Forbidden, new
+            return StatusCode(StatusCodes.Status403Forbidden, new
             {
                 detail = new
                 {
                     code = "site_scope_denied",
                     message = "This site is outside your permitted site types.",
                 },
-            }),
-            AiopsNeedsDispatchOutcome.SiteNotFound => NotFound(new { detail = "Site not found." }),
-            AiopsNeedsDispatchOutcome.ActiveAlertRequired => Conflict(new
-            {
-                detail = "Needs Dispatch requires at least one active site alert.",
-            }),
-            _ => Ok(new { status = "ok", updated_alerts = result.UpdatedAlerts }),
-        };
+            });
+        }
+        if (result.Outcome == AiopsNeedsDispatchOutcome.SiteNotFound)
+        {
+            return NotFound(new { detail = "Site not found." });
+        }
+        if (result.Outcome == AiopsNeedsDispatchOutcome.ActiveAlertRequired)
+        {
+            return Conflict(new { detail = "Needs Dispatch requires at least one active site alert." });
+        }
+        await websockets.BroadcastRefreshAsync(cancellationToken);
+        return Ok(new { status = "ok", updated_alerts = result.UpdatedAlerts });
     }
 
     [HttpPost("rca/site-maintenance")]
@@ -204,20 +212,27 @@ public sealed class AiopsRcaReadController(
                 : null;
         var result = await dashboard.SetSiteMaintenanceAsync(
             user, siteName, isMaintenance, etr, reason, cancellationToken);
-        return result switch
+        if (result == AiopsSiteMaintenanceOutcome.SiteScopeDenied)
         {
-            AiopsSiteMaintenanceOutcome.SiteScopeDenied => StatusCode(StatusCodes.Status403Forbidden, new
+            return StatusCode(StatusCodes.Status403Forbidden, new
             {
                 detail = new
                 {
                     code = "site_scope_denied",
                     message = "This site is outside your permitted site types.",
                 },
-            }),
-            AiopsSiteMaintenanceOutcome.InvalidEtr => UnprocessableEntity(new { detail = "etr must be an ISO date." }),
-            AiopsSiteMaintenanceOutcome.SiteNotFound => NotFound(new { detail = "Site not found." }),
-            _ => Ok(new { status = "ok" }),
-        };
+            });
+        }
+        if (result == AiopsSiteMaintenanceOutcome.InvalidEtr)
+        {
+            return UnprocessableEntity(new { detail = "etr must be an ISO date." });
+        }
+        if (result == AiopsSiteMaintenanceOutcome.SiteNotFound)
+        {
+            return NotFound(new { detail = "Site not found." });
+        }
+        await websockets.BroadcastRefreshAsync(cancellationToken);
+        return Ok(new { status = "ok" });
     }
 
     [HttpPost("rca/resolve-site")]
@@ -257,6 +272,7 @@ public sealed class AiopsRcaReadController(
             return NotFound(new { detail = "Site not found." });
         }
         investigating.Set(siteName, false);
+        await websockets.BroadcastRefreshAsync(cancellationToken);
         return Ok(new { status = "ok", resolved_alerts = result.ResolvedAlerts });
     }
 
@@ -284,6 +300,7 @@ public sealed class AiopsRcaReadController(
                 },
             });
         }
+        await websockets.BroadcastRefreshAsync(cancellationToken);
         return Ok(new { status = "ok" });
     }
 
@@ -323,6 +340,7 @@ public sealed class AiopsRcaReadController(
                 },
             });
         }
+        await websockets.BroadcastRefreshAsync(cancellationToken);
         return Ok(new
         {
             status = result.Delivery!.Success ? "ok" : "error",
@@ -483,6 +501,7 @@ public sealed class AiopsRcaReadController(
             }
         }
         investigating.Set(site, isInvestigating);
+        await websockets.BroadcastRefreshAsync(cancellationToken);
         return Ok(new { status = "ok" });
     }
 }

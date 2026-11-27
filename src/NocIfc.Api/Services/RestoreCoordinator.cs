@@ -8,6 +8,7 @@ namespace NocIfc.Api.Services;
 public sealed class RestoreCoordinator(
     IBackupManager backups,
     IRestoreMaintenanceControl control,
+    AiopsWebSocketHub websockets,
     ILogger<RestoreCoordinator> logger) : IHostedService
 {
     private static readonly TimeSpan QuiesceTimeout = TimeSpan.FromMinutes(10);
@@ -21,10 +22,11 @@ public sealed class RestoreCoordinator(
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    public string StartRestore(string stageId, string requestedBy)
+    public async Task<string> StartRestoreAsync(string stageId, string requestedBy)
     {
         _ = backups.ValidateStagedBackup(stageId);
         var request = control.BeginRestore(stageId, requestedBy);
+        await websockets.CloseAllAsync(reason: "Database restore in progress");
         Launch(request);
         return request.RestoreId;
     }

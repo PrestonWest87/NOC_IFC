@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using System.Text.Json.Nodes;
+using NocIfc.Api.Services;
 using NocIfc.Api.Authorization;
 using NocIfc.Application.Features.Settings;
 
@@ -9,7 +10,7 @@ namespace NocIfc.Api.Controllers;
 [ApiController]
 [Route("api/v1/admin")]
 [RequireAdministrator]
-public sealed class DangerZoneController(DangerZoneCommands dangerZone) : ControllerBase
+public sealed class DangerZoneController(DangerZoneCommands dangerZone, AiopsWebSocketHub websockets) : ControllerBase
 {
     [HttpDelete("record")]
     public async Task<IActionResult> DeleteRecord(
@@ -45,6 +46,7 @@ public sealed class DangerZoneController(DangerZoneCommands dangerZone) : Contro
                 modelNames.Add(name);
             }
             await dangerZone.ClearTablesAsync(modelNames, cancellationToken);
+            await websockets.BroadcastRefreshAsync(cancellationToken);
             return Ok(new { status = "ok" });
         }
         catch (ArgumentException exception)

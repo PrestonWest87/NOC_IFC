@@ -231,13 +231,13 @@ public sealed class BackupRestoreController(
     }
 
     [HttpPost("backups/staged/{stageId}/restore")]
-    public IActionResult StartRestore(string stageId)
+    public async Task<IActionResult> StartRestore(string stageId)
     {
         var user = AuthenticatedUserContext.GetUser(HttpContext);
         if (user is null) return Unauthorized();
         try
         {
-            var restoreId = restores.StartRestore(stageId, user.Username);
+            var restoreId = await restores.StartRestoreAsync(stageId, user.Username);
             return Accepted(new { status = "started", restore_id = restoreId });
         }
         catch (BackupException exception)
