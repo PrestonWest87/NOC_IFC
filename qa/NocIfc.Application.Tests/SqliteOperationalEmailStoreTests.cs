@@ -216,13 +216,21 @@ public sealed class SqliteOperationalEmailStoreTests
                 "maintenance_notice", 7, null, null, null, null, null, null, false,
                 "Recurring", "Body", new Dictionary<string, string>(), ["ops@example.com"], [], [],
                 "daily", "America/Chicago", null, "08:30", null, dueAt, []), CancellationToken.None);
+            var staleUnattemptedId = await store.CreateEmailAsync(new OperationalEmailMessageSnapshot(
+                "maintenance_notice", 7, null, null, null, null, null, null, false,
+                "Unattempted once", "Body", new Dictionary<string, string>(), ["ops@example.com"], [], [],
+                "once", "America/Chicago", dueAt, null, null, dueAt, []), CancellationToken.None);
             await using (var connection = connections.Create())
             {
                 await connection.OpenAsync();
                 await using var stale = connection.CreateCommand();
-                stale.CommandText = "UPDATE operational_emails SET status = 'processing', processing_started_at = $started WHERE id = $id";
+                stale.CommandText = """
+                    UPDATE operational_emails SET status = 'processing', processing_started_at = $started
+                    WHERE id IN ($recurring_id, $unattempted_id)
+                    """;
                 stale.Parameters.AddWithValue("$started", now.AddMinutes(-30));
-                stale.Parameters.AddWithValue("$id", staleRecurringId);
+                stale.Parameters.AddWithValue("$recurring_id", staleRecurringId);
+                stale.Parameters.AddWithValue("$unattempted_id", staleUnattemptedId);
                 await stale.ExecuteNonQueryAsync();
             }
             var staleDeliveryId = await store.CreateDeliverySnapshotAsync(
@@ -248,6 +256,11 @@ public sealed class SqliteOperationalEmailStoreTests
                 item => item == onceDueId);
             var staleHistory = await store.GetDeliveryDetailAsync(staleDeliveryId, CancellationToken.None);
             Assert.Equal("failed", staleHistory?.Status);
+            var unattemptedHistory = Assert.Single(
+                await store.GetDeliveryHistoryAsync(250, CancellationToken.None),
+                item => item.EmailId == staleUnattemptedId);
+            Assert.Equal("failed", unattemptedHistory.Status);
+            Assert.Contains("interrupted", unattemptedHistory.ErrorMessage!, StringComparison.OrdinalIgnoreCase);
             var recurringAfterRecovery = Assert.Single(await store.GetScheduledEmailsByIdsAsync(
                 [staleRecurringId], CancellationToken.None));
             Assert.Equal("active", recurringAfterRecovery.Status);

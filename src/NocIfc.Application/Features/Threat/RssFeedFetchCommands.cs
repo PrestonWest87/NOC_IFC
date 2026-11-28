@@ -30,7 +30,7 @@ public sealed class RssFeedFetchCommands(
             .Where(keyword => !string.IsNullOrEmpty(keyword.Word))
             .Select(keyword => new KeywordWeight(keyword.Word, keyword.Weight ?? 0))
             .ToArray();
-        var candidates = new List<RssArticleIngestCandidate>();
+        var added = 0;
         var failedFeeds = 0;
 
         foreach (var chunk in feeds.Chunk(FetchChunkSize))
@@ -44,10 +44,11 @@ public sealed class RssFeedFetchCommands(
                     failedFeeds++;
                     continue;
                 }
+                IReadOnlyList<RssArticleIngestCandidate> candidates;
                 try
                 {
-                    candidates.AddRange(ParseAndScore(
-                        download.Feed.Name ?? "Unknown Feed", download.Content, knownLinks, weights));
+                    candidates = ParseAndScore(
+                        download.Feed.Name ?? "Unknown Feed", download.Content, knownLinks, weights);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -56,6 +57,11 @@ public sealed class RssFeedFetchCommands(
                 catch (Exception)
                 {
                     failedFeeds++;
+                    continue;
+                }
+                if (candidates.Count > 0)
+                {
+                    added += await articles.InsertArticlesAsync(candidates, cancellationToken);
                 }
             }
             if (chunk.Length == FetchChunkSize && feeds.Length > FetchChunkSize)
@@ -64,7 +70,6 @@ public sealed class RssFeedFetchCommands(
             }
         }
 
-        var added = await articles.InsertArticlesAsync(candidates, cancellationToken);
         var removed = await articles.DeduplicateRecentArticlesAsync(DateTime.UtcNow.AddHours(-24), cancellationToken);
         return new RssFeedFetchOutcome(added, failedFeeds, removed);
     }

@@ -95,6 +95,42 @@ public sealed class SqliteBackupDataStoreTests
         Assert.Contains("third", words);
     }
 
+    [Fact]
+    public async Task DatabaseFileImportCopiesRowsFromTheSourceDatabase()
+    {
+        using var workspace = new TemporaryDirectory("nocifc-database-import-");
+        var sourcePath = Path.Combine(workspace.Path, "source.sqlite");
+        var targetPath = Path.Combine(workspace.Path, "target.sqlite");
+        using (File.Create(sourcePath)) { }
+        using (File.Create(targetPath)) { }
+        var source = new SqliteConnectionFactory($"sqlite:///{sourcePath}");
+        var target = new SqliteConnectionFactory($"sqlite:///{targetPath}");
+        await using (var connection = source.Create())
+        {
+            await connection.OpenAsync();
+            await using var setup = connection.CreateCommand();
+            setup.CommandText = """
+                CREATE TABLE keywords (id INTEGER PRIMARY KEY, word TEXT UNIQUE, weight INTEGER);
+                INSERT INTO keywords VALUES (1, 'one', 10), (2, 'two', 20);
+                """;
+            await setup.ExecuteNonQueryAsync();
+        }
+        await using (var connection = target.Create())
+        {
+            await connection.OpenAsync();
+            await using var setup = connection.CreateCommand();
+            setup.CommandText = "CREATE TABLE keywords (id INTEGER PRIMARY KEY, word TEXT UNIQUE, weight INTEGER)";
+            await setup.ExecuteNonQueryAsync();
+        }
+
+        var store = new SqliteBackupDataStore(target);
+        var counts = await store.ImportDatabaseRowsAsync(sourcePath, CancellationToken.None);
+        var exported = await store.ExportAllTablesAsync(CancellationToken.None);
+
+        Assert.Equal(2, counts["keywords"]);
+        Assert.Equal(2, exported["keywords"]!.AsArray().Count);
+    }
+
     private sealed class TemporaryDirectory : IDisposable
     {
         public string Path { get; }

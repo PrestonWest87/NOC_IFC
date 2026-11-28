@@ -8,6 +8,9 @@ namespace NocIfc.Infrastructure.Persistence.Sqlite;
 
 public sealed class SqliteRssIngestionStore(SqliteConnectionFactory connections) : IRssIngestionStore
 {
+    private const int MaxFuzzyTitleComparisons = 2_000;
+    private const int MaxFuzzyTitleCharacters = 128;
+
     public async Task<IReadOnlyList<string>> GetRecentLinksAsync(
         DateTime publishedAfterUtc,
         CancellationToken cancellationToken)
@@ -129,6 +132,8 @@ public sealed class SqliteRssIngestionStore(SqliteConnectionFactory connections)
             bucket.Add(article with { Title = title });
         }
 
+        var comparisons = 0;
+        var comparisonLimitReached = false;
         foreach (var bucket in buckets.Values)
         {
             var remaining = bucket.ToArray();
@@ -139,11 +144,19 @@ public sealed class SqliteRssIngestionStore(SqliteConnectionFactory connections)
                 for (var next = first + 1; next < remaining.Length; next++)
                 {
                     if (remaining[next] is not { } right) continue;
+                    if (comparisons >= MaxFuzzyTitleComparisons)
+                    {
+                        comparisonLimitReached = true;
+                        break;
+                    }
+                    comparisons++;
                     if (TitleRatio(leftTitle, right.Title ?? "") <= 85) continue;
                     duplicates.Add(right.Id);
                     remaining[next] = null!;
                 }
+                if (comparisonLimitReached) break;
             }
+            if (comparisonLimitReached) break;
         }
         if (duplicates.Count == 0) return 0;
 
@@ -165,8 +178,8 @@ public sealed class SqliteRssIngestionStore(SqliteConnectionFactory connections)
     {
         var totalLength = first.Length + second.Length;
         if (totalLength == 0) return 100;
-        // shortcut: titles over 4096 characters deduplicate only when identical; use a bounded similarity library if such titles become common.
-        if (first.Length > 4096 || second.Length > 4096)
+        // shortcut: Fuzzy dedup checks 2,000 pairs of titles up to 128 characters; use indexed matching if feeds outgrow this.
+        if (first.Length > MaxFuzzyTitleCharacters || second.Length > MaxFuzzyTitleCharacters)
         {
             return string.Equals(first, second, StringComparison.Ordinal) ? 100 : 0;
         }

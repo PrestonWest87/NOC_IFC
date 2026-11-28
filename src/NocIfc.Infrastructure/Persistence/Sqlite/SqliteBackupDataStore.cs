@@ -116,12 +116,63 @@ public sealed class SqliteBackupDataStore(SqliteConnectionFactory connections) :
             await using var reader = await query.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken)) sourceTables.Add(reader.GetString(0));
         }
-        var data = new JsonObject();
-        foreach (var table in ModelTables)
+        await using var target = connections.Create();
+        await target.OpenAsync(cancellationToken);
+        await using (var foreignKeys = target.CreateCommand())
         {
-            if (sourceTables.Contains(table)) data[table] = await ReadTableAsync(source, table, cancellationToken);
+            foreignKeys.CommandText = "PRAGMA foreign_keys=OFF";
+            await foreignKeys.ExecuteNonQueryAsync(cancellationToken);
         }
-        return await ImportRowsAsync(data, merge: false, clearExisting: false, cancellationToken);
+        using var transaction = target.BeginTransaction();
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        try
+        {
+            foreach (var table in ModelTables)
+            {
+                if (!sourceTables.Contains(table)
+                    || !await TableExistsAsync(target, transaction, table, cancellationToken))
+                {
+                    counts[table] = 0;
+                    continue;
+                }
+
+                var sourceColumns = await GetColumnsAsync(source, null, table, cancellationToken);
+                var targetColumns = await GetColumnsAsync(target, transaction, table, cancellationToken);
+                await using var query = source.CreateCommand();
+                query.CommandText = $"SELECT * FROM {QuoteIdentifier(table)}";
+                await using var reader = await query.ExecuteReaderAsync(cancellationToken);
+                var inserted = 0;
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    var row = new JsonObject();
+                    for (var index = 0; index < sourceColumns.Count; index++)
+                    {
+                        row[sourceColumns[index].Name] = ToJsonNode(reader, index, sourceColumns[index].Type);
+                    }
+                    if (table == "monitored_location_contacts"
+                        && !await ValidateContactRowAsync(target, transaction, row, cancellationToken))
+                    {
+                        continue;
+                    }
+                    await InsertRowAsync(target, transaction, table, targetColumns, row, cancellationToken);
+                    inserted++;
+                }
+                counts[table] = inserted;
+            }
+            transaction.Commit();
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
+        finally
+        {
+            await using var foreignKeys = target.CreateCommand();
+            foreignKeys.CommandText = "PRAGMA foreign_keys=ON";
+            await foreignKeys.ExecuteNonQueryAsync(cancellationToken);
+        }
+        return counts;
     }
 
     private async Task<IReadOnlyDictionary<string, int>> ImportRowsAsync(

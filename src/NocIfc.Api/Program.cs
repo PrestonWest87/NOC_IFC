@@ -101,8 +101,6 @@ builder.Services.AddScoped<IDangerZoneStore, SqliteDangerZoneStore>();
 builder.Services.AddScoped<DangerZoneCommands>();
 builder.Services.AddScoped<IOperationalIntegrationSettingsStore, SqliteOperationalIntegrationSettingsStore>();
 builder.Services.AddScoped<OperationalIntegrationSettingsCommands>();
-builder.Services.AddScoped<IDangerZoneStore, SqliteDangerZoneStore>();
-builder.Services.AddScoped<DangerZoneCommands>();
 builder.Services.AddScoped<IOperationalEmailStore, SqliteOperationalEmailStore>();
 builder.Services.AddScoped<OperationalEmailCatalogQueries>();
 builder.Services.AddScoped<OperationalEmailTemplateCommands>();

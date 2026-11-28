@@ -23,6 +23,9 @@ public static class SolarWindsWebhookNormalizer
     private static readonly Regex ResolutionPattern = new(
         $@"\b(?:{string.Join("|", ResolutionWords.Select(Regex.Escape))})\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex NegatedResolutionPattern = new(
+        @"\b(?:not|never|no)\s+(?:(?:currently|yet|longer)\s+)?(?:resolved|up|ok|clear|operational|recovered)\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     public static SolarWindsWebhookEvent Normalize(JsonElement payload)
     {
@@ -42,7 +45,7 @@ public static class SolarWindsWebhookNormalizer
         var alertLevel = ReadText(payload, "Alert_Level") ?? ReadText(custom, "Alert_Level") ?? "Unknown";
         var eventType = FirstText(payload, "AlertName", "check", "class", "description") ?? "Unknown";
         var status = ReadText(nodeDetails, "StatusDescription") ?? description ?? "Unknown";
-        var isResolution = ResolutionPattern.IsMatch($"{status} {description}");
+        var isResolution = IsResolutionSignal(status) || IsResolutionSignal(description);
         if (isResolution) status = "Resolved";
         var deviceHint = FirstText(nodeDetails, "MachineType")
             ?? ReadText(custom, "Node_Type")
@@ -108,6 +111,11 @@ public static class SolarWindsWebhookNormalizer
     }
 
     private static string Bound(string value, int maximum) => value[..Math.Min(value.Length, maximum)];
+
+    private static bool IsResolutionSignal(string? value) =>
+        !string.IsNullOrEmpty(value)
+        && ResolutionPattern.IsMatch(value)
+        && !NegatedResolutionPattern.IsMatch(value);
 }
 
 public sealed class SolarWindsWebhookCommands(ISolarWindsWebhookStore store)

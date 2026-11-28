@@ -119,6 +119,25 @@ public sealed class WebhookGatewayTests
     }
 
     [Fact]
+    public void DoesNotTreatNegatedOperationalStatusAsRecovery()
+    {
+        using var payload = JsonDocument.Parse("""
+            {
+              "Node_Details": {
+                "NodeName": "router-a",
+                "StatusDescription": "Not operational"
+              },
+              "description": "The device is not currently operational."
+            }
+            """);
+
+        var normalized = SolarWindsWebhookNormalizer.Normalize(payload.RootElement);
+
+        Assert.False(normalized.IsResolution);
+        Assert.Equal("Not operational", normalized.Status);
+    }
+
+    [Fact]
     public void WebhookQueueIsBoundedAndRejectsNewWorkDuringRestore()
     {
         using var workspace = new TemporaryDirectory();

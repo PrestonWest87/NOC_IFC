@@ -783,7 +783,32 @@ public sealed class SqliteOperationalEmailStore(SqliteConnectionFactory connecti
                     """;
                 failedDelivery.Parameters.AddWithValue("$error", error);
                 failedDelivery.Parameters.AddWithValue("$email_id", row.Id);
-                await failedDelivery.ExecuteNonQueryAsync(cancellationToken);
+                var recoveredDelivery = await failedDelivery.ExecuteNonQueryAsync(cancellationToken);
+                if (recoveredDelivery == 0)
+                {
+                    await using var recordInterrupted = connection.CreateCommand();
+                    recordInterrupted.Transaction = transaction;
+                    recordInterrupted.CommandText = """
+                        INSERT INTO operational_email_deliveries (
+                            operational_email_id, status, smtp_provider, signature_id, signature_name,
+                            to_recipients, cc_recipients, bcc_recipients, subject, body, fields_json,
+                            attachment_names, attempted_at, error_message
+                        )
+                        SELECT e.id, 'failed', 'unknown', e.signature_id, e.signature_name,
+                               e.to_recipients, e.cc_recipients, e.bcc_recipients, e.subject, e.body,
+                               e.fields_json,
+                               COALESCE((SELECT json_group_array(filename)
+                                         FROM operational_email_attachments
+                                         WHERE operational_email_id = e.id), '[]'),
+                               COALESCE(e.processing_started_at, $now), $error
+                        FROM operational_emails AS e
+                        WHERE e.id = $email_id AND e.status = 'processing'
+                        """;
+                    recordInterrupted.Parameters.AddWithValue("$now", now);
+                    recordInterrupted.Parameters.AddWithValue("$error", error);
+                    recordInterrupted.Parameters.AddWithValue("$email_id", row.Id);
+                    await recordInterrupted.ExecuteNonQueryAsync(cancellationToken);
+                }
             }
             await using var recover = connection.CreateCommand();
             recover.Transaction = transaction;
